@@ -1,0 +1,124 @@
+
+==== Schema
+
+ArcadeDB can work in schema-less mode (like most of NoSQL DBMS), schema-full (like with RDBMS) or hybrid.
+The main API to manage the schema is the Schema interface you can obtain by calling the API <<_getschema,`db.getSchema()`>>:
+
+```java
+Schema schema = db.getSchema();
+```
+
+Before creating any record it's mandatory to define a type.
+If you're going to create a new Document, then you need a Document Type. The same applies for Vertex -> Vertex Type and Edge -> Edge Type.
+
+The specific API to manage document types in the Schema interface are:
+
+```java
+DocumentType createDocumentType(String typeName);
+DocumentType createDocumentType(String typeName, int buckets);
+DocumentType createDocumentType(String typeName, int buckets, int pageSize);
+```
+
+Where:
+
+- `typeName` is the name of the type
+- `buckets` is the number of buckets to create. A bucket is like a file. If not specified, the number of available cores is used
+- `pageSize` is the page size for the file. If not specified is 65K. Pay attention to this value. In case of large objects to store, you need to increase the page size or the record won't be stored, throwing an exception.
+
+To manage vertex types, the API are similar as for the document types:
+
+```java
+VertexType createVertexType(String typeName);
+VertexType createVertexType(String typeName, int buckets);
+VertexType createVertexType(String typeName, int buckets, int pageSize);
+```
+
+And the same for edge types:
+
+```java
+EdgeType createEdgeType(String typeName);
+EdgeType createEdgeType(String typeName, int buckets);
+EdgeType createEdgeType(String typeName, int buckets, int pageSize);
+```
+
+In order to retrieve and removing a type, API common to any record type are provided:
+
+```java
+Collection<DocumentType> getTypes();
+DocumentType getType(String typeName);
+void dropType(String typeName);
+String getTypeNameByBucketId(int bucketId);
+DocumentType getTypeByBucketId(int bucketId);
+boolean existsType(String typeName);
+```
+
+==== Working with buckets
+
+A bucket is like a file. A type can rely on one or multiple buckets. Why using multiple buckets?
+Because ArcadeDB could lock a bucket for certain operations.
+Having multiple buckets allows to go in parallel with a multi-cpus and multi-cores architecture.
+
+The specific API to manage buckets are:
+
+```java
+Bucket createBucket(String bucketName);
+boolean existsBucket(String bucketName);
+Bucket getBucketById(int id);
+Bucket getBucketByName(String name);
+Collection<Bucket> getBuckets();
+```
+
+==== Working with indexes
+
+Like any other DBMS, ArcadeDB has indexes. Even if indexes are not used to manage relationships (because ArcadeDB has a native GraphDB engine based on links),
+indexes are fundamental for a quick lookup of records by one or multiple properties.
+ArcadeDB provides automatic and manual indexes:
+
+- `automatic` that are updated automatically when you work with records
+- `manual` are detached from a type and the user is totally responsible to insert and remove entries into and from the index
+
+
+The specific API to manage indexes are:
+
+```java
+Index[] createClassIndexes(SchemaImpl.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames);
+Index[] createClassIndexes(SchemaImpl.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames, int pageSize);
+boolean existsIndex(String indexName);
+Index[] getIndexes();
+Index getIndexByName(String indexName);
+```
+
+Where:
+
+* `indexName` is the name of the index
+* `indexType` can be:
+** `LSM_TREE`, implemented as a https://en.wikipedia.org/wiki/Log-structured_merge-tree[Log Structured Merge tree]
+** `FULL_TEXT`, that uses https://lucene.apache.org/solr/guide/6_6/understanding-analyzers-tokenizers-and-filters.html[Lucene's Analyzers] for tokenizing, stemming and categorize words inside a text. Internally it's managed as a LSM_TREE
+* `unique` tells if the entries in the index must be unique or they can be repeated
+* `typeName` is the name of the type (document, vertex or edge) where the index must be applied
+* `propertyNames` is the array of property names to index. In case of more than one property is used, the index is composed
+* `pageSize` is the page size. If not specified, the default of 2MB is used
+
+A special mention goes for the method `createManualIndex()` that creates indexes not attached to any type (manual):
+
+```java
+Index createManualIndex(SchemaImpl.INDEX_TYPE indexType, boolean unique, String indexName, byte[] keyTypes, int pageSize);
+```
+
+While by default indexes are updated automatically when you work with records, in this case, the user is totally responsible to insert and remove entries into and from the index.
+
+
+==== Database Configuration
+
+ArcadeDB stores the database configuration into the schema and allows to change things like the timezone, the format of dates and the encoding:
+
+```java
+TimeZone getTimeZone();
+void setTimeZone(TimeZone timeZone);
+String getDateFormat();
+void setDateFormat(String dateFormat);
+String getDateTimeFormat();
+void setDateTimeFormat(String dateTimeFormat);
+String getEncoding();
+```
+

@@ -1,0 +1,190 @@
+
+=== HTTP/JSON Protocol
+
+The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol. The protocol is very simple.
+For this reason, you don't need a driver, because every modern programming language provides an easy way to execute HTTP requests and parse JSON.
+
+For the examples in this chapter we're going to use curl.
+
+Every command must be authenticated by passing user and password as HTTP Basic authentication (in HTTP Headers).
+
+In the examples below we're going to always use "root" user with password "root".
+
+==== Tutorial
+
+Let's first create an empty database "school" on the server:
+
+```
+curl -X POST http://localhost:2480/create/school
+     --user root:root
+```
+
+Now let's create the type "Class":
+
+```
+curl -X POST http://localhost:2480/command/school
+     -d '{ "language": "sql", "command": "create document type Class"}'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
+We could insert our first Class by using SQL:
+
+```
+curl -X POST http://localhost:2480/command/school
+     -d '{ "language": "sql", "command": "insert into Class set name = 'English', location = "3rd floor"}'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
+Or by using the `document` API:
+
+```
+curl -X POST http://localhost:2480/document/school
+     -d '{"@type": "Class", "name": "English", "location": "3rd floor"}'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
+
+==== Reference
+
+===== Execute a command (POST)
+
+Executes a non-idempotent command.
+
+URL Syntax: `/command/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example to create the new document type "Class":
+
+```
+curl -X POST http://localhost:2480/command/school
+     -d '{ "language": "sql", "command": "create document type Class"}'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
+===== Create a database (POST)
+
+URL Syntax: `/create/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example to create a new database:
+
+```
+curl -X POST http://localhost:2480/create/school
+     --user root:root
+```
+
+===== Create a document (POST)
+
+URL Syntax: `/document/{database}`
+
+Where:
+
+- `database` is the database name
+
+The Payload is the JSON document to insert.
+
+Example of inserting a new document of type "Person":
+
+```
+curl -X POST http://localhost:2480/document/school
+     -d '{"@type": "Person", "name": "Jay", "surname": "Miner", "age": 69}'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
+===== Load a document (GET)
+
+URL Syntax: `/document/{database}/{rid}`
+
+Where:
+
+- `database` is the database name
+
+Example of retrieving a document by RID:
+
+```
+curl -X GET http://localhost:2480/document/school/3:4
+     --user root:root
+```
+
+The output will be:
+
+```json
+{"@rid": "#3:4", "@type": "Person", "name": "Jay", "surname": "Miner", "age": 69}
+```
+
+===== Execute a query (GET)
+
+This command allows to execute idempotent commands, like `SELECT` ad `MATCH`:
+
+URL Syntax 1: `/query/{database}`
+
+Where:
+
+- `database` is the database name
+
+The Payload is the JSON document to insert.
+
+Example of retrieving the class with name "English" by executing a SQL query:
+
+```
+curl -X POST http://localhost:2480/query/school
+     -d '{ "language": "sql", "command": "select from Class where name = \"English\""}'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
+There is also this alternative syntax that takes the language and command in the URL:
+
+URL Syntax 2: `/query/{database}/{language}/{command}`
+
+Where:
+
+- `database` is the database name
+- `language` is the query language used. Only "sql" is available with latest release
+- `command` the command to execute in encoded format
+
+===== Drop a database (POST)
+
+URL Syntax: `/drop/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example of deleting the database "school":
+
+```
+curl -X POST http://localhost:2480/drop/school
+     --user root:root
+```
+
+===== Get server information (GET)
+
+Returns the current HA configuration.
+
+URL Syntax: `/server`
+
+Example:
+
+```
+curl -X GET http://localhost:2480/server
+     --user root:root
+```
+
+Return:
+
+```json
+{ "leaderServer": "europe0", "replicaServers" : ["usa0", "usa1"]}
+```
+
