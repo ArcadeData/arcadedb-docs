@@ -22,7 +22,7 @@ The following is NOT equivalent.  Notice that the field name 'ID' is not the sam
 SELECT FROM MyType WHERE ID = 1
 ```
 
-** Automatic usage of indexes **
+**Automatic usage of indexes**
 
 ArcadeDB allows you to execute queries against any field, indexed or not-indexed. The SQL engine automatically recognizes if any indexes can be used to speed up execution. You can also query any indexes directly by using `INDEX:<index-name>` as a target. Example:
 
@@ -30,7 +30,7 @@ ArcadeDB allows you to execute queries against any field, indexed or not-indexed
 SELECT FROM INDEX:myIndex WHERE key = 'Jay'
 ```
 
-** Extra resources **
+**Extra resources**
 - <<SQL syntax,SQL-Syntax>>
 - <<SQL projections,SQL-Projections>>
 - <<SQL conditions,SQL-Where>>
@@ -40,7 +40,7 @@ SELECT FROM INDEX:myIndex WHERE key = 'Jay'
 - <<SQL batch,SQL-batch>>
 - <<SQL Match,SQL-Match>> for traversing graphs
 
-** ArcadeDB SQL dialect **
+**ArcadeDB SQL dialect**
 
 ArcadeDB supports SQL as a query language with some differences compared with SQL. Orient Technologies decided to avoid creating Yet-Another-Query-Language. Instead we started from familiar SQL with extensions to work with graphs. We prefer to focus on standards.
 
@@ -55,7 +55,7 @@ To know more, look to <<ArcadeDB SQL Syntax,SQL-Syntax>>.
 
 Or order any book like <<these,http://www.amazon.com/s/ref=nb_sb_noss/189-0251150-4407173?url=search-alias%3Daps&field-keywords=sql)
 
-** No JOINs **
+**No JOINs**
 The most important difference between ArcadeDB and a Relational Database is that relationships are represented by `LINKS` instead of JOINs.
 
 For this reason, the typeic JOIN syntax is not supported. ArcadeDB uses the "dot (`.`) notation" to navigate `LINKS`. Example 1 : In SQL you might create a join such as:
@@ -82,7 +82,7 @@ In ArcadeDB, an equivalent operation would be:
 SELECT * FROM Employee WHERE city.country.name = 'Italy'
 ```
 
-** Projections **
+**Projections**
 In SQL, projections are mandatory and you can use the star character `*` to include all of the fields. With ArcadeDB this type of projection is optional. Example: In SQL to select all of the columns of Customer you would write:
 ```sql
 SELECT * FROM Customer
@@ -94,7 +94,7 @@ SELECT FROM Customer
 
 See <<SQL projections,SQL-Projections>>
 
-** DISTINCT **
+**DISTINCT**
 
 In ArcadeDB v 3.0 you can use DISTINCT keyword exactly as in a relational database:
 ```sql
@@ -108,7 +108,7 @@ Until v 2.2, DISTINCT keyword was not allowed; there was a DISTINCT() function i
 SELECT DISTINCT(name) FROM City
 ```
 
-** HAVING **
+**HAVING**
 
 ArcadeDB does not support the `HAVING` keyword, but with a nested query it's easy to obtain the same result. Example in SQL:
 ```SQL
@@ -124,7 +124,7 @@ This groups all of the salaries by city and extracts the result of aggregates wi
 SELECT FROM ( SELECT city, SUM(salary) AS salary FROM Employee GROUP BY city ) WHERE salary > 1000
 ```
 
-** Multiple targets **
+**Multiple targets**
 
 ArcadeDB allows only one type (typees are equivalent to tables in this discussion) as opposed to SQL, which allows for many tables as the target.  If you want to select from 2 typees, you have to execute 2 sub queries and join them with the `UNIONALL` function:
 ```sql

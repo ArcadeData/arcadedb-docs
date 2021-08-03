@@ -17,10 +17,10 @@ CREATE BUCKET <bucket> <<ID <bucket-id>]
 
 - Create the bucket `account`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE BUCKET account</code>
-  </pre>
+```
+ArcadeDB> CREATE BUCKET account
+```
 
->For more information see,
->
->- <<`DROP BUCKET`,SQL-Drop-Bucket>>
+>For more information see:
+
+- <<SQL-Drop-Bucket,`DROP BUCKET`>>

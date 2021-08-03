@@ -1,4 +1,4 @@
-
+[[SQL-Rebuild-Indexes]]
 ### SQL - `REBUILD INDEXES`
 
 Rebuilds automatic indexes.
@@ -17,18 +17,18 @@ REBUILD INDEX <index>
 
 - Rebuild an index on the `nick` property on the type `Profile`:
 
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>REBUILD INDEX Profile.nick</code>
-  </pre>
+```
+ArcadeDB> REBUILD INDEX Profile.nick
+```
 
 - Rebuild all indexes:
   
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>REBUILD INDEX *</code>
-  </pre>
+```
+ArcadeDB> REBUILD INDEX *
+```
 
->For more information, see
->- <<`CREATE INDEX`,SQL-Create-Index>>
->- <<`DROP INDEX`,SQL-Drop-Index>>
->- <<Indexes,../indexing/Indexes>>
->- <<SQL Commands,SQL-Commands>>
+>For more information, see:
+
+- <<SQL-Create-Index,`CREATE INDEX`>>
+- <<SQL-Drop-Index,`DROP INDEX`>>
+- <<Indexes>>

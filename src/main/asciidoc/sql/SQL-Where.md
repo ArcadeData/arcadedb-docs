@@ -1,5 +1,5 @@
 [[SQL-Filtering]]
-### SQL - Filtering
+### SQL Filtering
 
 The Where condition is shared among many SQL commands.
 

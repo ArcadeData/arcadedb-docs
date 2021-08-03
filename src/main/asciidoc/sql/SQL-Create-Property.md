@@ -18,7 +18,7 @@ CREATE PROPERTY
 - **`<type>`** Defines the property data type.  For supported types, see the table below.
 - **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
 - **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
-- **`<property-constraint>`** See <<`ALTER PROPERTY`,SQL-Alter-Property>> `<attribute-name> << <attribute-value> ]` (since V2.2.3)
+- **`<property-constraint>`** See <<`ALTER PROPERTY`,SQL-Alter-Property>> `<attribute-name> << <attribute-value> ]`
 - **`UNSAFE`** Defines whether it checks existing records.  On larger databases, with millions of records, this could take a great deal of time.  Skip the check when you are sure the property is new.
 
 
@@ -28,35 +28,36 @@ CREATE PROPERTY
 
 - Create the property `name` of the string type in the type `User`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE PROPERTY User.name STRING</code>
-  </pre>
+```
+ArcadeDB> CREATE PROPERTY User.name STRING
+```
 
 - Create a property formed from a list of strings called `tags` in the type `Profile`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING</code>
-  </pre>
+```
+ArcadeDB> CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING
+```
 
 - Create the property `friends`, as an embedded map in a circular reference:
 
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>CREATE PROPERTY Profile.friends EMBEDDEDMAP Profile</code>
-  </pre>
+```
+ArcadeDB> CREATE PROPERTY Profile.friends EMBEDDEDMAP Profile
+```
 
-- Create the property `name` of the string type in the type `User`, mandatory, with minimum and maximum length (since V2.2.3):
+- Create the property `name` of the string type in the type `User`, mandatory, with minimum and maximum length:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE PROPERTY User.name STRING (MANDATORY TRUE, MIN 5, MAX 25)  </code>
-  </pre>
+```
+ArcadeDB> CREATE PROPERTY User.name STRING (MANDATORY TRUE, MIN 5, MAX 25)  
+```
 
 
 
->For more information, see
->
->- <<`DROP PROPERTY`,SQL-Drop-Property>>
+>For more information, see:
 
-** Supported Types **
+- <<SQL-Drop-Property,`DROP PROPERTY`>>
+
+
+**Supported Types**
 
 ArcadeDB supports the following data types for standard properties:
 

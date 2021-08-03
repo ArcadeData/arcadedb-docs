@@ -28,30 +28,30 @@ When working with multiple cores, it is recommended that you use multiple bucket
 
 - Create the type `Account`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE TYPE Account</code>
-  </pre>
+```
+ArcadeDB> CREATE TYPE Account
+```
 
 - Create the type `Car` to extend `Vehicle`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE TYPE Car EXTENDS Vehicle</code>
-  </pre>
+```
+ArcadeDB> CREATE TYPE Car EXTENDS Vehicle
+```
 
 - Create the type `Car`, using the bucket ID of `10`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE TYPE Car BUCKET 10</code>
-  </pre>
+```
+ArcadeDB> CREATE TYPE Car BUCKET 10
+```
 
 - Create the type `Person` as an <<abstract type,../datamodeling/Concepts.md#abstract-type):
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE TYPE Person ABSTRACT</code>
-  </pre>
+```
+ArcadeDB> CREATE TYPE Person ABSTRACT
+```
 
 
-** Bucket Selection Strategies **
+**Bucket Selection Strategies**
 
 When you create a type, it inherits the bucket selection strategy defined at the database-level.  By default this is set to round-robin.  You can change the database default using the <<`ALTER DATABASE`,SQL-Alter-Database>> command and the selection strategy for the type using the <<`ALTER TYPE`,SQL-Alter-Type>> command.
 
@@ -60,14 +60,14 @@ Supported Strategies:
 [%header,cols=2]
 |===
 | Strategy | Description 
-| `default` | Selects the bucket using the type property `defaultBucketId`.  This was the default selection strategy before version 1.7.
+| `default` | Selects the bucket using the type property `defaultBucketId`.
 | `round-robin` | Selects the next bucket in a circular order, restarting once complete. |
 | `balanced` | Selects the smallest bucket.  Allows the type to have all underlying buckets balanced on size.  When adding a new bucket to an existing type, it fills the new bucket first.  When using a distributed database, this keeps the servers balanced with the same amount of data.  It calculates the bucket size every five seconds or more to avoid slow-downs on insertion.
 |===
 
->For more information, see
->
->- <<`ALTER TYPE`,SQL-Alter-Type>>
->- <<`DROP TYPE`,SQL-Drop-Type>>
->- <<`CREATE BUCKET`,SQL-Create-Bucket>>
+>For more information, see:
+
+- <<SQL-Alter-Type,`ALTER TYPE`>>
+- <<SQL-Drop-Type,`DROP TYPE`>>
+- <<SQL-Create-Bucket,`CREATE BUCKET`>>
 

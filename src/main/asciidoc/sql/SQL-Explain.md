@@ -16,10 +16,10 @@ EXPLAIN <command>
 
 - Profile a query that executes on a type filtering based on an attribute:
 
-  <pre>
-  ArcadeDB {db=foo}> <code type='lang-sql userinput'>explain select from v where name = 'a'</code>
+```
+  ArcadeDB {db=foo}> explain select from v where name = 'a'
 
-  Profiled command '<<{
+  Profiled command '[{
 
   executionPlan:{...},
 
@@ -40,11 +40,12 @@ EXPLAIN <command>
   
   }]' in 0,022000 sec(s):
 
-  </pre>
+```
 
->For more information, see
->- <<SQL Commands,SQL-Commands>>
->- <<PROFILE,SQL-Profile>>
+>For more information, see:
+
+- <<SQL Commands,SQL-Commands>>
+- <<PROFILE,SQL-Profile>>
 
 
 

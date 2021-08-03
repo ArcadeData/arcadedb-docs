@@ -16,13 +16,13 @@ DROP BUCKET <bucket-name>|<bucket-id>
 
 - Remove the bucket `Account`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">DROP BUCKET Account</code>
-  </pre>
+```
+ArcadeDB> DROP BUCKET Account
+```
 
->For more information, see
->- <<`CREATE BUCKET`,SQL-Create-Bucket>>
->- <<`ALTER BUCKET`,SQL-Alter-Bucket>>
->- <<`DROP TYPE`,SQL-Drop-Type>>
->- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>
+>For more information, see:
+
+- <<SQL-Create-Bucket,`CREATE BUCKET`>>
+- <<SQL-Alter-Bucket,`ALTER BUCKET`>>
+- <<SQL-Drop-Type,`DROP TYPE`>>
+

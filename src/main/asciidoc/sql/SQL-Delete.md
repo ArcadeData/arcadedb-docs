@@ -23,10 +23,9 @@ DELETE FROM <Type>|BUCKET:<bucket>|INDEX:<index> <<RETURN <returning>]
 
 - Delete all records with the surname `unknown`, ignoring case:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">DELETE FROM Profile WHERE surname.toLowerCase() = 'unknown'</code>
-  </pre>
+```
+ArcadeDB> DELETE FROM Profile WHERE surname.toLowerCase() = 'unknown'
+```
 
-For more information, see <<SQL Commands,SQL-Commands>>.
 
 

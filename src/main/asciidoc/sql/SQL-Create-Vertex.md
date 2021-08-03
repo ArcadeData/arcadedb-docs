@@ -24,41 +24,41 @@ CREATE VERTEX <<<type>] <<BUCKET <bucket>] <<SET <field> = <expression><<,]*]
 
 - Create a new vertex on the base type `V`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE VERTEX</code>
-  </pre>
+```
+ArcadeDB> CREATE VERTEX
+```
 
 - Create a new vertex type, then create a vertex in that type:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE TYPE V1 EXTENDS V</code>
-  ArcadeDB> <code type="lang-sql userinput">CREATE VERTEX V1</code>
-  </pre>
+```
+ArcadeDB> CREATE TYPE V1 EXTENDS V
+ArcadeDB> CREATE VERTEX V1
+```
 
 - Create a new vertex within a particular bucket:
 
-  <pre>
-  ArcadeDB> <code type="userinput lang-sql">CREATE VERTEX V1 BUCKET recent</code>
-  </pre>
+```
+ArcadeDB> <code type="userinput lang-sql">CREATE VERTEX V1 BUCKET recent
+```
 
 - Create a new vertex, defining its properties:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE VERTEX SET brand = 'fiat'</code>
-  </pre>
+```
+ArcadeDB> CREATE VERTEX SET brand = 'fiat'
+```
 
 - Create a new vertex of the type `V1`, defining its properties:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE VERTEX V1 SET brand = 'fiat', name = 'wow'</code>
-  </pre>
+```
+ArcadeDB> CREATE VERTEX V1 SET brand = 'fiat', name = 'wow'
+```
 
 - Create a vertex using JSON content:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">CREATE VERTEX Employee CONTENT { "name" : "Jay", "surname" : "Miner" }</code>
-  </pre>
+```
+ArcadeDB> CREATE VERTEX Employee CONTENT { "name" : "Jay", "surname" : "Miner" }
+```
 
->For more information, see
->
->- <<`CREATE EDGE`,SQL-Create-Edge>>
+>For more information, see:
+
+- <<SQL-Create-Edge,`CREATE EDGE`>>

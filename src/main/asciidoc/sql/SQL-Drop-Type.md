@@ -20,13 +20,13 @@ DROP TYPE <type> << UNSAFE ]
 
 - Remove the type `Account`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">DROP TYPE Account</code>
-  </pre>
+```
+ArcadeDB> DROP TYPE Account
+```
 
 
->For more information, see
->- <<`CREATE TYPE`,SQL-Create-Type>>
->- <<`ALTER TYPE`,SQL-Alter-Type>>
->- <<`ALTER BUCKET`,SQL-Alter-Bucket>>
->- <<SQL Commands,SQL-Commands>>
+>For more information, see:
+
+- <<SQL-Create-Type,`CREATE TYPE`>>
+- <<SQL-Alter-Type`ALTER TYPE`>>
+- <<SQL-Alter-Bucket,`ALTER BUCKET`>>

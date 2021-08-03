@@ -35,96 +35,96 @@ UPDATE <type>|BUCKET:<bucket>|<recordID>
 
 - Update to change the value of a field:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL</code>
+```
+ArcadeDB> UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL
   
   Updated 2 record(s) in 0.008000 sec(s).
-  </pre>
+```
 
 - Update to remove a field from all records:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Profile REMOVE nick</code>
-  </pre>
+```
+ArcadeDB> UPDATE Profile REMOVE nick
+```
 
 - Update to remove a value from a collection, if you know the exact value that you want to remove:
 
   Remove an element from a link list or set:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Account REMOVE address = #12:0</code>
-  </pre>
+```
+ArcadeDB> UPDATE Account REMOVE address = #12:0
+```
 
   Remove an element from a list or set of strings:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Account REMOVE addresses = 'Foo'</code>
-  </pre>
+```
+ArcadeDB> UPDATE Account REMOVE addresses = 'Foo'
+```
 
 - Update to remove a value, filtering on value attributes.
 
   Remove addresses based in the city of Rome:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Account REMOVE addresses = addresses<<city = 'Rome']</code>
-  </pre>
+```
+ArcadeDB> UPDATE Account REMOVE addresses = addresses<<city = 'Rome']
+```
 
 - Update to remove a value, filtering based on position in the collection.
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Account REMOVE addresses = addresses<<1]</code>
-  </pre>
+```
+ArcadeDB> UPDATE Account REMOVE addresses = addresses<<1]
+```
 
   This remove the second element from a list, (position numbers start from `0`, so `addresses<<1]` is the second elelment).
 
 - Update to remove a value from a map
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Account REMOVE addresses = 'Luca'</code>
-  </pre>
+```
+ArcadeDB> UPDATE Account REMOVE addresses = 'Luca'
+```
 
 - Update an embedded document.  The <<`UPDATE`,SQL-Update>> command can take JSON as a value to update.
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Account SET address={ "street": "Melrose Avenue", "city": { 
-            "name": "Beverly Hills" } }</code>
+```
+ArcadeDB> UPDATE Account SET address={ "street": "Melrose Avenue", "city": { 
+            "name": "Beverly Hills" } }
 
-  </pre>
+```
 
 - Update the first twenty records that satisfy a condition:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL LIMIT 20</code>
-  </pre>
+```
+ArcadeDB> UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL LIMIT 20
+```
 
 - Update a record or insert if it doesn't already exist:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE Profile SET nick = 'Luca' UPSERT WHERE nick = 'Luca'</code>
-  </pre>
+```
+ArcadeDB> UPDATE Profile SET nick = 'Luca' UPSERT WHERE nick = 'Luca'
+```
 
 
 - Updates using the `RETURN` keyword:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE ♯7:0 SET gender='male' RETURN AFTER @rid</code>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE ♯7:0 SET gender='male' RETURN AFTER @version</code>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE ♯7:0 SET gender='male' RETURN AFTER @this</code>
-  ArcadeDB> <code type="lang-sql userinput">UPDATE ♯7:0 SET gender='male' RETURN AFTER $current.exclude(
-            "really_big_field")</code>
-  </pre>
+```
+ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @rid
+ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @version
+ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @this
+ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER $current.exclude(
+            "really_big_field")
+```
 
 In the event that a single field is returned, ArcadeDB wraps the result-set in a record storing the value in the field `result`.  This avoids introducing a new serialization, as there is no primitive values collection serialization in the binary protocol.  Additionally, it provides useful fields like `version` and `rid` from the original record in corresponding fields.  The new syntax allows for optimization of client-server network traffic.
 
-For more information on SQL syntax, see <<`SELECT`,SQL-Query>>.
+For more information on SQL syntax, see <<SQL-Select,`SELECT`>>.
 
-#### Limitations of the `UPSERT` Clause
+**Limitations of the `UPSERT` Clause**
 
 The `UPSERT` clause only guarantees atomicity when you use a `UNIQUE` index and perform the look-up on the index through the <<`WHERE`,SQL-Where>> condition.
 
-<pre>
-ArcadeDB> <code type="lang-sql userinput">UPDATE Client SET id = 23 UPSERT WHERE id = 23</code>
-</pre>
+```
+ArcadeDB> UPDATE Client SET id = 23 UPSERT WHERE id = 23
+```
 
 Here, you must have a unique index on `Client.id` to guarantee uniqueness on concurrent operations.
 

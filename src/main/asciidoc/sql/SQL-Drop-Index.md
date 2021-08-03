@@ -19,12 +19,12 @@ DROP INDEX <index>|<type>.<property> << IF EXISTS ]
 
 - Remove the index on the `Id` property of the `Users` type:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">DROP INDEX Users.Id</code>
-  </pre>
+```
+ArcadeDB> DROP INDEX Users.Id
+```
 
 
->For more information, see
->- <<`CREATE INDEX`,SQL-Create-Index>>
->- <<Indexes,../indexing/Indexes>>
->- <<SQL Commands,SQL-Commands>>
+>For more information, see:
+ 
+- <<SQL-Create-Index,`CREATE INDEX`>>
+- <<Indexes>>

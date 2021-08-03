@@ -3,9 +3,7 @@
 
 Retrieves connected records crossing relationships.  This works with both the Document and Graph API's, meaning that you can traverse relationships between say invoices and customers on a graph, without the need to model the domain using the Graph API.
 
-| | |
-|----|-----|
-|!<<,../images/warning.png)| In many cases, you may find it more efficient to use <<`SELECT`,SQL-Query>>, which can result in shorter and faster queries.  For more information, see <<`TRAVERSE` versus `SELECT`,#traverse-versus-select) below.|
+>!<<,../images/warning.png)| In many cases, you may find it more efficient to use <<`SELECT`,SQL-Query>>, which can result in shorter and faster queries.  For more information, see <<traverse-versus-select,`TRAVERSE` versus `SELECT`) below.
 
 **Syntax**
 
@@ -39,52 +37,52 @@ In a social network-like domain, a user profile is connected to friends through 
 
 - Traverse all fields in the root record:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">TRAVERSE * FROM #10:1234</code>
-  </pre>
+```
+ArcadeDB> TRAVERSE * FROM #10:1234
+```
 
 - Specify fields and depth up to the third level, using the <<`BREADTH_FIRST`,../java/Java-Traverse.md#traversal-strategies) strategy:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3 
-            STRATEGY BREADTH_FIRST</code>
-  </pre>
+```
+ArcadeDB> TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3 
+            STRATEGY BREADTH_FIRST
+```
 
 - Execute the same command, this time filtering for a minimum depth to exclude the first target vertex:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">SELECT FROM (TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3) 
-            WHERE $depth >= 1</code>
-  </pre>
+```
+ArcadeDB> SELECT FROM (TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3) 
+            WHERE $depth >= 1
+```
 
   >**NOTE**: You can also define the maximum depth in the <<`SELECT`,SQL-Query>> command, but it's much more efficient to set it at the inner <<`TRAVERSE`,SQL-Traverse>> statement because the returning record sets are already filtered by depth.
 
 - Combine traversal with <<`SELECT`,SQL-Query>> command to filter the result-set.  Repeat the above example, filtering for users in Rome:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">SELECT FROM (TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3) 
-            WHERE city = 'Rome'</code>
-  </pre>
+```
+ArcadeDB> SELECT FROM (TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3) 
+            WHERE city = 'Rome'
+```
 
 - Extract movies of actors that have worked, at least once, in any movie produced by J.J. Abrams:
 
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>SELECT FROM (TRAVERSE out("Actors"), out("Movies") FROM (SELECT FROM 
+```
+ArcadeDB> SELECT FROM (TRAVERSE out("Actors"), out("Movies") FROM (SELECT FROM 
             Movie WHERE producer = "J.J. Abrams") MAXDEPTH 3) WHERE 
-            @type = 'Movie'</code>
-  </pre>
+            @type = 'Movie'
+```
 
 - Display the current path in the traversal:
 
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>SELECT $path FROM ( TRAVERSE out() FROM V MAXDEPTH 10 )</code>
-  </pre>
+```
+ArcadeDB> SELECT $path FROM ( TRAVERSE out() FROM V MAXDEPTH 10 )
+```
 
 
 
-** Supported Variables **
+**Supported Variables**
 
-** Fields **
+**Fields**
 
 Defines the fields that you want to traverse.  If set to `*`, `any()` or `all()` then it traverses all fields.  This can prove costly to performance and resource usage, so it is recommended that you optimize the command to only traverse the pertinent fields.
 
@@ -92,7 +90,7 @@ In addition to his, you can specify the fields at a type-level.  <<Polymorphism,
 
 Field names are case-sensitive, typees not.
 
-** Target **
+**Target**
 
 Targets for traversal can be,
 - **`<type>`** Defines the type that you want to traverse.  
@@ -100,37 +98,38 @@ Targets for traversal can be,
 - **`<record-id>`** Individual root Record ID that you want to traverse.
 - **`<<<record-id>,<record-id>,...]`** Set of Record ID's that you want to traverse.  This is useful when navigating graphs starting from the same root nodes.
 
-** Context Variables **
+**Context Variables**
 
 In addition to the above, you can use the following context variables in traversals:
 - **`$parent`** Gives the parent context, if any.  You may find this useful when traversing from a sub-query. 
 - **`$current`** Gives the current record in the iteration.  To get the upper-level record in nested queries, you can use `$parent.$current`.
 - **`$depth`** Gives the current depth of nesting.
 - **`$path`** Gives a string representation of the current path.  For instance, `#5:0#.out`.  You can also display it through <<`SELECT`,SQL-Query>>:
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">SELECT $path FROM (TRAVERSE * FROM V)</code>
-  </pre>
+```
+ArcadeDB> SELECT $path FROM (TRAVERSE * FROM V)
+```
 
-** Use Cases **
+**Use Cases**
 
-** `TRAVERSE` versus `SELECT` **
+[[traverse-versus-select]]
+**`TRAVERSE` versus `SELECT`**
 
 When you already know traversal information, such as relationship names and depth-level, consider using <<`SELECT`,SQL-Query>> instead of <<`TRAVERSE`,SQL-Traverse>> as it is faster in some cases. 
 
 For example, this query traverses the `follow` relationship on Twitter accounts, getting the second level of friendship:
 
-<pre>
-ArcadeDB> <code type='lang-sql userinput'>SELECT FROM (TRAVERSE out('follow') FROM TwitterAccounts MAXDEPTH 2 )
-          WHERE $depth = 2</code>
-</pre>
+```
+ArcadeDB> SELECT FROM (TRAVERSE out('follow') FROM TwitterAccounts MAXDEPTH 2 )
+          WHERE $depth = 2
+```
 
 But, you could also express this same query using <<`SELECT`,SQL-Query>> operation, in a way that is also shorter and faster:
 
-<pre>
-ArcadeDB> <code type="lang-sql userinput">SELECT out('follow').out('follow') FROM TwitterAccounts</code>
-</pre>
+```
+ArcadeDB> SELECT out('follow').out('follow') FROM TwitterAccounts
+```
 
-##### `TRAVERSE` with the Graph Model and API
+**`TRAVERSE` with the Graph Model and API**
 
 While you can use the <<`TRAVERSE`,SQL-Traverse>> command with any domain model, it provides the greatest utility in <<Graph Databases<<(Graph-Database-Tinkerpop>> model.
 
@@ -149,16 +148,16 @@ This model is based on the concepts of the Vertex (or Node) as the type `V` and 
 
 For instance, traversing outgoing edges on the record `#10:3434`:
 
-<pre>
-ArcadeDB> <code type="lang-sql userinput">TRAVERSE out() FROM #10:3434</code>
-</pre>
+```
+ArcadeDB> TRAVERSE out() FROM #10:3434
+```
 
 In a domain for emails, to find all messages sent on January 1, 2012 from the user Luca, assuming that they are stored in the vertex type `User` and that the messages are contained in the vertex type `Message`.  Sent messages are stored as `out` connections on the edge type `SentMessage`:
 
-<pre>
-ArcadeDB> <code type="lang-sql userinput">SELECT FROM (TRAVERSE outE(), inV() FROM (SELECT FROM User WHERE 
+```
+ArcadeDB> SELECT FROM (TRAVERSE outE(), inV() FROM (SELECT FROM User WHERE 
           name = 'Luca') MAXDEPTH 2 AND (@type = 'Message' or 
           (@type = 'SentMessage' AND sentOn = '01/01/2012') )) WHERE 
-          @type = 'Message'</code>
-</pre>
+          @type = 'Message'
+```
 

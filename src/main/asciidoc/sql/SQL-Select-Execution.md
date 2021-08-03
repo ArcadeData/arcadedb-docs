@@ -1,9 +1,7 @@
-#### SQL SELECT Statements Execution
+**SQL SELECT Statements Execution**
 
 The execution flow of a SELECT statement is made of many steps. 
 Understanding these steps will help you to write better and more optimized queries.
-
-** Overview **
 
 The SELECT query execution, at a very high level, is made of three steps:
 - Query optimization
@@ -11,7 +9,7 @@ The SELECT query execution, at a very high level, is made of three steps:
 - Choice of the optimal execution plan
 - Actual execution
 
-** Query optimization **
+**Query optimization**
 
 The first step for the query executor is to run a query optimizer. This operation can change the internal structure of the SQL statement to make it more efficient, preserving the same semantics of the original query.
 
@@ -79,7 +77,7 @@ name = 'John' AND (
 Sometimes, like in case of full type scan, this is convenient. In other cases it's not. Eg. if `Person` type has an index on `<name, surname>`, the original query can be executed as the union of five index lookups. The query optimizer will create multiple versions of optimized conditions, for different execution plans (see below).
 
 
-** Creation of execution plans **
+**Creation of execution plans**
 
 An execution plan is a sequence of operations that the query engine has to execute to calculate the query result.
 
@@ -90,19 +88,19 @@ For the same query, ArcadeDB can calculate multiple execution plans, based on in
 An execution plan has an execution cost that depends on the number of processed records, the number of operations performed and the elaboration time. The query executor uses the execution cost as the main criterion to choose the optimal execution plan.
 
 
-** Choice of the optimal execution plan **
+**Choice of the optimal execution plan**
 
 If the query executor produces multiple execution plans, then it has to choose the more convenient one to actually execute the query.
 This choice is made based on the execution cost: the execution plan with the minimum cost is chosen.
 
-** Actual execution **
+**Actual execution**
 
 After choosing the optimal execution plan, it is just executed.
 
 The execution of an execution plan is just the execution of all the steps that it represents.
 
 
-** Query Execution Plan **
+**Query Execution Plan**
 
 As described above, an execution plan is a sequence of steps that have to be executed to calculate a query result.
 

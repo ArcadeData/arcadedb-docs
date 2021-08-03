@@ -6,6 +6,7 @@ ArcadeDB allows execution of arbitrary scripts written in Javascript or any scri
 Batch of commands are very useful when you have to execute multiple things at the server side avoiding the network roundtrip for each command.
 
 SQL Batch supports all the ArcadeDB <<SQL Commands,SQL-Commands>>, plus the following:
+
 - ```begin <<isolation <isolation-level>]```, where `<isolation-level>` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
 - ```commit <<retry <retry>]```, where:
  - <retry> is the number of retries in case of concurrent modification exception
@@ -14,9 +15,9 @@ SQL Batch supports all the ArcadeDB <<SQL Commands,SQL-Commands>>, plus the foll
 - ```WHILE(<condition>){ <statememt>; <<<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
 - ```FOREACH(<variable> IN <expression>){ <statememt>; <<<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
 - ```SLEEP <ms>```, put the batch in wait for `<ms>` milliseconds.
-- ```console.log <text>```, logs a message in the console. Context variables can be used with `${<variable>}`. Since 2.2.
-- ```console.error <text>```, writes a message in the console's standard output. Context variables can be used with `${<variable>}`. Since 2.2.
-- ```console.output <text>```, writes a message in the console's standard error. Context variables can be used with `${<variable>}`. Since 2.2.
+- ```console.log <text>```, logs a message in the console. Context variables can be used with `${<variable>}`.
+- ```console.error <text>```, writes a message in the console's standard output. Context variables can be used with `${<variable>}`.
+- ```console.output <text>```, writes a message in the console's standard error. Context variables can be used with `${<variable>}`.
 - ```return``` <value>, where value can be:
  - any value. Example: ```return 3```
  - any variable with $ as prefix. Example: ```return $a```
@@ -33,7 +34,7 @@ return (SELECT $a as first, $b as second)
 This will work on any protocol and driver.
 
 
-** Optimistic transaction **
+**Optimistic transaction**
 
 Example to create a new vertex in a <<Transaction,../internals/Transactions>> and attach it to an existent vertex by creating a new edge between them. If a concurrent modification occurs, repeat the transaction up to 100 times:
 
@@ -48,7 +49,7 @@ return $e;
 
 Note the usage of $account and $city in further SQL commands.
 
-** Pessimistic transaction **
+**Pessimistic transaction**
 
 This script above used an Optimistic approach: in case of conflict it retries up top 100 times by re-executing the entire transaction (commit retry 100). To follow a Pessimistic approach by locking the records, try this:
 
@@ -62,7 +63,7 @@ return $e;
 ```
 
 
-** Conditional execution **
+**Conditional execution**
 SQL Batch provides IF constructor to allow conditional execution.
 The syntax is
 
@@ -88,13 +89,11 @@ if($a.size() > 0) {
 }
 ```
 
-** Loops **
+**Loops**
 
 SQL Batch provides two different loop blocks: FOREACH and WHILE
 
 #### FOREACH
-
-(since v 3.0.3 - experimental)
 
 Loops on all the items of a collection and, for each of them, executes a set of SQL statements
 
@@ -116,8 +115,6 @@ FOREACH ($i IN <<1, 2, 3]){
 
 
 #### WHILE
-
-(since v 3.0.3 - experimental)
 
 Loops while a condition is true
 

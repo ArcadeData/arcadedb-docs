@@ -15,19 +15,18 @@ TRUNCATE TYPE <type> << POLYMORPHIC ] << UNSAFE ]
 
 - **`<type>`** Defines the type you want to truncate.
 - **`POLYMORPHIC`** Defines whether the command also truncates the type hierarchy.
-- **`UNSAFE`** Defines whether the command forces truncation on vertex or edge typees, (that is, sub-typees that extend the typees `V` or `E`).
+- **`UNSAFE`** Defines whether the command forces truncation on vertex or edge types, (that is, sub-types that extend the types `V` or `E`).
 
 **Examples**
 
 - Remove all records of the type `Profile`:
 
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>TRUNCATE TYPE Profile</code>
-  </pre>
+```
+ArcadeDB> TRUNCATE TYPE Profile
+```
 
->For more information, see
->- <<`DELETE`,SQL-Delete>>
->- <<`TRUNCATE BUCKET`,SQL-Truncate-Bucket>>
->- <<`CREATE TYPE`,SQL-Create-Type>>
->- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>
+>For more information, see:
+
+- <<SQL-Delete,`DELETE`>>
+- <<SQL-Truncate-Bucket,`TRUNCATE BUCKET`>>
+- <<SQL-Create-Type,`CREATE TYPE`>>

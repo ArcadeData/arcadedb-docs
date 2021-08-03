@@ -1,12 +1,12 @@
 [[SQL-Syntax]]
-### SQL syntax
+### SQL Syntax
 
 ArcadeDB Query Language is and SQL dialect.
 
 This page lists all the details about its syntax.
 
 [[SQL-Identifiers]]
-** Identifiers **
+**Identifiers **
 
 An identifier is a name that identifies an entity in ArcadeDB schema. Identifiers can refer to
 - type names
@@ -80,7 +80,7 @@ SELECT `foo\`bar` from Foo
 In current version, type names are case *insensitive*, all the other identifiers are case sensitive.
 
 [[SQL-Reserved-Words]]
-** Reserved words **
+**Reserved words **
 
 In ArcadeDB SQL the following are reserved words
 
@@ -143,7 +143,7 @@ In ArcadeDB SQL the following are reserved words
 - WHILE
 
 [[SQL-Base-Types]]
-** Base types **
+**Base types **
 
 Accepted base types in ArcadeDB SQL are:
 - **integer numbers**: 
@@ -421,7 +421,7 @@ Based on what is between brackets, the square bracket filtering has different ef
 is the i-th element of the collection/map. If the result of the expresson (K) is not a number, the filtering returns the value corresponding to the key K in the map field. If the field is not a collection/map, the square bracket filtering returns `null`.
 The result of this filtering is ALWAYS a single value.
 - `<range>`: A range is something like `M..N`  or `M...N` where M and N are integer/long numbers, eg. `fieldName<<2..5]`. The result of range filtering is a collection that is a subet of the original field value, containing all the items from position M (included) to position N (excluded for `..`, included for `...`). Eg. if `fieldName = <<'a', 'b', 'c', 'd', 'e']`, `fieldName<<1..3] = <<'b', 'c']`, `fieldName<<1...3] = <<'b', 'c', 'd']`. Ranges start from `0`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
-- `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. Eg. `fieldName = <<{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName<<foo > 4] = <<{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
+- `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. Eg. `fieldName = [{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName<<foo > 4] = [{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
 
 
 ** Conditions **
@@ -466,8 +466,8 @@ An expression that returns something different from a boolean value is always ev
 | shift	                | `<<` `>>` `>>>` 
 | bitwise AND	        |   `&`           
 | bitwise exclusive OR	|  `^`            
-| bitwise inclusive OR	|   <code>&#124;</code>
-| array concatenation	|   <code>&#124;&#124;</code>
+| bitwise inclusive OR	|   <code>&#124;
+| array concatenation	|   <code>&#124;&#124;
 |===
 
 ** Math + Assign operators **

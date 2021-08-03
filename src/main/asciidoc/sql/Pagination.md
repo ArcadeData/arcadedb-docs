@@ -1,11 +1,11 @@
 [[SQL-Pagination]]
-### Pagination
+**Pagination**
 
-OrientDB supports pagination natively. Pagination doesn't consume server side resources because no cursors are used. Only <<Record ID's,../datamodeling/Concepts.md#record-id) are used as pointers to the physical position in the cluster. 
+OrientDB supports pagination natively. Pagination doesn't consume server side resources because no cursors are used. Only <<RID,Record ID's) are used as pointers to the physical position in the cluster. 
 
 There are 2 ways to achieve pagination:
 
-** Use the SKIP-LIMIT **
+**Use the SKIP-LIMIT**
 
 The first and simpler way to do pagination is to use the `SKIP`/`LIMIT` approach. This is the slower way because OrientDB repeats the query and just skips the first X records from the result.
 Syntax:
@@ -17,7 +17,7 @@ Where:
 - **max-records** is the maximum number of records returned by the query
 
 
-** Use the RID-LIMIT **
+**Use the RID-LIMIT**
 
 This method is faster than the `SKIP`-`LIMIT` because OrientDB will begin the scan from the starting RID. OrientDB can seek the first record in about O(1) time. The downside is that it's more complex to use.
 

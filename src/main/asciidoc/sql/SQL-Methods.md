@@ -1,4 +1,4 @@
-
+[[SQL-Methods]]
 ### SQL Methods
 
 SQL Methods are similar to <<SQL functions,SQL-Functions>> but they apply to values. In Object Oriented paradigm they are called "methods", as functions related to a type. So what's the difference between a function and a method?
@@ -17,49 +17,35 @@ As you can see the method is executed against a field/value. Methods can receive
 
 >**Note**: operators are case-insensitive.
 
-#### Bundled methods
+**Bundled methods**
 
-##### Methods by category
-
+**Methods by category**
 
 [%header,cols=4]
 |===
 | Conversions | String manipulation | Collections | Misc
-|<<convert(),SQL-Methods.md#convert)|<<append(),SQL-Methods.md#append)|<<\<<\],SQL-Methods>>|<<exclude(),SQL-Methods.md#exclude)
-|<<asBoolean(),SQL-Methods.md#asboolean)|<<charAt(),SQL-Methods.md#charat)|<<size(),SQL-Methods.md#size)|<<include(),SQL-Methods.md#include)
-|<<asDate(),SQL-Methods.md#asdate)|<<indexOf(),SQL-Methods.md#indexof)|<<remove(),SQL-Methods.md#remove)|<<javaType(),SQL-Methods.md#javatype)
-|<<asDatetime(),SQL-Methods.md#asdatetime)|<<left(),SQL-Methods.md#left)|<<removeAll(),SQL-Methods.md#removeall)|<<toJSON(),SQL-Methods.md#tojson)
-|<<asDecimal(),SQL-Methods.md#asdecimal)|<<right(),SQL-Methods.md#right)|<<keys(),SQL-Methods.md#keys)|<<type(),SQL-Methods.md#type)
-|<<asFloat(),SQL-Methods.md#asfloat)|<<prefix(),SQL-Methods.md#prefix)|<<values(),SQL-Methods.md#values)
-|<<asInteger(),SQL-Methods.md#asinteger)|<<trim(),SQL-Methods.md#trim)
-|<<asList(),SQL-Methods.md#aslist)|<<replace(),SQL-Methods.md#replace)
-|<<asLong(),SQL-Methods.md#aslong)|<<length(),SQL-Methods.md#length)
-|<<asMap(),SQL-Methods.md#asmap)|<<subString(),SQL-Methods.md#substring)
-|<<asSet(),SQL-Methods.md#asset)|<<toLowerCase(),SQL-Methods.md#tolowercase)
-|<<asString(),SQL-Methods.md#asstring)|<<toUpperCase(),SQL-Methods.md#touppercase)
-|<<normalize(),SQL-Methods.md#normalize)|<<hash(),SQL-Methods.md#hash)
-||<<format(),SQL-Methods.md#format)
+|<<_-convert,convert()>>|<<_-append,append()>>|<<SQL-Method-Squared,[]>>|<<_-exclude,exclude()>>
+|<<_-asboolean,asBoolean()>>|<<_-charat,charAt()>>|<<_-size,size()>>|<<_-include,include()>>
+|<<_-asdate,asDate()>>|<<_-indexof,indexOf()>>|<<_-remove,remove()>>|<<_-javatype,javaType()>>
+|<<_-asdatetime,asDatetime()>>|<<_-left,left()>>|<<_-removeall,removeAll()>>|<<_-tojson,toJSON()>>
+|<<_-asdecimal,asDecimal()>>|<<_-right,right()>>|<<_-keys,keys()>>|<<_-type,type()>>
+|<<_-asfloat,asFloat()>>|<<_-prefix,prefix()>>|<<_-values,values()>>
+|<<_-asinteger,asInteger()>>|<<_-trim,trim()>>
+|<<_-aslist,asList()>>|<<_-replace,replace()>>
+|<<_-aslong,asLong()>>|<<_-length,length()>>
+|<<_-asmap,asMap()>>|<<_-substring,subString()>>
+|<<_-asset,asSet()>>|<<_-tolowercase,toLowerCase()>>
+|<<_-asstring,asString()>>|<<_-touppercase,toUpperCase()>>
+|<<_-normalize,normalize()>>|<<_-hash,hash())>>
+||<<_-format,format()>>
 |===
 
 
-##### Methods by name
-
-[%header,cols=4]
-|===
-|<<\<<\],SQL-Methods>>|<<append(),SQL-Methods.md#append)|<<asBoolean(),SQL-Methods.md#asboolean)|<<asDate(),SQL-Methods.md#asdate)|<<asDatetime(),SQL-Methods.md#asdatetime)
-|<<asDecimal(),SQL-Methods.md#asdecimal)|<<asFloat(),SQL-Methods.md#asfloat)|<<asInteger(),SQL-Methods.md#asinteger)|<<asList(),SQL-Methods.md#aslist)|<<asLong(),SQL-Methods.md#aslong)|<<asMap(),SQL-Methods.md#asmap)
-|<<asSet(),SQL-Methods.md#asset)|<<asString(),SQL-Methods.md#asstring)|<<charAt(),SQL-Methods.md#charat)|<<convert(),SQL-Methods.md#convert)|<<exclude(),SQL-Methods.md#exclude)|<<format(),SQL-Methods.md#format)
-|<<hash(),SQL-Methods.md#hash)|<<include(),SQL-Methods.md#include)|<<indexOf(),SQL-Methods.md#indexof)|<<javaType(),SQL-Methods.md#javatype)|<<keys(),SQL-Methods.md#keys)|<<left(),SQL-Methods.md#left)
-|<<length(),SQL-Methods.md#length)|<<normalize(),SQL-Methods.md#normalize)|<<prefix(),SQL-Methods.md#prefix)|<<remove(),SQL-Methods.md#remove)|<<removeAll(),SQL-Methods.md#removeall)|<<replace(),SQL-Methods.md#replace)
-|<<right(),SQL-Methods.md#right)|<<size(),SQL-Methods.md#size)|<<subString(),SQL-Methods.md#substring)|<<trim(),SQL-Methods.md#trim)|<<toJSON(),SQL-Methods.md#tojson)|<<toLowerCase(),SQL-Methods.md#tolowercase)
-|<<toUpperCase(),SQL-Methods.md#touppercase)|<<type(),SQL-Methods.md#type)|<<values(),SQL-Methods.md#values)
-|===
-
-
-##### `<<]`
+[[SQL-Method-Squared]]
+##### `[]`
 Execute an expression against the item. An item can be a multi-value object like a map, a list, an array or a document. For documents and maps, the item must be a string. For lists and arrays, the index is a number.
 
-Syntax: ```<value><<<expression>]```
+Syntax: ```<value>[<expression>]```
 
 Applies to the following types:
 - document,
@@ -71,12 +57,12 @@ Applies to the following types:
 
 Get the item with key "phone" in a map:
 ```sql
-SELECT FROM Profile WHERE '+39' IN contacts<<phone].left(3)
+SELECT FROM Profile WHERE '+39' IN contacts[phone].left(3)
 ```
 
 Get the first 10 tags of posts:
 ```sql
-SELECT FROM tags<<0-9] FROM Posts
+SELECT FROM tags[0-9] FROM Posts
 ```
 
 ---

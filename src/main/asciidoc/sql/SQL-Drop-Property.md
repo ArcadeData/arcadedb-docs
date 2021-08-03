@@ -17,12 +17,11 @@ DROP PROPERTY <type>.<property> <<FORCE]
 
 - Remove the `name` property from the type `User`:
 
-  <pre>
-  ArcadeDB> <code type="lang-sql userinput">DROP PROPERTY User.name</code>
-  </pre>
+```
+ArcadeDB> DROP PROPERTY User.name
+```
 
 
->For more information, see
->- <<`CREATE PROPERTY`,SQL-Create-Property>>
->- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>
+>For more information, see:
+
+- <<SQL-Create-Property,`CREATE PROPERTY`>>

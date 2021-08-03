@@ -12,18 +12,17 @@ TRUNCATE BUCKET <bucket>
 ```
 
 - **`<bucket>`** Defines the bucket to delete.
-- **`UNSAFE`** Defines whether the command forces truncation on vertex or edge typees, (that is, sub-typees that extend the typees `V` or `E`).
+- **`UNSAFE`** Defines whether the command forces truncation on vertex or edge types, (that is, sub-types that extend the types `V` or `E`).
 
 **Examples**
 
 - Remove all records in the bucket `profile`:
 
-  <pre>
-  ArcadeDB> <code type='lang-sql userinput'>TRUNCATE BUCKET profile</code>
-  </pre>
+```
+ArcadeDB> TRUNCATE BUCKET profile
+```
 
->For more information, see
->- <<`DELETE`,SQL-Delete>>
->- <<`TRUNCATE TYPE`,SQL-Truncate-Type>>
->- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>
+>For more information, see:
+
+- <<SQL-Delete,`DELETE`>>
+- <<SQL-Truncate-Type,`TRUNCATE TYPE`>>
