@@ -9,7 +9,7 @@ The Vertex and Edge are the main components of a Graph database.  ArcadeDB suppo
 **Syntax**
 
 ```sql
-CREATE VERTEX <<<type>] <<BUCKET <bucket>] <<SET <field> = <expression><<,]*]
+CREATE VERTEX [<type>] <<BUCKET <bucket>] [SET <field> = <expression>[,]*]
 ```
 
 - **`<type>`** Defines the type to which the vertex belongs.
@@ -17,8 +17,7 @@ CREATE VERTEX <<<type>] <<BUCKET <bucket>] <<SET <field> = <expression><<,]*]
 - **`<field>`** Defines the field you want to set.
 - **`<expression>`** Defines the express to set for the field.
 
-|----|----|
-| !<<NOTE,../images/warning.png) | **NOTE**: When using a distributed database, you can create vertexes through two steps (creation and update).  Doing so can break constraints defined at the type-level for vertices.  To avoid these issues, disable constraints in the vertex type.|
+NOTE: When using a distributed database, you can create vertexes through two steps (creation and update).  Doing so can break constraints defined at the type-level for vertices.  To avoid these issues, disable constraints in the vertex type.
 
 **Examples**
 

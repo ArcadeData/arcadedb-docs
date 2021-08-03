@@ -8,15 +8,15 @@ Retrieves connected records crossing relationships.  This works with both the Do
 **Syntax**
 
 ```sql
-TRAVERSE <<<type.]field>|*|any()|all()
-         <<FROM <target>]
+TRAVERSE [<type.]field>|*|any()|all()
+         [FROM <target>]
          <<
            MAXDEPTH <number>
            |
            WHILE <condition> 
          ]
-         <<LIMIT <max-records>]
-         <<STRATEGY <strategy>]
+         [LIMIT <max-records>]
+         [STRATEGY <strategy>]
 ```
 
 - **<<`<fields>`,#fields)** Defines the fields you want to traverse.
@@ -26,9 +26,9 @@ TRAVERSE <<<type.]field>|*|any()|all()
 - **`LIMIT`** Defines the maximum number of results the command can return.
 - **<<`STRATEGY`,../java/Java-Traverse.md#traversal-strategies)** Defines strategy for traversing the graph.
 
->**NOTE**: The use of the <<`WHERE`,SQL-Where>> clause has been deprecated for this command.
+NOTE: The use of the <<SQL-Where,`WHERE`>> clause has been deprecated for this command.
 
->**NOTE**: There is a difference between `MAXDEPTH N` and `WHILE DEPTH <= N`: the `MAXDEPTH` will evaluate exactly N levels, while the `WHILE` will evaluate N+1 levels and will discard the N+1th, so the `MAXDEPTH` in general has better performance.
+NOTE: There is a difference between `MAXDEPTH N` and `WHILE DEPTH <= N`: the `MAXDEPTH` will evaluate exactly N levels, while the `WHILE` will evaluate N+1 levels and will discard the N+1th, so the `MAXDEPTH` in general has better performance.
 
 
 **Examples**
@@ -55,7 +55,7 @@ ArcadeDB> SELECT FROM (TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3)
             WHERE $depth >= 1
 ```
 
-  >**NOTE**: You can also define the maximum depth in the <<`SELECT`,SQL-Query>> command, but it's much more efficient to set it at the inner <<`TRAVERSE`,SQL-Traverse>> statement because the returning record sets are already filtered by depth.
+  NOTE: You can also define the maximum depth in the <<`SELECT`,SQL-Query>> command, but it's much more efficient to set it at the inner <<`TRAVERSE`,SQL-Traverse>> statement because the returning record sets are already filtered by depth.
 
 - Combine traversal with <<`SELECT`,SQL-Query>> command to filter the result-set.  Repeat the above example, filtering for users in Rome:
 
@@ -96,7 +96,7 @@ Targets for traversal can be,
 - **`<type>`** Defines the type that you want to traverse.  
 - **`BUCKET:<bucket>`** Defines the bucket you want to traverse.
 - **`<record-id>`** Individual root Record ID that you want to traverse.
-- **`<<<record-id>,<record-id>,...]`** Set of Record ID's that you want to traverse.  This is useful when navigating graphs starting from the same root nodes.
+- **`[<record-id>,<record-id>,...]`** Set of Record ID's that you want to traverse.  This is useful when navigating graphs starting from the same root nodes.
 
 **Context Variables**
 
@@ -131,7 +131,7 @@ ArcadeDB> SELECT out('follow').out('follow') FROM TwitterAccounts
 
 **`TRAVERSE` with the Graph Model and API**
 
-While you can use the <<`TRAVERSE`,SQL-Traverse>> command with any domain model, it provides the greatest utility in <<Graph Databases<<(Graph-Database-Tinkerpop>> model.
+While you can use the <<`TRAVERSE`,SQL-Traverse>> command with any domain model, it provides the greatest utility in <<Graph Databases[(Graph-Database-Tinkerpop>> model.
 
 This model is based on the concepts of the Vertex (or Node) as the type `V` and the Edge (or Arc, Connection, Link, etc.) as the type `E`.  If you want to traverse in a direction, you have to use the type name when declaring the traversing fields.  The supported directions are:
 

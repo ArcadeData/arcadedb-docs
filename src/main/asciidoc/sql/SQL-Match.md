@@ -11,13 +11,13 @@ MATCH
   {
     <<type: <type>], 
     <<as: <alias>], 
-    <<where: (<whereCondition>)]
+    [where: (<whereCondition>)]
   }
   .<functionName>(){
     <<type: <typeName>], 
     <<as: <alias>], 
-    <<where: (<whereCondition>)], 
-    <<while: (<whileCondition>)],
+    [where: (<whereCondition>)], 
+    [while: (<whileCondition>)],
     <<maxDepth: <number>],    
     <<depthAlias: <identifier> ], 
     <<pathAlias: <identifier> ],     
@@ -28,13 +28,13 @@ MATCH
     {
       <<as: <alias>], 
       <<type: <type>], 
-      <<where: (<whereCondition>)]
+      [where: (<whereCondition>)]
     }
     .<functionName>(){
       <<type: <typeName>], 
       <<as: <alias>], 
-      <<where: (<whereCondition>)], 
-      <<while: (<whileCondition>)],
+      [where: (<whereCondition>)], 
+      [while: (<whileCondition>)],
       <<maxDepth: <number>],    
       <<depthAlias: <identifier> ], 
       <<pathAlias: <identifier> ],     
@@ -50,7 +50,7 @@ LIMIT <number>
 
 - **`<type>`** Defines a valid target type.
 - **`as: <alias>`** Defines an alias for a node in the pattern.
-- **`<whereCondition>`** Defines a filter condition to match a node in the pattern.  It supports the normal SQL <<`WHERE`,SQL-Where>> clause.  You can also use the `$currentMatch` and `$matched` <<context variables,#context-variables).
+- **`<whereCondition>`** Defines a filter condition to match a node in the pattern.  It supports the normal SQL <<SQL-Where,`WHERE`>> clause.  You can also use the `$currentMatch` and `$matched` <<context variables,#context-variables).
 - **`<functionName>`** Defines a graph function to represent the connection between two nodes.  For instance, `out()`, `in()`, `outE()`, `inE()`, etc.
 For out(), in(), both() also a shortened *arrow* syntax is supported: 
   - `{...}.out(){...}` can be written as `{...}-->{...}`
@@ -59,7 +59,7 @@ For out(), in(), both() also a shortened *arrow* syntax is supported:
   - `{...}.in("EdgeType"){...}` can be written as `{...}<-EdgeType-{...}`
   - `{...}.both(){...}` can be written as `{...}--{...}`
   - `{...}.both("EdgeType"){...}` can be written as `{...}-EdgeType-{...}`
-- **`<whileCondition>`** Defines a condition that the statement must meet to allow the traversal of this path.  It supports the normal SQL <<`WHERE`,SQL-Where>> clause.  You can also use the `$currentMatch`, `$matched` and `$depth` <<context variables,#context-variables).  For more information, see <<Deep Traversal While Condition,#deep-traversal), below.
+- **`<whileCondition>`** Defines a condition that the statement must meet to allow the traversal of this path.  It supports the normal SQL <<SQL-Where,`WHERE`>> clause.  You can also use the `$currentMatch`, `$matched` and `$depth` <<context variables,#context-variables).  For more information, see <<Deep Traversal While Condition,#deep-traversal), below.
 - **`<maxDepth>`** Defines the maximum depth for this single path.
 - **`<depthAlias>`** This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the depth of this traversal. This alias can be used in the `RETURN` block to retrieve the depth of current traversal.
 - **`<pathAlias>`** This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the elements traversed to reach this alias. This alias can be used in the `RETURN` block to retrieve the elements traversed to reach this alias.

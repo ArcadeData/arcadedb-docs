@@ -1,7 +1,7 @@
 [[SQL-Truncate-Bucket]]
 ### SQL - `TRUNCATE BUCKET`
 
-Deletes all records of a bucket.  This command operates at a lower level than the standard <<`DELETE`,SQL-Delete>> command.
+Deletes all records of a bucket.  This command operates at a lower level than the standard <<SQL-Delete,`DELETE`>> command.
 
 Truncation is not permitted on vertex or edge typees, but you can force its execution using the `UNSAFE` keyword.  Forcing truncation is strongly discouraged, as it can leave the graph in an inconsistent state.
 

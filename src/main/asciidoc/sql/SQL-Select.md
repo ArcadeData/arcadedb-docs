@@ -25,8 +25,8 @@ SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
 - **<<`<Projections>`,SQL-Query.md#projections)** Indicates the data you want to extract from the query as the result-set. Note: In
   ArcadeDB, this variable is optional. In the projections you can define aliases for single fields, using the `AS` keyword; in
   current release aliases cannot be used in the WHERE condition, GROUP BY and ORDER BY (they will be evaluated to null)
-- **`FROM`** Designates the object to query. This can be a type, bucket, single <<Record ID,../datamodeling/Concepts.md#record-id),
-  set of <<Record ID's,../datamodeling/Concepts.md#record-id) index values sorted by ascending or descending key order.
+- **`FROM`** Designates the object to query. This can be a type, bucket, single <<RID,RID>>, set
+  of <<RID,RID>> index values sorted by ascending or descending key order.
     - When querying a type, for `<target>` use the type name.
     - When querying a bucket, for `<target>` use `BUCKET:<bucket-name>` (eg. `BUCKET:person`) or `BUCKET:<bucket-id>` (
       eg. `BUCKET:12`). This causes the query to execute only on records in that bucket.
@@ -35,14 +35,14 @@ SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
     - When querying indexes, use the following prefixes:
         - `INDEXVALUES:<index>` and `INDEXVALUESASC:<index>` sorts values into an ascending order of index keys.
         - `INDEXVALUESDESC:<index>` sorts the values into a descending order of index keys.
-- **<<`WHERE`,SQL-Where>>** Designates conditions to filter the result-set.
-- **<<`LET`,SQL-Query.md#let-block)** Binds context variables to use in projections, conditions or sub-queries.
+- **<<SQL-Where,`WHERE`>>** Designates conditions to filter the result-set.
+- **<<SQL-Select-Let,`LET`>>** Binds context variables to use in projections, conditions or sub-queries.
 - **`GROUP BY`** Designates field on which to group the result-set.
 - **`ORDER BY`** Designates the field with which to order the result-set. Use the optional `ASC` and `DESC` operators to define the
   direction of the order. The default is ascending. Additionally, if you are using a <<projection,SQL-Query.md#projections), you
   need to include the `ORDER BY` field in the projection. Note that ORDER BY works only on projection fields (fields that are
   returned in the result set) not on LET variables.
-- **<<`UNWIND`,SQL-Query.md#unwinding)** Designates the field on which to unwind the collection.
+- **<<SQL-Select,`UNWIND`>>** Designates the field on which to unwind the collection.
 - **`SKIP`** Defines the number of records you want to skip from the start of the result-set. You may find this useful in <<
   pagination,Pagination>>, when using it in conjunction with `LIMIT`.
 - **`LIMIT`** Defines the maximum number of records in the result-set. You may find this useful in <<pagination,Pagination>>, when
@@ -265,7 +265,7 @@ ArcadeDB> SELECT $temp.name FROM Profile LET $temp = address.city WHERE $city.na
           $city.country.name = 'France' )
 ```
 
-** Unwinding **
+**Unwinding**
 
 ArcadeDB allows unwinding of collection fields and obtaining multiple records as a result, one for each element in the collection:
 
@@ -292,10 +292,7 @@ ArcadeDB> SELECT name, OUT("Friend").name AS friendName FROM Person UNWIND frien
 --------+-------------
 ```
 
-> **NOTE**: For more information on other SQL commands, see <<SQL Commands,SQL-Commands>>.
-
-
-** Execution planning **
+**Execution planning**
 
 For details about query execution planning, please refer to <<SQL-Select-Execution,SQL SELECT Execution>>.
 

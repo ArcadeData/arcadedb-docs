@@ -3,7 +3,7 @@
 
 Deletes records of all buckets defined as part of the type.  
 
-By default, every type has an associated bucket with the same name.  This command operates at a lower level than <<`DELETE`,SQL-Delete>>.  This commands ignores sub-typees, (That is, their records remain in their buckets).  If you want to also remove all records from the type hierarchy, you need to use the `POLYMORPHIC` keyword.
+By default, every type has an associated bucket with the same name.  This command operates at a lower level than <<SQL-Delete,`DELETE`>>.  This commands ignores sub-typees, (That is, their records remain in their buckets).  If you want to also remove all records from the type hierarchy, you need to use the `POLYMORPHIC` keyword.
 
 Truncation is not permitted on vertex or edge typees, but you can force its execution using the `UNSAFE` keyword.  Forcing truncation is strongly discouraged, as it can leave the graph in an inconsistent state.
 

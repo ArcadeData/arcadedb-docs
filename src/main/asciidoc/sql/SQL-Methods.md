@@ -15,7 +15,7 @@ SELECT FROM salary.toJSON() FROM employee
 
 As you can see the method is executed against a field/value. Methods can receive parameters, like functions. You can concatenate N operators in sequence.
 
->**Note**: operators are case-insensitive.
+NOTE: operators are case-insensitive.
 
 **Bundled methods**
 
@@ -309,7 +309,7 @@ SELECT dob.convert( 'date' ) FROM User
 ##### .exclude()
 Excludes some properties in the resulting document.
 
-Syntax: ```<value>.exclude(<field-name><<,]*)```
+Syntax: ```<value>.exclude(<field-name>[,]*)```
 
 Applies to the following types:
 - document record
@@ -350,7 +350,7 @@ SELECT salary.format("%-011d") FROM Employee
 
 Returns the hash of the field. Supports all the algorithms available in the JVM.
 
-Syntax: ```<value>```.hash(<<<algorithm>])```
+Syntax: ```<value>```.hash([<algorithm>])```
 
 Applies to the following types:
 - string
@@ -368,7 +368,7 @@ SELECT password.hash('SHA-512') FROM User
 ##### .include()
 Include only some properties in the resulting document.
 
-Syntax: ```<value>.include(<field-name><<,]*)```
+Syntax: ```<value>.include(<field-name>[,]*)```
 
 Applies to the following types:
 - document record
@@ -469,7 +469,7 @@ SELECT FROM Providers WHERE name.length() > 0
 ##### .normalize()
 Form can be NDF, NFD, NFKC, NFKD. Default is NDF. pattern-matching if not defined is "\\p{InCombiningDiacriticalMarks}+". For more information look at <a href="http://www.unicode.org/reports/tr15/tr15-23.html">Unicode Standard</a>.
 
-Syntax: ```<value>.normalize( <<<form>] <<,<pattern-matching>] )```
+Syntax: ```<value>.normalize( [<form>] <<,<pattern-matching>] )```
 
 Applies to the following types:
 - string
@@ -619,7 +619,7 @@ SELECT name.trim() == 'Luke' FROM Actors
 ##### .toJSON()
 Returns the record in JSON format.
 
-Syntax: ```<value>.toJSON(<<<format>])```
+Syntax: ```<value>.toJSON([<format>])```
 
 Where:
 - **format** optional, allows custom formatting rules (separate multiple options by comma). Rules are the following:

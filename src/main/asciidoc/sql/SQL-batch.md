@@ -8,12 +8,12 @@ Batch of commands are very useful when you have to execute multiple things at th
 SQL Batch supports all the ArcadeDB <<SQL Commands,SQL-Commands>>, plus the following:
 
 - ```begin <<isolation <isolation-level>]```, where `<isolation-level>` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
-- ```commit <<retry <retry>]```, where:
+- ```commit [retry <retry>]```, where:
  - <retry> is the number of retries in case of concurrent modification exception
 - ```let <variable> = <SQL>```, to assign the result of a SQL command to a variable. To reuse the variable prefix it with the dollar sign $
-- ```IF(<condition>){ <statememt>; <<<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#conditional-execution).
-- ```WHILE(<condition>){ <statememt>; <<<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
-- ```FOREACH(<variable> IN <expression>){ <statememt>; <<<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
+- ```IF(<condition>){ <statememt>; [<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#conditional-execution).
+- ```WHILE(<condition>){ <statememt>; [<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
+- ```FOREACH(<variable> IN <expression>){ <statememt>; [<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
 - ```SLEEP <ms>```, put the batch in wait for `<ms>` milliseconds.
 - ```console.log <text>```, logs a message in the console. Context variables can be used with `${<variable>}`.
 - ```console.error <text>```, writes a message in the console's standard output. Context variables can be used with `${<variable>}`.

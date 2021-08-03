@@ -7,11 +7,11 @@ Update one or more records in the current database.  Remember: ArcadeDB can work
 
 ```sql
 UPDATE <type>|BUCKET:<bucket>|<recordID>
-  <<SET|REMOVE <field-name> = <field-value><<,]*]|<<CONTENT|MERGE <JSON>]
-  <<UPSERT]
-  <<RETURN <returning> <<<returning-expression>]]
-  <<WHERE <conditions>]
-  <<LIMIT <max-records>] <<TIMEOUT <timeout>]
+  [SET|REMOVE <field-name> = <field-value>[,]*]|[CONTENT|MERGE <JSON>]
+  [UPSERT]
+  [RETURN <returning> [<returning-expression>]]
+  [WHERE <conditions>]
+  [LIMIT <max-records>] [TIMEOUT <timeout>]
 ```
 
 - **`SET`** Defines the fields to update.
@@ -20,16 +20,16 @@ UPDATE <type>|BUCKET:<bucket>|<recordID>
 - **`MERGE`** Merges the record content with a JSON document.
 - **`UPSERT`** Updates a record if it exists or inserts a new record if it doesn't.  This avoids the need to execute two commands, (one for each condition, inserting and updating).  
 
-  `UPSERT` requires a <<`WHERE`,SQL-Where>> clause and a type target.  There are further limitations on `UPSERT`, explained below.
+  `UPSERT` requires a <<SQL-Where,`WHERE`>> clause and a type target.  There are further limitations on `UPSERT`, explained below.
 - **`RETURN`** Specifies an expression to return instead of the record and what to do with the result-set returned by the expression.  The available return operators are:
   - `COUNT` Returns the number of updated records.  This is the default return operator.
   - `BEFORE` Returns the records before the update.
   - `AFTER` Return the records after the update.
-- <<`WHERE`,SQL-Where>>
+- <<SQL-Where,`WHERE`>>
 - `LIMIT` Defines the maximum number of records to update.
 - `TIMEOUT` Defines the time you want to allow the update run before it times out.
 
->**NOTE**: The <<Record ID,../datamodeling/Concepts.md#record-id) must have a `#` prefix.  For instance, `#12:3`.
+NOTE: The <<RID,RID>> must have a `#` prefix.  For instance, `#12:3`.
 
 **Examples**:
 
@@ -83,7 +83,7 @@ ArcadeDB> UPDATE Account REMOVE addresses = addresses<<1]
 ArcadeDB> UPDATE Account REMOVE addresses = 'Luca'
 ```
 
-- Update an embedded document.  The <<`UPDATE`,SQL-Update>> command can take JSON as a value to update.
+- Update an embedded document.  The <<SQL-Update,`UPDATE`>> command can take JSON as a value to update.
 
 ```
 ArcadeDB> UPDATE Account SET address={ "street": "Melrose Avenue", "city": { 
@@ -110,8 +110,7 @@ ArcadeDB> UPDATE Profile SET nick = 'Luca' UPSERT WHERE nick = 'Luca'
 ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @rid
 ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @version
 ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @this
-ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER $current.exclude(
-            "really_big_field")
+ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER $current.exclude("really_big_field")
 ```
 
 In the event that a single field is returned, ArcadeDB wraps the result-set in a record storing the value in the field `result`.  This avoids introducing a new serialization, as there is no primitive values collection serialization in the binary protocol.  Additionally, it provides useful fields like `version` and `rid` from the original record in corresponding fields.  The new syntax allows for optimization of client-server network traffic.
@@ -120,7 +119,7 @@ For more information on SQL syntax, see <<SQL-Select,`SELECT`>>.
 
 **Limitations of the `UPSERT` Clause**
 
-The `UPSERT` clause only guarantees atomicity when you use a `UNIQUE` index and perform the look-up on the index through the <<`WHERE`,SQL-Where>> condition.
+The `UPSERT` clause only guarantees atomicity when you use a `UNIQUE` index and perform the look-up on the index through the <<SQL-Where,`WHERE`>> condition.
 
 ```
 ArcadeDB> UPDATE Client SET id = 23 UPSERT WHERE id = 23

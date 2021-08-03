@@ -14,7 +14,7 @@ DROP TYPE <type> << UNSAFE ]
 
 
 
->**NOTE**: Bear in mind, that the schema must remain coherent.  For instance, avoid removing calsses that are super-typees to others.  This operation won't delete the associated bucket.
+NOTE: Bear in mind, that the schema must remain coherent.  For instance, avoid removing calsses that are super-typees to others.  This operation won't delete the associated bucket.
 
 **Examples**
 

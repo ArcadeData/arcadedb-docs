@@ -5,7 +5,7 @@ When it comes to query languages, SQL is the most widely recognized standard. Th
 
 If you are looking for the most efficient way to traverse a graph, we suggest using the <<SQL-Match,SQL-MATCH>> instead.
 
-Many SQL commands share the <<WHERE condition,SQL-Where>>. Keywords and type names in ArcadeDB SQL are case insensitive. Field names and values are case-sensitive. In the following examples keywords are in uppercase but this is not strictly required.
+Many SQL commands share the [WHERE condition,SQL-Where>>. Keywords and type names in ArcadeDB SQL are case insensitive. Field names and values are case-sensitive. In the following examples keywords are in uppercase but this is not strictly required.
 
 If you are not yet familiar with SQL, we suggest you to get the course on <<KhanAcademy,http://cs-blog.khanacademy.org/2015/05/just-released-full-introductory-sql.html).
 
@@ -34,7 +34,7 @@ SELECT FROM INDEX:myIndex WHERE key = 'Jay'
 - <<SQL syntax,SQL-Syntax>>
 - <<SQL projections,SQL-Projections>>
 - <<SQL conditions,SQL-Where>>
-- <<Where clause,SQL-Where>>
+- [WHERE clause,SQL-Where>>
 - <<Operators,SQL-Where-Operators>>
 - <<Pagination,SQL-Pagination>>
 - <<SQL batch,SQL-batch>>

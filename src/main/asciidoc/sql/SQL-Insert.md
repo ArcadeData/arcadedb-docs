@@ -1,17 +1,17 @@
 [[SQL-Insert]]
 ### SQL - `INSERT`
 
-The <<`INSERT`,SQL-Insert>> command creates a new record in the database.  Records can be schema-less or follow rules specified in your model.
+The <<SQL-Insert,`INSERT`>> command creates a new record in the database.  Records can be schema-less or follow rules specified in your model.
 
 **Syntax**:
 
 ```sql
 INSERT INTO <<TYPE:]<type>|BUCKET:<bucket>|INDEX:<index>
-  <<(<field><<,]*) VALUES (<expression><<,]*)<<,]*]|
-  <<SET <field> = <expression>|<sub-command><<,]*]|
-  <<CONTENT {<JSON>}]
-  <<RETURN <expression>] 
-  <<FROM <query>]
+  [(<field>[,]*) VALUES (<expression>[,]*)[,]*]|
+  [SET <field> = <expression>|<sub-command>[,]*]|
+  [CONTENT {<JSON>}]
+  [RETURN <expression>] 
+  [FROM <query>]
 ```
 
 - **`CONTENT`** Defines JSON data as an option to set field values.
@@ -101,7 +101,7 @@ ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (SELECT FROM Diver
             WHERE name = 'Marko')
 ```
 
-- Inserts using <<`INSERT`,SQL-Insert>> sub-queries:
+- Inserts using <<SQL-Insert,`INSERT`>> sub-queries:
 
 ```
 ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (INSERT INTO Diver 

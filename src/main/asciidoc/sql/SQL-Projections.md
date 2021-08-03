@@ -19,7 +19,7 @@ has three projections:
 
 **A projection** has the following syntax:
 
-`<expression> <<<nestedProjection>] << AS <alias> ]`
+`<expression> [<nestedProjection>] << AS <alias> ]`
 
 - `<expression>` is an expression (see <<SQL Syntax,SQL-Syntax>>) that represents the way to calculate the value of the single projection
 - `<alias>` is the Identifier (see <<SQL Syntax,SQL-Syntax>>) representing the field name used to return the value in the result set
@@ -65,12 +65,12 @@ SELECT  "hey" as name, * from Foo
 will return `[{"@type":"Foo", "@rid":"#12:0", "@version": 2, "name":"bar"}]`
 
 
-> ATTENTION: when saving back a record with a valid rid, you will overwrite the existing record! So pay attention 
-when using `*` together with other projections 
+IMPORTANT: when saving back a record with a valid rid, you will overwrite the existing record! So pay attention 
+when using `*` together with other projections. 
 
-> IMPORTANT - the result of the query can be further unwound using the UNWIND operator
+IMPORTANT: the result of the query can be further unwound using the UNWIND operator.
 
-> IMPORTANT: `expand()` cannot be used together with `GROUP BY`
+IMPORTANT: `expand()` cannot be used together with `GROUP BY`.
 
 ##### Aliases
 

@@ -1,7 +1,7 @@
 [[SQL-Pagination]]
 **Pagination**
 
-OrientDB supports pagination natively. Pagination doesn't consume server side resources because no cursors are used. Only <<RID,Record ID's) are used as pointers to the physical position in the cluster. 
+OrientDB supports pagination natively. Pagination doesn't consume server side resources because no cursors are used. Only <<RID,Record ID's>> are used as pointers to the physical position in the cluster. 
 
 There are 2 ways to achieve pagination:
 
@@ -10,7 +10,7 @@ There are 2 ways to achieve pagination:
 The first and simpler way to do pagination is to use the `SKIP`/`LIMIT` approach. This is the slower way because OrientDB repeats the query and just skips the first X records from the result.
 Syntax:
 ```sql
-SELECT FROM <target> <<WHERE ...] SKIP <records-to-skip> LIMIT <max-records>
+SELECT FROM <target> [WHERE ...] SKIP <records-to-skip> LIMIT <max-records>
 ```
 Where:
 - **records-to-skip** is the number of records to skip before starting to collect them as the result set
@@ -25,11 +25,11 @@ The trick here is to execute the query multiple times setting the `LIMIT` as the
 
 Syntax:
 ```sql
-SELECT FROM <target> WHERE @rid > <lower-rid> ... <<LIMIT <max-records>]
+SELECT FROM <target> WHERE @rid > <lower-rid> ... [LIMIT <max-records>]
 ```
 
 Where:
-- **lower-rid** is the exclusive lower bound of the range as <<Record ID,../datamodeling/Concepts.md#record-id)
+- **lower-rid** is the exclusive lower bound of the range as <<RID,RID>>
 - **max-records** is the maximum number of records returned by the query
 
 In this way, OrientDB will start to scan the cluster from the given position **lower-rid** + 1. After the first call, the **lower-rid** will be the rid of the last record returned by the previous call. To scan the cluster from the beginning, use `#-1:-1` as **lower-rid** .

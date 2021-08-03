@@ -11,7 +11,7 @@ REBUILD INDEX <index>
 
 - **`<index>`** Defines the index that you want to rebuild.  Use `*` to rebuild all automatic indexes.
 
->**NOTE**: During the rebuild, any idempotent queries made against the index, skip the index and perform sequential scans.  This means that queries run slower during this operation.  Non-idempotent commands, such as <<`INSERT`,SQL-Insert>>, <<`UPDATE`,SQL-Update>>, and <<`DELETE`,SQL-Delete>> are blocked waiting until the indexes are rebuilt.
+NOTE: During the rebuild, any idempotent queries made against the index, skip the index and perform sequential scans.  This means that queries run slower during this operation.  Non-idempotent commands, such as <<SQL-Insert,`INSERT`>>, <<SQL-Update,`UPDATE`>>, and <<SQL-Delete,`DELETE`>> are blocked waiting until the indexes are rebuilt.
 
 **Examples**
 

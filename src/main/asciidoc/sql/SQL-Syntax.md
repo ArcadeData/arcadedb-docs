@@ -266,9 +266,9 @@ Integer and Long numbers can be represented in base 10 (decimal), 8 (octal) or 1
   - `0xff`, `0xFF` (equivalent to decimal 255)
   - `-0xff`, `-0xFF` (equivalent to decimal -255)
   
-**Float** numbers are represented in SQL as `<<-]<<<number>].<number>`, eg. valid Float values are `1.5`, `-1567.0`, `.556767`. If the number represented exceeds the Float maximum size (see Java java.lang.Float `MAX_VALUE` and `MIN_VALUE`), then it's automatically converted to a Double. 
+**Float** numbers are represented in SQL as `<<-][<number>].<number>`, eg. valid Float values are `1.5`, `-1567.0`, `.556767`. If the number represented exceeds the Float maximum size (see Java java.lang.Float `MAX_VALUE` and `MIN_VALUE`), then it's automatically converted to a Double. 
 
-**Double** numbers are represented in SQL as `<<-]<<<number>].<number>D` (D can be uppercase or lowercase), eg. valid Float values are `1.5d`, `-1567.0D`, `.556767D`. If the number represented exceeds the Double maximum size (see Java java.lang.Double `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`
+**Double** numbers are represented in SQL as `<<-][<number>].<number>D` (D can be uppercase or lowercase), eg. valid Float values are `1.5d`, `-1567.0D`, `.556767D`. If the number represented exceeds the Double maximum size (see Java java.lang.Double `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`
 
 
 Float and Double numbers can be represented as decimal, decimal with exponent, hexadecimal and hexadecimal with exponent.
@@ -502,9 +502,9 @@ If one of the elements is not an array, then it's converted to an array of one e
 To add an array, you have to wrap the array element in another array:
 
 ```
-<<<<1, 2], <<3, 4]] || <<5, 6] = <<<<1, 2], <<3, 4], 5, 6]
+[<<1, 2], <<3, 4]] || <<5, 6] = [<<1, 2], <<3, 4], 5, 6]
 
-<<<<1, 2], <<3, 4]] || <<<<5, 6]] = <<<<1, 2], <<3, 4], <<5, 6]]
+[<<1, 2], <<3, 4]] || [<<5, 6]] = [<<1, 2], <<3, 4], <<5, 6]]
 ```
 
 The result of an array concatenation is always a List (ordered and with duplicates). The order of the elements in the list is the same as the order in the elements in the source arrays, in the order they appear in the original expression.
