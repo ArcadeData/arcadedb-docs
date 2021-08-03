@@ -145,7 +145,7 @@ SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
 
 
 [[SQL-Select-Projections]]
-#### Projections
+** Projections **
 
 In the standard implementations of SQL, projections are mandatory.  In ArcadeDB, the omission of projects translates to its returning the entire record.  That is, it reads no projection as the equivalent of the `*` wildcard.
 
@@ -196,11 +196,11 @@ ArcadeDB> <code type="lang-sql userinput">SELECT $path, $depth FROM ( TRAVERSE *
 
 
 [[SQL-Select-Let]]
-#### `LET` Block
+** `LET` Block **
 
 The `LET` block contains context variables to assign each time ArcadeDB evaluates a record.  It destroys these values once the query execution ends.  You can use context variables in projections, conditions, and sub-queries.
 
-##### Assigning Fields for Reuse
+** Assigning Fields for Reuse **
 
 ArcadeDB allows for crossing relationships.  In single queries, you need to evaluate the same branch of the nested relationship.  This is better than using a context variable that refers to the full relationship.
 
@@ -219,7 +219,7 @@ ArcadeDB> <code type="lang-sql userinput">SELECT FROM Profile LET $city = addres
 
 In this case, it traverses the path till `address.city` only once.
 
-##### Sub-query
+** Sub-query **
 
 The `LET` block allows you to assign a context variable to the result of a sub-query.
 
@@ -229,7 +229,7 @@ ArcadeDB> <code type="lang-sql userinput">SELECT FROM Document LET $temp = ( SEL
           ( id = 'first concept' OR id = 'second concept' )) WHERE $temp.SIZE() > 0</code>
 </pre>
 
-##### `LET` Block in Projection
+** `LET` Block in Projection **
 
 You can use context variables as part of a result-set in <<projections,#projections).  For instance, the query below displays the city name from the previous example:
 
@@ -240,7 +240,7 @@ ArcadeDB> <code type="lang-sql userinput">SELECT $temp.name FROM Profile LET $te
 </pre>
 
 
-#### Unwinding
+** Unwinding **
 
 Beginning with version 2.1, ArcadeDB allows unwinding of collection fields and obtaining multiple records as a result, one for each element in the collection:
 
@@ -270,11 +270,7 @@ ArcadeDB> <code type="lang-sql userinput">SELECT name, OUT("Friend").name AS fri
 >**NOTE**: For more information on other SQL commands, see <<SQL Commands,SQL-Commands>>.
 
 
-#### Execution planning
+** Execution planning **
 
 For details about query execution planning, please refer to <<SQL SELECT Execution,SQL-Select-Execution>>
 
-#### History
-
-- **1.7.7**: New target prefixes `INDEXVALUES:`, `INDEXVALUESASC:` and `INDEXVALUESDESC:` added.
-- **1.7**: `PARALLEL` keyword added to execute the query against *x* concurrent threads, where *x* is the number of processors or cores found on the operating system where the query runs.  `PARALLEL` execution is useful on long running queries or queries that involve multiple buckets.  On simple queries, using `PARALLEL` can cause a slow down due to the overhead of using multiple threads.

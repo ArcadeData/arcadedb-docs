@@ -1,10 +1,13 @@
-### ArcadeDB SQL syntax
+[[SQL-Syntax]]
+### SQL syntax
 
 ArcadeDB Query Language is and SQL dialect.
 
 This page lists all the details about its syntax.
 
-#### Identifiers
+[[SQL-Identifiers]]
+** Identifiers **
+
 An identifier is a name that identifies an entity in ArcadeDB schema. Identifiers can refer to
 - type names
 - property names
@@ -76,7 +79,8 @@ SELECT `foo\`bar` from Foo
 *(draft)* 
 In current version, type names are case *insensitive*, all the other identifiers are case sensitive.
 
-#### Reserved words
+[[SQL-Reserved-Words]]
+** Reserved words **
 
 In ArcadeDB SQL the following are reserved words
 
@@ -138,7 +142,8 @@ In ArcadeDB SQL the following are reserved words
 - WHERE
 - WHILE
 
-#### Base types
+[[SQL-Base-Types]]
+** Base types **
 
 Accepted base types in ArcadeDB SQL are:
 - **integer numbers**: 
@@ -230,7 +235,8 @@ nUll
 ...
 ```
 
-#### Numbers
+[[SQL-Numbers]]
+** Numbers **
 
 ArcadeDB can store five different types of numbers
 - Integer: 32bit signed
@@ -302,7 +308,8 @@ Eg.
 The instantiation of BigDecimal can be done explicitly, using the `bigDecimal(<number> | <string>)` funciton, eg. `bigDecimal(124.4)` or `bigDecimal("124.4")`
 
 
-###### Mathematical operations
+[[SQL-Mathematical-Operations]]
+** Mathematical operations **
 
 Mathematical Operations with numbers follow these rules:
 - Operations are calculated from left to right, following the operand priority. 
@@ -325,8 +332,8 @@ the overflow follows Java rules.
 The conversion of a number to BigDecimal can be done explicitly, using the `bigDecimal()` funciton, eg. `bigDecimal(124.4)` or `bigDecimal("124.4")`
 
 
-
-#### Collections
+[[SQL-Collections]]
+** Collections **
 
 ArcadeDB supports two types of collections:
 - **Lists**: ordered, allow duplicates
@@ -343,12 +350,14 @@ A `List` can be converted to a `Set` using the `.asSet()` method:
 <<1, 3, 2, 2, 4].asSet() = <<1, 3, 2, 4] /*  the order of the elements in the resulting set is not guaranteed */
 ```
 
-#### Binary data
+[[SQL-Binary]]
+** Binary data **
 ArcadeDB can store binary data (byte arrays) in document fields. There is no native representation of binary data in SQL syntax, insert/update a binary field you have to use `decode(<base64string>, "base64")` function.
 
 To obtain the base64 string representation of a byte array, you can use the function `encode(<byteArray>, "base64")`
 
-#### Expressions
+[[SQL-Expressions]]
+** Expressions **
 
 Expressions can be used as:
 
@@ -374,7 +383,8 @@ Valid expressions are:
 - `<expression> IS NULL`: check for null value of an expression
 - `<expression> IS NOT NULL`: check for non null value of an expression
 
-##### Modifiers
+[[SQL-Modifiers]]
+** Modifiers **
 
 A modifier can be
 - a dot-separated field chain, eg. `foo.bar`. Dot notation is used to navigate relationships and document fields. eg.
@@ -399,7 +409,7 @@ A modifier can be
 - a square bracket filter, eg. `foo<<1]` or `foo<<name = 'John']`
 
 
-##### Square bracket filters
+** Square bracket filters **
 
 Square brackets can be used to filter collections or maps. 
 
@@ -414,13 +424,13 @@ The result of this filtering is ALWAYS a single value.
 - `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. Eg. `fieldName = <<{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName<<foo > 4] = <<{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
 
 
-#### Conditions
+** Conditions **
 
 A condition is an expression that returns a boolean value.
 
 An expression that returns something different from a boolean value is always evaluated to `false`.
 
-#### Comparison Operators
+** Comparison Operators **
 
 - **`=`  (equals)**: If used in an expression, it is the boolean equals (eg. `select from Foo where name = 'John'`. If used in an SET section of INSERT/UPDATE statements or on a LET statement, it represents a variable assignment (eg. `insert into Foo set name = 'John'`)
 - **`!=` (not equals)**: inequality operator. 
@@ -430,7 +440,7 @@ An expression that returns something different from a boolean value is always ev
 - **`<`  (less than)**
 - **`<=` (less or equal)**
 
-#### Math Operators
+** Math Operators **
 
 - **`+`  (plus)**: addition if both operands are numbers, string concatenation (with string conversion) if one of the operands is not a number. The order of calculation (and conversion) is from left to right, eg `'a' + 1 + 2 = 'a12'`, `1 + 2 + 'a' = '3a'`. It can also be used as a unary operator (no effect)
 - **`-`  (minus**): subtraction between numbers. Non-number operands are evaluated to zero. Null values are treated as a zero, eg `1 + null = 1`. Minus can also be used as a unary operator, to invert the sign of a number
@@ -445,7 +455,7 @@ An expression that returns something different from a boolean value is always ev
 - **`^`  (bitwise XOR)** executes a bitwise XOR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`||`**: array concatenation (see below for details)
 
-##### Math Operators precedence
+** Math Operators precedence **
 
 
 [%header,cols=2]
@@ -460,7 +470,7 @@ An expression that returns something different from a boolean value is always ev
 | array concatenation	|   <code>&#124;&#124;</code>
 |===
 
-#### Math + Assign operators
+** Math + Assign operators **
 
 These operators can be used in UPDATE statements to update and set values. The semantics is the same as the operation plus the assignment,
 eg. `a += 2` is just a shortcut for `a = a + 2`.
@@ -471,7 +481,7 @@ eg. `a += 2` is just a shortcut for `a = a + 2`.
 - **`/=`  (divide and assign)**: divides left operand by right operand and assigns the value to the left operand. Returns the final value of the left operand
 - **`%=`  (modulo and assign)**: calculates left operand modulo right operand and assigns the value to the left operand. Returns the final value of the left operand
 
-#### Array concatenation
+** Array concatenation **
 
 The `||` operator concatenates two arrays.
 
@@ -525,7 +535,7 @@ To add null values to a collection, you have to explicitly wrap them in another 
 
 
 
-#### Boolean Operators
+** Boolean Operators **
 
 - **`AND`**: logical AND
 - **`OR`**: logical OR

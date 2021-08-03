@@ -1,3 +1,4 @@
+[[SQL-Batch]]
 ### SQL Batch
 
 ArcadeDB allows execution of arbitrary scripts written in Javascript or any scripting language installed in the JVM. ArcadeDB supports a minimal SQL engine to allow a batch of commands.
@@ -32,7 +33,7 @@ return (SELECT $a as first, $b as second)
 This will work on any protocol and driver.
 
 
-#### Optimistic transaction
+** Optimistic transaction **
 
 Example to create a new vertex in a <<Transaction,../internals/Transactions>> and attach it to an existent vertex by creating a new edge between them. If a concurrent modification occurs, repeat the transaction up to 100 times:
 
@@ -47,7 +48,7 @@ return $e;
 
 Note the usage of $account and $city in further SQL commands.
 
-#### Pessimistic transaction
+** Pessimistic transaction **
 
 This script above used an Optimistic approach: in case of conflict it retries up top 100 times by re-executing the entire transaction (commit retry 100). To follow a Pessimistic approach by locking the records, try this:
 
@@ -61,8 +62,7 @@ return $e;
 ```
 
 
-#### Conditional execution 
-(since 2.1.7)
+** Conditional execution **
 SQL Batch provides IF constructor to allow conditional execution.
 The syntax is
 
@@ -88,11 +88,11 @@ if($a.size() > 0) {
 }
 ```
 
-#### Loops
+** Loops **
 
 SQL Batch provides two different loop blocks: FOREACH and WHILE
 
-###### FOREACH
+#### FOREACH
 
 (since v 3.0.3 - experimental)
 
@@ -115,7 +115,7 @@ FOREACH ($i IN <<1, 2, 3]){
 ```
 
 
-###### WHILE
+#### WHILE
 
 (since v 3.0.3 - experimental)
 

@@ -1,4 +1,4 @@
-[[SQL-MATCH]]
+[[SQL-Match]]
 ### SQL - `MATCH`
 
 Queries the database in a declarative manner, using pattern matching.  This feature was introduced in version 2.2.
@@ -243,9 +243,9 @@ The following examples are based on this sample data-set from the type `People`:
 
 
 
-#### DISTINCT
+** DISTINCT **
 
-In v 3.0 the MATCH statement returns all the occurrences of a pattern, even if they are duplicated. To have unique, distinct records
+The MATCH statement returns all the occurrences of a pattern, even if they are duplicated. To have unique, distinct records
 as a result, you have to specify the DISTINCT keyword in the RETURN statement.
 
 Example: suppose you have a dataset made like following:
@@ -285,11 +285,7 @@ And this is the result of the query with a DISTINCT clause:
   --------
   </pre>
   
-> IMPORTANT: in V 2.2 it was not possible to specify DISTINCT keyword in the RETURN block and the DISTINCT was implicit.
-
-> IMPORTANT: in V 3.0, using the **legacy Java API**, the behavior will be the same as in v 2.2 
-
-#### Context Variables
+** Context Variables **
 
 When running these queries, you can use any of the following context variables:
 
@@ -301,10 +297,10 @@ When running these queries, you can use any of the following context variables:
 
 
 
-#### Use Cases
+** Use Cases **
 
 
-##### Expanding Attributes
+** Expanding Attributes **
 
 You can run this statement as a sub-query inside of another statement.  Doing this allows you to obtain details and aggregate data from the inner <<`SELECT`,SQL-Query>> query.
 
@@ -347,11 +343,11 @@ ArcadeDB> <code type="lang-sql userinput">MATCH {type: Person, as: person,
 </pre>
 
 
-  
 
 
 
-##### Incomplete Hierarchy
+
+** Incomplete Hierarchy **
 
 Consider building a database for a company that shows a hierarchy of departments within the company.  For instance,
 
@@ -396,7 +392,7 @@ ArcadeDB> <code type="lang-sql userinput">SELECT EXPAND(manager) FROM (MATCH {ty
 
 
 
-##### Deep Traversal
+** Deep Traversal **
 
 Match path items act in a different manners, depending on whether or not you use `while:` conditions in the statement.
 
@@ -461,13 +457,13 @@ ArcadeDB> <code type="lang-sql userinput">MATCH {type: Person, where: (name = 'a
 </pre>
 
 
-#### Best practices
+** Best practices **
 
 Queries can involve multiple operations, based on the domain model and use case.  In some cases, like projection and aggregation, you can easily manage them with a <<`SELECT`,SQL-Query>> query.  With others, such as pattern matching and deep traversal, <<`MATCH`,SQL-Match>> statements are more appropriate.
 
 Use <<`SELECT`,SQL-Query>> and <<`MATCH`,SQL-Match>> statements together (that is, through sub-queries), to give each statement the correct responsibilities.  Here, 
 
-##### Filtering Record Attributes for a Single Type
+** Filtering Record Attributes for a Single Type **
 
 Filtering based on record attributes for a single type is a trivial operation through both statements.  That is, finding all people named John can be written as:
 
@@ -485,7 +481,7 @@ ArcadeDB> <code type="lang-sql userinput">MATCH {type: Person, as: person, where
 The efficiency remains the same.  Both queries use an index.  With <<`SELECT`,SQL-Query>>, you obtain expanded records, while with <<`MATCH`,SQL-Match>>, you only obtain the Record ID's.
 
 
-##### Filtering on Record Attributes of Connected Elements
+** Filtering on Record Attributes of Connected Elements **
 
 Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<`SELECT`,SQL-Query>>, while with <<`MATCH`,SQL-Match>> it is simple.
 
@@ -514,7 +510,7 @@ ArcadeDB> <code type="lang-sql userinput">MATCH {type: Person, where: (name = 'J
 
 Here, the query executor optimizes the query for you, choosing indexes where they exist.  Moreover, the query becomes more readable, especially in complex cases, such as multiple nested <<`SELECT`,SQL-Query>> queries.
 
-##### `TRAVERSE` Alternative
+** `TRAVERSE` Alternative **
 
 There are similar limitations to using <<`TRAVERSE`,SQL-Traverse>>.  You may benefit from using <<`MATCH`,SQL-Match>> as an alternative.
 
@@ -549,7 +545,7 @@ ArcadeDB> <code type="lang-sql userinput">MATCH {type: Person, where: (name = 'J
 </pre>
 
 
-##### Projections and Grouping Operations
+** Projections and Grouping Operations **
 
 Projections and grouping operations are better expressed with a <<`SELECT`,SQL-Query>> query.  If you need to filter and do projection or aggregation in the same query, you can use <<`SELECT`,SQL-Query>> and <<`MATCH`,SQL-Match>> in the same statement.
 
@@ -572,7 +568,7 @@ ArcadeDB> <code type="lang-sql userinput">MATCH {type: Person, as: person}.bothE
 		  RETURN person.name as name, friendship.since as since, friend.name as friend</code>
 </pre>
 
-##### RETURN expressions
+** RETURN expressions **
 
 In the RETURN section you can use:
 
@@ -711,7 +707,7 @@ result:
 **IMPORTANT**: When using MATCH statemet in ArcadeDB Studio Graph panel you have to use $elements or $pathElements as return type, to let the Graph panel render the matched patterns correctly
 
 
-##### Arrow notation
+** Arrow notation **
 
 `out()`, `in()` and `both()` operators can be replaced with arrow notation `-->`, `<--` and `--`
 
@@ -766,9 +762,7 @@ MATCH {type: Person, as: a}.out(){}.out(){as:b} RETURN a, b  //is allowed
 </code>
 </pre>
 
-##### Negative (NOT) patterns
-
-(since 3.0.3 - experimental) 
+** Negative (NOT) patterns **
 
 Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if the result matches at least one of the negative patterns it won't be returned.
 

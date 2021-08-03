@@ -1,4 +1,4 @@
-
+[[SQL-Drop-Type]]
 ### SQL - `DROP TYPE`
 
 Removes a type from the schema.
@@ -30,4 +30,3 @@ DROP TYPE <type> << UNSAFE ]
 >- <<`ALTER TYPE`,SQL-Alter-Type>>
 >- <<`ALTER BUCKET`,SQL-Alter-Bucket>>
 >- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>

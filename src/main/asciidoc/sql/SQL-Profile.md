@@ -1,4 +1,4 @@
-
+[[SQL-Profile]]
 ### SQL - `PROFILE`
 
 PROFILE SQL command returns information about query execution planning and statistics for a specific statement.

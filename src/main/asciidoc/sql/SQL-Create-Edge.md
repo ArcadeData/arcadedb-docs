@@ -1,4 +1,4 @@
-
+[[SQL-Create-Edge]]
 ### SQL - `CREATE EDGE`
 
 Creates a new edge in the database.
@@ -21,7 +21,7 @@ CREATE EDGE <type> <<BUCKET <bucket>] <<UPSERT] FROM <rid>|(<query>)|<<<rid>]* T
 
 Edges and Vertices form the main components of a Graph database.  ArcadeDB supports polymorphism on edges.  The base type for an edge is `E`. 
 
-Beginning with version 2.1, when no edges are created ArcadeDB throws a `OCommandExecutionException` error.  This makes it easier to integrate edge creation in transactions.  In such cases, if the source or target vertices don't exist, it rolls back the transaction.  (Prior to 2.1, no such error is thrown.)
+When no edges are created ArcadeDB throws a `OCommandExecutionException` error.  This makes it easier to integrate edge creation in transactions.  In such cases, if the source or target vertices don't exist, it rolls back the transaction. 
 
 
 **Examples**
@@ -78,45 +78,3 @@ Beginning with version 2.1, when no edges are created ArcadeDB throws a `OComman
 >- <<`CREATE VERTEX`,SQL-Create-Vertex>>
 
 
-#### Control Vertices Version Increment
-
-Creating and deleting edges causes ArcadeDB to update versions involved in the vertices.  To avoid this behavior, use the <<Bonsai Structure,../internals/RidBag>>.
-
-By default, ArcadeDB uses Bonsai as soon as it reaches the threshold to optimize operation.  To always use Bonsai on your database, either set this configuration on the JVM or in the `ArcadeDB-server-config.xml` configuration file.
-
-<pre>
-$ <code type="userinput lang-sh">java -DridBag.embeddedToSbtreeBonsaiThreshold=-1</code>
-</pre>
-
-Alternatively, in your Java application use the following call before opening the database:
-
-```java
-OGlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(-1);
-```
-
->For more information, see <<Concurrency on Adding Edges,../general/Concurrency.md#concurrency-when-adding-edges).
-
-| !<<NOTE,../images/warning.png) | When running a distributed database, edge creation can sometimes be done in two steps, (that is, create and update).  This can break some constraints defined in the Edge at the type-level.  To avoid such problems, disable the constraints in the Edge type.  Bear in mind that in distributed mode SB Tree index algorithm is not supported.  You must set `ridBag.embeddedToSbtreeBonsaiThreashold=Integer.Max\_VALUE` to avoid replication errrors|
-|----|----|
-
-
-
-#### History
-
-##### 2.0
-
-- Disables <<Lightweight Edges,../java/Lightweight-Edges>> in new databases by default.  This command now creates a regular edge.
-
-##### 1.4
-
-- Command uses the Blueprints API.  If you are in Java using the `OGraphDatabase` API, you may experience some differences in how ArcadeDB manages edges.
-
-  >To force the command to work with the older API, change the GraphDB settings, as described in <<Graph backwards compatibility,SQL-Alter-Database>>.
-
-##### 1.2
-
-- Implements support for query and collection of Record ID's in the `FROM...TO` clause.
-
-##### 1.1
-
-- Initial version.

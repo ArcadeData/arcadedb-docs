@@ -1,4 +1,4 @@
-
+[[SQL-Delete]]
 ### SQL - `DELETE`
 
 Removes one or more records from the database.  You can refine the set of records that it removes using the <<`WHERE`,SQL-Where>> clause.
@@ -21,7 +21,7 @@ DELETE FROM <Type>|BUCKET:<bucket>|INDEX:<index> <<RETURN <returning>]
 
 **Examples:**
 
-- Delete all recods with the surname `unknown`, ignoring case:
+- Delete all records with the surname `unknown`, ignoring case:
 
   <pre>
   ArcadeDB> <code type="lang-sql userinput">DELETE FROM Profile WHERE surname.toLowerCase() = 'unknown'</code>

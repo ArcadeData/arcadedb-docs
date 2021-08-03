@@ -1,3 +1,4 @@
+[[SQL-Projections]]
 #### SQL Projections
 
 A projection is a value that is returned by a query statement (SELECT, MATCH).

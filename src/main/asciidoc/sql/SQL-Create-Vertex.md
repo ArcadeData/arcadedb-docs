@@ -62,16 +62,3 @@ CREATE VERTEX <<<type>] <<BUCKET <bucket>] <<SET <field> = <expression><<,]*]
 >For more information, see
 >
 >- <<`CREATE EDGE`,SQL-Create-Edge>>
->- <<SQL Commands,SQL-Commands>>
-
-#### History
-
-##### 1.4
-
-- Command begins using the Blueprints API.  When using Java with the OGraphDatabase API, you may experience unexpected results in how it manages edges.
-
-  To force the command to work with the older API, update the GraphDB settings, use the <<`ALTER DATABASE`,SQL-Alter-Database>> command.
-
-##### 1.1
-
-- Initial implementation of feature.

@@ -79,10 +79,6 @@ Get the first 10 tags of posts:
 SELECT FROM tags<<0-9] FROM Posts
 ```
 
-#### History
-
-- 1.0rc5: First version
-
 ---
 
 ##### .append()
@@ -99,9 +95,6 @@ Applies to the following types:
 SELECT name.append(' ').append(surname) FROM Employee
 ```
 
-#### History
-
-- 1.0rc1: First version
 
 ---
 
@@ -122,10 +115,6 @@ Applies to the following types:
 SELECT FROM Users WHERE online.asBoolean() = true
 ```
 
-#### History
-
-- 0.9.15: First version
-
 ---
 
 ##### .asDate()
@@ -144,10 +133,6 @@ Time is stored as long type measuring milliseconds since a particular day. Retur
 ```sql
 SELECT FROM Log WHERE time.asDateTime() < '01-01-2010 00:00:00' 
 ```
-#### History
-
-- 0.9.14: First version
-
 ---
 
 ##### .asDateTime()
@@ -167,10 +152,6 @@ Time is stored as long type measuring milliseconds since a particular day. Retur
 SELECT FROM Log WHERE time.asDateTime() < '01-01-2010 00:00:00' 
 ```
 
-#### History
-
-- 0.9.14: First version
-
 ---
 
 ##### .asDecimal()
@@ -186,9 +167,6 @@ Applies to the following types:
 ```sql
 SELECT salary.asDecimal() FROM Employee
 ```
-#### History
-
-- 1.0rc1: First version
 
 ---
 
@@ -206,9 +184,6 @@ Applies to the following types:
 SELECT ray.asFloat() > 3.14
 ```
 
-#### History
-
-- 0.9.14: First version
 
 ---
 
@@ -227,9 +202,6 @@ Converts the first 3 chars of 'value' field in an integer:
 ```sql
 SELECT value.left(3).asInteger() FROM Log
 ```
-#### History
-
-- 0.9.14: First version
 
 ---
 
@@ -247,9 +219,6 @@ Applies to the following types:
 ```sql
 SELECT tags.asList() FROM Friend
 ```
-#### History
-
-- 1.0rc2: First version
 
 ---
 
@@ -267,9 +236,6 @@ Applies to the following types:
 ```sql
 SELECT date.asLong() FROM Log
 ```
-#### History
-
-- 1.0rc1: First version
 
 ---
 
@@ -286,10 +252,6 @@ Applies to the following types:
 ```sql
 SELECT tags.asMap() FROM Friend
 ```
-#### History
-
-- 1.0rc2: First version
-
 ---
 
 ##### .asSet()
@@ -305,9 +267,6 @@ Applies to the following types:
 ```sql
 SELECT tags.asSet() FROM Friend
 ```
-#### History
-
-- 1.0rc2: First version
 
 ---
 
@@ -326,10 +285,6 @@ Get all the salaries with decimals:
 SELECT salary.asString().indexof('.') > -1
 ```
 
-#### History
-
-- 0.9.14: First version
-
 ---
 
 ##### .charAt()
@@ -346,9 +301,6 @@ Get the first character of the users' name:
 ```sql
 SELECT FROM User WHERE name.charAt( 0 ) = 'L'
 ```
-#### History
-
-- 0.9.7: First version
 
 ---
 
@@ -365,9 +317,6 @@ Applies to the following types:
 ```sql
 SELECT dob.convert( 'date' ) FROM User
 ```
-#### History
-
-- 1.0rc2: First version
 
 ---
 
@@ -409,10 +358,6 @@ Formats salaries as number with 11 digits filling with 0 at left:
 SELECT salary.format("%-011d") FROM Employee
 ```
 
-#### History
-
-- 0.9.8: First version
-
 ---
 
 ##### .hash()
@@ -431,8 +376,6 @@ Get the SHA-512 of the field "password" in the type User:
 ```sql
 SELECT password.hash('SHA-512') FROM User
 ```
-###### History
-- 1.7: First version
 
 ---
 
@@ -456,10 +399,6 @@ Starting from 2.2.19 you can specify a wildcard as ending character to inclide a
 SELECT EXPAND( @this.exclude( 'amount*' ) ) FROM V
 ```
 
-#### History
-
-- 1.0rc2: First version
-
 ---
 
 ##### .indexOf()
@@ -475,10 +414,6 @@ Returns all the UK numbers:
 ```sql
 SELECT FROM Contact WHERE phone.indexOf('+44') > -1
 ```
-#### History
-
-- 0.9.10: First version
-
 ---
 
 ##### .javaType()
@@ -494,9 +429,6 @@ Prints the Java type used to store dates:
 ```sql
 SELECT FROM date.javaType() FROM Events
 ```
-#### History
-
-- 1.0rc1: First version
 
 ---
 
@@ -513,8 +445,6 @@ Applies to the following types:
 ```sql
 SELECT FROM Actor WHERE 'Luke' IN map.keys()
 ```
-#### History
-- 1.0rc1: First version
 
 ---
 
@@ -532,9 +462,6 @@ Applies to the following types:
 SELECT FROM Actors WHERE name.left( 4 ) = 'Luke'
 ```
 
-#### History
-- 0.9.7: First version
-
 ---
 
 ##### .length()
@@ -549,8 +476,6 @@ Applies to the following types:
 ```sql
 SELECT FROM Providers WHERE name.length() > 0
 ```
-#### History
-- 0.9.7: First version
 
 ---
 
@@ -567,12 +492,7 @@ Applies to the following types:
 ```sql
 SELECT FROM V WHERE name.normalize() AND name.normalize('NFD')
 ```
-#### History
-
-- 1.4.0: First version
 ---
-
-
 
 ##### .prefix()
 Prefixes a string to another one.
@@ -586,8 +506,6 @@ Applies to the following types:
 ```sql
 SELECT name.prefix('Mr. ') FROM Profile
 ```
-#### History
-- 1.0rc1: First version
 
 ---
 
@@ -605,9 +523,6 @@ Applies to the following types:
 SELECT out().in().remove( @this ) FROM V
 ```
 
-#### History
-
-- 1.0rc1: First version
 
 ---
 
@@ -625,10 +540,6 @@ Applies to the following types:
 SELECT out().in().removeAll( @this ) FROM V
 ```
 
-#### History
-
-- 1.0rc1: First version
-
 ---
 
 ##### .replace()
@@ -645,12 +556,7 @@ Applies to the following types:
 SELECT name.replace('Mr.', 'Ms.') FROM User
 ```
 
-#### History
-
-- 1.0rc1: First version
-
 ---
-
 
 ##### .right()
 Returns a substring of the original cutting from the end of the string 'length' characters.
@@ -666,10 +572,6 @@ Returns all the vertices where the name ends by "ke".
 ```sql
 SELECT FROM V WHERE name.right( 2 ) = 'ke'
 ```
-
-#### History
-
-- 0.9.7: First version
 
 ---
 
@@ -687,10 +589,6 @@ Returns all the items in a tree with children:
 ```sql
 SELECT FROM TreeItem WHERE children.size() > 0
 ```
-
-#### History
-
-- 0.9.7: First version
 
 ---
 
@@ -715,9 +613,6 @@ SELECT "ArcadeDB".substring(0,6)
 ```
 returns `Orient`
 
-#### History
-- 0.9.7: First version
-
 ---
 
 ##### .trim()
@@ -732,10 +627,6 @@ Applies to the following types:
 ```sql
 SELECT name.trim() == 'Luke' FROM Actors
 ```
-
-#### History
-
-- 0.9.7: First version
 
 ---
 
@@ -767,11 +658,8 @@ insert into Test content {"attr1": "value 1", "attr2": "value 2"}
 
 select @this.toJson('rid,version,fetchPlan:in_*:-2 out_*:-2') from Test
 ```
-#### History
-- 0.9.8: First version
 
 ---
-
 
 ##### .toLowerCase()
 Returns the string in lower case.
@@ -786,10 +674,7 @@ Applies to the following types:
 SELECT name.toLowerCase() == 'luke' FROM Actors
 ```
 
-#### History
-- 0.9.7: First version
 ---
-
 
 ##### .toUpperCase()
 Returns the string in upper case.
@@ -803,9 +688,6 @@ Applies to the following types:
 ```sql
 SELECT name.toUpperCase() == 'LUKE' FROM Actors
 ```
-
-#### History
-- 0.9.7: First version
 
 ---
 
@@ -822,9 +704,6 @@ Prints the type used to store dates:
 ```sql
 SELECT FROM date.type() FROM Events
 ```
-#### History
-
-- 1.0rc1: First version
 
 ---
 
@@ -843,7 +722,4 @@ Applies to the following types:
 ```sql
 SELECT FROM Clients WHERE map.values() CONTAINSALL ( name is not null)
 ```
-#### History
-
-- 1.0rc1: First version
 ---

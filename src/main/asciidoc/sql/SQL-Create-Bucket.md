@@ -1,4 +1,4 @@
-
+[[SQL-Create-Bucket]]
 ### SQL - `CREATE BUCKET`
 
 Creates a new bucket in the database.  Once created, you can use the bucket to save records by specifying its name during saves.  If you want to add the new bucket to a type, follow its creation with the <<`ALTER TYPE`,SQL-Alter-Type>> command, using the `ADDBUCKET` option.
@@ -24,5 +24,3 @@ CREATE BUCKET <bucket> <<ID <bucket-id>]
 >For more information see,
 >
 >- <<`DROP BUCKET`,SQL-Drop-Bucket>>
->- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>

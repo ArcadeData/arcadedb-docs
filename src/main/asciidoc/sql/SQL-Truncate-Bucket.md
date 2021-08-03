@@ -1,4 +1,4 @@
-
+[[SQL-Truncate-Bucket]]
 ### SQL - `TRUNCATE BUCKET`
 
 Deletes all records of a bucket.  This command operates at a lower level than the standard <<`DELETE`,SQL-Delete>> command.

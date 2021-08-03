@@ -1,4 +1,4 @@
-
+[[SQL-Drop-Property]]
 ### SQL - `DROP PROPERTY`
 
 Removes a property from the schema.  Does not remove the property values in the records, it just changes the schema information.  Records continue to have the property values, if any.

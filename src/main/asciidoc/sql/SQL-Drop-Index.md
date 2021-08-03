@@ -1,4 +1,4 @@
-
+[[SQL-Drop-Index]]
 ### SQL - `DROP INDEX`
 
 Removes an index from a property defined in the schema.

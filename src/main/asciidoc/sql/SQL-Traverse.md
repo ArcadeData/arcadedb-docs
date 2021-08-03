@@ -1,4 +1,4 @@
-
+[[SQL-Traverse]]
 ### SQL - `TRAVERSE`
 
 Retrieves connected records crossing relationships.  This works with both the Document and Graph API's, meaning that you can traverse relationships between say invoices and customers on a graph, without the need to model the domain using the Graph API.
@@ -82,9 +82,9 @@ In a social network-like domain, a user profile is connected to friends through 
 
 
 
-#### Supported Variables
+** Supported Variables **
 
-##### Fields
+** Fields **
 
 Defines the fields that you want to traverse.  If set to `*`, `any()` or `all()` then it traverses all fields.  This can prove costly to performance and resource usage, so it is recommended that you optimize the command to only traverse the pertinent fields.
 
@@ -92,7 +92,7 @@ In addition to his, you can specify the fields at a type-level.  <<Polymorphism,
 
 Field names are case-sensitive, typees not.
 
-##### Target
+** Target **
 
 Targets for traversal can be,
 - **`<type>`** Defines the type that you want to traverse.  
@@ -100,7 +100,7 @@ Targets for traversal can be,
 - **`<record-id>`** Individual root Record ID that you want to traverse.
 - **`<<<record-id>,<record-id>,...]`** Set of Record ID's that you want to traverse.  This is useful when navigating graphs starting from the same root nodes.
 
-##### Context Variables
+** Context Variables **
 
 In addition to the above, you can use the following context variables in traversals:
 - **`$parent`** Gives the parent context, if any.  You may find this useful when traversing from a sub-query. 
@@ -111,9 +111,9 @@ In addition to the above, you can use the following context variables in travers
   ArcadeDB> <code type="lang-sql userinput">SELECT $path FROM (TRAVERSE * FROM V)</code>
   </pre>
 
-#### Use Cases
+** Use Cases **
 
-##### `TRAVERSE` versus `SELECT`
+** `TRAVERSE` versus `SELECT` **
 
 When you already know traversal information, such as relationship names and depth-level, consider using <<`SELECT`,SQL-Query>> instead of <<`TRAVERSE`,SQL-Traverse>> as it is faster in some cases. 
 
@@ -162,7 +162,3 @@ ArcadeDB> <code type="lang-sql userinput">SELECT FROM (TRAVERSE outE(), inV() FR
           @type = 'Message'</code>
 </pre>
 
-
->For more information, see
->- <<Java-Traverse,../java/Java-Traverse>> page.
->- <<SQL Commands,SQL-Commands>>

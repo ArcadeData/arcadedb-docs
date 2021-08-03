@@ -1,4 +1,4 @@
-
+[[SQL-Create-Property]]
 ### SQL - `CREATE PROPERTY`
 
 Creates a new property in the schema.  It requires that the type for the property already exist on the database.
@@ -19,7 +19,7 @@ CREATE PROPERTY
 - **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
 - **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
 - **`<property-constraint>`** See <<`ALTER PROPERTY`,SQL-Alter-Property>> `<attribute-name> << <attribute-value> ]` (since V2.2.3)
-- **`UNSAFE`** Defines whether it checks existing records.  On larger databases, with millions of records, this could take a great deal of time.  Skip the check when you are sure the property is new.  Introduced in version 2.0.
+- **`UNSAFE`** Defines whether it checks existing records.  On larger databases, with millions of records, this could take a great deal of time.  Skip the check when you are sure the property is new.
 
 
 >When you create a property, ArcadeDB checks the data for property and type.  In the event that persistent data contains incompatible values for the specified type, the property creation fails.  It applies no other constraints on the persistent data.
@@ -55,26 +55,24 @@ CREATE PROPERTY
 >For more information, see
 >
 >- <<`DROP PROPERTY`,SQL-Drop-Property>>
->- <<SQL Commands,SQL-Commands>>
->- <<Console Commands,../console/Console-Commands>>
 
-
-#### Supported Types
+** Supported Types **
 
 ArcadeDB supports the following data types for standard properties:
 
-| | | | | |
-|---|---|---|---|---|
-| `BOOLEAN` | `SHORT` | `DATE` | `DATETIME` | `BYTE`|
-| `INTEGER` | `LONG` | `STRING` | `LINK` | `DECIMAL` |
-| `DOUBLE` | `FLOAT` | `BINARY` | `EMBEDDED` | `LINKBAG` |
+[%header,cols=5]
+|===
+| `BOOLEAN` | `SHORT` | `DATE` | `DATETIME` | `BYTE`
+| `INTEGER` | `LONG` | `STRING` | `LINK` | `DECIMAL` 
+| `DOUBLE` | `FLOAT` | `BINARY` | `EMBEDDED` | 
+|===
 
 It supports the following data types for container properties.  
 
-||||
-|---|---|---|
-| `EMBEDDEDLIST` | `EMBEDDEDSET` | `EMBEDDEDMAP` |
-| `LINKLIST` | `LINKSET` | `LINKMAP` |
+[%header,cols=2]
+|===
+| `LIST` |  `MAP`
+|===
 
 For these data types, you can optionally define the contained type and type.  The supported link types are the same as the standard property data types above.
 

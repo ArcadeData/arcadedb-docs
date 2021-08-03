@@ -1,4 +1,4 @@
-
+[[SQL-Create-Index]]
 ### SQL - `CREATE INDEX`
 
 Creates a new index.  Indexes can be
@@ -116,5 +116,3 @@ In the event that the `ON` and `<key-type>` clauses both exist, the database val
 
 > For more information, see
 >- <<`DROP INDEX`,SQL-Drop-Index>>
->- <<Indexes,../indexing/Indexes>>
->- <<SQL Commands,SQL-Commands>>

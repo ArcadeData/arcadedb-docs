@@ -1,4 +1,4 @@
-
+[[SQL-Insert]]
 ### SQL - `INSERT`
 
 The <<`INSERT`,SQL-Insert>> command creates a new record in the database.  Records can be schema-less or follow rules specified in your model.

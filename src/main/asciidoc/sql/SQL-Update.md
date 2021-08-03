@@ -1,4 +1,4 @@
-
+[[SQL-Update]]
 ### SQL - `UPDATE`
 
 Update one or more records in the current database.  Remember: ArcadeDB can work in schema-less mode, so you can create any field on-the-fly.  Furthermore, the command also supports extensions to work on collections.

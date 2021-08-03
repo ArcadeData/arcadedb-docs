@@ -1,4 +1,4 @@
-
+[[SQL-Explain]]
 ### SQL - `EXPLAIN`
 
 EXPLAIN SQL command returns information about query execution planning of a specific statement, without executing the statement itself.

@@ -1,4 +1,4 @@
-
+[[SQL-Truncate-Type]]
 ### SQL - `TRUNCATE TYPE`
 
 Deletes records of all buckets defined as part of the type.  

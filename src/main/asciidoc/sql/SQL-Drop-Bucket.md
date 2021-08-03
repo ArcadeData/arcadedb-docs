@@ -1,3 +1,4 @@
+[[SQL-Drop-Bucket]]
 ### SQL - `DROP BUCKET`
 
 Removes the bucket and all of its content.  This operation is permanent and cannot be rolled back.

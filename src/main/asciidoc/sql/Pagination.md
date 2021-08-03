@@ -5,7 +5,7 @@ OrientDB supports pagination natively. Pagination doesn't consume server side re
 
 There are 2 ways to achieve pagination:
 
-#### Use the SKIP-LIMIT
+** Use the SKIP-LIMIT **
 
 The first and simpler way to do pagination is to use the `SKIP`/`LIMIT` approach. This is the slower way because OrientDB repeats the query and just skips the first X records from the result.
 Syntax:
@@ -16,8 +16,8 @@ Where:
 - **records-to-skip** is the number of records to skip before starting to collect them as the result set
 - **max-records** is the maximum number of records returned by the query
 
-Example
-#### Use the RID-LIMIT
+
+** Use the RID-LIMIT **
 
 This method is faster than the `SKIP`-`LIMIT` because OrientDB will begin the scan from the starting RID. OrientDB can seek the first record in about O(1) time. The downside is that it's more complex to use.
 
