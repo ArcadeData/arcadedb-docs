@@ -108,7 +108,6 @@ ArcadeDB> UPDATE Profile SET nick = 'Luca' UPSERT WHERE nick = 'Luca'
 
 ```
 ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @rid
-ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @version
 ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER @this
 ArcadeDB> UPDATE ♯7:0 SET gender='male' RETURN AFTER $current.exclude("really_big_field")
 ```

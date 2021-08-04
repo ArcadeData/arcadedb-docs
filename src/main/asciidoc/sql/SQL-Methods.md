@@ -1,5 +1,5 @@
 [[SQL-Methods]]
-### SQL Methods
+#### Methods
 
 SQL Methods are similar to <<SQL functions,SQL-Functions>> but they apply to values. In Object Oriented paradigm they are called "methods", as functions related to a type. So what's the difference between a function and a method?
 
@@ -321,7 +321,7 @@ SELECT EXPAND( @this.exclude( 'password' ) ) FROM OUser
 ```
 
 
-Starting from 2.2.19 you can specify a wildcard as ending character to exclude all the fields that start with a certain string. Example to exclude all the outgoing and incloming edges:
+You can specify a wildcard as ending character to exclude all the fields that start with a certain string. Example to exclude all the outgoing and incloming edges:
 
 ```sql
 SELECT EXPAND( @this.exclude( 'out_*', 'in_*' ) ) FROM V
@@ -379,7 +379,7 @@ Applies to the following types:
 SELECT EXPAND( @this.include( 'name' ) ) FROM OUser
 ```
 
-Starting from 2.2.19 you can specify a wildcard as ending character to inclide all the fields that start with a certain string. Example to include all the fields that starts with `amonut`:
+You can specify a wildcard as ending character to inclide all the fields that start with a certain string. Example to include all the fields that starts with `amonut`:
 
 ```sql
 SELECT EXPAND( @this.exclude( 'amount*' ) ) FROM V
@@ -623,9 +623,7 @@ Syntax: ```<value>.toJSON([<format>])```
 
 Where:
 - **format** optional, allows custom formatting rules (separate multiple options by comma). Rules are the following:
- - **type** to include the fields' types in the "@fieldTypes" attribute
  - **rid** to include records's RIDs as attribute "@rid"
- - **version** to include records' versions in the attribute "@version"
  - **type** to include the type name in the attribute "@type"
  - **attribSameRow** put all the attributes in the same row
  - **indent** is the indent level as integer. By Default no ident is used

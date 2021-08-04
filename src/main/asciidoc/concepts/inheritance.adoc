@@ -1,0 +1,51 @@
+[[Inheritance]]
+### Inheritance
+
+Unlike many Object-relational mapping tools, OrientDB does not split documents between different types.
+Each document resides in one or a number of buckets associated with its specific type.
+When you execute a query against a type that has subtypes, OrientDB searches the buckets of the target type and all subtypes.
+
+#### Declaring Inheritance in Schema
+
+In developing your application, bear in mind that OrientDB needs to know the type inheritance relationship.
+This is an abstract concept that applies to both  [POJO's](../java/Object-DB-Interface.md#inheritance) and  [Documents](../java/Document-Database.md).
+
+For example,
+
+```java
+DocumentType account = database.getSchema().createDocumentType("Account");
+DocumentType company = database.getSchema().createDocumentType("Company").addParent(account);
+```
+
+#### Using Polymorphic Queries
+
+By default, OrientDB treats all queries as polymorphic.
+Using the example above, you can run the following query from the console:
+
+```sql
+SELECT FROM Account WHERE name.toUpperCase() = 'GOOGLE'
+```
+
+This query returns all instances of the types `Account` and `Company` that have a property name that matches `Google`.
+
+#### How Inheritance Works
+
+Consider an example, where you have three types, listed here with the bucket identifier in the parentheses.
+
+```
+Account(10) <|--- Company (13) <|--- OrientTechnologiesGroup (27)
+```
+
+By default, OrientDB creates a separate bucket for each type.
+It indicates this bucket by the `defaultBucketId` property in the type `OType` and indicates the bucket used by default when not specified.
+However, the type `OType` has a property `bucketIds`, (as `int[]`), that contains all the buckets able to contain the records of that type.  `bucketIds` and `defaultBucketId` are the same by default.
+
+When you execute a query against a type, OrientDB limits the result-sets to only the records of the buckets contained in the `bucketIds` property.
+For example,
+
+```sql
+SELECT FROM Account WHERE name.toUpperCase() = 'GOOGLE'
+```
+
+This query returns all the records with the name property set to `GOOGLE` from all three types, given that the base type `Account` was specified.
+For the type `Account`, OrientDB searches inside the buckets `10`, `13` and `27`, following the inheritance specified in the schema.

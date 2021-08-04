@@ -1,5 +1,5 @@
 [[SQL-Commands]]
-### SQL Commands
+#### Commands
 
 [%header,cols=4]
 |===

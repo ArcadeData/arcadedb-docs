@@ -1,5 +1,5 @@
 [[SQL-Batch]]
-### SQL Batch
+#### SQL Batch
 
 ArcadeDB allows execution of arbitrary scripts written in Javascript or any scripting language installed in the JVM. ArcadeDB supports a minimal SQL engine to allow a batch of commands.
 

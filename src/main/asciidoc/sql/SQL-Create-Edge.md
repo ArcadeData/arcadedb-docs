@@ -1,3 +1,4 @@
+
 [[SQL-Create-Edge]]
 ### SQL - `CREATE EDGE`
 

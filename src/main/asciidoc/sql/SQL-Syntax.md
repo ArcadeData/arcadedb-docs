@@ -9,6 +9,7 @@ This page lists all the details about its syntax.
 **Identifiers **
 
 An identifier is a name that identifies an entity in ArcadeDB schema. Identifiers can refer to
+
 - type names
 - property names
 - index names
@@ -33,9 +34,6 @@ The following are reserved identifiers, they can NEVER be used with a different 
 
 - ``` @rid ```: record ID
 - ``` @type ```: document type
-- ``` @version ```: document version
-- ``` @type ```: record type
-- ``` @fieldTypes ```: document field types
 
 **Simplified identifiers**
 

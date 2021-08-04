@@ -127,7 +127,7 @@ ArcadeDB> INSERT INTO BUCKET:asiaemployee (@type, content) VALUES
 
 ```
 ArcadeDB> INSERT INTO Profile (name, address) VALUES ('Luca', { "@type": "d", 
-            "street": "Melrose Avenue", "@version": 0 })
+            "street": "Melrose Avenue"})
 ```
 
 - Insert from a query.

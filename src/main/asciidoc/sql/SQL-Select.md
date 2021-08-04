@@ -25,8 +25,8 @@ SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
 - **<<`<Projections>`,SQL-Query.md#projections)** Indicates the data you want to extract from the query as the result-set. Note: In
   ArcadeDB, this variable is optional. In the projections you can define aliases for single fields, using the `AS` keyword; in
   current release aliases cannot be used in the WHERE condition, GROUP BY and ORDER BY (they will be evaluated to null)
-- **`FROM`** Designates the object to query. This can be a type, bucket, single <<RID,RID>>, set
-  of <<RID,RID>> index values sorted by ascending or descending key order.
+- **`FROM`** Designates the object to query. This can be a type, bucket, single <<RID,RID>>, set of <<RID,RID>> index values sorted
+  by ascending or descending key order.
     - When querying a type, for `<target>` use the type name.
     - When querying a bucket, for `<target>` use `BUCKET:<bucket-name>` (eg. `BUCKET:person`) or `BUCKET:<bucket-id>` (
       eg. `BUCKET:12`). This causes the query to execute only on records in that bucket.
@@ -173,7 +173,7 @@ the entire record. That is, it reads no projection as the equivalent of the `*` 
 ArcadeDB> SELECT FROM Account
 ```
 
-For all projections except the wildcard `*`, it creates a new temporary document, which does not include the `@rid` and `@version`
+For all projections except the wildcard `*`, it creates a new temporary document, which does not include the `@rid`
 fields of the original record.
 
 ```

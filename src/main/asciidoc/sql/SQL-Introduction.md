@@ -31,29 +31,31 @@ SELECT FROM INDEX:myIndex WHERE key = 'Jay'
 ```
 
 **Extra resources**
-- <<SQL syntax,SQL-Syntax>>
-- <<SQL projections,SQL-Projections>>
-- <<SQL conditions,SQL-Where>>
-- [WHERE clause,SQL-Where>>
-- <<Operators,SQL-Where-Operators>>
-- <<Pagination,SQL-Pagination>>
-- <<SQL batch,SQL-batch>>
-- <<SQL Match,SQL-Match>> for traversing graphs
+
+- <<SQL-Syntax,Syntax>>
+- <<SQL-Projections,Projections>>
+- <<SQL-Where,Conditions>>
+- <<SQL-Where,Where clause>>
+- <<SQL-Where-Operators,Operators>>
+- <<SQL-Pagination,Pagination>>
+- <<SQL-Batch,Batch>>
+- <<SQL-Match,Match>> for traversing graphs
 
 **ArcadeDB SQL dialect**
 
 ArcadeDB supports SQL as a query language with some differences compared with SQL. Orient Technologies decided to avoid creating Yet-Another-Query-Language. Instead we started from familiar SQL with extensions to work with graphs. We prefer to focus on standards.
 
-If you want learn SQL, there are many online courses such as:
-- <<Online course Introduction to Databases by Jennifer Widom from Stanford university,https://www.coursera.org/course/db)
-- <<Introduction to SQL at W3 Schools,http://www.w3schools.com/sql/sql_intro.asp)
-- <<Beginner guide to SQL,https://blog.udemy.com/beginners-guide-to-sql/)
-- <<SQLCourse.com,http://www.sqlcourse2.com/intro2.html)
-- <<YouTube channel Basic SQL Training by Joey Blue,http://www.youtube.com/playlist?list=PLD20298E653A970F8)
+If you want to learn SQL, there are many online courses such as:
 
-To know more, look to <<ArcadeDB SQL Syntax,SQL-Syntax>>.
+- https://www.coursera.org/course/db[Online course Introduction to Databases by Jennifer Widom from Stanford university]
+- http://www.w3schools.com/sql/sql_intro.asp[Introduction to SQL at W3 Schools]
+- Beginner guide to https://blog.udemy.com/beginners-guide-to-sql/[SQL]
+- http://www.sqlcourse2.com/intro2.html[SQLCourse.com]
+- http://www.youtube.com/playlist?list=PLD20298E653A970F8[YouTube channel Basic SQL Training by Joey Blue]
 
-Or order any book like <<these,http://www.amazon.com/s/ref=nb_sb_noss/189-0251150-4407173?url=search-alias%3Daps&field-keywords=sql)
+To know more, look to <<SQL-Syntax,ArcadeDB SQL Syntax>>.
+
+Or order any book like http://www.amazon.com/s/ref=nb_sb_noss/189-0251150-4407173?url=search-alias%3Daps&field-keywords=sql[these].
 
 **No JOINs**
 The most important difference between ArcadeDB and a Relational Database is that relationships are represented by `LINKS` instead of JOINs.
@@ -83,6 +85,7 @@ SELECT * FROM Employee WHERE city.country.name = 'Italy'
 ```
 
 **Projections**
+
 In SQL, projections are mandatory and you can use the star character `*` to include all of the fields. With ArcadeDB this type of projection is optional. Example: In SQL to select all of the columns of Customer you would write:
 ```sql
 SELECT * FROM Customer
@@ -92,20 +95,13 @@ In ArcadeDB, the `*` is optional:
 SELECT FROM Customer
 ```
 
-See <<SQL projections,SQL-Projections>>
+See <<SQL projections,SQL-Projections>>.
 
 **DISTINCT**
 
-In ArcadeDB v 3.0 you can use DISTINCT keyword exactly as in a relational database:
+You can use DISTINCT keyword exactly as in a relational database:
 ```sql
 SELECT DISTINCT name FROM City
-```
-
-Until v 2.2, DISTINCT keyword was not allowed; there was a DISTINCT() function instead, with limited capabilities 
-```sql
-//legacy
-
-SELECT DISTINCT(name) FROM City
 ```
 
 **HAVING**
