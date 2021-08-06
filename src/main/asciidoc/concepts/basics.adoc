@@ -3,17 +3,19 @@
 
 #### Record
 
-The smallest unit that you can load from and store in the database.Records come in four types:
+Record are the smallest unit that you can load from and store in the database.
+Records come in three types:
 
 - Documents
-- Binary
 - Vertices
 - Edges
 
 #### Document
 
-The Document is the most flexible record type available in ArcadeDB.Documents are softly typed and are defined by schema types,but you can also use them in a schema-less mode too.
-Documents handle fields in a flexible manner.You can easily import and export them in JSON format.For example,
+Documents are softly typed and are defined by schema types, but you can also use them in a schema-less mode too.
+Documents handle fields in a flexible manner.
+You can easily import and export them in JSON format.
+For example,
 
 ```json
 {
@@ -30,57 +32,57 @@ Documents handle fields in a flexible manner.You can easily import and export th
 }
 ```
 
-### Binary
-
-In addition to the Document record type, ArcadeDB can also load and store binary data.
-
 ### Vertex
 
-In Graph databases,the most basic unit of data is the node, which in ArcadeDB is called a vertex.
-The Vertex stores information for the database.There is a separate record type called the Edge that connects one vertex to another.
-
-Vertices are also documents. This means they can contain embedded records and arbitrary properties.
+In Graph databases the vertices (also named vertexes), or nodes represent the main entity that holds the information.
+It can be a Patient, a Company or a Product.
+Vertices are themselves documents with some additional features.
+This means they can contain embedded records and arbitrary properties exactly like documents.
+Vertices are connected with other vertices through Edges.
 
 ### Edge
 
-In Graph databases,an arc is the connection between two nodes,which in ArcadeDB is called an edge.Edges are bidirectional and can only connect two vertices.
+An Edge, or Arc, is the connection between two vertices.
+Edges can unidirectional and bidirectional.
+One edge can only connect two vertices.
 
-Edges can be regular or lightweight.The Regular Edge saves as a Document,while the Lightweight Edge does not.For an understanding of the differences between these,see[Lightweight Edges](../java/Lightweight-Edges.md).
-
-For more information on connecting vertices in general,see[Relationships](Concepts.md#relationships),below.
+For more information on connecting vertices in general, see <<Relationships,Relationships>>) below.
 
 ### Record ID
 
-When ArcadeDB generates a record,it auto-assigns a unique unit identifier,called a Record ID,or RID.The syntax for the Record ID is the pound sign with the bucket identifier and the position.The format is like this:
+When ArcadeDB generates a record, it auto-assigns a unique identifier, called a Record ID, or just RID.
+The syntax for the Record ID is the pound sign with the bucket identifier, semicolon and the position.
+`#-1:-1` is a null RID.
+The format is like this:
 
-`#<bucket>:<position>`.
+`#<bucket-identifier>:<record-position>`.
 
--**Bucket Identifier**:This number indicates the bucket to which the record belongs.Positive numbers in the bucket identifier indicate persistent records.Negative numbers indicate temporary records,such as those that appear in result-sets for queries that use projections.
+-**bucket-identifier**: This number indicates the bucket id to which the record belongs.
+Positive numbers in the bucket identifier indicate persistent records.
 
--**Position**:This number defines the absolute position of the record in the bucket.
+-**record-position**: This number defines the absolute position of the record in the bucket.
 
->**NOTE**:The prefix character `#` is mandatory to recognize a Record ID.
+NOTE: The prefix character `#` is mandatory to recognize a Record ID.
 
-Records never lose their identifiers unless they are deleted.When deleted,ArcadeDB never recycles identifiers.Additionally,you can access records directly through their Record ID's.
-For this reason, you don't need to create a field to serve as the primary key,as you do in Relational databases.
-
-## Page Version
-
-Records are stored in pages.Each page has its own version number,which increments on each update.At creation the page version is zero.In optimistic transactions,ArcadeDB checks the version in order to avoid conflicts at commit time.
+Records never lose their identifiers unless they are deleted.
+When deleted, ArcadeDB never recycles identifiers.
+Additionally, you can access records directly through their Record ID's at `O(1)` complexity that means the speed is constant and not effected by the database size.
+For this reason, you don't need to create a field to serve as the primary key, as you do in Relational databases.
 
 ## Type
 
-The concept of the Type is taken from the[Object Oriented Programming](http://en.wikipedia.org/wiki/Object-oriented_programming) paradigm.
+The concept of the Type is taken from the http://en.wikipedia.org/wiki/Object-oriented_programming[Object Oriented Programming] paradigm.
 In ArcadeDB, types define records.
 It is closest to the concept of a table in Relational databases.
 
-Types can be schema-less,schema-full or a mix.They can inherit from other types,creating a tree of types.[Inheritance](http://en.wikipedia.org/wiki/Inheritance_%28object-oriented_programming%29), in this context, means that a sub-type extends a parent type, inheriting all of its attributes.
+Types can be schema-less,schema-full or a mix.They can inherit from other types, creating a tree of types. http://en.wikipedia.org/wiki/Inheritance_%28object-oriented_programming%29[Inheritance], in this context, means that a sub-type extends a parent type, inheriting all of its attributes.
 
-Each type has its own[buckets(data files)](Concepts.md#bucket).A non-abstract type(see below)must have at least one bucket defined,which functions as its default bucket.But,a type can support multiple buckets.When you execute a query against a type,it automatically propagates to all buckets that are part of the type.When you create a new record,ArcadeDB selects the bucket to store it in using a[configurable strategy](../misc/Bucket-Selection.md).
+Each type has its own <<Bucket,buckets (data files)>>.
+A type can support multiple buckets.
+When you execute a query against a type, it automatically fetches from all the buckets that are part of the type.
+When you create a new record, ArcadeDB selects the bucket to store it in using a <<Bucket-Selection,configurable strategy>>.
 
-When you create a new type,by default,ArcadeDB creates new[persistent buckets](Concepts.md#database-url)with the same name as the type,in lowercase,suffixed with underscore and an integer.As a default,ArcadeDB creates as many buckets per type as many cores(processors)the host machine has.
-
-Eg.for type `Person`,ArcadeDB will create buckets `person`, `person_1`, `person_2` and so on so forth.
+As a default, ArcadeDB creates as many buckets per type as many cores(processors) the host machine has.
 
 
 ### Type vs.Bucket in Queries
@@ -88,117 +90,112 @@ Eg.for type `Person`,ArcadeDB will create buckets `person`, `person_1`, `person_
 The combination of types and buckets is very powerful and has a number of use cases.Consider an example where you create a type `Invoice`,with two buckets `invoice2015` and `invoice2016`.You can query all invoices using the type as a target with[`SELECT`](../sql/SQL-Query.md).
 
 ```
-arcadeDB><code type="lang-sql userinput">SELECT FROM Invoice</code>
+arcadeDB> SELECT FROM Invoice
 ```
 
-    In addition to this,you can filter the result-set by year.The type `Invoice` includes a `year` field,you can filter it through the[`WHERE`](../sql/SQL-Where.md)clause.
+In addition to this, you can filter the result-set by year.
+The type `Invoice` includes a `year` field, you can filter it through the <<SQL-Where,`WHERE`>> clause.
 
 ```
-arcadeDB><code type="lang-sql userinput">SELECT FROM Invoice WHERE year=2012</code>
+arcadeDB> SELECT FROM Invoice WHERE year=2012
 ```
 
-    You can also query specific objects from a single bucket.By splitting the type `Invoice` across multiple buckets,(that is,one per year),you can optimize the query by narrowing the potential result-set.
+You can also query specific objects from a single bucket.
+By splitting the type `Invoice` across multiple buckets, (that is, one per year),y ou can optimize the query by narrowing the potential result-set.
 
 ```
-arcadeDB><code type="lang-sql userinput">SELECT FROM BUCKET:invoice2012</code>
+arcadeDB> SELECT FROM BUCKET:invoice2012
 ```
 
-    Due to the optimization,this query runs significantly faster,because ArcadeDB can narrow the search to the targeted bucket.
+Due to the optimization, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
 
-    #### Bucket
+#### Bucket
 
-    Where types provide you with a logical framework for organizing data,buckets provide physical or in-memory space in which ArcadeDB actually stores the data.It is comparable to the collection in Document databases and the table in Relational databases.
+Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
+It is comparable to the collection in Document databases and the table in Relational databases.
 
-    When you create a new type,the[`CREATE TYPE`](../sql/SQL-Create-Type.md)process also creates physical buckets that serve as the default location in which to store data for that type.ArcadeDB forms the bucket names using the type name,with all lower case letters.Beginning with version2.2,ArcadeDB creates additional buckets for each type,(one for each CPU core on the server),to improve performance of parallelism.
+When you create a new type, the <<SQL-Create-Type,`CREATE TYPE`>> process also creates physical buckets that serve as the default location in which to store data for that type.
+ArcadeDB forms the bucket names using the type name, with all lower case letters.
+ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.
 
-    >For more information,see the[Buckets Tutorial](../gettingstarted/Tutorial-Buckets.md).
+>For more information, see the <<Tutorial-Buckets,Buckets Tutorial>>.
 
-    #### Relationships
+[[Relationships]]
+#### Relationships
 
-    ArcadeDB supports two kinds of relationships:**referenced**and**embedded**.It can manage relationships in a schema-full or schema-less scenario.
+ArcadeDB supports two kinds of relationships: **referenced** and **embedded**.
+It can manage relationships in a schema-full or schema-less scenario.
 
-    ### Referenced Relationships
+### Referenced Relationships
 
-    In Relational databases,tables are linked through `JOIN` commands,which can prove costly on computing resources.ArcadeDB manges relationships natively without computing `JOIN`'s.  Instead, it stores direct links to the target objects of the relationship.  This boosts the load speed for the entire graph of connected objects, such as in Graph and Object database systems.
+In Relational databases, tables are linked through `JOIN` commands, which can prove costly on computing resources.
+ArcadeDB manages relationships natively without computing `JOIN`'s. Instead, it stores direct links to the target objects of the relationship. This boosts the load speed for the entire graph of connected objects, such as in Graph and Object database systems.
 
-    For example
-
-    ```
-    customer Record A------------->Record B TYPE=Invoice TYPE=Customer RID=5:23RID=10:2
-    ```
-
-    Here,record `A` contains the reference to record `B` in the property `customer`.Note that both records are reachable by other records,given that they have a[Record ID](Concepts.md#record-id).
-
-    With the Graph API,[Edges](Concepts.md#edge)are represented with two links stored on both vertices to handle the bidirectional relationship.
-
-    #### 1:1and 1:*n*Referenced Relationships
-
-    ArcadeDB expresses relationships of these kinds using links of the `LINK` type.
-
-    #### 1:*n*and*n*:*n*Referenced Relationships
-
-    ArcadeDB expresses relationships of these kinds using a collection of links,such as:
-
-- `LINKLIST` An ordered list of links.
-- `LINKSET` An unordered set of links,which does not accept duplicates.
-- `LINKMAP` An ordered map of links,with `String` as the key type.Duplicates keys are not accepted.
-
-    With the Graph API,[Edges](Concepts.md#edge)connect only two vertices.This means that 1:*n*relationships are not allowed.To specify a 1:*n*relationship with graphs,create multiple edges.
-
-    ### Embedded Relationships
-
-    When using Embedded relationships,ArcadeDB stores the relationship within the record that embeds it.These relationships are stronger than Reference relationships.You can represent it as a[UML Composition relationship](http://en.wikipedia.org/wiki/Type_diagram#Composition).
-
-    Embedded records do not have their own[Record ID](Concepts.md#record-id),given that you can't directly reference it through other records.  It is only accessible through the container record.
-
-    In the event that you delete the container record,the embedded record is also deleted.For example,
-
-    ```
-    address Record A<>---------->Record B TYPE=Account TYPE=Address RID=5:23NO RID!
-    ```
-
-    Here,record `A` contains the entirety of record `B` in the property `address`.You can reach record `B` only by traversing the container record.For example,
+Example
 
 ```
-arcadeDB><code type="lang-sql userinput">SELECT FROM Account WHERE address.city='Rome'</code>
+Customer Record A -------------> Record B Invoice
+         RID #5:23                  RID #10:2
 ```
 
-    #### 1:1and*n*:1Embedded Relationships
+### Embedded Relationships
 
-    ArcadeDB expresses relationships of these kinds using the `EMBEDDED` type.
+When using Embedded relationships, ArcadeDB stores the relationship within the record that embeds it.
+These relationships are stronger than Reference relationships.
+You can represent it as a http://en.wikipedia.org/wiki/Type_diagram#Composition[UML Composition relationship].
 
-    #### 1:*n*and*n*:*n*Embedded Relationships
+Embedded records do not have their own <<RID,RID>>, given that you can't directly reference it through other records.
+It is only accessible through the container record.
 
-    ArcadeDB expresses relationships of these kinds using a collection of links,such as:
+In the event that you delete the container record, the embedded record is also deleted.
+For example,
 
-- `EMBEDDEDLIST` An ordered list of records.
-- `EMBEDDEDSET` An unordered set of records,that doesn't accept duplicates.
-- `EMBEDDEDMAP` An ordered map of records as the value and a string as the key,it doesn't accept duplicate keys.
+```
+    Record A <>----------> Record B
+   TYPE=Account          TYPE=Address
+    RID #5:23               NO RID
+```
 
-    ### Inverse Relationships
+Here,record `A` contains the entirety of record `B` in the property `address`.
+You can reach record `B` only by traversing the container record.
+For example,
 
-    In ArcadeDB,all Edges in the Graph model are bidirectional.This differs from the Document model,where relationships are always unidirectional,requiring the developer to maintain data integrity.In addition,ArcadeDB automatically maintains the consistency of all bidirectional relationships.
+```
+arcadeDB> SELECT FROM Account WHERE address.city = 'Rome'
+```
 
-    ## Database
+#### 1:1 and *n*:1 Embedded Relationships
 
-    The database is an
+ArcadeDB expresses relationships of these kinds using the `EMBEDDED` type.
 
-interface to access the real [Storage](Concepts.md#database-url).IT understands high-level concepts such as queries,schemas,metadata,indices and so on.ArcadeDB also provides multiple database types.For more information on these types,see[Database Types](../java/Java-API.md#component-architecture).
+#### 1:*n* and *n*:*n* Embedded Relationships
 
-    Each server or Java VM can handle multiple database instances,but the database name must be unique.You can't manage two databases at the same time, even if they are in different directories.  To handle this case, use the `$` dollar character as a separator instead of the `/` slash character.  ArcadeDB binds the entire name, so it becomes unique, but at the file system level it converts `$` with `/`, allowing multiple databases with the same name in different paths.  For example,
+ArcadeDB expresses relationships of these kinds using a list or a map of links, such as:
 
-    ```
-    test$customers->test/customers production$customers=production/customers
-    ```
+- `LIST` An ordered list of records.
+- `MAP` An ordered map of records as the value and a string as the key, it doesn't accept duplicate keys.
 
-    ### Database URL
+### Inverse Relationships
 
-    ArcadeDB uses its own[URL](http://en.wikipedia.org/wiki/Uniform_Resource_Locator) format, of engine and database name as `<engine>:<db-name>`.
+In ArcadeDB, all Edges in the Graph model are bidirectional.
+This differs from the Document model, where relationships are always unidirectional,requiring the developer to maintain data integrity.
+In addition, ArcadeDB automatically maintains the consistency of all bidirectional relationships.
 
-    |Engine|Description|Example| |------|-----------|-------| |[plocal](../internals/Paginated-Local-Storage.md)|This engine writes to the file system to store data.There is a LOG of changes to restore the storage in case of a crash.|`plocal:/temp/databases/petshop/petshop`| |[memory](../internals/Memory-storage.md)|Open a database completely in memory|`memory:petshop`| |remote|The storage will be opened via a remote network connection.It requires an ArcadeDB Server up and running.In this mode,the database is shared among multiple clients.Syntax: `remote:<server>:[<port>]/db-name`.The port is optional and defaults to2424.|`remote:localhost/petshop`|
+## Database
 
-    ### Database Usage
+Each server or Java VM can handle multiple database instances,but the database name must be unique.
 
-    You must always close the database once you finish working on it.
 
-    >**NOTE**:ArcadeDB automatically closes all opened databases,when the process dies gracefully(not by killing it by force).This is assured if the Operating System allows a graceful shutdown.
+[[Database-URL]]
+### Database URL
+
+ArcadeDB uses its own http://en.wikipedia.org/wiki/Uniform_Resource_Locator[URL] format, of engine and database name as `<engine>:<db-name>`.
+The embedded engine is the default and can be omitted.
+To open a database on the local file system you can use directly the path as URL.
+
+### Database Usage
+
+You must always close the database once you finish working on it.
+
+NOTE: ArcadeDB automatically closes all opened databases, when the process dies gracefully (not by killing it by force).
+This is assured if the Operating System allows a graceful shutdown.

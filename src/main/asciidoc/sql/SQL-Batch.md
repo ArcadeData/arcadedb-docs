@@ -5,11 +5,11 @@ ArcadeDB allows execution of arbitrary scripts written in Javascript or any scri
 
 Batch of commands are very useful when you have to execute multiple things at the server side avoiding the network roundtrip for each command.
 
-SQL Batch supports all the ArcadeDB <<SQL Commands,SQL-Commands>>, plus the following:
+SQL Batch supports all the ArcadeDB <<SQL-Commands,SQL Commands>>, plus the following:
 
 - ```begin <<isolation <isolation-level>]```, where `<isolation-level>` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
 - ```commit [retry <retry>]```, where:
- - <retry> is the number of retries in case of concurrent modification exception
+ - `````<retry>````` is the number of retries in case of concurrent modification exception
 - ```let <variable> = <SQL>```, to assign the result of a SQL command to a variable. To reuse the variable prefix it with the dollar sign $
 - ```IF(<condition>){ <statememt>; [<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#conditional-execution).
 - ```WHILE(<condition>){ <statememt>; [<statement>;]* }```. Look at <<Conditional execution,SQL-batch.md#loops).
@@ -25,7 +25,7 @@ SQL Batch supports all the ArcadeDB <<SQL Commands,SQL-Commands>>, plus the foll
  - maps (HTTP protocol only, see below). Example: ```return { 'first' : $a, 'second' : $b }```
  - a query. Example: ```return (SELECT FROM Foo)```  
  
- NOTE: to return arrays and maps (eg. Java or Node.js driver) it's strongly recommended to use a RETURN SELECT, eg.  
+ NOTE: to return arrays and maps (eg. Java or Node.js driver) it's strongly recommended using a RETURN SELECT, eg.  
 
 ```
 return (SELECT $a as first, $b as second)

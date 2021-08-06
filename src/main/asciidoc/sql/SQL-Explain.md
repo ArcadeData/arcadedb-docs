@@ -44,9 +44,6 @@ EXPLAIN <command>
 
 >For more information, see:
 
-- <<SQL Commands,SQL-Commands>>
-- <<PROFILE,SQL-Profile>>
-
-
-
+- <<SQL-Commands,SQL Commands>>
+- <<SQL-Profile,PROFILE>>
 

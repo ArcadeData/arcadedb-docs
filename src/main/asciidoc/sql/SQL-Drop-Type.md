@@ -28,5 +28,6 @@ ArcadeDB> DROP TYPE Account
 >For more information, see:
 
 - <<SQL-Create-Type,`CREATE TYPE`>>
-- <<SQL-Alter-Type`ALTER TYPE`>>
+- <<SQL-Alter-Type,`ALTER TYPE`>>
 - <<SQL-Alter-Bucket,`ALTER BUCKET`>>
+
