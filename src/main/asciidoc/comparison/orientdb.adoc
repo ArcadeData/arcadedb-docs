@@ -1,0 +1,60 @@
+=== OrientDB
+
+ArcadeDB was born initially as a fork of OrientDB.
+Today more than 80% of ArcadeDB code has been rewritten from scratch from the same original authors of the OrientDB project.
+This allowed to getting rid of many legacy parts that makes OrientDB slow, heavy and hard to maintain.
+Also, since OrientDB was the first Multi-Model project out there, a lot of work of the initial R&D and experiments are still in the OrientDB code base.
+You can consider ArcadeDB as the natural evolution of the legacy OrientDB project.
+
+**Main similarities and differences**
+
+- Both can run on any platform
+- Both can run SQL.
+ArcadeDB and OrientDB both share the same SQL Engine
+- ArcadeDB "types" are the "classes" in OrientDB
+- Both ArcadeDB and OrientDB support inheritance
+- ArcadeDB "buckets" are similar to the "clusters" in OrientDB
+- ArcadeDB shares the same database instance across threads.
+Much easier developing with ArcadeDB than with OrientDB with multi-threads applications
+- ArcadeDB uses thread locals only to manage transactions, while OrientDB makes a strong usage of TL internally, making hard to pass the database instance across threads and a pool is needed
+- There is no base V and E classes in ArcadeDB, but vertex and edge are first type citizens types of records.
+Use `CREATE VERTEX TYPE Product` vs OrientDB `CREATE CLASS Product EXTENDS V`
+- ArcadeDB saves every type and property name in the dictionary to compress the record by storing only the names ids (varint)
+- ArcadeDB keeps the MVCC counter on the page rather than on the record
+- ArcadeDB manages everything as files and pages, for transactions and replication.
+OrientDB has a mixed pages/record approach
+- ArcadeDB allows custom page size per bucket/index
+- ArcadeDB doesn't break record across pages, but rather create a placeholder pointing to the page that contains the record.
+This allows the RID to be immutable without the complexity of managing split records.
+On the contrary, it is not possible to have objects larger than a page, so initial setting of the page size is fundamental with ArcadeDB
+- ArcadeDB supports light-weight edges, but they must be used with a different syntax.
+This avoids automatic upgrade of edges and unexpected behavior
+- ArcadeDB supports replication by using a Leader/Replica model without sharding for now.
+Instead, OrientDB is based on a Multi-Master model (the sharding was experimental, never production ready) with a paxos style protocol not efficient on large volume of transactions
+- ArcadeDB replicates the pages across servers, so all the databases are identical at binary level
+- ArcadeDB Server supports HTTP/JSON, Postgres, MongoDB and Redis protocols, while OrientDB supports only HTTP/JSON and a proprietary binary protocol
+
+**What ArcadeDB does not support**
+
+- ArcadeDB does not support storing records larger than the page size.
+Initial setting of the page size is fundamental with ArcadeDB
+- ArcadeDB supports only UNIQUE constraints on data (by creating an index), while OrientDB supports multiple constraints and validation at class level
+- ArcadeDB does not provide a dirty manager, so it's up to the developer to mark the object to save by calling `.save()` method on it.
+This makes the code of ArcadeDB smaller without handling edge cases, but if you have a tree of objects it is the developer responsibility to mark the modified objects without auto-tracking
+- ArcadeDB does not allow a document to have no class. If you want to store an embedded document without a class, use a `Map<String,Object>` instead
+
+**What ArcadeDB has more than OrientDB**
+
+- ArcadeDB is much Faster than OrientDB.
+On a single server it is common to see 10X-20X improvement in performance, with 3 nodes the gap in performance with OrientDB can reach 50X-200X faster.
+With 10 servers it is over 500X faster than OrientDB!
+- ArcadeDB uses much less RAM.
+With the right tuning over the settings, it's able to work with only 4MB of JVM heap
+- ArcadeDB codebase is much smaller and easier to maintain and improve
+- ArcadeDB is lightweight, the engine is less than 1MB
+- ArcadeDB mandate all the operations to be inside a transaction, even operations against the schema. With OrientDB they are no transactional and in case of error they can break the database
+- ArcadeDB saves every type and property names in the dictionary to compress the record by storing only the names ids
+- ArcadeDB is much more efficient on data structure.
+That means ArcadeDB takes less space on disk than OrientDB and uses less RAM for caching
+- ArcadeDB natively supports asynchronous operations (by using `.async()`).
+Asynchronous calls are automatically balanced on the available cores

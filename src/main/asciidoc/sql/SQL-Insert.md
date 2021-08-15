@@ -1,0 +1,151 @@
+[[SQL-Insert]]
+### SQL - `INSERT`
+
+The <<SQL-Insert,`INSERT`>> command creates a new record in the database.  Records can be schema-less or follow rules specified in your model.
+
+**Syntax**:
+
+```sql
+INSERT INTO <<TYPE:]<type>|BUCKET:<bucket>|INDEX:<index>
+  [(<field>[,]*) VALUES (<expression>[,]*)[,]*]|
+  [SET <field> = <expression>|<sub-command>[,]*]|
+  [CONTENT {<JSON>}]
+  [RETURN <expression>] 
+  [FROM <query>]
+```
+
+- **`CONTENT`** Defines JSON data as an option to set field values.
+- **`RETURN`** Defines an expression to return instead of the number of inserted records.  You can use any valid SQL expression.  The most common use-cases,
+  - `@rid` Returns the Record ID of the new record.
+  - `@this` Returns the entire new record.
+- **`FROM`** Defines where you want to insert the result-set.
+
+**Examples**:
+
+- Inserts a new record with the name `Jay` and surname `Miner`.
+
+  As an example, in the SQL-92 standard, such as with a Relational database, you might use:
+
+```
+ArcadeDB> INSERT INTO Profile (name, surname) 
+            VALUES ('Jay', 'Miner')
+```
+
+  Alternatively, in the ArcadeDB abbreviated syntax, the query would be written as,
+
+```
+ArcadeDB> INSERT INTO Profile SET name = 'Jay', surname = 'Miner'
+```
+
+  In JSON content syntax, it would be written as this,
+
+```
+ArcadeDB> INSERT INTO Profile CONTENT {"name": "Jay", "surname": "Miner"}
+```
+
+- Insert a new record of the type `Profile`, but in a different bucket from the default.  
+
+  In SQL-92 syntax:
+
+```
+ArcadeDB> INSERT INTO Profile BUCKET profile_recent (name, surname) VALUES 
+            ('Jay', 'Miner')
+```
+
+  Alternative, in the ArcadeDB abbreviated syntax:
+
+```
+ArcadeDB> INSERT INTO Profile BUCKET profile_recent SET name = 'Jay', 
+            surname = 'Miner'
+```
+
+- Insert several records at the same time:
+
+```
+ArcadeDB> INSERT INTO Profile(name, surname) VALUES ('Jay', 'Miner'), 
+            ('Frank', 'Hermier'), ('Emily', 'Sout')
+```
+
+- Insert a new record, adding a relationship.
+
+  In SQL-93 syntax:
+
+```
+ArcadeDB> INSERT INTO Employee (name, boss) VALUES ('jack', #11:09)
+```
+
+  In the ArcadeDB abbreviated syntax:
+
+```
+ArcadeDB> INSERT INTO Employee SET name = 'jack', boss = #11:99
+```
+
+- Insert a new record, add a collection of relationships.
+
+  In SQL-93 syntax:
+
+```
+ArcadeDB> INSERT INTO Profile (name, friends) VALUES ('Luca', <<#10:3, #10:4])
+```
+
+  In the ArcadeDB abbreviated syntax:
+
+```
+ArcadeDB> INSERT INTO Profiles SET name = 'Luca', friends = <<#10:3, #10:4]
+```
+
+- Inserts using <<`SELECT`,SQL-Query>> sub-queries
+
+```
+ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (SELECT FROM Diver 
+            WHERE name = 'Marko')
+```
+
+- Inserts using <<SQL-Insert,`INSERT`>> sub-queries:
+
+```
+ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (INSERT INTO Diver 
+            SET name = 'Marko')
+```
+
+- Inserting into a different bucket:
+
+```
+ArcadeDB> INSERT INTO BUCKET:asiaemployee (name) VALUES ('Matthew')
+```
+
+  However, note that the document has no assigned type.  To create a document of a certain type, but in a different bucket than the default, instead use:
+
+```
+ArcadeDB> INSERT INTO BUCKET:asiaemployee (@type, content) VALUES 
+            ('Employee', 'Matthew')
+```
+
+  That inserts the document of the type `Employee` into the bucket `asiaemployee`.
+
+- Insert a new record, adding it as an embedded document:
+
+```
+ArcadeDB> INSERT INTO Profile (name, address) VALUES ('Luca', { "@type": "d", 
+            "street": "Melrose Avenue"})
+```
+
+- Insert from a query.
+
+  To copy records from another type, use:
+
+```
+ArcadeDB> INSERT INTO GermanyClient FROM SELECT FROM Client WHERE 
+            country = 'Germany'
+```
+
+  This inserts all the records from the type `Client` where the country is Germany, in the type `GermanyClient`.
+
+  To copy records from one type into another, while adding a field:
+
+```
+ArcadeDB> INSERT INTO GermanyClient FROM SELECT *, true AS copied FROM Client 
+            WHERE country = 'Germany'
+```
+
+  This inserts all records from the type `Client` where the country is Germany into the type `GermanClient`, with the addition field `copied` to the value `true`.

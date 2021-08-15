@@ -1,0 +1,382 @@
+[[Java-Tutorial]]
+==== 10-Minute Tutorial
+
+You can create a new database from scratch or open an existent one.
+Most of the API works in both synchronous and asynchronous modes.
+The asynchronous API are available from the `<db>.async()` object.
+
+To start from scratch, let's create a new database.
+The entry point it's the `<<#_-code-databasefactory-code-class,DatabaseFactory>>` class that allows to create and open a database.
+
+```java
+DatabaseFactory arcade = new DatabaseFactory("/databases/mydb");
+```
+
+Pass the path in the file system where you want the database to be stored.
+In this case a new directory 'mydb' will be created under the path "/databases/" of your file system.
+You can also use a relative path like "databases/mydb".
+
+NOTE: A `<<java-ref-database-factory.adoc#,DatabaseFactory>>` object doesn't holds the `<<java-ref-database.adoc#,Database>>` instances.
+It's up to you to close them once you have finished.
+
+===== Create a new database
+
+To create a new database from scratch, use the `.create()` method in `<<java-ref-database-factory.adoc#,DatabaseFactory>>` class.
+If the database already exists, an exception is thrown.
+
+Syntax:
+
+```java
+DatabaseFactory databaseFactory = new DatabaseFactory("/databases/mydb");
+try( Database db = databaseFactory.create(); ){
+  // YOUR CODE
+}
+```
+
+The database instance `db` is ready to be used inside the try block.
+The `<<java-ref-database.adoc#,Database>>` instance extends Java7 `AutoClosable` interface, that means the database is closed automatically when the Database variable reaches out of the scope.
+
+===== Open an existent database
+
+If you want to open an existent database, use the `open()` method instead:
+
+```java
+DatabaseFactory databaseFactory = new DatabaseFactory("/databases/mydb");
+try( Database db = databaseFactory.open(); ){
+  // YOUR CODE
+}
+```
+
+By default a database is open in `READ_WRITE` mode, but you can open it in `READ_ONLY` in this way:
+
+```java
+databaseFactory.open(PaginatedFile.MODE.READ_ONLY);
+```
+
+Using `READ_ONLY` denys any changes to the database.
+This is the suggested method if you're going to execute reads and queries only.
+Or if you are opening a database from a read-only file system like a DVD or a shared read-only directory.
+By letting know to ArcadeDB that you're not changing the database, a lot of optimizations will be used, like in a distributed high-available configuration a REPLICA server could be used instead of the busy MASTER.
+
+If you open a database in READ_ONLY mode, no lock file is created, so the same database could be opened in READ_ONLY mode by another process at the same time.
+
+===== Write your first transaction
+
+Either if you create or open a database, in order to use it, you have to execute your code inside a transaction, in this way:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( (tx) -> {
+    // YOUR CODE HERE
+  });
+}
+```
+
+Using the database's auto-close and the `transaction()` method allows to forget to manage begin/commit/rollback/close operations like you would do with a normal DBMS.
+Anyway, you can control the transaction with explicit methods if you prefer.
+This code block is equivalent to the previous one:
+
+```java
+Database db = databaseFactory.open();
+try {
+  db.begin();
+
+  // YOUR CHANGES HERE
+
+  db.commit();
+
+} catch (Exception e) {
+  db.rollback();
+} finally {
+  db.close();
+}
+```
+
+Remember that every change in the database must be executed inside a transaction.
+ArcadeDB is a fully transactional DBMS, ACID compliant.
+The usage of transactions is like with a Relational DBMS: `.begin()` starts a new transaction and `.commit()` commits all the changes in the database unless there is an error (like a conflict on updating the same record), then the entire transaction will be automatically rollbacked and none of your changes will be in the database.
+In case you want to manually rollback the transaction at a certain point (like when you have an error in your application code), you can call `.rollback()`.
+
+Once you have your database instance (in this tutorial the variable `db` is used), you can create/update/delete records and execute queries.
+
+===== Write your first document object
+
+Let's start now populating the database by creating our first document of type "Customer".
+What is a document?
+A Document is like a map of entries.
+They can be nested and entries can have different types of values, such as Strings, Integers, Floats, etc.
+You can think to a document like a JSON Document but it's stored in a binary form in the database.
+By the way, if you use JSON in your application, ArcadeDB provides easy API to convert a document to and from JSON.
+
+In ArcadeDB it's mandatory to specify a type when you want tot create a document, a vertex or an edge.
+
+Let's create the new document type "Customer" without any properties:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    // CREATE THE CUSTOMER TYPE
+    db.getSchema().createDocumentType("Customer");
+  });
+}
+```
+
+Once the "Customer" type has been created, we can create our first document:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    // CREATE A CUSTOMER INSTANCE
+    MutableDocument customer = db.newDocument("Customer");
+    customer.set("name", "Jay");
+    customer.set("surname", "Miner");
+  });
+}
+```
+
+You can create types and records in the same transaction.
+
+===== Execute a Query
+
+Once we have our database populated, how to extract data from it?
+Simple, with a query.
+Example of executing a prepared query:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    ResultSet result = db.query("SQL", "select from V where age > ? and city = ?", 18, "Melbourne");
+    while (result.hasNext()) {
+      Result record = result.next();
+      System.out.println( "Found record, name = " + record.getProperty("name"));
+    }
+  });
+}
+```
+
+The first parameter of the query method is the language to be used.
+In this case the common "SQL" is used.
+You can also use Gremlin or other language that will be supported in the future.
+
+The prepared statement is cached in the database, so further executions will be faster than the first one.
+With prepared statements, the parameters can be passed in positional way, like in this case, or with a `Map<String,Object>` where the keys are the parameter names and the values the parameter values.
+Example:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    Map<String,Object> parameters = new HashMap<>();
+    parameters.put( "age", 18 );
+    parameters.put( "city", "Melbourne" );
+
+    ResultSet result = db.query("SQL", "select from V where age > :age and city = :city", parameters);
+    while (result.hasNext()) {
+      Result record = result.next();
+      System.out.println( "Found record, name = " + record.getProperty("name"));
+    }
+  });
+}
+```
+
+By using a map, parameters are referenced by name (`:age` and `:city` in this example).
+
+===== Create a Graph
+
+Now that we're familiar with the most basic operations, let's see how to work with graphs.
+Before creating our vertices and edges, we have to create both vertex and edge types beforehand.
+In our example, we're going to create a minimal social network with "User" type for vertices and "IsFriendOf" to map the friendship relationship:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    // CREATE THE ACCOUNT TYPE
+    db.getSchema().createVertexType("User");
+    db.getSchema().createEdgeType("IsFriendOf");
+  });
+}
+```
+
+Now let's create two "Profile" vertices and let's connect them with the friendship relationship "IsFriendOf", like in the chart below:
+
+[graphviz,dot-example,svg]
+----
+graph g {
+    Elon -- Steve [label = "IsFriendOf" dir = "both"]
+}
+----
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    MutableVertex elon = db.newVertex("User", "name", "Elon", "lastName", "Musk");
+    MutableVertex steve = db.newVertex("User", "name", "Steve", "lastName", "Jobs");
+    elon.newEdge("IsFriendOf", steve, true, "since", 2010);
+  });
+}
+```
+
+In the code snipped above, we have just created our first graph, made of 2 vertices and one edge that connects them.
+Note the 3rd parameter in the `newEdge()` method.
+It's telling to the Graph engine that we want a bidirectional edge.
+In this way, even if the direction is still from the "Elon" vertex to the "Steve" vertex, we can traverse the edge from both sides.
+Use always bidirectional unless you want to avoid creating super-nodes when it's necessary to traverse only from one side.
+Note also that we stored a property "since = 2010" in the edge. That's right, edges can have properties like vertices.
+
+===== Traverse the Graph
+
+What do you do with a brand new graph?
+Traversing, of course!
+
+You have basically three ways to do that (API, SQL, https://tinkerpop.apache.org/[Apache GREMLIN]) each one with its pros/cons:
+
+[cols=4]
+|===
+|
+|API
+|SQL
+|Apache GREMLIN
+
+|Speed|* * *|* *|*
+|Flexibility|* * *|*|* *
+|Embedded mode|Yes|Yes|No
+|Remote mode|No|Yes|Yes (through the Gremlin Server plugin)
+|===
+
+When using the API, when the SQL and Apache GREMLIN?
+The API is the very code based.
+You have total control on the query/traversal.
+With the SQL, you can combine the SELECT with the MATCH statement to create powerful traversals in a just few lines.
+You could use Apache GREMLIN if you're coming from another GraphDB that supports this language.
+
+====== Traverse via API
+
+In order to start traversing a graph, you need your root vertex (in some cases you want to start from multiple root vertices).
+You can load your root vertex by its RID (Record ID), via the indexes properties or via a SQL query.
+
+Loading a record by its RID it's the fastest way and the execution time remains constants with the growing of the database (algorithm complexity: `O(1)`).
+Example of lookup by RID:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    // #10:232 in our example is Elon Musk's RID
+    Vertex elon = db.lookupByRID( new RID(db, "#10:232"), true );
+  });
+}
+```
+
+In order to have a quick lookup, it's always suggested to create an index against one or multiple properties.
+In our case, we could index the properties "name" and "lastName" with 2 separate indexes, or indeed, creating a composite index with both properties.
+In this case the algorithm complexity is `O(LogN)`).
+Example:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    db.getSchema().createTypeIndex(SchemaImpl.INDEX_TYPE.LSM_TREE, false, "Profile", new String[] { "name", "lastName" });
+  });
+}
+```
+
+Now we're able to load Steve's vertex in a flash by using this:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    Vertex steve = db.lookupByKey( "Profile", new String[]{"name", "lastName"}, new String[]{"Steve", "Jobs"} );
+  });
+}
+```
+
+Remember that loading a record by its RID is always faster than looking up from an index.
+What about the query approach?
+ArcadeDB supports SQL, so try this:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    ResultSet result = db.query( "SQL", "select from Profile where name = ? and lastName = ?", "Steve", "Jobs" );
+    Vertex steve = result.next();
+  });
+}
+```
+
+With the query approach, if an existent index is available, then it's automatically used, otherwise a scan is executed.
+
+Now that we have loaded the root vertex in memory, we're ready to do some traversal.
+Before looking at the API, it's important to understand every edge has a direction: from vertex A to vertex B.
+In the example above, the direction of the friendship is from "Elon" to "Steve".
+While in most of the cases the direction is important, sometimes, like with the friendship, it doesn't really matter the direction because if A is friend with B, it's true also the opposite.
+
+In our example, the relationship is `Elon ---Friend---> Steve`.
+This means that if I want to retrieve all Elon's friends, I could start from the vertex "Elon" and traverse all the *outgoing* edges of type "IsFriendOf".
+
+Instead, if I want to retrieve all Steve's friends, I could start from Steve as root vertex and traverse all the **incoming** edges.
+
+In case the direction doesn't really matters (like with friendship), I could consider **both** outgoing and incoming.
+
+So the basic traversal operations from one or more vertices, are:
+
+- outgoing, expressed as `OUT`
+- incoming, expressed as `IN`
+- both, expressed as `BOTH`
+
+In order to load Steve's friends, this is the example by using API:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    Vertex steve; // ALREADY LOADED VIA RID, KEYS OR SQL
+    Iterable<Vertex> friends = steve.getVertices(DIRECTION.IN, "IsFriendOf" );
+  });
+}
+```
+
+Instead, if I start from Elon's vertex, it would be:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    Vertex elon; // ALREADY LOADED VIA RID, KEYS OR SQL
+    Iterable<Vertex> friends = elon.getVertices(DIRECTION.OUT, "IsFriendOf");
+  });
+}
+```
+
+====== Traverse via SQL
+
+By using SQL, you can do the traversal by using SELECT:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    ResultSet friends = db.query( "SQL", "SELECT expand( out('IsFriendOf') ) FROM Profile WHERE name = ? AND lastName = ?", "Steve", "Jobs" );
+  });
+}
+```
+
+Or with the more powerful MATCH statement:
+
+```java
+try( Database db = databaseFactory.open(); ){
+  db.transaction( () -> {
+    ResultSet friends = db.query( "SQL", "MATCH {type: Profile, as: Profile, where: (name = ? and lastName = ?)}.out('IsFriendOf') {as: Friend} RETURN Friend", "Steve", "Jobs" );
+  });
+}
+```
+
+====== Traverse via Apache GREMLIN
+
+Since ArcadeDB is 100% compliant with Gremlin 3.x, you can run this query against the Apache Gremlin Server configured with ArcadeDB:
+
+```
+g.V().has('name','Steve').has('lastName','Jobs').out('IsFriendOf');
+```
+
+For more information about Apache Gremlin:
+
+- http://tinkerpop.apache.org/gremlin.html[Introduction to Gremlin]
+- http://tinkerpop.apache.org/docs/current/tutorials/getting-started/[Getting Started with Gremlin]
+- http://tinkerpop.apache.org/docs/current/tutorials/the-gremlin-console/[The Gremlin Console]
+- http://tinkerpop.apache.org/docs/current/recipes/[Gremlin Recipes]
+- http://kelvinlawrence.net/book/Gremlin-Graph-Guide.html/[PRACTICAL GREMLIN: An Apache TinkerPop Tutorial]
