@@ -2508,6 +2508,9 @@ This means that if I want to retrieve all Elon&#8217;s friends, I could start fr
 <div class="ulist">
 <ul>
 <li>
+<p><a href="#Gremlin-API">Gremlin API</a></p>
+</li>
+<li>
 <p><a href="http://tinkerpop.apache.org/gremlin.html">Introduction to Gremlin</a></p>
 </li>
 <li>
@@ -4689,6 +4692,62 @@ try (Connection conn = DriverManager.getConnection("jdbc:postgresql://localhost/
 </div>
 </div>
 </div>
+<div class="sect4">
+<h5 id="Cypher">Open Cypher</h5>
+<div class="paragraph">
+<p>ArcadeDB supports Open Cypher as query engine, but it doesn&#8217;t support the Neo4j&#8217;s BOLT protocol.
+This means you can&#8217;t use a Neo4J driver with ArcadeDB server.</p>
+</div>
+<div class="paragraph">
+<p>To use Cypher queries you can do directly from the <a href="#Java-API">Java API</a> or by using the <a href="#Postgres-Driver">Postgres driver</a>.</p>
+</div>
+<div class="sect5">
+<h6 id="_cypher_from_java_api">Cypher from Java API</h6>
+<div class="paragraph">
+<p>In order to execute a Cypher query, you need to include the relevant jars in your class path.
+To execute a Cypher query, use "cypher" as first \arameter in the query method.
+Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">ResultSet result = database.query("cypher", "MATCH (p:Person) WHERE p.age &gt;= $p1 RETURN p.name, p.age ORDER BY p.age", "p1", 25);</code></pre>
+</div>
+</div>
+</div>
+<div class="sect5">
+<h6 id="_cypher_through_postgres_driver">Cypher through Postgres Driver</h6>
+<div class="paragraph">
+<p>You can execute a Cypher query against ArcadeDB server by using the <a href="#Postgres-Driver">Postgres driver</a> and prefixing the query with <code>{cypher}</code>. Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-cypher" data-lang="cypher">"{cypher} MATCH (p:Person) WHERE p.age &gt;= 25 RETURN p.name, p.age ORDER BY p.age"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>ArcadeDB server will execute the query <code>MATCH (p:Person) WHERE p.age &gt;= 25 RETURN p.name, p.age ORDER BY p.age</code> using the Cypher query language.</p>
+</div>
+</div>
+<div class="sect5">
+<h6 id="_cypher_through_httpjson">Cypher through HTTP/JSON</h6>
+<div class="paragraph">
+<p>You can execute a Cypher query against ArcadeDB server by using <a href="#HTTP-API">HTTP/JSON</a> API. Example of executing an idempotent query with HTTP GET command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-Bash" data-lang="Bash">curl "http://localhost:2480/query/graph/cypher/MATCH (p:Person) WHERE p.age &gt;= 25 RETURN p.name, p.age ORDER BY p.age"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example of executing a non-idempotent query (updates the database):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-Bash" data-lang="Bash">curl -X POST "http://localhost:2480/command/graph" -d "{'language': 'cypher', 'command': 'MATCH (p:Person) WHERE p.age &gt;= 25 RETURN p.name, p.age ORDER BY p.age'}"</code></pre>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 <div class="sect2">
@@ -4699,7 +4758,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:postgresql://localhost/
 <div class="sect3">
 <h4 id="_mongodb_query_language">8.3.1. MongoDB Query Language</h4>
 <div class="paragraph">
-<p>If you want to use MongoDB Query Language from <a href="#Java-API">Java API (Embedded)</a>, you can simply keep the relevant jars in your classpath and execute a query or a command with "mongo" as language.
+<p>If you want to use MongoDB Query Language from <a href="#Java-API">Java API</a>, you can simply keep the relevant jars in your classpath and execute a query or a command with "mongo" as language.
 Example:</p>
 </div>
 <div class="listingblock">
@@ -4721,6 +4780,39 @@ for (ResultSet resultset = database.query("mongo", // &lt;-- USE 'mongo' INSTEAD
   Result doc = resultset.next();
   ...
 }</code></pre>
+</div>
+</div>
+<div class="sect4">
+<h5 id="_mongo_queries_through_postgres_driver">Mongo queries through Postgres Driver</h5>
+<div class="paragraph">
+<p>You can execute a Mongo query against ArcadeDB server by using the <a href="#Postgres-Driver">Postgres driver</a> and prefixing the query with <code>{mongo}</code>. Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>"{mongo} { collection: 'Heros', query: { $and: [ { name: { $eq: 'Jay' } }, { lastName: { $exists: true } }, { lastName: { $eq: 'Miner' } } ] } }"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>ArcadeDB server will execute the query <code>{ collection: 'Heros', query: { $and: [ { name: { $eq: 'Jay' } }, { lastName: { $exists: true } }, { lastName: { $eq: 'Miner' } } ] } }</code> using the Mongo query language.</p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="_mongo_queries_through_httpjson">Mongo queries through HTTP/JSON</h5>
+<div class="paragraph">
+<p>You can execute a Mongo query against ArcadeDB server by using <a href="#HTTP-API">HTTP/JSON</a> API. Example of executing an idempotent query with HTTP GET command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-Bash" data-lang="Bash">curl "http://localhost:2480/query/graph/mongo/{ collection: 'Heros', query: { $and: [ { name: { $eq: 'Jay' } }, { lastName: { $exists: true } }, { lastName: { $eq: 'Miner' } } ]} }"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can also execute the same query in HTTP POST, passing the language and query in payload:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-Bash" data-lang="Bash">curl -X POST "http://localhost:2480/query/graph" -d "{'language': 'mongo', 'command': '{ collection: \"Heros\", query: { $and: [ { name: { $eq: \"Jay\" } }, { lastName: { $exists: true } }, { lastName: { $eq: \"Miner\" } } ] } }\"}"</code></pre>
+</div>
 </div>
 </div>
 </div>
@@ -12885,7 +12977,7 @@ If you would like to report an issue in the documentation or you would like to b
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-08-15 07:47:03 UTC
+Last updated 2021-08-15 22:51:08 UTC
 </div>
 </div>
 </body>
