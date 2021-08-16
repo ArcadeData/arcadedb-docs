@@ -302,7 +302,7 @@ When running these queries, you can use any of the following context variables:
 
 ** Expanding Attributes **
 
-You can run this statement as a sub-query inside of another statement.  Doing this allows you to obtain details and aggregate data from the inner <<`SELECT`,SQL-Query>> query.
+You can run this statement as a sub-query inside of another statement.  Doing this allows you to obtain details and aggregate data from the inner <<SQL-Query,`SELECT`>> query.
 
 ```
 ArcadeDB> SELECT person.name AS name, person.surname AS surname,
@@ -459,9 +459,9 @@ ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("Parent")
 
 **Best practices**
 
-Queries can involve multiple operations, based on the domain model and use case.  In some cases, like projection and aggregation, you can easily manage them with a <<`SELECT`,SQL-Query>> query.  With others, such as pattern matching and deep traversal, <<`MATCH`,SQL-Match>> statements are more appropriate.
+Queries can involve multiple operations, based on the domain model and use case.  In some cases, like projection and aggregation, you can easily manage them with a <<SQL-Query,`SELECT`>> query.  With others, such as pattern matching and deep traversal, <<`MATCH`,SQL-Match>> statements are more appropriate.
 
-Use <<`SELECT`,SQL-Query>> and <<`MATCH`,SQL-Match>> statements together (that is, through sub-queries), to give each statement the correct responsibilities.  Here, 
+Use <<SQL-Query,`SELECT`>> and <<`MATCH`,SQL-Match>> statements together (that is, through sub-queries), to give each statement the correct responsibilities.  Here, 
 
 ** Filtering Record Attributes for a Single Type **
 
@@ -478,14 +478,14 @@ ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')}
           RETURN person
 ```
 
-The efficiency remains the same.  Both queries use an index.  With <<`SELECT`,SQL-Query>>, you obtain expanded records, while with <<`MATCH`,SQL-Match>>, you only obtain the Record ID's.
+The efficiency remains the same.  Both queries use an index.  With <<SQL-Query,`SELECT`>>, you obtain expanded records, while with <<`MATCH`,SQL-Match>>, you only obtain the Record ID's.
 
 
 ** Filtering on Record Attributes of Connected Elements **
 
-Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<`SELECT`,SQL-Query>>, while with <<`MATCH`,SQL-Match>> it is simple.
+Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<SQL-Query,`SELECT`>>, while with <<`MATCH`,SQL-Match>> it is simple.
 
-For instance, find all people living in Rome that have a friend called John.  There are three different ways you can write this,  using <<`SELECT`,SQL-Query>>:
+For instance, find all people living in Rome that have a friend called John.  There are three different ways you can write this,  using <<SQL-Query,`SELECT`>>:
 
 ```
 ArcadeDB> SELECT FROM Person WHERE BOTH('Friend').name CONTAINS 'John'
@@ -508,13 +508,13 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
 		  RETURN result
 ```
 
-Here, the query executor optimizes the query for you, choosing indexes where they exist.  Moreover, the query becomes more readable, especially in complex cases, such as multiple nested <<`SELECT`,SQL-Query>> queries.
+Here, the query executor optimizes the query for you, choosing indexes where they exist.  Moreover, the query becomes more readable, especially in complex cases, such as multiple nested <<SQL-Query,`SELECT`>> queries.
 
 **`TRAVERSE` Alternative**
 
-There are similar limitations to using <<`TRAVERSE`,SQL-Traverse>>.  You may benefit from using <<`MATCH`,SQL-Match>> as an alternative.
+There are similar limitations to using <<SQL-Traverse,`TRAVERSE`>>.  You may benefit from using <<`MATCH`,SQL-Match>> as an alternative.
 
-For instance, consider a simple <<`TRAVERSE`,SQL-Traverse>> statement, like:
+For instance, consider a simple <<SQL-Traverse,`TRAVERSE`>> statement, like:
 
 ```
 ArcadeDB> TRAVERSE out('Friend') FROM (SELECT FROM Person WHERE name = 'John') 
@@ -529,7 +529,7 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
           {as: friend, while: ($depth < 3)} RETURN friend
 ```
 
-Consider a case where you have a `since` date property on the edge `Friend`.  You want to traverse the relationship only for edges where the `since` value is greater than a given date.  In a <<`TRAVERSE`,SQL-Traverse>> statement, you might write the query as:
+Consider a case where you have a `since` date property on the edge `Friend`.  You want to traverse the relationship only for edges where the `since` value is greater than a given date.  In a <<SQL-Traverse,`TRAVERSE`>> statement, you might write the query as:
 
 ```
 ArcadeDB> TRAVERSE bothE('Friend')<<since > date('2012-07-02', 'yyyy-MM-dd')].bothV()
@@ -547,7 +547,7 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.(bothE("Friend")
 
 **Projections and Grouping Operations**
 
-Projections and grouping operations are better expressed with a <<`SELECT`,SQL-Query>> query.  If you need to filter and do projection or aggregation in the same query, you can use <<`SELECT`,SQL-Query>> and <<`MATCH`,SQL-Match>> in the same statement.
+Projections and grouping operations are better expressed with a <<SQL-Query,`SELECT`>> query.  If you need to filter and do projection or aggregation in the same query, you can use <<SQL-Query,`SELECT`>> and <<`MATCH`,SQL-Match>> in the same statement.
 
 This is particular important when you expect a result that contains attributes from different connected records (cartesian product).  For instance, to retrieve names, their friends and the date since they became friends:
 

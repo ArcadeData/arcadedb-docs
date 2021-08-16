@@ -4,13 +4,13 @@
 [%header,cols=4]
 |===
 | CRUD | Graph | Schema & Indexes | Database 
-| <<SELECT,SQL-Query>> | <<CREATE VERTEX,SQL-Create-Vertex>> | <<CREATE TYPE,SQL-Create-Type>> | <<CREATE BUCKET,SQL-Create-Bucket>> 
-| <<INSERT,SQL-Insert>> | <<CREATE EDGE,SQL-Create-Edge>> |<<ALTER TYPE,SQL-Alter-Type>> | <<ALTER BUCKET,SQL-Alter-Bucket>>   
-| <<UPDATE,SQL-Update>> | <<MATCH,SQL-Match>>  |<<DROP TYPE,SQL-Drop-Type>> | <<DROP BUCKET,SQL-Drop-Bucket>> 
-| <<DELETE,SQL-Delete>> |  | <<CREATE PROPERTY,SQL-Create-Property>> | <<ALTER DATABASE,SQL-Alter-Database>>
-| <<TRAVERSE,SQL-Traverse>> |  |  <<ALTER PROPERTY,SQL-Alter-Property>> | <<CREATE DATABASE (console only),Console-Command-Create-Database>>   
-| <<TRUNCATE TYPE,SQL-Truncate-Type>> |  | <<DROP PROPERTY,SQL-Drop-Property>> | <<DROP DATABASE (console only),Console-Command-Drop-Database>> 
-| <<TRUNCATE BUCKET,SQL-Truncate-Bucket>> | | <<CREATE INDEX,SQL-Create-Index>> |   
-| | | <<REBUILD INDEX,SQL-Rebuild-Index>>  | 
-|  | |<<DROP INDEX,SQL-Drop-Index>>  | 
+| <<SQL-Query,SELECT>> | <<SQL-Create-Vertex,CREATE VERTEX>> | <<SQL-Create-Type,CREATE TYPE>> | <<SQL-Create-Bucket,CREATE BUCKET>> 
+| <<SQL-Insert,INSERT>> | <<SQL-Create-Edge,CREATE EDGE>> |<<SQL-Alter-Type,ALTER TYPE>> | <<SQL-Alter-Bucket,ALTER BUCKET>>   
+| <<SQL-Update,UPDATE>> | <<SQL-Match,MATCH>>  |<<SQL-Drop-Type,DROP TYPE>> | <<SQL-Drop-Bucket,DROP BUCKET>> 
+| <<SQL-Delete,DELETE>> |  | <<SQL-Create-Property,CREATE PROPERTY>> | <<SQL-Alter-Database,ALTER DATABASE>>
+| <<SQL-Traverse,TRAVERSE>> |  |  <<SQL-Alter-Property,ALTER PROPERTY>> | <<Console-Command-Create-Database,CREATE DATABASE (console only)>>   
+| <<SQL-Truncate-Type,TRUNCATE TYPE>> |  | <<SQL-Drop-Property,DROP PROPERTY>> | <<Console-Command-Drop-Database,DROP DATABASE (console only)>> 
+| <<SQL-Truncate-Bucket,TRUNCATE BUCKET>> | | <<SQL-Create-Index,CREATE INDEX>> |   
+| | | <<SQL-Rebuild-Index,REBUILD INDEX>>  | 
+|  | |<<SQL-Drop-Index,DROP INDEX>>  | 
 |===
