@@ -94,7 +94,7 @@ ArcadeDB> INSERT INTO Profile (name, friends) VALUES ('Luca', <<#10:3, #10:4])
 ArcadeDB> INSERT INTO Profiles SET name = 'Luca', friends = <<#10:3, #10:4]
 ```
 
-- Inserts using <<`SELECT`,SQL-Query>> sub-queries
+- Inserts using <<SQL-Query,`SELECT`>> sub-queries
 
 ```
 ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (SELECT FROM Diver 
