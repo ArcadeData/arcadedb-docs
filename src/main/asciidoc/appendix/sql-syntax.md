@@ -234,7 +234,7 @@ nUll
 ```
 
 [[SQL-Numbers]]
-** Numbers **
+**Numbers**
 
 ArcadeDB can store five different types of numbers
 - Integer: 32bit signed
@@ -250,23 +250,23 @@ When an integer is saved to a schemaful property of another numerical type, it i
 **Longs** are represented in SQL as numbers with `L` suffix, eg. `123L` (L can be uppercase or lowercase). Plain numbers (withot L prefix) that exceed the Integer range are also automatically converted to Long. If the number represented exceeds the Long maximum size (see Java java.lang.Long `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`;
 
 Integer and Long numbers can be represented in base 10 (decimal), 8 (octal) or 16 (hexadecimal):
-- decimal: `<<"-"] ("0" | ( ("1"-"9") ("0"-"9")* ) <<"l"|"L"]`, eg. 
+- decimal: `["-"] ("0" | ( ("1"-"9") ("0"-"9")* ) ["l"|"L"]`, eg. 
   - `15`, `15L`  
   - `-164` 
   - `999999999999`
-- octal: `<<"-"] "0" ("0"-"7")+ <<"l"|"L"]`, eg. 
+- octal: `["-"] "0" ("0"-"7")+ ["l"|"L"]`, eg. 
   - `01`, `01L` (equivalent to decimal 1) 
   - `010`, `010L` (equivalent to decimal 8)
   - `-065`, `-065L` (equivalent to decimal 53)
-- hexadecimal: `<<"-"] "0" ("x"|"X") ("0"-"9"," a"-"f", "A"-"F")+ <<"l"|"L"]`, eg.
+- hexadecimal: `["-"] "0" ("x"|"X") ("0"-"9"," a"-"f", "A"-"F")+ ["l"|"L"]`, eg.
   - `0x1`, `0X1`, `0x1L` (equivalent to 1 decimal)
   - `0x10` (equivalent to decimal 16)
   - `0xff`, `0xFF` (equivalent to decimal 255)
   - `-0xff`, `-0xFF` (equivalent to decimal -255)
   
-**Float** numbers are represented in SQL as `<<-][<number>].<number>`, eg. valid Float values are `1.5`, `-1567.0`, `.556767`. If the number represented exceeds the Float maximum size (see Java java.lang.Float `MAX_VALUE` and `MIN_VALUE`), then it's automatically converted to a Double. 
+**Float** numbers are represented in SQL as `[-][<number>].<number>`, eg. valid Float values are `1.5`, `-1567.0`, `.556767`. If the number represented exceeds the Float maximum size (see Java java.lang.Float `MAX_VALUE` and `MIN_VALUE`), then it's automatically converted to a Double. 
 
-**Double** numbers are represented in SQL as `<<-][<number>].<number>D` (D can be uppercase or lowercase), eg. valid Float values are `1.5d`, `-1567.0D`, `.556767D`. If the number represented exceeds the Double maximum size (see Java java.lang.Double `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`
+**Double** numbers are represented in SQL as `[-][<number>].<number>D` (D can be uppercase or lowercase), eg. valid Float values are `1.5d`, `-1567.0D`, `.556767D`. If the number represented exceeds the Double maximum size (see Java java.lang.Double `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`
 
 
 Float and Double numbers can be represented as decimal, decimal with exponent, hexadecimal and hexadecimal with exponent.
@@ -274,22 +274,22 @@ Here is the full syntax:
 
 ```
 
-FLOATING_POINT_LITERAL: <<"-"] ( <DECIMAL_FLOATING_POINT_LITERAL> | <HEXADECIMAL_FLOATING_POINT_LITERAL> )
+FLOATING_POINT_LITERAL: ["-"] ( <DECIMAL_FLOATING_POINT_LITERAL> | <HEXADECIMAL_FLOATING_POINT_LITERAL> )
 
 DECIMAL_FLOATING_POINT_LITERAL:
-      (<<"0"-"9"])+ "." (<<"0"-"9"])* (<DECIMAL_EXPONENT>)? (<<"f","F","d","D"])?
-      | "." (<<"0"-"9"])+ (<DECIMAL_EXPONENT>)? (<<"f","F","d","D"])?
-      | (<<"0"-"9"])+ <DECIMAL_EXPONENT> (<<"f","F","d","D"])?
-      | (<<"0"-"9"])+ (<DECIMAL_EXPONENT>)? <<"f","F","d","D"]
+      (["0"-"9"])+ "." (["0"-"9"])* (<DECIMAL_EXPONENT>)? (["f","F","d","D"])?
+      | "." (["0"-"9"])+ (<DECIMAL_EXPONENT>)? (["f","F","d","D"])?
+      | (["0"-"9"])+ <DECIMAL_EXPONENT> (["f","F","d","D"])?
+      | (["0"-"9"])+ (<DECIMAL_EXPONENT>)? ["f","F","d","D"]
   >
 
-DECIMAL_EXPONENT: <<"e","E"] (<<"+","-"])? (<<"0"-"9"])+ 
+DECIMAL_EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ 
 
 HEXADECIMAL_FLOATING_POINT_LITERAL:
-        "0" <<"x", "X"] (<<"0"-"9","a"-"f","A"-"F"])+ (".")? <HEXADECIMAL_EXPONENT> (<<"f","F","d","D"])?
-      | "0" <<"x", "X"] (<<"0"-"9","a"-"f","A"-"F"])* "." (<<"0"-"9","a"-"f","A"-"F"])+ <HEXADECIMAL_EXPONENT> (<<"f","F","d","D"])?
+        "0" ["x", "X"] (["0"-"9","a"-"f","A"-"F"])+ (".")? <HEXADECIMAL_EXPONENT> (["f","F","d","D"])?
+      | "0" ["x", "X"] (["0"-"9","a"-"f","A"-"F"])* "." (["0"-"9","a"-"f","A"-"F"])+ <HEXADECIMAL_EXPONENT> (["f","F","d","D"])?
 
-HEXADECIMAL_EXPONENT: <<"p","P"] (<<"+","-"])? (<<"0"-"9"])+ 
+HEXADECIMAL_EXPONENT: ["p","P"] (["+","-"])? (["0"-"9"])+ 
 ```
 
 Eg. 
@@ -307,7 +307,7 @@ The instantiation of BigDecimal can be done explicitly, using the `bigDecimal(<n
 
 
 [[SQL-Mathematical-Operations]]
-** Mathematical operations **
+**Mathematical operations**
 
 Mathematical Operations with numbers follow these rules:
 - Operations are calculated from left to right, following the operand priority. 
@@ -331,7 +331,7 @@ The conversion of a number to BigDecimal can be done explicitly, using the `bigD
 
 
 [[SQL-Collections]]
-** Collections **
+**Collections**
 
 ArcadeDB supports two types of collections:
 - **Lists**: ordered, allow duplicates
@@ -339,23 +339,23 @@ ArcadeDB supports two types of collections:
  
 The SQL notation allows to create `Lists` with square bracket notation, eg.
 ```
-<<1, 3, 2, 2, 4]
+[1, 3, 2, 2, 4]
 ```
 
 A `List` can be converted to a `Set` using the `.asSet()` method:
 
 ```
-<<1, 3, 2, 2, 4].asSet() = <<1, 3, 2, 4] /*  the order of the elements in the resulting set is not guaranteed */
+[1, 3, 2, 2, 4].asSet() = [1, 3, 2, 4] /*  the order of the elements in the resulting set is not guaranteed */
 ```
 
 [[SQL-Binary]]
-** Binary data **
+**Binary data**
 ArcadeDB can store binary data (byte arrays) in document fields. There is no native representation of binary data in SQL syntax, insert/update a binary field you have to use `decode(<base64string>, "base64")` function.
 
 To obtain the base64 string representation of a byte array, you can use the function `encode(<byteArray>, "base64")`
 
 [[SQL-Expressions]]
-** Expressions **
+**Expressions**
 
 Expressions can be used as:
 
@@ -374,7 +374,7 @@ Valid expressions are:
 - `<unary operator> <expression>` 
 - `( <expression> )`: expression between parenthesis, for precedences
 - `( <query> )`: query between parenthesis
-- `<< <expression> (, <expression>)* ]`: a list, an ordered collection that allows duplicates, eg. `<<"a", "b", "c"]`)
+- `[ <expression> (, <expression>)* ]`: a list, an ordered collection that allows duplicates, eg. `["a", "b", "c"]`)
 - `{ <expression>: <expression> (, <expression>: <expression>)* }`: the result is an ODocument, with <field>:<value> values, eg. `{"a":1, "b": 1+2+3, "c": foo.bar.size() }`. The key name is converted to String if it's not.
 - `<expression> <modifier> ( <modifier> )*`: a chain of modifiers (see below)
 - `<json>`: It is translated to an ODocument. Nested JSON is allowed and is translated to nested ODocuments 
@@ -382,7 +382,7 @@ Valid expressions are:
 - `<expression> IS NOT NULL`: check for non null value of an expression
 
 [[SQL-Modifiers]]
-** Modifiers **
+**Modifiers**
 
 A modifier can be
 - a dot-separated field chain, eg. `foo.bar`. Dot notation is used to navigate relationships and document fields. eg.
@@ -402,33 +402,33 @@ A modifier can be
   
 - a method invocation, eg. `foo.size()`.
 
-  Method invocations can be chained, eg. `foo.toLowerCase().substring(2, 4)`
+Method invocations can be chained, eg. `foo.toLowerCase().substring(2, 4)`
   
-- a square bracket filter, eg. `foo<<1]` or `foo<<name = 'John']`
+- a square bracket filter, eg. `foo[1]` or `foo[name = 'John']`
 
 
-** Square bracket filters **
+**Square bracket filters**
 
 Square brackets can be used to filter collections or maps. 
 
-`field<< ( <expression> | <range> | <condition> ) ]`
+`field[ ( <expression> | <range> | <condition> ) ]`
 
 Based on what is between brackets, the square bracket filtering has different effects:
 
 - `<expression>`: If the expression returns an Integer or Long value (i), the result of the square bracket filtering
 is the i-th element of the collection/map. If the result of the expresson (K) is not a number, the filtering returns the value corresponding to the key K in the map field. If the field is not a collection/map, the square bracket filtering returns `null`.
 The result of this filtering is ALWAYS a single value.
-- `<range>`: A range is something like `M..N`  or `M...N` where M and N are integer/long numbers, eg. `fieldName<<2..5]`. The result of range filtering is a collection that is a subet of the original field value, containing all the items from position M (included) to position N (excluded for `..`, included for `...`). Eg. if `fieldName = <<'a', 'b', 'c', 'd', 'e']`, `fieldName<<1..3] = <<'b', 'c']`, `fieldName<<1...3] = <<'b', 'c', 'd']`. Ranges start from `0`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
-- `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. Eg. `fieldName = [{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName<<foo > 4] = [{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
+- `<range>`: A range is something like `M..N`  or `M...N` where M and N are integer/long numbers, eg. `fieldName[2..5]`. The result of range filtering is a collection that is a subet of the original field value, containing all the items from position M (included) to position N (excluded for `..`, included for `...`). Eg. if `fieldName = ['a', 'b', 'c', 'd', 'e']`, `fieldName[1..3] = ['b', 'c']`, `fieldName[1...3] = ['b', 'c', 'd']`. Ranges start from `0`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
+- `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. Eg. `fieldName = [{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName[foo > 4] = [{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
 
 
-** Conditions **
+**Conditions**
 
 A condition is an expression that returns a boolean value.
 
 An expression that returns something different from a boolean value is always evaluated to `false`.
 
-** Comparison Operators **
+**Comparison Operators**
 
 - **`=`  (equals)**: If used in an expression, it is the boolean equals (eg. `select from Foo where name = 'John'`. If used in an SET section of INSERT/UPDATE statements or on a LET statement, it represents a variable assignment (eg. `insert into Foo set name = 'John'`)
 - **`!=` (not equals)**: inequality operator. 
@@ -438,7 +438,7 @@ An expression that returns something different from a boolean value is always ev
 - **`<`  (less than)**
 - **`<=` (less or equal)**
 
-** Math Operators **
+**Math Operators**
 
 - **`+`  (plus)**: addition if both operands are numbers, string concatenation (with string conversion) if one of the operands is not a number. The order of calculation (and conversion) is from left to right, eg `'a' + 1 + 2 = 'a12'`, `1 + 2 + 'a' = '3a'`. It can also be used as a unary operator (no effect)
 - **`-`  (minus**): subtraction between numbers. Non-number operands are evaluated to zero. Null values are treated as a zero, eg `1 + null = 1`. Minus can also be used as a unary operator, to invert the sign of a number
@@ -447,13 +447,13 @@ An expression that returns something different from a boolean value is always ev
 - **`%`  (modulo)**: modulo between numbers. If one of the operands is null, the modulo will evaluate to null.. 
 - **`>>`  (bitwise right shift)**: shifts bits on the right operand by a number of positions equal to the right operand. Eg. `8 >> 2 = 2`. Both operands have to be Integer or Long values, otherwise the result will be null.  
 - **`>>>`  (unsigned bitwise right shift)** The same as `>>`, but with negative numbers it will fill with `1` on the left. Both operands have to be Integer or Long values, otherwise the result will be null.
-- **`<<`  (bitwise right shift)** shifts bits on the left, eg. `2 << 2 = 8`. Both operands have to be Integer or Long values, otherwise the result will be null.
+- **`[`  (bitwise right shift)** shifts bits on the left, eg. `2 [ 2 = 8`. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`&`  (bitwise AND)** executes a bitwise AND operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`|`  (bitwise OR)** executes a bitwise OR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`^`  (bitwise XOR)** executes a bitwise XOR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`||`**: array concatenation (see below for details)
 
-** Math Operators precedence **
+**Math Operators precedence**
 
 
 [%header,cols=2]
@@ -461,14 +461,14 @@ An expression that returns something different from a boolean value is always ev
 | type                  |   Operators     
 | multiplicative        | `*` `/` `%`     
 | additive	            |   `+` `-`       
-| shift	                | `<<` `>>` `>>>` 
+| shift	                | `[` `>>` `>>>` 
 | bitwise AND	        |   `&`           
 | bitwise exclusive OR	|  `^`            
-| bitwise inclusive OR	|   <code>&#124;
-| array concatenation	|   <code>&#124;&#124;
+| bitwise inclusive OR	|   `&#124;`
+| array concatenation	|   `&#124;&#124;`
 |===
 
-** Math + Assign operators **
+**Math + Assign operators**
 
 These operators can be used in UPDATE statements to update and set values. The semantics is the same as the operation plus the assignment,
 eg. `a += 2` is just a shortcut for `a = a + 2`.
@@ -479,30 +479,30 @@ eg. `a += 2` is just a shortcut for `a = a + 2`.
 - **`/=`  (divide and assign)**: divides left operand by right operand and assigns the value to the left operand. Returns the final value of the left operand
 - **`%=`  (modulo and assign)**: calculates left operand modulo right operand and assigns the value to the left operand. Returns the final value of the left operand
 
-** Array concatenation **
+**Array concatenation**
 
 The `||` operator concatenates two arrays.
 
 ```
-<<1, 2, 3] || <<4, 5] = <<1, 2, 3, 4, 5]
+[1, 2, 3] || [4, 5] = [1, 2, 3, 4, 5]
 ```
 
 If one of the elements is not an array, then it's converted to an array of one element, before the concatenation operation is executed
 
 ```
-<<1, 2, 3] || 4 = <<1, 2, 3, 4]
+[1, 2, 3] || 4 = [1, 2, 3, 4]
 
-1 || <<2, 3, 4] = <<1, 2, 3, 4]
+1 || [2, 3, 4] = [1, 2, 3, 4]
 
-1 || 2 || 3 || 4 = <<1, 2, 3, 4]
+1 || 2 || 3 || 4 = [1, 2, 3, 4]
 ```
 
 To add an array, you have to wrap the array element in another array:
 
 ```
-[<<1, 2], <<3, 4]] || <<5, 6] = [<<1, 2], <<3, 4], 5, 6]
+[[1, 2], [3, 4]] || [5, 6] = [[1, 2], [3, 4], 5, 6]
 
-[<<1, 2], <<3, 4]] || [<<5, 6]] = [<<1, 2], <<3, 4], <<5, 6]]
+[[1, 2], [3, 4]] || [[5, 6]] = [[1, 2], [3, 4], [5, 6]]
 ```
 
 The result of an array concatenation is always a List (ordered and with duplicates). The order of the elements in the list is the same as the order in the elements in the source arrays, in the order they appear in the original expression.
@@ -510,9 +510,9 @@ The result of an array concatenation is always a List (ordered and with duplicat
 To transform the result of an array concatenation in a Set (remove duplicates), just use the `.asSet()` method
 
 ```
-<<1, 2] || <<2, 3] = <<1, 2, 2, 3]
+[1, 2] || [2, 3] = [1, 2, 2, 3]
 
-(<<1, 2] || <<2, 3]).asSet() = <<1, 2, 3] 
+([1, 2] || [2, 3]).asSet() = [1, 2, 3] 
 ```
 
 **Specific behavior of NULL**
@@ -520,25 +520,23 @@ To transform the result of an array concatenation in a Set (remove duplicates), 
 Null value has no effect when applied to a || operation. eg.
 
 ```
-<<1, 2] || null = <<1, 2]
+[1, 2] || null = [1, 2]
 
-null || <<1, 2] = <<1, 2]
+null || [1, 2] = [1, 2]
 ```
 
 To add null values to a collection, you have to explicitly wrap them in another collection, eg.
 
 ```
-<<1, 2] || <<null] = <<1, 2, null]
+[1, 2] || [null] = [1, 2, null]
 ```
 
-
-
-** Boolean Operators **
+**Boolean Operators**
 
 - **`AND`**: logical AND
 - **`OR`**: logical OR
 - **`NOT`**: logical NOT
-- **`CONTAINS`**: checks if the left collection contains the right element. The left argument has to be a colleciton, otherwise it returns FALSE. It's NOT the check of colleciton intersections, so `<<'a', 'b', 'c'] CONTAINS <<'a', 'b']` will return FALSE, while `<<'a', 'b', 'c'] CONTAINS 'a'` will return TRUE. 
+- **`CONTAINS`**: checks if the left collection contains the right element. The left argument has to be a colleciton, otherwise it returns FALSE. It's NOT the check of colleciton intersections, so `['a', 'b', 'c'] CONTAINS ['a', 'b']` will return FALSE, while `['a', 'b', 'c'] CONTAINS 'a'` will return TRUE. 
 - **`IN`**: the same as CONTAINS, but with inverted operands.
 - **`CONTAINSKEY`**: for maps, the same as for CONTAINS, but checks on the map keys
 - **`CONTAINSVALUE`**: for maps, the same as for CONTAINS, but checks on the map values
