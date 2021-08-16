@@ -26,20 +26,20 @@ INSERT INTO <<TYPE:]<type>|BUCKET:<bucket>|INDEX:<index>
 
   As an example, in the SQL-92 standard, such as with a Relational database, you might use:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile (name, surname) 
             VALUES ('Jay', 'Miner')
 ```
 
   Alternatively, in the ArcadeDB abbreviated syntax, the query would be written as,
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile SET name = 'Jay', surname = 'Miner'
 ```
 
   In JSON content syntax, it would be written as this,
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile CONTENT {"name": "Jay", "surname": "Miner"}
 ```
 
@@ -47,21 +47,21 @@ ArcadeDB> INSERT INTO Profile CONTENT {"name": "Jay", "surname": "Miner"}
 
   In SQL-92 syntax:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile BUCKET profile_recent (name, surname) VALUES 
             ('Jay', 'Miner')
 ```
 
-  Alternative, in the ArcadeDB abbreviated syntax:
+Alternative, in the ArcadeDB abbreviated syntax:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile BUCKET profile_recent SET name = 'Jay', 
             surname = 'Miner'
 ```
 
 - Insert several records at the same time:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile(name, surname) VALUES ('Jay', 'Miner'), 
             ('Frank', 'Hermier'), ('Emily', 'Sout')
 ```
@@ -70,13 +70,13 @@ ArcadeDB> INSERT INTO Profile(name, surname) VALUES ('Jay', 'Miner'),
 
   In SQL-93 syntax:
 
-```
+```sql
 ArcadeDB> INSERT INTO Employee (name, boss) VALUES ('jack', #11:09)
 ```
 
   In the ArcadeDB abbreviated syntax:
 
-```
+```sql
 ArcadeDB> INSERT INTO Employee SET name = 'jack', boss = #11:99
 ```
 
@@ -84,39 +84,39 @@ ArcadeDB> INSERT INTO Employee SET name = 'jack', boss = #11:99
 
   In SQL-93 syntax:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile (name, friends) VALUES ('Luca', <<#10:3, #10:4])
 ```
 
   In the ArcadeDB abbreviated syntax:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profiles SET name = 'Luca', friends = <<#10:3, #10:4]
 ```
 
 - Inserts using <<SQL-Query,`SELECT`>> sub-queries
 
-```
+```sql
 ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (SELECT FROM Diver 
             WHERE name = 'Marko')
 ```
 
 - Inserts using <<SQL-Insert,`INSERT`>> sub-queries:
 
-```
+```sql
 ArcadeDB> INSERT INTO Diver SET name = 'Luca', buddy = (INSERT INTO Diver 
             SET name = 'Marko')
 ```
 
 - Inserting into a different bucket:
 
-```
+```sql
 ArcadeDB> INSERT INTO BUCKET:asiaemployee (name) VALUES ('Matthew')
 ```
 
   However, note that the document has no assigned type.  To create a document of a certain type, but in a different bucket than the default, instead use:
 
-```
+```sql
 ArcadeDB> INSERT INTO BUCKET:asiaemployee (@type, content) VALUES 
             ('Employee', 'Matthew')
 ```
@@ -125,25 +125,25 @@ ArcadeDB> INSERT INTO BUCKET:asiaemployee (@type, content) VALUES
 
 - Insert a new record, adding it as an embedded document:
 
-```
+```sql
 ArcadeDB> INSERT INTO Profile (name, address) VALUES ('Luca', { "@type": "d", 
             "street": "Melrose Avenue"})
 ```
 
 - Insert from a query.
 
-  To copy records from another type, use:
+To copy records from another type, use:
 
-```
+```sql
 ArcadeDB> INSERT INTO GermanyClient FROM SELECT FROM Client WHERE 
             country = 'Germany'
 ```
 
-  This inserts all the records from the type `Client` where the country is Germany, in the type `GermanyClient`.
+This inserts all the records from the type `Client` where the country is Germany, in the type `GermanyClient`.
 
-  To copy records from one type into another, while adding a field:
+To copy records from one type into another, while adding a field:
 
-```
+```sql
 ArcadeDB> INSERT INTO GermanyClient FROM SELECT *, true AS copied FROM Client 
             WHERE country = 'Germany'
 ```

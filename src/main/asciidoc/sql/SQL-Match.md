@@ -77,120 +77,116 @@ For out(), in(), both() also a shortened *arrow* syntax is supported:
 
 The following examples are based on this sample data-set from the type `People`:
 
-!<<,../images/match-example-table.png)
+image:../images/match-example-table.png[]
 
-!<<,../images/match-example-graph.png)
+image:../images/match-example-graph.png[]
 
 - Find all people with the name John:
 
-```
-ArcadeDB> MATCH 
-                {type: Person, as: people, where: (name = 'John')} 
+```sql
+ArcadeDB> MATCH {type: Person, as: people, where: (name = 'John')} 
             RETURN people
 
-  ---------
-    people 
-  ---------
-    #12:0
-    #12:1
-  ---------
+---------
+  people 
+---------
+  #12:0
+  #12:1
+---------
 ```
 
 - Find all people with the name John and the surname Smith:
 
-```
-ArcadeDB> MATCH 
-                {type: Person, as: people, where: (name = 'John' AND surname = 'Smith')} 
-	    RETURN people
+```sql
+ArcadeDB> MATCH  {type: Person, as: people, where: (name = 'John' AND surname = 'Smith')} 
+	        RETURN people
 
-  -------
-  people
-  -------
-   #12:1
-  -------
+-------
+people
+-------
+ #12:1
+-------
 ```
 
 
 - Find people named John with their friends:
 
-```
-ArcadeDB> MATCH 
-                  {type: Person, as: person, where: (name = 'John')}.both('Friend') {as: friend} 
+```sql
+ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')}.both('Friend') {as: friend} 
             RETURN person, friend
 
-  --------+---------
-   person | friend 
-  --------+---------
-   #12:0  | #12:1
-   #12:0  | #12:2
-   #12:0  | #12:3
-   #12:1  | #12:0
-   #12:1  | #12:2
-  --------+---------
+--------+---------
+ person | friend 
+--------+---------
+ #12:0  | #12:1
+ #12:0  | #12:2
+ #12:0  | #12:3
+ #12:1  | #12:0
+ #12:1  | #12:2
+--------+---------
 ```
  
 
 - Find friends of friends:
 
-```
-ArcadeDB> MATCH 
-                    {type: Person, as: person, where: (name = 'John' AND surname = 'Doe')}
+```sql
+ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John' AND surname = 'Doe')}
 		    .both('Friend').both('Friend') {as: friendOfFriend} 
-		RETURN person, friendOfFriend
+		    RETURN person, friendOfFriend
 
-  --------+----------------
-   person | friendOfFriend 
-  --------+----------------
-   #12:0  | #12:0
-   #12:0  | #12:1
-   #12:0  | #12:2
-   #12:0  | #12:3
-   #12:0  | #12:4
-  --------+----------------
+--------+----------------
+ person | friendOfFriend 
+--------+----------------
+ #12:0  | #12:0
+ #12:0  | #12:1
+ #12:0  | #12:2
+ #12:0  | #12:3
+ #12:0  | #12:4
+--------+----------------
 ```
   
   
 - Find people, excluding the current user:
   
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John' AND 
             surname = 'Doe')}.both('Friend').both('Friend'){as: friendOfFriend,
 			where: ($matched.person != $currentMatch)} 
 			RETURN person, friendOfFriend
 
-  --------+----------------
-   person | friendOfFriend
-  --------+----------------
-   #12:0  | #12:1
-   #12:0  | #12:2
-   #12:0  | #12:3
-   #12:0  | #12:4
-  --------+----------------
+--------+----------------
+ person | friendOfFriend
+--------+----------------
+ #12:0  | #12:1
+ #12:0  | #12:2
+ #12:0  | #12:3
+ #12:0  | #12:4
+--------+----------------
 ```
   
 - Find friends of friends to the sixth degree of separation:
   
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John' AND 
             surname = 'Doe')}.both('Friend'){as: friend, 
 			where: ($matched.person != $currentMatch) while: ($depth < 6)} 
 			RETURN person, friend
 
-  --------+---------
-   person | friend
-  --------+---------
-   #12:0  | #12:0
-   #12:0  | #12:1
-   #12:0  | #12:2
-   #12:0  | #12:3
-   #12:0  | #12:4
-  --------+---------
+--------+---------
+ person | friend
+--------+---------
+ #12:0  | #12:0
+ #12:0  | #12:1
+ #12:0  | #12:2
+ #12:0  | #12:3
+ #12:0  | #12:4
+--------+---------
 ```
 
 
 - Finding friends of friends to six degrees of separation, since a particular date:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person, 
             where: (name = 'John')}.(bothE('Friend'){
 			where: (date < ?)}.bothV()){as: friend, 
@@ -202,39 +198,39 @@ ArcadeDB> MATCH {type: Person, as: person,
 
 - Find friends of my friends who are also my friends, using multiple paths:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John' AND 
             surname = 'Doe')}.both('Friend').both('Friend'){as: friend},
 			{ as: person }.both('Friend'){ as: friend } 
 			RETURN person, friend
 
-  --------+--------
-   person | friend
-  --------+--------
-   #12:0  | #12:1
-   #12:0  | #12:2
-  --------+--------
+--------+--------
+ person | friend
+--------+--------
+ #12:0  | #12:1
+ #12:0  | #12:2
+--------+--------
 ```
   
   In this case, the statement matches two expression: the first to friends of friends, the second to direct friends.  Each expression shares the common aliases (`person` and `friend`). To match the whole statement, the result must match both expressions, where the alias values for the first expression are the same as that of the second.
 
 - Find common friends of John and Jenny:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'John' AND 
             surname = 'Doe')}.both('Friend'){as: friend}.both('Friend')
 			{type: Person, where: (name = 'Jenny')} RETURN friend
 
-  --------
-   friend
-  --------
-   #12:1
-  --------
+--------
+ friend
+--------
+ #12:1
+--------
 ```
   
   The same, with two match expressions:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'John' AND 
             surname = 'Doe')}.both('Friend'){as: friend}, 
 			{type: Person, where: (name = 'Jenny')}.both('Friend')
@@ -242,50 +238,51 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John' AND
 ```
 
 
-
-** DISTINCT **
+**DISTINCT**
 
 The MATCH statement returns all the occurrences of a pattern, even if they are duplicated. To have unique, distinct records
 as a result, you have to specify the DISTINCT keyword in the RETURN statement.
 
 Example: suppose you have a dataset made like following:
 
-   INSERT INTO V SET name = 'John', surname = 'Smith';
-   INSERT INTO V SET name = 'John', surname = 'Harris'
-   INSERT INTO V SET name = 'Jenny', surname = 'Rose'
+```sql
+ INSERT INTO V SET name = 'John', surname = 'Smith';
+ INSERT INTO V SET name = 'John', surname = 'Harris'
+ INSERT INTO V SET name = 'Jenny', surname = 'Rose'
+```
 
 This is the result of the query without a DISTINCT clause:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as:p} RETURN p.name as name
 
-  --------
-   name
-  --------
-   John
-  --------
-   John
-  --------
-   Jenny
-  --------
+--------
+ name
+--------
+ John
+--------
+ John
+--------
+ Jenny
+--------
 ```
 
 
 And this is the result of the query with a DISTINCT clause:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as:p} RETURN DISTINCT p.name as name
 
-  --------
-   name
-  --------
-   John
-  --------
-   Jenny
-  --------
+--------
+ name
+--------
+ John
+--------
+ Jenny
+--------
 ```
   
-** Context Variables **
+**Context Variables**
 
 When running these queries, you can use any of the following context variables:
 
@@ -297,14 +294,14 @@ When running these queries, you can use any of the following context variables:
 
 
 
-**Use Cases **
+**Use Cases**
 
 
-** Expanding Attributes **
+**Expanding Attributes**
 
 You can run this statement as a sub-query inside of another statement.  Doing this allows you to obtain details and aggregate data from the inner <<SQL-Query,`SELECT`>> query.
 
-```
+```sql
 ArcadeDB> SELECT person.name AS name, person.surname AS surname,
           friend.name AS friendName, friend.surname AS friendSurname
 		  FROM (MATCH {type: Person, as: person,
@@ -324,7 +321,7 @@ ArcadeDB> SELECT person.name AS name, person.surname AS surname,
 
 As an alternative, you can use the following:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person,
 		  where: (name = 'John')}.both('Friend'){as: friend}
 		  RETURN 
@@ -342,32 +339,27 @@ ArcadeDB> MATCH {type: Person, as: person,
 --------+----------+------------+---------------
 ```
 
-
-
-
-
-
-** Incomplete Hierarchy **
+**Incomplete Hierarchy**
 
 Consider building a database for a company that shows a hierarchy of departments within the company.  For instance,
 
-```
-           <<manager] department        
+```sql
+          [manager] department        
           (employees in department)    
                                        
                                        
-                <<m0]0                   
+                [m0]0                   
                  (e1)                  
                  /   \                 
                 /     \                
                /       \               
-           <<m1]1        <<m2]2
+           [m1]1        [m2]2
           (e2, e3)     (e4, e5)        
              / \         / \           
             3   4       5   6          
           (e6) (e7)   (e8)  (e9)       
           /  \                         
-      <<m3]7    8                       
+      [m3]7    8                       
       (e10)   (e11)                    
        /                               
       9                                
@@ -382,7 +374,7 @@ This loosely shows that,
 
 In this case, you would use the following query to find out who's the manager to a particular employee:
 
-```
+```sql 
 ArcadeDB> SELECT EXPAND(manager) FROM (MATCH {type:Employee, 
           where: (name = ?)}.out('WorksAt').out('ParentDepartment')
 		  {while: (out('Manager').size() == 0), 
@@ -398,13 +390,13 @@ Match path items act in a different manners, depending on whether or not you use
 
 For instance, consider the following graph:
 
-``` 
+```sql
 <<name='a'] -FriendOf-> <<name='b'] -FriendOf-> <<name='c']
 ```
 
 Running the following statement on this graph only returns `b`:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("FriendOf")
           {as: friend} RETURN friend
 
@@ -419,7 +411,7 @@ What this means is that it traverses the path item `out("FriendOf")` exactly onc
 
 If you add a ```while``` condition:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("FriendOf")
           {as: friend, while: ($depth < 2)} RETURN friend
 
@@ -435,13 +427,14 @@ Including a `while:` condition on the match path item causes ArcadeDB to evaluat
 
 To exclude the starting point, you need to add a `where:` condition, such as:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("FriendOf")
           {as: friend, while: ($depth < 2) where: ($depth > 0)} 
 		  RETURN friend
 ```
 
 As a general rule,
+
 - **`while` Conditions:** Define this if it must execute the next traversal, (it evaluates at level zero, on the origin node).
 - **`where` Condition:** Define this if the current element, (the origin node at the zero iteration the right node on the iteration is greater than zero), must be returned as a result of the traversal.
 
@@ -450,7 +443,7 @@ For instance, suppose that you have a genealogical tree.  In the tree, you want 
 
 To get this, you might use the following query:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("Parent")
           {as: ancestor, while: (true) where: ($depth % 2 = 0)} 
 		  RETURN ancestor
@@ -459,31 +452,31 @@ ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("Parent")
 
 **Best practices**
 
-Queries can involve multiple operations, based on the domain model and use case.  In some cases, like projection and aggregation, you can easily manage them with a <<SQL-Query,`SELECT`>> query.  With others, such as pattern matching and deep traversal, <<`MATCH`,SQL-Match>> statements are more appropriate.
+Queries can involve multiple operations, based on the domain model and use case.  In some cases, like projection and aggregation, you can easily manage them with a <<SQL-Query,`SELECT`>> query.  With others, such as pattern matching and deep traversal, <<SQL-Match,`MATCH`>> statements are more appropriate.
 
-Use <<SQL-Query,`SELECT`>> and <<`MATCH`,SQL-Match>> statements together (that is, through sub-queries), to give each statement the correct responsibilities.  Here, 
+Use <<SQL-Query,`SELECT`>> and <<SQL-Match,`MATCH`>> statements together (that is, through sub-queries), to give each statement the correct responsibilities.  Here, 
 
-** Filtering Record Attributes for a Single Type **
+**Filtering Record Attributes for a Single Type**
 
 Filtering based on record attributes for a single type is a trivial operation through both statements.  That is, finding all people named John can be written as:
 
-```
+```sql
 ArcadeDB> SELECT FROM Person WHERE name = 'John'
 ```
 
 You can also write it as,
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')} 
           RETURN person
 ```
 
-The efficiency remains the same.  Both queries use an index.  With <<SQL-Query,`SELECT`>>, you obtain expanded records, while with <<`MATCH`,SQL-Match>>, you only obtain the Record ID's.
+The efficiency remains the same.  Both queries use an index.  With <<SQL-Query,`SELECT`>>, you obtain expanded records, while with <<SQL-Match,`MATCH`>>, you only obtain the Record ID's.
 
 
-** Filtering on Record Attributes of Connected Elements **
+**Filtering on Record Attributes of Connected Elements**
 
-Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<SQL-Query,`SELECT`>>, while with <<`MATCH`,SQL-Match>> it is simple.
+Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<SQL-Query,`SELECT`>>, while with <<SQL-Match,`MATCH`>> it is simple.
 
 For instance, find all people living in Rome that have a friend called John.  There are three different ways you can write this,  using <<SQL-Query,`SELECT`>>:
 
@@ -500,9 +493,9 @@ ArcadeDB> SELECT FROM (SELECT in('LivesIn') FROM City WHERE name = 'Rome')
 
 In the first version, the query is more readable, but it does not use indexes, so it is less optimal in terms of execution time.  The second and third use indexes if they exist, (on `Person.name` or `City.name`, both in the sub-query), but they're harder to read.  Which index they use depends only on the way you write the query.  That is, if you only have an index on `City.name` and not `Person.name`, the second version doesn't use an index.
 
-Using a <<`MATCH`,SQL-Match>> statement, the query becomes:
+Using a <<SQL-Match,`MATCH`>> statement, the query becomes:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
           {as: result}.out('LivesIn'){type: City, where: (name = 'Rome')}
 		  RETURN result
@@ -512,33 +505,33 @@ Here, the query executor optimizes the query for you, choosing indexes where the
 
 **`TRAVERSE` Alternative**
 
-There are similar limitations to using <<SQL-Traverse,`TRAVERSE`>>.  You may benefit from using <<`MATCH`,SQL-Match>> as an alternative.
+There are similar limitations to using <<SQL-Traverse,`TRAVERSE`>>.  You may benefit from using <<SQL-Match,`MATCH`>> as an alternative.
 
 For instance, consider a simple <<SQL-Traverse,`TRAVERSE`>> statement, like:
 
-```
+```sql
 ArcadeDB> TRAVERSE out('Friend') FROM (SELECT FROM Person WHERE name = 'John') 
           WHILE $depth < 3
 ```
 
 
-Using a <<`MATCH`,SQL-Match>> statement, you can write the same query as:
+Using a <<SQL-Match,`MATCH`>> statement, you can write the same query as:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
           {as: friend, while: ($depth < 3)} RETURN friend
 ```
 
 Consider a case where you have a `since` date property on the edge `Friend`.  You want to traverse the relationship only for edges where the `since` value is greater than a given date.  In a <<SQL-Traverse,`TRAVERSE`>> statement, you might write the query as:
 
-```
+```sql
 ArcadeDB> TRAVERSE bothE('Friend')<<since > date('2012-07-02', 'yyyy-MM-dd')].bothV()
           FROM (SELECT FROM Person WHERE name = 'John') WHILE $depth < 3
 ```
 
-Unforunately, this statement DOESN"T WORK in the current release.  However, you can get the results you want using a <<`MATCH`,SQL-Match>> statement:
+Unfortunately, this statement DOESN'T WORK in the current release.  However, you can get the results you want using a <<SQL-Match,`MATCH`>> statement:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, where: (name = 'John')}.(bothE("Friend")
           {where: (since > date('2012-07-02', 'yyyy-MM-dd'))}.bothV())
 		  {as: friend, while: ($depth < 3)} RETURN friend
@@ -547,11 +540,11 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.(bothE("Friend")
 
 **Projections and Grouping Operations**
 
-Projections and grouping operations are better expressed with a <<SQL-Query,`SELECT`>> query.  If you need to filter and do projection or aggregation in the same query, you can use <<SQL-Query,`SELECT`>> and <<`MATCH`,SQL-Match>> in the same statement.
+Projections and grouping operations are better expressed with a <<SQL-Query,`SELECT`>> query.  If you need to filter and do projection or aggregation in the same query, you can use <<SQL-Query,`SELECT`>> and <<SQL-Match,`MATCH`>> in the same statement.
 
 This is particular important when you expect a result that contains attributes from different connected records (cartesian product).  For instance, to retrieve names, their friends and the date since they became friends:
 
-```
+```sql
 ArcadeDB> SELECT person.name AS name, friendship.since AS since, friend.name 
           AS friend FROM (MATCH {type: Person, as: person}.bothE('Friend')
 		  {as: friendship}.bothV(){as: friend, 
@@ -561,7 +554,7 @@ ArcadeDB> SELECT person.name AS name, friendship.since AS since, friend.name
 
 The same can be also achieved with the MATCH only:
 
-```
+```sql
 ArcadeDB> MATCH {type: Person, as: person}.bothE('Friend')
 		  {as: friendship}.bothV(){as: friend, 
 		  where: ($matched.person != $currentMatch)} 
@@ -574,7 +567,7 @@ In the RETURN section you can use:
 
 **multiple expressions**, with or without an alias (if no alias is defined, ArcadeDB will generate a default alias for you), comma separated
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){as: friendship}
@@ -590,7 +583,7 @@ result:
 | #12:1  | #13:2      | #12:3  |
 ```
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){as: friendship}
@@ -607,7 +600,7 @@ result:
 
 ```
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){as: friendship}
@@ -626,7 +619,7 @@ result:
 
 **$matches**, to return all the patterns that match current statement. Each row in the result set will be a single pattern, containing only nodes in the statement that have an `as:` defined
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){}                                                  // no 'as:friendship' in this case
@@ -645,7 +638,7 @@ result:
 
 **$paths**, to return all the patterns that match current statement. Each row in the result set will be a single pattern, containing all th nodes in the statement. For nodes that have an `as:`, the alias will be returned, for the others a default alias is generated (automatically generated aliases start with `$ORIENT_DEFAULT_ALIAS_`)
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){}                                                  // no 'as:friendship' in this case
@@ -663,7 +656,7 @@ result:
 
 **$elements** the same as `$matches`, but for each node present in the pattern, a single row is created in the result set (no duplicates)
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){}                                                  // no 'as:friendship' in this case
@@ -683,7 +676,7 @@ result:
 
 **$pathElements** the same as `$paths`, but for each node present in the pattern, a single row is created in the result set (no duplicates)
 
-```
+```sql
 MATCH 
   {type: Person, as: person}
   .bothE('Friend'){}                                                  // no 'as:friendship' in this case
@@ -707,51 +700,42 @@ result:
 **IMPORTANT**: When using MATCH statemet in ArcadeDB Studio Graph panel you have to use $elements or $pathElements as return type, to let the Graph panel render the matched patterns correctly
 
 
-** Arrow notation **
+**Arrow notation**
 
 `out()`, `in()` and `both()` operators can be replaced with arrow notation `-->`, `<--` and `--`
 
 Eg. the query 
 
-```
-
+```sql
 MATCH {type: V, as: a}.out(){}.out(){}.out(){as:b}
 RETURN a, b
-
 ```
 
 can be written as
 
-```
-
+```sql
 MATCH {type: V, as: a} --> {} --> {} --> {as:b}
 RETURN a, b
-
 ```
 
 
 Eg. the query (things that belong to friends)
 
-```
-
+```sql
 MATCH {type: Person, as: a}.out('Friend'){as:friend}.in('BelongsTo'){as:b}
 RETURN a, b
-
 ```
 
 can be written as
 
-```
-
+```sql
 MATCH {type: Person, as: a}  -Friend-> {as:friend} <-BelongsTo- {as:b}
 RETURN a, b
-
 ```
 
 Using arrow notation the curly braces are mandatory on both sides. eg:
 
-```
-
+```sql
 MATCH {type: Person, as: a} --> {} --> {as:b} RETURN a, b  //is allowed
 
 MATCH {type: Person, as: a} --> --> {as:b} RETURN a, b  //is NOT allowed
@@ -759,10 +743,9 @@ MATCH {type: Person, as: a} --> --> {as:b} RETURN a, b  //is NOT allowed
 MATCH {type: Person, as: a}.out().out(){as:b} RETURN a, b  //is allowed
 
 MATCH {type: Person, as: a}.out(){}.out(){as:b} RETURN a, b  //is allowed
-
 ```
 
-** Negative (NOT) patterns **
+**Negative (NOT) patterns**
 
 Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if the result matches at least one of the negative patterns it won't be returned.
 

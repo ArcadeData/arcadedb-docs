@@ -9,20 +9,20 @@ implementation and the SQL-92 standard, please refer to <<this,SQL-Introduction>
 **Syntax**:
 
 ```sql
-SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
-    << WHERE <Condition>* ]
-    << GROUP BY <Field>* ]
-    << ORDER BY <Fields>* << ASC|DESC ] * ]
-    << UNWIND <Field>* ]
-    << SKIP <SkipRecords> ]
-    << LIMIT <MaxRecords> ]
-    << FETCHPLAN <FetchPlan> ]
-    << TIMEOUT <Timeout> << <STRATEGY> ]
-    << PARALLEL ]
-    << NOCACHE ]
+SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
+    [ WHERE <Condition>* ]
+    [ GROUP BY <Field>* ]
+    [ ORDER BY <Fields>* [ ASC|DESC ] * ]
+    [ UNWIND <Field>* ]
+    [ SKIP <SkipRecords> ]
+    [ LIMIT <MaxRecords> ]
+    [ FETCHPLAN <FetchPlan> ]
+    [ TIMEOUT <Timeout> [ <STRATEGY> ]
+    [ PARALLEL ]
+    [ NOCACHE ]
 ```
 
-- **<<`<Projections>`,SQL-Query.md#projections)** Indicates the data you want to extract from the query as the result-set. Note: In
+- **<<SQL-Query.md#projections,`Projections>>`** Indicates the data you want to extract from the query as the result-set. Note: In
   ArcadeDB, this variable is optional. In the projections you can define aliases for single fields, using the `AS` keyword; in
   current release aliases cannot be used in the WHERE condition, GROUP BY and ORDER BY (they will be evaluated to null)
 - **`FROM`** Designates the object to query. This can be a type, bucket, single <<RID,RID>>, set of <<RID,RID>> index values sorted
@@ -47,8 +47,7 @@ SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
   pagination,Pagination>>, when using it in conjunction with `LIMIT`.
 - **`LIMIT`** Defines the maximum number of records in the result-set. You may find this useful in <<pagination,Pagination>>, when
   using it in conjunction with `SKIP`.
-- **`FETCHPLAN`** Defines how you want it to fetch results. For more information, see <<Fetching
-  Strategy,../java/Fetching-Strategies>>.
+- **`FETCHPLAN`** Defines how you want it to fetch results. For more information, see <<Fetching-Strategies,Fetching Strategy>>.
 - **`TIMEOUT`** Defines the maximum time in milliseconds for the query. By default, queries have no timeouts. If you don't specify a
   timeout strategy, it defaults to `EXCEPTION`. These are the available timeout strategies:
     - `RETURN` Truncate the result-set, returning the data collected up to the timeout.
@@ -63,13 +62,13 @@ SELECT << <Projections> ] << FROM <Target> << LET <Assignment>* ] ]
 
 - Return all records of the type `Person`, where the name starts with `Luk`:
 
-```
+```sql
 ArcadeDB> SELECT FROM Person WHERE name LIKE 'Luk%'
 ```
 
 Alternatively, you might also use either of these queries:
 
-```
+```sql
 ArcadeDB> SELECT FROM Person WHERE name.left(3) = 'Luk'
 ArcadeDB> SELECT FROM Person WHERE name.substring(0,3) = 'Luk'
 ```
@@ -77,7 +76,7 @@ ArcadeDB> SELECT FROM Person WHERE name.substring(0,3) = 'Luk'
 - Return all records of the type `!AnimalType` where the collection `races` contains at least one entry where the first character
   is `e`, ignoring case:
 
-```
+```sql
 ArcadeDB> SELECT FROM animaltype WHERE races CONTAINS( name.toLowerCase().subString(
             0, 1) = 'e' )
 ```
@@ -85,78 +84,70 @@ ArcadeDB> SELECT FROM animaltype WHERE races CONTAINS( name.toLowerCase().subStr
 - Return all records of type `!AnimalType` where the collection `races` contains at least one entry with names `European`
   or `Asiatic`:
 
-```
+```sql
 ArcadeDB> SELECT * FROM animaltype WHERE races CONTAINS(name in <<'European',
             'Asiatic'])
 ```
 
 - Return all records in the type `Profile` where any field contains the word `danger`:
 
-```
+```sql
 ArcadeDB> SELECT FROM Profile WHERE ANY() LIKE '%danger%'
-```
-
-- Return any record at any level that has the word `danger`:
-
-  DEPRECATED SYNTAX
-
-```
-ArcadeDB> SELECT FROM Profile WHERE ANY() TRAVERSE( ANY() LIKE '%danger%' )
 ```
 
 - Return any record where up to the third level of connections has some field that contains the word `danger`, ignoring case:
 
-```
+```sql
 ArcadeDB> SELECT FROM Profile WHERE ANY() TRAVERSE(0, 3) ( 
             ANY().toUpperCase().indexOf('danger') > -1 )
 ```
 
 - Return all results on type `Profile`, ordered by the field `name` in descending order:
 
-```
+```sql
 ArcadeDB> SELECT FROM Profile ORDER BY name DESC
 ```
 
 - Return the number of records in the type `Account` per city:
 
-```
+```sql
 ArcadeDB> SELECT SUM(*) FROM Account GROUP BY city
 ```
 
 - Traverse records from a root node:
 
-```
+```sql
 ArcadeDB> SELECT FROM 11:4 WHERE ANY() TRAVERSE(0,10) (address.city = 'Rome')
 ```
 
 - Return only a limited set of records:
 
-```
+```sql
 ArcadeDB> SELECT FROM <<#10:3, #10:4, #10:5]
 ```
 
 - Return three fields from the type `Profile`:
 
-```
+```sql
 ArcadeDB> SELECT nick, followings, followers FROM Profile
 ```
 
 - Return the field `name` in uppercase and the field country name of the linked city of the address:
 
-```
+```sql
 ArcadeDB> SELECT name.toUppercase(), address.city.country.name FROM Profile
 ```
 
 - Return records from the type `Profile` in descending order of their creation:
 
-```
+```sql
 ArcadeDB> SELECT FROM Profile ORDER BY @rid DESC
 ```
 
 - Return value of `email` which is stored in a JSON field `data` (type EMBEDDED)  of the type `Person`, where the name starts
   with `Luk`:
 
-```
+```sql
 ArcadeDB> SELECT data.email FROM Person WHERE name LIKE 'Luk%'
 ```
 
@@ -169,14 +160,14 @@ RAM.
 In the standard implementations of SQL, projections are mandatory. In ArcadeDB, the omission of projects translates to its returning
 the entire record. That is, it reads no projection as the equivalent of the `*` wildcard.
 
-```
+```sql
 ArcadeDB> SELECT FROM Account
 ```
 
 For all projections except the wildcard `*`, it creates a new temporary document, which does not include the `@rid`
 fields of the original record.
 
-```
+```sql
 ArcadeDB> SELECT name, age FROM Account
 ```
 
@@ -188,7 +179,7 @@ The naming convention for the returned document fields are:
 
 In the event that the target field exists, it uses a numeric progression. For instance,
 
-```
+```sql
 ArcadeDB> SELECT MAX(incoming), MAX(cost) FROM Balance
 
 ------+------
@@ -200,7 +191,7 @@ ArcadeDB> SELECT MAX(incoming), MAX(cost) FROM Balance
 
 To override the display for the field names, use the `AS`.
 
-```
+```sql
 ArcadeDB> SELECT MAX(incoming) AS max_incoming, MAX(cost) AS max_cost FROM Balance
 
 ---------------+----------
@@ -214,7 +205,7 @@ With the dollar sign `$`, you can access the context variables. Each time you ru
 and write the variables. For instance, say you want to display the path and depth levels up to the fifth of a <<`TRAVERSE`
 ,SQL-Traverse>> on all records in the `Movie` type.
 
-```
+```sql
 ArcadeDB> SELECT $path, $depth FROM ( TRAVERSE * FROM Movie WHERE $depth <= 5 )
 ```
 
@@ -229,7 +220,7 @@ execution ends. You can use context variables in projections, conditions, and su
 ArcadeDB allows for crossing relationships. In single queries, you need to evaluate the same branch of the nested relationship. This
 is better than using a context variable that refers to the full relationship.
 
-```
+```sql
 ArcadeDB> SELECT FROM Profile WHERE address.city.name LIKE '%Saint%"' AND 
           ( address.city.country.name = 'Italy' OR 
             address.city.country.name = 'France' )
@@ -237,7 +228,7 @@ ArcadeDB> SELECT FROM Profile WHERE address.city.name LIKE '%Saint%"' AND
 
 Using the `LET` makes the query shorter and faster, because it traverses the relationships only once:
 
-```
+```sql
 ArcadeDB> SELECT FROM Profile LET $city = address.city WHERE $city.name LIKE 
           '%Saint%"' AND ($city.country.name = 'Italy' OR $city.country.name = 'France')
 ```
@@ -248,7 +239,7 @@ In this case, it traverses the path till `address.city` only once.
 
 The `LET` block allows you to assign a context variable to the result of a sub-query.
 
-```
+```sql
 ArcadeDB> SELECT FROM Document LET $temp = ( SELECT @rid, $depth FROM (TRAVERSE 
           V.OUT, E.IN FROM $parent.current ) WHERE @type = 'Concept' AND 
           ( id = 'first concept' OR id = 'second concept' )) WHERE $temp.SIZE() > 0
@@ -259,7 +250,7 @@ ArcadeDB> SELECT FROM Document LET $temp = ( SELECT @rid, $depth FROM (TRAVERSE
 You can use context variables as part of a result-set in <<projections,#projections). For instance, the query below displays the
 city name from the previous example:
 
-```
+```sql
 ArcadeDB> SELECT $temp.name FROM Profile LET $temp = address.city WHERE $city.name 
           LIKE '%Saint%"' AND ( $city.country.name = 'Italy' OR 
           $city.country.name = 'France' )
@@ -269,7 +260,7 @@ ArcadeDB> SELECT $temp.name FROM Profile LET $temp = address.city WHERE $city.na
 
 ArcadeDB allows unwinding of collection fields and obtaining multiple records as a result, one for each element in the collection:
 
-```
+```sql
 ArcadeDB> SELECT name, OUT("Friend").name AS friendName FROM Person
 
 --------+-------------------
@@ -281,7 +272,7 @@ ArcadeDB> SELECT name, OUT("Friend").name AS friendName FROM Person
 
 In the event if you want one record for each element in `friendName`, you can rewrite the query using `UNWIND`:
 
-```
+```sql
 ArcadeDB> SELECT name, OUT("Friend").name AS friendName FROM Person UNWIND friendName
 
 --------+-------------

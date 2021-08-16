@@ -10,7 +10,7 @@ NOTE: In many cases, you may find it more efficient to use <<SQL-Query,`SELECT`>
 ```sql
 TRAVERSE [<type.]field>|*|any()|all()
          [FROM <target>]
-         <<
+         [
            MAXDEPTH <number>
            |
            WHILE <condition> 
@@ -19,12 +19,12 @@ TRAVERSE [<type.]field>|*|any()|all()
          [STRATEGY <strategy>]
 ```
 
-- **<<fields,`<fields>`>>** Defines the fields you want to traverse.
-- **<<target,`<target>`>>** Defines the target you want to traverse.  This can be a type, one or more buckets, a single Record ID, set of Record ID's, or a sub-query.
+- <<fields,`<fields>`>> Defines the fields you want to traverse.
+- <<target,`<target>`>> Defines the target you want to traverse.  This can be a type, one or more buckets, a single Record ID, set of Record ID's, or a sub-query.
 - **`MAXDEPTH`** Defines the maximum depth of the traversal.  `0` indicates that you only want to traverse the root node.  Negative values are invalid.
 - **`WHILE`** Defines the condition for continuing the traversal while it is true.  
 - **`LIMIT`** Defines the maximum number of results the command can return.
-- **<<`STRATEGY`,../java/Java-Traverse.md#traversal-strategies)** Defines strategy for traversing the graph.
+- <<traversal-strategies,`STRATEGY`>> Defines strategy for traversing the graph.
 
 NOTE: The use of the <<SQL-Where,`WHERE`>> clause has been deprecated for this command.
 
@@ -85,13 +85,14 @@ ArcadeDB> SELECT $path FROM ( TRAVERSE out() FROM V MAXDEPTH 10 )
 
 Defines the fields that you want to traverse.  If set to `*`, `any()` or `all()` then it traverses all fields.  This can prove costly to performance and resource usage, so it is recommended that you optimize the command to only traverse the pertinent fields.
 
-In addition to his, you can specify the fields at a type-level.  <<Polymorphism,../general/Inheritance>> is supported.  By specifying `Person.city` and the type `Customer` extends person, you also traverse fields in `Customer`.
+In addition to his, you can specify the fields at a type-level.  <<Inheritance,Inheritance>> is supported.  By specifying `Person.city` and the type `Customer` extends person, you also traverse fields in `Customer`.
 
 Field names are case-sensitive, typees not.
 
 **Target**
 
-Targets for traversal can be,
+Targets for traversal can be:
+
 - **`<type>`** Defines the type that you want to traverse.  
 - **`BUCKET:<bucket>`** Defines the bucket you want to traverse.
 - **`<record-id>`** Individual root Record ID that you want to traverse.
@@ -100,10 +101,11 @@ Targets for traversal can be,
 **Context Variables**
 
 In addition to the above, you can use the following context variables in traversals:
+
 - **`$parent`** Gives the parent context, if any.  You may find this useful when traversing from a sub-query. 
 - **`$current`** Gives the current record in the iteration.  To get the upper-level record in nested queries, you can use `$parent.$current`.
 - **`$depth`** Gives the current depth of nesting.
-- **`$path`** Gives a string representation of the current path.  For instance, `#5:0#.out`.  You can also display it through <<SQL-Query,`SELECT`>>:
+- **`$path`** Gives a string representation of the current path.  For instance, `#5:0.out`.  You can also display it through <<SQL-Query,`SELECT`>>:
 
 ```sql
 ArcadeDB> SELECT $path FROM (TRAVERSE * FROM V)
@@ -131,7 +133,7 @@ ArcadeDB> SELECT out('follow').out('follow') FROM TwitterAccounts
 
 **`TRAVERSE` with the Graph Model and API**
 
-While you can use the <<SQL-Traverse,`TRAVERSE`>> command with any domain model, it provides the greatest utility in <<Graph Databases[(Graph-Database-Tinkerpop>> model.
+While you can use the <<SQL-Traverse,`TRAVERSE`>> command with any domain model, it provides the greatest utility with the <<Graph-Model,Graph Model>>.
 
 This model is based on the concepts of the Vertex (or Node) as the type `V` and the Edge (or Arc, Connection, Link, etc.) as the type `E`.  If you want to traverse in a direction, you have to use the type name when declaring the traversing fields.  The supported directions are:
 
