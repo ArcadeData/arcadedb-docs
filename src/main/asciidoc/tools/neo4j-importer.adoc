@@ -1,0 +1,81 @@
+[[Neo4j-Importer]]
+=== Neo4j Importer
+
+ArcadeDB is able to import a database exported from Neo4j in JSONL format (one json per line).
+
+To export a Neo4j database follow the instructions in https://neo4j.com/labs/apoc/4.3/export/json/[Export in JSON].
+The resulting file contains one json per line.
+
+Neo4j supports multiple labels per node, while in ArcadeDB a node (vertex) must have only one type.
+The Neo4j importer will simulate multiple labels by creating new types with the following name: `<label1>[_<labelN>]*`.
+Example:
+
+```json
+{"type":"node","id":"1","labels":["User", "Administrator"],"properties":{"name":"Jim","age":42}}
+```
+
+This vertex will be created in ArcadeDB with type "Administrator_User" (the labels are always sorted alphabetically) that extends both "Administrator" and "User" types.
+
+[graphviz,dot-example,svg]
+----
+graph g {
+    "Administrator_User" -- "Administrator"
+    "Administrator_User" -- "User"
+}
+----
+
+In this way you can use the polymorphism of ArcadeDB to retrieve all the nodes of type "User" and the record of User and all its subtypes will be returned.
+
+**Example**
+
+Example of importing the following mini graph exported from Neo4j.
+This is the example taken from Neo4j documentation about Export to JSON.
+
+```json
+{"type":"node","id":"0","labels":["User"],"properties":{"born":"2015-07-04T19:32:24","name":"Adam","place":{"crs":"wgs-84","latitude":33.46789,"longitude":13.1,"height":null},"age":42,"male":true,"kids":["Sam","Anna","Grace"]}}
+{"type":"node","id":"1","labels":["User"],"properties":{"name":"Jim","age":42}}
+{"type":"node","id":"2","labels":["User"],"properties":{"age":12}}
+{"id":"0","type":"relationship","label":"KNOWS","properties":{"since":1993,"bffSince":"P5M1DT12H"},"start":{"id":"0","labels":["User"]},"end":{"id":"1","labels":["User"]}}
+```
+
+As you can see, the file contains one json per line.
+First all the nodes (vertices), then the relationships (edges).
+
+```
+~/arcadedb/bin $ ./neo4j-importer.sh -i neo4j.jsonl -d mydb
+
+ArcadeDB 21.9.1 - Neo4j Importer
+Importing Neo4j database from file 'neo4j-export-mini.jsonl' to 'target/databases/neo4j'
+Creation of the schema: types, properties and indexes
+- Creation of vertices started
+- Creation of vertices completed: created 3 vertices, skipped 1 edges (0 vertices/sec elapsed=0 secs)
+- Creation of edges started: creating edges between vertices
+- Creation of edged completed: created 1 edges, (0 edges/sec elapsed=0 secs)
+**********************************************************************************************
+Import of Neo4j database completed in 0 secs with 0 errors and 0 warnings.
+
+SUMMARY
+
+- Vertices.............: 0
+-- User                : 3
+- Edges................: 0
+-- KNOWS               : 1
+- Total attributes.....: 9
+**********************************************************************************************
+
+NOTES:
+- you can find your new ArcadeDB database in 'target/databases/neo4j'
+```
+
+==== Configuration
+
+- `-i <input-file>`    (string) OrientDB export file path.
+It must point to the file in JSONL format (one json per line).
+- `-d <database-path>` (string) path on local filesystem where to create the ArcadeDB database.
+To just check the OrientDB import file, don't specify any database path
+- `-o` (boolean) true to overwrite an existent database.
+If false and the `database-path` already exists, an error is thrown.
+Default is false.
+- `-b <batch-size>` (integer) Number of records to store per transaction.
+Default is 10,000 records
+
