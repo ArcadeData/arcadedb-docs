@@ -1,4 +1,4 @@
-[![Netlify Status](https://api.netlify.com/api/v1/badges/0dbeb04c-0408-4273-90cf-5ca7d7c600e1/deploy-status)](https://app.netlify.com/sites/amazing-booth-ce1e9d/deploys)
+[![Netlify Status](https://api.netlify.com/api/v1/badges/eef44996-0500-4b34-bd74-c9043079e547/deploy-status)](https://app.netlify.com/sites/laughing-saha-bb44e9/deploys)
 
 # ArcadeDB Documentation
 
