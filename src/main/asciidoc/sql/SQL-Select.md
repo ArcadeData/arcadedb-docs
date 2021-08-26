@@ -16,10 +16,7 @@ SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
     [ UNWIND <Field>* ]
     [ SKIP <SkipRecords> ]
     [ LIMIT <MaxRecords> ]
-    [ FETCHPLAN <FetchPlan> ]
     [ TIMEOUT <Timeout> [ <STRATEGY> ]
-    [ PARALLEL ]
-    [ NOCACHE ]
 ```
 
 - **<<SQL-Query.md#projections,`Projections>>`** Indicates the data you want to extract from the query as the result-set. Note: In
@@ -47,16 +44,10 @@ SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
   pagination,Pagination>>, when using it in conjunction with `LIMIT`.
 - **`LIMIT`** Defines the maximum number of records in the result-set. You may find this useful in <<pagination,Pagination>>, when
   using it in conjunction with `SKIP`.
-- **`FETCHPLAN`** Defines how you want it to fetch results. For more information, see <<Fetching-Strategies,Fetching Strategy>>.
 - **`TIMEOUT`** Defines the maximum time in milliseconds for the query. By default, queries have no timeouts. If you don't specify a
   timeout strategy, it defaults to `EXCEPTION`. These are the available timeout strategies:
     - `RETURN` Truncate the result-set, returning the data collected up to the timeout.
     - `EXCEPTION` Raises an exception.
-- **`PARALLEL`** Executes the query against *x* concurrent threads, where *x* refers to the number of processors or cores found on
-  the host operating system of the query. You may find `PARALLEL` execution useful on long running queries or queries that involve
-  multiple bucket. For simple queries, using `PARALLEL` may cause a slow down due to the overhead inherent in using multiple
-  threads.
-- **`NOCACHE`** Defines whether you want to avoid using the cache.
 
 **Examples**:
 
