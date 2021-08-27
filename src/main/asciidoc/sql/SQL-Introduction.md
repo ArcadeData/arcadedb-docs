@@ -1,6 +1,6 @@
 [[SQL-Introduction]]
 
-### Introduction
+### Introduction image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Introduction.md" float=right]
 
 When it comes to query languages, SQL is the most widely recognized standard. The majority of developers have experience and are
 comfortable with SQL. For this reason Orient DB uses SQL as its query language and adds some extensions to enable graph

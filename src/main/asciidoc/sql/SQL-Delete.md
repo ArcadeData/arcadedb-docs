@@ -1,5 +1,5 @@
 [[SQL-Delete]]
-### SQL - `DELETE`
+### SQL - `DELETE` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Delete.md" float=right]
 
 Removes one or more records from the database.  You can refine the set of records that it removes using the <<SQL-Where,`WHERE`>> clause.
 

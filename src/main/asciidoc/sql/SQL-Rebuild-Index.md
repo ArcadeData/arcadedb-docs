@@ -1,5 +1,5 @@
 [[SQL-Rebuild-Indexes]]
-### SQL - `REBUILD INDEXES`
+### SQL - `REBUILD INDEXES` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Rebuild-Index.md" float=right]
 
 Rebuilds automatic indexes.
 

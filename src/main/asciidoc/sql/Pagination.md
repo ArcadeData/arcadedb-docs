@@ -1,5 +1,5 @@
 [[SQL-Pagination]]
-**Pagination**
+**Pagination** image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/Pagination.md" float=right]
 
 ArcadeDB supports pagination natively. Pagination doesn't consume server side resources because no cursors are used. Only <<RID,Record ID's>> are used as pointers to the physical position in the cluster. 
 

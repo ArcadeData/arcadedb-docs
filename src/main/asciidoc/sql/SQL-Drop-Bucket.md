@@ -1,5 +1,5 @@
 [[SQL-Drop-Bucket]]
-### SQL - `DROP BUCKET`
+### SQL - `DROP BUCKET` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Bucket.md" float=right]
 
 Removes the bucket and all of its content.  This operation is permanent and cannot be rolled back.
 

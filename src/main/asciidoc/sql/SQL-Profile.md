@@ -1,5 +1,5 @@
 [[SQL-Profile]]
-### SQL - `PROFILE`
+### SQL - `PROFILE` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Profile.md" float=right]
 
 PROFILE SQL command returns information about query execution planning and statistics for a specific statement.
 The statement is actually executed to provide the execution stats.

@@ -1,5 +1,5 @@
 [[SQL-Drop-Property]]
-### SQL - `DROP PROPERTY`
+### SQL - `DROP PROPERTY` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Property.md" float=right]
 
 Removes a property from the schema.  Does not remove the property values in the records, it just changes the schema information.  Records continue to have the property values, if any.
 

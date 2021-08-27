@@ -1,5 +1,5 @@
 [[SQL-Create-Property]]
-### SQL - `CREATE PROPERTY`
+### SQL - `CREATE PROPERTY` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Property.md" float=right]
 
 Creates a new property in the schema.  It requires that the type for the property already exist on the database.
 
