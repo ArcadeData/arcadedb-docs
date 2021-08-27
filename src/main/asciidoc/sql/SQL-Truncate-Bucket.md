@@ -1,5 +1,6 @@
 [[SQL-Truncate-Bucket]]
-### SQL - `TRUNCATE BUCKET` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Truncate-Bucket.md" float=right]
+### SQL - `TRUNCATE BUCKET` 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Truncate-Bucket.md" float=right]
 
 Deletes all records of a bucket.  This command operates at a lower level than the standard <<SQL-Delete,`DELETE`>> command.
 

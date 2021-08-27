@@ -1,5 +1,6 @@
 [[SQL-Traverse]]
-### SQL - `TRAVERSE` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Traverse.md" float=right]
+### SQL - `TRAVERSE` 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Traverse.md" float=right]
 
 Retrieves connected records crossing relationships.  This works with both the Document and Graph API's, meaning that you can traverse relationships between say invoices and customers on a graph, without the need to model the domain using the Graph API.
 

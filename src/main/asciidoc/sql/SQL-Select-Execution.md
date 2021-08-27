@@ -1,4 +1,5 @@
-**SQL SELECT Statements Execution**  image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Select-Execution.md" float=right]
+**SQL SELECT Statements Execution**  
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Select-Execution.md" float=right]
 
 The execution flow of a SELECT statement is made of many steps. 
 Understanding these steps will help you to write better and more optimized queries.

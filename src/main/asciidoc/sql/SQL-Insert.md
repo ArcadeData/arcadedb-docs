@@ -1,5 +1,6 @@
 [[SQL-Insert]]
-### SQL - `INSERT` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Insert.md" float=right]
+### SQL - `INSERT` 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Insert.md" float=right]
 
 The <<SQL-Insert,`INSERT`>> command creates a new record in the database.  Records can be schema-less or follow rules specified in your model.
 

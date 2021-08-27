@@ -1,5 +1,6 @@
 [[SQL-Drop-Index]]
-### SQL - `DROP INDEX` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Index.md" float=right]
+### SQL - `DROP INDEX` 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Index.md" float=right]
 
 Removes an index from a property defined in the schema.
 

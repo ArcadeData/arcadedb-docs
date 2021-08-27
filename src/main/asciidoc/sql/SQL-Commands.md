@@ -1,5 +1,6 @@
 [[SQL-Commands]]
-#### Commands image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Commands.md" float=right]
+#### Commands 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Commands.md" float=right]
 
 [%header,cols=4]
 |===
