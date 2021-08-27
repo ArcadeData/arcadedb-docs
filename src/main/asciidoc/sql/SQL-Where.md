@@ -1,5 +1,6 @@
 [[SQL-Filtering]]
-#### Filtering image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Where.md" float=right]
+#### Filtering 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Where.md" float=right]
 
 The Where condition is shared among many SQL commands.
 

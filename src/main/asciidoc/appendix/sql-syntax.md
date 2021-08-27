@@ -1,5 +1,6 @@
 [[SQL-Syntax]]
-### SQL Syntax image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/sql-syntax.adoc" float=right]
+### SQL Syntax 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/sql-syntax.adoc" float=right]
 
 ArcadeDB Query Language is and SQL dialect.
 

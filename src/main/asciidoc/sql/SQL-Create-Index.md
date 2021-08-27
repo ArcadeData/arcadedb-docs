@@ -1,5 +1,6 @@
 [[SQL-Create-Index]]
-### SQL - `CREATE INDEX` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Index.md" float=right]
+### SQL - `CREATE INDEX` 
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Index.md" float=right]
 
 Creates a new index.  Indexes can be
 - **Unique** Where they don't allow duplicates.
