@@ -1,6 +1,6 @@
 
 [[SQL-Create-Edge]]
-### SQL - `CREATE EDGE`
+### SQL - `CREATE EDGE` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Edge.md" float=right]
 
 Creates a new edge in the database.
 

@@ -1,5 +1,5 @@
 [[SQL-Match]]
-### SQL - `MATCH`
+### SQL - `MATCH` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Match.md" float=right]
 
 Queries the database in a declarative manner, using pattern matching.
 

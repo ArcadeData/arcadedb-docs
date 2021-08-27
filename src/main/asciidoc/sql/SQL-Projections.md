@@ -1,5 +1,5 @@
 [[SQL-Projections]]
-#### Projections
+#### Projections image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Projections.md" float=right]
 
 A projection is a value that is returned by a query statement (SELECT, MATCH).
 

@@ -1,5 +1,5 @@
 [[SQL-Truncate-Type]]
-### SQL - `TRUNCATE TYPE`
+### SQL - `TRUNCATE TYPE` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Truncate-Type.md" float=right]
 
 Deletes records of all buckets defined as part of the type.  
 

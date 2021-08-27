@@ -1,6 +1,6 @@
 [[SQL-Select]]
 
-### SQL - `SELECT`
+### SQL - `SELECT` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Select.md" float=right]
 
 ArcadeDB supports the SQL language to execute queries against the database engine. For more information, see <<
 operators,SQL-Where.md#operators) and <<functions,SQL-Where.md#functions). For more information on the differences between this

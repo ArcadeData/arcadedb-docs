@@ -1,5 +1,5 @@
 
-### SQL - `CREATE VERTEX`
+### SQL - `CREATE VERTEX` image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Vertex.md" float=right]
 
 Creates a new vertex in the database.
 
