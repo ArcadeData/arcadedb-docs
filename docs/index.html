@@ -1558,19 +1558,71 @@ For the type <code>Account</code>, OrientDB searches inside the buckets <code>10
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/server/server.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="paragraph">
-<p>To start ArcadeDB as a server run the script <code>server.sh</code> under the <code>bin</code> directory of ArcadeDB distribution</p>
+<p>To start ArcadeDB as a server run the script <code>server.sh</code> under the <code>bin</code> directory of ArcadeDB distribution.</p>
 </div>
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-shell" data-lang="shell">~/arcadedb $ bin/server.sh
 
-&lt;ArcadeDB_0&gt; Starting ArcadeDB Server... [ArcadeDBServer]
-&lt;ArcadeDB_0&gt; - JMX Metrics Started... [ArcadeDBServer]
-&lt;ArcadeDB_0&gt; - Starting HTTP Server (host=0.0.0.0 port=2480)... [HttpServer]
-XNIO version 3.3.8.Final [xnio]
-XNIO NIO Implementation Version 3.3.8.Final [nio]
-&lt;ArcadeDB_0&gt; - HTTP Server started (host=0.0.0.0 port=2480) [HttpServer]
-&lt;ArcadeDB_0&gt; ArcadeDB Server started (CPUs=8 MAXRAM=1.92GB) [ArcadeDBServer]</code></pre>
+ █████╗ ██████╗  ██████╗ █████╗ ██████╗ ███████╗██████╗ ██████╗
+██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗
+███████║██████╔╝██║     ███████║██║  ██║█████╗  ██║  ██║██████╔╝
+██╔══██║██╔══██╗██║     ██╔══██║██║  ██║██╔══╝  ██║  ██║██╔══██╗
+██║  ██║██║  ██║╚██████╗██║  ██║██████╔╝███████╗██████╔╝██████╔╝
+╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═════╝ ╚═════╝
+PLAY WITH DATA                                    arcadedb.com
+
+INFO  [ArcadeDBServer]  ArcadeDB Server v21.9.1-SNAPSHOT (build 258eb/163044331/main) is starting up...
+INFO  [ArcadeDBServer]  Starting ArcadeDB Server with plugins [] ...
+INFO  [ArcadeDBServer]  - JMX Metrics Started...
+
++--------------------------------------------------------------------+
+|                WARNING: FIRST RUN CONFIGURATION                    |
++--------------------------------------------------------------------+
+| This is the first time the server is running. Please type a        |
+| password of your choice for the 'root' user or leave it blank      |
+| to auto-generate it.                                               |
+|                                                                    |
+| To avoid this message set the environment variable or JVM          |
+| setting `arcadedb.server.rootPassword` to the root password to use.|
++--------------------------------------------------------------------+
+
+Root password [BLANK=auto generate it]: *</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The first time the server is running, the root password must be inserted and confirmed.
+The hash (+salt) of the inserted password will be stored in the file <code>config/security.json</code>.
+Delete this file and restart the server to reinsert the password for server&#8217;s root user.</p>
+</div>
+<div class="paragraph">
+<p>The default rule of security are pretty basic.
+The password length must be between 8 and 256 characters.
+You can implement your own security policy.
+Check <a href="#Security-Policy">Security Policy</a>.</p>
+</div>
+<div class="paragraph">
+<p>You can skip the request for the password by passing it as a setting.
+Example:</p>
+</div>
+<div class="paragraph">
+<p><code>-Darcadedb.server.rootPassword=this_is_a_password</code></p>
+</div>
+<div class="paragraph">
+<p>Once inserted the password for the root user, you should see this output.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">Root password [BLANK=auto generate it]: ***********
+*Please type the root password for confirmation (copy and paste will not work): ***********
+
+INFO  [HttpServer] &lt;ArcadeDB_0&gt; - Starting HTTP Server (host=0.0.0.0 port=2480)...
+INFO  [undertow] starting server: Undertow - 2.2.10.Final
+INFO  [xnio] XNIO version 3.8.4.Final
+INFO  [nio] XNIO NIO Implementation Version 3.8.4.Final
+INFO  [threads] JBoss Threads version 3.1.0.Final
+INFO  [HttpServer] &lt;ArcadeDB_0&gt; - HTTP Server started (host=0.0.0.0 port=2480)
+INFO  [ArcadeDBServer] &lt;ArcadeDB_0&gt; ArcadeDB Server started (CPUs=16 MAXRAM=2.00GB)</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -1582,7 +1634,7 @@ XNIO NIO Implementation Version 3.3.8.Final [nio]
 <p>JMX Metrics, to monitor server performance and statistics</p>
 </li>
 <li>
-<p>HTTP Server, that listens on port 2480 by default</p>
+<p>HTTP Server, that listens on port 2480 by default. if 2480 is already occupied, then the next is taken up to 2489.</p>
 </li>
 </ul>
 </div>
@@ -13459,12 +13511,33 @@ null || [1, 2] = [1, 2]</code></pre>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Storage-Internals">11.4. Storage Internals</h3>
+<h3 id="Secuity-Policy">11.4. Security Policy</h3>
+<div class="paragraph">
+<p>The default rule of security are pretty basic.
+The password length must be between 8 and 256 characters.
+You can implement your own security policy by providing your own implementation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>server.getSecurity().setCredentialsValidator( new CredentialsValidator(){
+  @Override
+  public void validateCredentials(final String userName, final String userPassword) throws ServerSecurityException {
+  }
+
+  @Override
+  public String generateRandomPassword() {
+  }
+});</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="Storage-Internals">11.5. Storage Internals</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/storage.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="sect3">
-<h4 id="_page_version">11.4.1. Page Version</h4>
+<h4 id="_page_version">11.5.1. Page Version</h4>
 <div class="paragraph">
 <p>Records are stored in pages.
 Each page has its own version number, which increments on each update.
@@ -13474,7 +13547,7 @@ In optimistic transactions, ArcadeDB checks the version in order to avoid confli
 </div>
 </div>
 <div class="sect2">
-<h3 id="ReportAnIssue">11.5. Report an Issue</h3>
+<h3 id="ReportAnIssue">11.6. Report an Issue</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/issues.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -13563,7 +13636,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-09-01 06:06:17 UTC
+Last updated 2021-09-01 06:57:47 UTC
 </div>
 </div>
 </body>
