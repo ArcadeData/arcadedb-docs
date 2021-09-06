@@ -626,7 +626,7 @@ result:
 ```sql
 MATCH 
   {type: Person, as: person}
-  .bothE('Friend'){}                                                  // no 'as:friendship' in this case
+  .bothE('Friend'){} // no 'as:friendship' in this case
   .bothV(){as: friend, where: ($matched.person != $currentMatch)} 
 RETURN $matches
 
@@ -645,7 +645,7 @@ result:
 ```sql
 MATCH 
   {type: Person, as: person}
-  .bothE('Friend'){}                                                  // no 'as:friendship' in this case
+  .bothE('Friend'){} // no 'as:friendship' in this case
   .bothV(){as: friend, where: ($matched.person != $currentMatch)} 
 RETURN $paths
 
@@ -663,7 +663,7 @@ result:
 ```sql
 MATCH 
   {type: Person, as: person}
-  .bothE('Friend'){}                                                  // no 'as:friendship' in this case
+  .bothE('Friend'){} // no 'as:friendship' in this case
   .bothV(){as: friend, where: ($matched.person != $currentMatch)} 
 RETURN $elements
 
@@ -683,7 +683,7 @@ result:
 ```sql
 MATCH 
   {type: Person, as: person}
-  .bothE('Friend'){}                                                  // no 'as:friendship' in this case
+  .bothE('Friend'){} // no 'as:friendship' in this case
   .bothV(){as: friend, where: ($matched.person != $currentMatch)} 
 RETURN $pathElements
 
