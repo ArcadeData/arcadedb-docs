@@ -14,8 +14,8 @@ Creates a new index.  Indexes can be
 
 ```sql
 CREATE INDEX <name>
-<< IF NOT EXISTS ]
-<< ON <type> (<property>*) ] 
+[ IF NOT EXISTS ]
+[ ON <type> (<property>*) ] 
 <index-type> [<key-type>]
 ```
 - **`<name>`** Defines the logical name for the index.  If a schema already exists, you can use `<type>.<property>` to create automatic indexes bound to the schema property.  Because of this, you cannot use the period "`.`" character in index names.

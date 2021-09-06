@@ -7,7 +7,7 @@ Removes a property from the schema.  Does not remove the property values in the 
 **Syntax**
 
 ```sql
-DROP PROPERTY <type>.<property> <<FORCE]
+DROP PROPERTY <type>.<property> [FORCE]
 ```
 
 - **`<type>`** Defines the type where the property exists.

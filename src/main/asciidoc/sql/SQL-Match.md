@@ -10,41 +10,41 @@ Queries the database in a declarative manner, using pattern matching.
 ```
 MATCH 
   {
-    <<type: <type>], 
-    <<as: <alias>], 
+    [type: <type>], 
+    [as: <alias>], 
     [where: (<whereCondition>)]
   }
   .<functionName>(){
-    <<type: <typeName>], 
-    <<as: <alias>], 
+    [type: <typeName>], 
+    [as: <alias>], 
     [where: (<whereCondition>)], 
     [while: (<whileCondition>)],
-    <<maxDepth: <number>],    
-    <<depthAlias: <identifier> ], 
-    <<pathAlias: <identifier> ],     
-    <<optional: (true | false)]
+    [maxDepth: <number>],    
+    [depthAlias: <identifier> ], 
+    [pathAlias: <identifier> ],     
+    [optional: (true | false)]
   }*
-  <<,
-    <<NOT]
+  [,
+    [NOT]
     {
-      <<as: <alias>], 
-      <<type: <type>], 
+      [as: <alias>], 
+      [type: <type>], 
       [where: (<whereCondition>)]
     }
     .<functionName>(){
-      <<type: <typeName>], 
-      <<as: <alias>], 
+      [type: <typeName>], 
+      [as: <alias>], 
       [where: (<whereCondition>)], 
       [while: (<whileCondition>)],
-      <<maxDepth: <number>],    
-      <<depthAlias: <identifier> ], 
-      <<pathAlias: <identifier> ],     
-      <<optional: (true | false)]
+      [maxDepth: <number>],    
+      [depthAlias: <identifier> ], 
+      [pathAlias: <identifier> ],     
+      [optional: (true | false)]
     }*
   ]*
-RETURN <<DISTINCT] <expression> << AS <alias> ] <<, <expression> << AS <alias> ]]*
-GROUP BY <expression> <<, <expression>]*
-ORDER BY <expression> <<, <expression>]*
+RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
+GROUP BY <expression> [, <expression>]*
+ORDER BY <expression> [, <expression>]*
 SKIP <number>
 LIMIT <number>
 ```
@@ -392,7 +392,7 @@ Match path items act in a different manners, depending on whether or not you use
 For instance, consider the following graph:
 
 ```sql
-<<name='a'] -FriendOf-> <<name='b'] -FriendOf-> <<name='c']
+[name='a'] -FriendOf-> [name='b'] -FriendOf-> [name='c']
 ```
 
 Running the following statement on this graph only returns `b`:
@@ -526,7 +526,7 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
 Consider a case where you have a `since` date property on the edge `Friend`.  You want to traverse the relationship only for edges where the `since` value is greater than a given date.  In a <<SQL-Traverse,`TRAVERSE`>> statement, you might write the query as:
 
 ```sql
-ArcadeDB> TRAVERSE bothE('Friend')<<since > date('2012-07-02', 'yyyy-MM-dd')].bothV()
+ArcadeDB> TRAVERSE bothE('Friend')[since > date('2012-07-02', 'yyyy-MM-dd')].bothV()
           FROM (SELECT FROM Person WHERE name = 'John') WHILE $depth < 3
 ```
 

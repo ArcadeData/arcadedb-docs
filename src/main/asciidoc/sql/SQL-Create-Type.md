@@ -8,8 +8,8 @@ Creates a new type in the schema.
 
 ```sql
 CREATE TYPE <type> 
-<< IF NOT EXISTS ]
-<<EXTENDS <super-type>] <<BUCKET <bucket-id>*] <<BUCKETS <total-bucket-number>] <<ABSTRACT]
+[ IF NOT EXISTS ]
+[EXTENDS <super-type>] [BUCKET <bucket-id>*] [BUCKETS <total-bucket-number>] [ABSTRACT]
 ```
 
 - **`<type>`** Defines the name of the type you want to create.  You must use a letter, underscore or dollar for the first character, for all other characters you can use alphanumeric characters, underscores and dollar.

@@ -10,8 +10,8 @@ Creates a new property in the schema.  It requires that the type for the propert
 CREATE PROPERTY 
 <type>.<property> <type> 
 [<link-type>|<link-type>] 
-( <property constraint> <<, <property-constraint>]* ) 
-<<UNSAFE]
+( <property constraint> [, <property-constraint>]* ) 
+[UNSAFE]
 ```
 
 - **`<type>`** Defines the type for the new property.
