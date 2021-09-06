@@ -8,7 +8,7 @@ Batch of commands are very useful when you have to execute multiple things at th
 
 SQL Batch supports all the ArcadeDB <<SQL-Commands,SQL Commands>>, plus the following:
 
-- ```begin <<isolation <isolation-level>]```, where `<isolation-level>` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
+- ```begin [isolation <isolation-level>]```, where `<isolation-level>` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
 - ```commit [retry <retry>]```, where:
  - `````<retry>````` is the number of retries in case of concurrent modification exception
 - ```let <variable> = <SQL>```, to assign the result of a SQL command to a variable. To reuse the variable prefix it with the dollar sign $
@@ -109,7 +109,7 @@ FOREACH(<variable> IN <expression>){
 ```
 Example
 ```sql
-FOREACH ($i IN <<1, 2, 3]){
+FOREACH ($i IN [1, 2, 3]){
   INSERT INTO Foo SET value = $i;
 }
 ```

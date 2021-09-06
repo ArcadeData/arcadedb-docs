@@ -10,7 +10,7 @@ The Vertex and Edge are the main components of a Graph database.  ArcadeDB suppo
 **Syntax**
 
 ```sql
-CREATE VERTEX [<type>] <<BUCKET <bucket>] [SET <field> = <expression>[,]*]
+CREATE VERTEX [<type>] [BUCKET <bucket>] [SET <field> = <expression>[,]*]
 ```
 
 - **`<type>`** Defines the type to which the vertex belongs.

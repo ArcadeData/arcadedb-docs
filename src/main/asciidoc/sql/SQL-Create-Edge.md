@@ -8,7 +8,7 @@ Creates a new edge in the database.
 **Syntax**
 
 ```sql
-CREATE EDGE <type> <<BUCKET <bucket>] <<UPSERT] FROM <rid>|(<query>)|[<rid>]* TO <rid>|(<query>)|[<rid>]*
+CREATE EDGE <type> [BUCKET <bucket>] [UPSERT] FROM <rid>|(<query>)|[<rid>]* TO <rid>|(<query>)|[<rid>]*
                     [SET <field> = <expression>[,]*]|CONTENT {<JSON>}
                     [RETRY <retry> [WAIT <pauseBetweenRetriesInMs]] [BATCH <batch-size>]
 ```

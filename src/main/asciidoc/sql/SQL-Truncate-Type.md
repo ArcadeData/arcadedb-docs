@@ -11,7 +11,7 @@ Truncation is not permitted on vertex or edge typees, but you can force its exec
 **Syntax**
 
 ```
-TRUNCATE TYPE <type> << POLYMORPHIC ] << UNSAFE ] 
+TRUNCATE TYPE <type> [ POLYMORPHIC ] [ UNSAFE ] 
 ```
 
 - **`<type>`** Defines the type you want to truncate.

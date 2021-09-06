@@ -7,7 +7,7 @@ The <<SQL-Insert,`INSERT`>> command creates a new record in the database.  Recor
 **Syntax**:
 
 ```sql
-INSERT INTO <<TYPE:]<type>|BUCKET:<bucket>|INDEX:<index>
+INSERT INTO [TYPE:]<type>|BUCKET:<bucket>|INDEX:<index>
   [(<field>[,]*) VALUES (<expression>[,]*)[,]*]|
   [SET <field> = <expression>|<sub-command>[,]*]|
   [CONTENT {<JSON>}]
@@ -86,13 +86,13 @@ ArcadeDB> INSERT INTO Employee SET name = 'jack', boss = #11:99
   In SQL-93 syntax:
 
 ```sql
-ArcadeDB> INSERT INTO Profile (name, friends) VALUES ('Luca', <<#10:3, #10:4])
+ArcadeDB> INSERT INTO Profile (name, friends) VALUES ('Luca', [#10:3, #10:4])
 ```
 
   In the ArcadeDB abbreviated syntax:
 
 ```sql
-ArcadeDB> INSERT INTO Profiles SET name = 'Luca', friends = <<#10:3, #10:4]
+ArcadeDB> INSERT INTO Profiles SET name = 'Luca', friends = [#10:3, #10:4]
 ```
 
 - Inserts using <<SQL-Query,`SELECT`>> sub-queries

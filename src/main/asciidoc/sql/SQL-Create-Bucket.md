@@ -8,7 +8,7 @@ Creates a new bucket in the database.  Once created, you can use the bucket to s
 **Syntax**
 
 ```sql
-CREATE BUCKET <bucket> <<ID <bucket-id>]
+CREATE BUCKET <bucket> [ID <bucket-id>]
 ```
 
 - **`<bucket>`** Defines the name of the bucket you want to create.  You must use a letter for the first character, for all other characters, you can use alphanumeric characters, underscores and dashes.

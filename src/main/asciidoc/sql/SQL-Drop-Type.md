@@ -7,7 +7,7 @@ Removes a type from the schema.
 **Syntax**
 
 ```sql
-DROP TYPE <type> << UNSAFE ]
+DROP TYPE <type> [ UNSAFE ]
 ```
 
 - **`<type>`** Defines the type you want to remove.
