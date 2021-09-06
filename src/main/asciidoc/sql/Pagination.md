@@ -11,9 +11,11 @@ There are 2 ways to achieve pagination:
 
 The first and simpler way to do pagination is to use the `SKIP`/`LIMIT` approach. This is the slower way because ArcadeDB repeats the query and just skips the first X records from the result.
 Syntax:
+
 ```sql
 SELECT FROM <target> [WHERE ...] SKIP <records-to-skip> LIMIT <max-records>
 ```
+
 Where:
 - **records-to-skip** is the number of records to skip before starting to collect them as the result set
 - **max-records** is the maximum number of records returned by the query
@@ -26,6 +28,7 @@ This method is faster than the `SKIP`-`LIMIT` because ArcadeDB will begin the sc
 The trick here is to execute the query multiple times setting the `LIMIT` as the page size and using the greater than `>` operator against `@rid`. The **lower-rid** is the starting point to search, for example `#10:300`.
 
 Syntax:
+
 ```sql
 SELECT FROM <target> WHERE @rid > <lower-rid> ... [LIMIT <max-records>]
 ```

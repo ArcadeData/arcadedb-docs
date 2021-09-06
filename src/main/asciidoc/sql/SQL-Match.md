@@ -282,16 +282,19 @@ ArcadeDB> MATCH {type: Person, as:p} RETURN DISTINCT p.name as name
  Jenny
 --------
 ```
-  
+
+
 **Context Variables**
 
 When running these queries, you can use any of the following context variables:
 
-| Variable | Description |
-|---|---|
-|`$matched`| Gives the current matched record.  You must explicitly define the attributes for this record in order to access them.  You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value.|
-|`$currentMatch`| Gives the current complete node during the match.|
-|`$depth`| Gives the traversal depth, following a single path item where a `while:` condition is defined.|
+[%header,cols=2]
+|===
+| Variable | Description
+|`$matched`| Gives the current matched record.  You must explicitly define the attributes for this record in order to access them.  You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value.
+|`$currentMatch`| Gives the current complete node during the match.
+|`$depth`| Gives the traversal depth, following a single path item where a `while:` condition is defined.
+|===
 
 
 
