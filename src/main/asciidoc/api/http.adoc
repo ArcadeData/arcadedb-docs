@@ -1,8 +1,10 @@
 [[HTTP-API]]
 === HTTP/JSON Protocol
+
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc" float=right]
 
-The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol. The protocol is very simple.
+The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol.
+The protocol is very simple.
 For this reason, you don't need a driver, because every modern programming language provides an easy way to execute HTTP requests and parse JSON.
 
 For the examples in this chapter we're going to use curl.
@@ -38,6 +40,15 @@ curl -X POST http://localhost:2480/api/v1/command/school
      --user root:root
 ```
 
+Or better, using parameters with SQL:
+
+```
+curl -X POST http://localhost:2480/api/v1/command/school
+     -d '{ "language": "sql", "command": "insert into Class set name = :name, location = :location, params: { name: 'English', location: '3rd floor' } }'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
 Or by using the `api/v1/document` API:
 
 ```
@@ -46,7 +57,6 @@ curl -X POST http://localhost:2480/api/v1/document/school
      -H "Content-Type: application/json"
      --user root:root
 ```
-
 
 ==== Reference
 
@@ -69,6 +79,21 @@ curl -X POST http://localhost:2480/api/v1/command/school
      --user root:root
 ```
 
+The payload, as a JSON, accepts the following parameters:
+
+- `language` is the query language used, between "sql", "cypher", "gremlin", "neo4j" and any other language supported by ArcadeDB and available at runtime.
+- `command` the command to execute in encoded format
+- `params` (optional), is the map of parameters to pass to the query engine
+
+Example of insertion of a new Client by using parameters:
+
+```
+curl -X POST http://localhost:2480/api/v1/command/company
+     -d '{ "language": "sql", "command": "create vertex Client set firstName = :firstName, lastName = :lastName", params: { "firstName": "Jay", "lastName", "Miner" } }'
+     -H "Content-Type: application/json"
+     --user root:root
+```
+
 ===== Create a database (POST)
 
 URL Syntax: `/api/v1/create/{database}`
@@ -84,7 +109,6 @@ curl -X POST http://localhost:2480/api/v1/create/school
      --user root:root
 ```
 
-
 ===== List of databases (GET)
 
 Returns the list of databases the current user can access to.
@@ -97,7 +121,6 @@ Example:
 curl -X GET http://localhost:2480/api/v1/databases
      --user root:root
 ```
-
 
 ===== Create a document (POST)
 
@@ -141,7 +164,7 @@ The output will be:
 
 ===== Execute a query (GET)
 
-This command allows to execute idempotent commands, like `SELECT` ad `MATCH`:
+This command allows executing idempotent commands, like `SELECT` ad `MATCH`:
 
 URL Syntax 1: `/api/v1/query/{database}`
 
@@ -149,7 +172,20 @@ Where:
 
 - `database` is the database name
 
-The Payload is the JSON document to insert.
+The payload, as a JSON, accepts the following parameters:
+
+- `language` is the query language used, between "sql", "cypher", "gremlin", "neo4j" and any other language supported by ArcadeDB and available at runtime.
+- `command` the command to execute in encoded format
+- `params` (optional), is the map of parameters to pass to the query engine
+
+Example of insertion of a new Client by using parameters:
+
+```
+curl -X POST http://localhost:2480/api/v1/command/company
+     -d '{ "language": "sql", "command": "select from Class where name = :name", params: { "name": "English" } }'
+     -H "Content-Type: application/json"
+     --user root:root
+```
 
 Example of retrieving the class with name "English" by executing a SQL query:
 
@@ -167,7 +203,8 @@ URL Syntax 2: `/api/v1/query/{database}/{language}/{command}`
 Where:
 
 - `database` is the database name
-- `language` is the query language used. Only "sql" is available with latest release
+- `language` is the query language used.
+Only "sql" is available with latest release
 - `command` the command to execute in encoded format
 
 ===== Drop a database (POST)
