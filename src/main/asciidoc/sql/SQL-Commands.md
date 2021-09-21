@@ -11,7 +11,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<SQL-Delete,DELETE>> |  | <<SQL-Create-Property,CREATE PROPERTY>> | <<SQL-Alter-Database,ALTER DATABASE>>
 | <<SQL-Traverse,TRAVERSE>> |  |  <<SQL-Alter-Property,ALTER PROPERTY>> | <<Console-Command-Create-Database,CREATE DATABASE (console only)>>   
 | <<SQL-Truncate-Type,TRUNCATE TYPE>> |  | <<SQL-Drop-Property,DROP PROPERTY>> | <<Console-Command-Drop-Database,DROP DATABASE (console only)>> 
-| <<SQL-Truncate-Bucket,TRUNCATE BUCKET>> | | <<SQL-Create-Index,CREATE INDEX>> |   
-| | | <<SQL-Rebuild-Index,REBUILD INDEX>>  | 
+| <<SQL-Truncate-Bucket,TRUNCATE BUCKET>> | | <<SQL-Create-Index,CREATE INDEX>> |  <<SQL-Backup-Database,BACKUP DATABASE>>
+| | | <<SQL-Rebuild-Index,REBUILD INDEX>>  |   |  <<SQL-Import-Database,IMPORT DATABASE>>
 |  | |<<SQL-Drop-Index,DROP INDEX>>  | 
 |===
