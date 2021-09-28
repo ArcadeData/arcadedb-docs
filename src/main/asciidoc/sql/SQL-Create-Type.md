@@ -1,7 +1,6 @@
 ### SQL - `CREATE TYPE`
 
-image:
-../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Type.md" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Type.md" float=right]
 
 Creates a new type in the schema.
 
@@ -13,7 +12,7 @@ CREATE <DOCUMENT|VERTEX|EDGE> TYPE <type>
 [EXTENDS <super-type>] [BUCKET <bucket-id>*] [BUCKETS <total-bucket-number>]
 ```
 
-- Use **`<DOCUMENT|VERTEX|EDGE>` if you are creating respectively a document, vertex or edge type.
+- Use **`<DOCUMENT|VERTEX|EDGE>`** if you are creating respectively a document, vertex or edge type.
 - **`<type>`** Defines the name of the type you want to create. You must use a letter, underscore or dollar for the first character,
   for all other characters you can use alphanumeric characters, underscores and dollar.
 - **IF NOT EXISTS** Specifying this option, the type creation will just be ignored if the type already exists (instead of failing
