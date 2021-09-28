@@ -32,4 +32,4 @@ ArcadeDB> REBUILD INDEX *
 
 - <<SQL-Create-Index,`CREATE INDEX`>>
 - <<SQL-Drop-Index,`DROP INDEX`>>
-- <<Indexes>>
+- <<Indexes,Indexes>>
