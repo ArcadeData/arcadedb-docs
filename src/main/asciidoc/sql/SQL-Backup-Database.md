@@ -2,8 +2,7 @@
 
 ### SQL - `BACKUP DATABASE`
 
-image:
-../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Backup-Database.md" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Backup-Database.md" float=right]
 
 Executes a backup of the current database. The resulting file is a compressed archive using ZIP as algorithm. The archive contains
 the database directory without the transaction logs. The backup is executed taking a snapshot of the database at the time the
