@@ -12530,13 +12530,211 @@ GROUP BY OrderDate  </code></pre>
 </div>
 </div>
 <div class="sect1">
-<h2 id="Comparison">11. Comparison</h2>
+<h2 id="Security">11. Security</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>ArcadeDB manages the security at server level only.
+This means if you work in embedded mode, there is no security available by default unless you install the server security or your own implementation.
+Without any kind of security active, any user can read and write in the database.
+For this reason it&#8217;s important your application is managing security and profiling.
+You can work in embedded mode and still run a <code>ArcadeDBServer</code> instance to use the security for the incoming connections.</p>
+</div>
+<div class="sect2">
+<h3 id="_users">11.1. Users</h3>
+<div class="paragraph">
+<p>Users are stored in the file <code>config/server-users.jsonl</code> file.
+The JSONL format means one json per line.
+When the server starts always checks if there are any users configured.
+If the user file is empty, the <code>root</code> user is created with a password the user must enter in the console where the server is starting.
+Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">+--------------------------------------------------------------------+
+|                WARNING: FIRST RUN CONFIGURATION                    |
++--------------------------------------------------------------------+
+| This is the first time the server is running. Please type a        |
+| password of your choice for the 'root' user or leave it blank      |
+| to auto-generate it.                                               |
+|                                                                    |
+| To avoid this message set the environment variable or JVM          |
+| setting `arcadedb.server.rootPassword` to the root password to use.|
++--------------------------------------------------------------------+
+
+Root password [BLANK=auto generate it]: ***********
+Please type the root password for confirmation (copy and paste will not work): ***********</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example of <code>config/server-users.jsonl</code> file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{"name":"root","password":"PBKDF2WithHmacSHA256$65536$hcv0joKV/o/q+KOVmcwNUqhEq1w2/j8OVnEkkVjzkeg=$2q2u4rjUlJjgoKBX9sG0rV0bOh6aHo+RhHsOkXneGkM=","databases":{"*":["admin"]}}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the users file the following information are stored per user:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Name, mandatory</p>
+</li>
+<li>
+<p>Password.
+It is always saved hashed by using the algorithm <code>PBKDF2</code> with a configurable salt (default = 32).
+The password is mandatory for all the users, but root.
+In the case root has no password, then ArcadeDB server asks to insert a password at startup (see above).</p>
+</li>
+<li>
+<p>Databases, as the map database name and set of groups for that database. "<strong>*" is a special wildcard and means any.
+The configuration <code>"databases":{"</strong>":["admin"]</code> means use the "admin" group for any database.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_groups">11.2. Groups</h3>
+<div class="paragraph">
+<p>ArcadeDB allows each user to belong to zero or multiple groups.
+If no groups are defined, the default setting for the group "<strong>" are used.
+By default, this is the configuration for the "</strong>" group:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{ "*": {
+  "types": {"*": {"access": []}},
+  "access": [],
+  "readTimeout": -1,
+  "resultSetLimit": -1
+} }</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Where:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>types</code> is the map of type and access level</p>
+</li>
+<li>
+<p><code>access</code> is the array containing the allowed permissions for the group.
+The supported permission at group level are:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>updateSecurity</code>: to update the security settings (create, modify and delete users, groups, etc.)</p>
+</li>
+<li>
+<p><code>updateSchema</code>: to update the database schema (create, modify and drop buckets, types and indexes)</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><code>readTimeout</code> if present, specify the maximum timeout for read operations. -1 means no limits.
+If set, all the read operations (lookups and queries) will be limited to maximum <code>&lt;readTimeout&gt;</code> milliseconds.
+This is useful to limit users to execute expensive commands and queries impacting the performance of the server and therefore other connected users.</p>
+</li>
+<li>
+<p><code>resultSetLimit</code> if present, specify the maximum number of entries in the result set returning from a command or query. -1 means no limits.
+If set, any query or command will be interrumped when this limit is reached.
+This is useful to limit users to retrieve huge result sets impacting the performance of the server and therefore other connected users.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>You can profile the access of each group up to the type level.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>createRecord</code>, allows creating new records</p>
+</li>
+<li>
+<p><code>readRecord</code>, allows reading records</p>
+</li>
+<li>
+<p><code>updateRecord</code>, allows updating records</p>
+</li>
+<li>
+<p><code>deleteRecord</code>, allows deleting records</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Example of the definition of the group for a Blog writer, where he can only read from the "Blog" type and have full access to the "Post" type:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{
+  "types": {
+    "*": {
+      "access": []
+    },
+    "Blog": {
+      "access": [
+        "readRecord"
+      ]
+    },
+    "Post": {
+      "access": [
+        "createRecord",
+        "readRecord",
+        "updateRecord",
+        "deleteRecord"
+      ]
+    }
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The default settings for the <code>admin</code> group are:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{
+  "access": [
+    "updateSecurity",
+    "updateSchema"
+  ],
+  "resultSetLimit": -1,
+  "readTimeout": -1,
+  "types": {
+    "*": {
+      "access": [
+        "createRecord",
+        "readRecord",
+        "updateRecord",
+        "deleteRecord"
+      ]
+    }
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Which allows to execute any operation against the security, the schema and records.</p>
+</div>
+<div class="paragraph">
+<p>You can use any JSON editor to edit the file <code>config/server-groups.json</code>.
+It&#8217;s recommended to keep a copy of the current file before editing the groups.
+In this way if there are any errors, it&#8217;s easy to restore the previous file.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="Comparison">12. Comparison</h2>
 <div class="sectionbody">
 <div class="paragraph">
 <p>This chapter contains the comparison between ArcadeDB and other DBMS. If you&#8217;re familiar with one of those, understanding ArcadeDB takes a few minutes.</p>
 </div>
 <div class="sect2">
-<h3 id="OrientDB">11.1. OrientDB</h3>
+<h3 id="OrientDB">12.1. OrientDB</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/comparison/orientdb.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -12680,10 +12878,10 @@ Asynchronous calls are automatically balanced on the available cores</p>
 </div>
 </div>
 <div class="sect1">
-<h2 id="_appendixes">12. Appendixes</h2>
+<h2 id="_appendixes">13. Appendixes</h2>
 <div class="sectionbody">
 <div class="sect2">
-<h3 id="DataTypes">12.1. Data Types</h3>
+<h3 id="DataTypes">13.1. Data Types</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/datatypes.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -12841,7 +13039,7 @@ Useful to store small 8-bit signed integers</p></td>
 </table>
 </div>
 <div class="sect2">
-<h3 id="Settings">12.2. Settings</h3>
+<h3 id="Settings">13.2. Settings</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/settings.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -13138,7 +13336,7 @@ Useful to store small 8-bit signed integers</p></td>
 </table>
 </div>
 <div class="sect2">
-<h3 id="SQL-Syntax">12.3. SQL Syntax </h3>
+<h3 id="SQL-Syntax">13.3. SQL Syntax </h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/sql-syntax.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -14085,12 +14283,12 @@ null || [1, 2] = [1, 2]</code></pre>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Storage-Internals">12.4. Storage Internals</h3>
+<h3 id="Storage-Internals">13.4. Storage Internals</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/storage.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="sect3">
-<h4 id="_page_version">12.4.1. Page Version</h4>
+<h4 id="_page_version">13.4.1. Page Version</h4>
 <div class="paragraph">
 <p>Records are stored in pages.
 Each page has its own version number, which increments on each update.
@@ -14100,7 +14298,7 @@ In optimistic transactions, ArcadeDB checks the version in order to avoid confli
 </div>
 </div>
 <div class="sect2">
-<h3 id="ReportAnIssue">12.5. Report an Issue</h3>
+<h3 id="ReportAnIssue">13.5. Report an Issue</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/issues.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -14189,7 +14387,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-09-28 03:02:26 UTC
+Last updated 2021-09-28 03:05:41 UTC
 </div>
 </div>
 </body>
