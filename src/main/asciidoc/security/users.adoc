@@ -35,5 +35,54 @@ In the users file the following information are stored per user:
 It is always saved hashed by using the algorithm `PBKDF2` with a configurable salt (default = 32).
 The password is mandatory for all the users, but root.
 In the case root has no password, then ArcadeDB server asks to insert a password at startup (see above).
-- Databases, as the map database name and set of groups for that database. "**" is a special wildcard and means any.
-The configuration `"databases":{"*":["admin"]` means use the "admin" group for any database.
+- Databases, as the map database name and set of groups for that database. "\*" is a special wildcard and means any.
+The configuration `"databases":{"*":["admin"]}` means use the "admin" group for any database.
+
+[ditaa,ha-architecture]
+....
+                           +-----------------+ Any Database
+ +-------------+           | +-------------+ |
+ |    root     |------------>|    admin    | |
+ |             |           | |             | |
+ |   (User)    |  belongsTo| |   (Group)   | |
+ +-------------+           | +-------------+ |
+                           +-----------------+
+....
+
+ArcadeDB allows each user to belong to zero or multiple groups.
+If no groups are defined, the default setting for the group `\*` are used.
+
+The following configuration defines "Jay" user to belong to "BlogWriters" in "Blog" database and "Editors" in the "Library" database:
+
+```json
+{
+  "databases": {
+    "Blog": ["BlogWriters"],
+    "Library": ["Editors"]
+  }
+}
+```
+
+[ditaa,ha-architecture]
+....
+
+                           +--------------------+ Blog Database
+ +-------------+           |   +-------------+  |
+ |    Jay      |-------------->| BlogWriters |  |
+ |             |           |   |             |  |
+ |   (User)    | belongsTo |   |   (Group)   |  |
+ +-------------+           |   +-------------+  |
+        |                  +--------------------+
+        |
+        |                  +--------------------+ Library Database
+        |                  |   +-------------+  |
+        |  belongsTo       |   |   Editors   |  |
+        +--------------------->|             |  |
+                           |   |   (Group)   |  |
+                           |   +-------------+  |
+                           +--------------------+
+
+....
+
+The declaration above implicitly assigns Jay to the default group for any other database configured.
+The default configuration for the default group is no access, where the user cannot read or write in the database.
