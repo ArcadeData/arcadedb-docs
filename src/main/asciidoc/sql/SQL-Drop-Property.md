@@ -1,4 +1,5 @@
 [[SQL-Drop-Property]]
+[discrete]
 ### SQL - `DROP PROPERTY` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Property.md" float=right]
 

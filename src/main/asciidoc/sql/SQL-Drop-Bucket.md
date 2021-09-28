@@ -1,4 +1,5 @@
 [[SQL-Drop-Bucket]]
+[discrete]
 ### SQL - `DROP BUCKET` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Bucket.md" float=right]
 

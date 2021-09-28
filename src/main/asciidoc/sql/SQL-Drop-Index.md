@@ -1,4 +1,5 @@
 [[SQL-Drop-Index]]
+[discrete]
 ### SQL - `DROP INDEX` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Index.md" float=right]
 

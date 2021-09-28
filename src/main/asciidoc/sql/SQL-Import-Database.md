@@ -1,5 +1,5 @@
 [[SQL-Import-Database]]
-
+[discrete]
 ### SQL - `IMPORT DATABASE`
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Import-Database.md" float=right]

@@ -1,4 +1,5 @@
 [[SQL-Batch]]
+[discrete]
 #### SQL Batch 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Batch.md" float=right]
 
