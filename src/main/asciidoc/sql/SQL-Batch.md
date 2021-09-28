@@ -95,6 +95,7 @@ if($a.size() > 0) {
 
 SQL Batch provides two different loop blocks: FOREACH and WHILE
 
+[discrete]
 #### FOREACH
 
 Loops on all the items of a collection and, for each of them, executes a set of SQL statements
@@ -115,7 +116,7 @@ FOREACH ($i IN [1, 2, 3]){
 }
 ```
 
-
+[discrete]
 #### WHILE
 
 Loops while a condition is true

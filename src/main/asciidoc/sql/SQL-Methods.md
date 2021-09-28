@@ -1,4 +1,4 @@
-[[SQL-Methods]]
+
 [discrete]
 #### Methods 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Methods.md" float=right]
@@ -17,30 +17,7 @@ SELECT FROM salary.toJSON() FROM employee
 
 As you can see the method is executed against a field/value. Methods can receive parameters, like functions. You can concatenate N operators in sequence.
 
-NOTE: operators are case-insensitive.
-
-**Bundled methods**
-
-**Methods by category**
-
-[%header,cols=4]
-|===
-| Conversions | String manipulation | Collections | Misc
-|<<_-convert,convert()>>|<<_-append,append()>>|<<SQL-Method-Squared,[]>>|<<_-exclude,exclude()>>
-|<<_-asboolean,asBoolean()>>|<<_-charat,charAt()>>|<<_-size,size()>>|<<_-include,include()>>
-|<<_-asdate,asDate()>>|<<_-indexof,indexOf()>>|<<_-remove,remove()>>|<<_-javatype,javaType()>>
-|<<_-asdatetime,asDatetime()>>|<<_-left,left()>>|<<_-removeall,removeAll()>>|<<_-tojson,toJSON()>>
-|<<_-asdecimal,asDecimal()>>|<<_-right,right()>>|<<_-keys,keys()>>|<<_-type,type()>>
-|<<_-asfloat,asFloat()>>|<<_-prefix,prefix()>>|<<_-values,values()>>
-|<<_-asinteger,asInteger()>>|<<_-trim,trim()>>
-|<<_-aslist,asList()>>|<<_-replace,replace()>>
-|<<_-aslong,asLong()>>|<<_-length,length()>>
-|<<_-asmap,asMap()>>|<<_-substring,subString()>>
-|<<_-asset,asSet()>>|<<_-tolowercase,toLowerCase()>>
-|<<_-asstring,asString()>>|<<_-touppercase,toUpperCase()>>
-|<<_-normalize,normalize()>>|<<_-hash,hash())>>
-||<<_-format,format()>>
-|===
+!NOTE: methods are case-insensitive.
 
 
 [[SQL-Method-Squared]]
@@ -57,7 +34,7 @@ Applies to the following types:
 - array
 
 [discrete]
-###### Examples
+**Examples**
 
 Get the item with key "phone" in a map:
 ```sql
@@ -81,7 +58,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT name.append(' ').append(surname) FROM Employee
@@ -103,7 +80,7 @@ Applies to the following types:
 - long
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT FROM Users WHERE online.asBoolean() = true
@@ -122,7 +99,7 @@ Applies to the following types:
 - long
 
 [discrete]
-###### Examples
+**Examples**
 
 Time is stored as long type measuring milliseconds since a particular day. Returns all the records where time is before the year 2010:
 
@@ -142,7 +119,7 @@ Applies to the following types:
 - long
 
 [discrete]
-###### Examples
+**Examples**
 
 Time is stored as long type measuring milliseconds since a particular day. Returns all the records where time is before the year 2010:
 
@@ -162,7 +139,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT salary.asDecimal() FROM Employee
@@ -180,7 +157,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT ray.asFloat() > 3.14
@@ -200,7 +177,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 Converts the first 3 chars of 'value' field in an integer:
 ```sql
@@ -220,7 +197,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT tags.asList() FROM Friend
@@ -239,7 +216,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT date.asLong() FROM Log
@@ -257,7 +234,7 @@ Applies to the following types:
 - collections
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT tags.asMap() FROM Friend
@@ -274,7 +251,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT tags.asSet() FROM Friend
@@ -292,7 +269,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 Get all the salaries with decimals:
 ```sql
@@ -311,7 +288,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 
 Get the first character of the users' name:
 ```sql
@@ -330,7 +307,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT dob.convert( 'date' ) FROM User
@@ -348,7 +325,7 @@ Applies to the following types:
 - document record
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT EXPAND( @this.exclude( 'password' ) ) FROM OUser
@@ -373,7 +350,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 Formats salaries as number with 11 digits filling with 0 at left:
 
 ```sql
@@ -413,7 +390,7 @@ Applies to the following types:
 - document record
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT EXPAND( @this.include( 'name' ) ) FROM OUser
@@ -437,7 +414,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 Returns all the UK numbers:
 ```sql
 SELECT FROM Contact WHERE phone.indexOf('+44') > -1
@@ -454,7 +431,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 Prints the Java type used to store dates:
 ```sql
 SELECT FROM date.javaType() FROM Events
@@ -473,7 +450,7 @@ Applies to the following types:
 - documents
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT FROM Actor WHERE 'Luke' IN map.keys()
 ```
@@ -491,7 +468,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT FROM Actors WHERE name.left( 4 ) = 'Luke'
 ```
@@ -508,7 +485,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT FROM Providers WHERE name.length() > 0
 ```
@@ -526,7 +503,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT FROM V WHERE name.normalize() AND name.normalize('NFD')
 ```
@@ -542,7 +519,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT name.prefix('Mr. ') FROM Profile
 ```
@@ -559,7 +536,7 @@ Applies to the following types:
 - collection
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT out().in().remove( @this ) FROM V
@@ -578,7 +555,7 @@ Applies to the following types:
 - collection
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT out().in().removeAll( @this ) FROM V
@@ -596,7 +573,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 
 ```sql
 SELECT name.replace('Mr.', 'Ms.') FROM User
@@ -614,7 +591,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 
 Returns all the vertices where the name ends by "ke".
 ```sql
@@ -633,7 +610,7 @@ Applies to the following types:
 - collection
 
 [discrete]
-###### Examples
+**Examples**
 
 Returns all the items in a tree with children:
 ```sql
@@ -652,7 +629,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 
 Get all the items where the name begins with an "L":
 ```sql
@@ -677,7 +654,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT name.trim() == 'Luke' FROM Actors
 ```
@@ -705,7 +682,7 @@ Applies to the following types:
 - record
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 create type Test extends V
 insert into Test content {"attr1": "value 1", "attr2": "value 2"}
@@ -725,7 +702,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT name.toLowerCase() == 'luke' FROM Actors
 ```
@@ -742,7 +719,7 @@ Applies to the following types:
 - string
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT name.toUpperCase() == 'LUKE' FROM Actors
 ```
@@ -759,7 +736,7 @@ Applies to the following types:
 - any
 
 [discrete]
-###### Examples
+**Examples**
 Prints the type used to store dates:
 ```sql
 SELECT FROM date.type() FROM Events
@@ -780,7 +757,7 @@ Applies to the following types:
 
 
 [discrete]
-###### Examples
+**Examples**
 ```sql
 SELECT FROM Clients WHERE map.values() CONTAINSALL ( name is not null)
 ```
