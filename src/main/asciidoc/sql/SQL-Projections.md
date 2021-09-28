@@ -1,4 +1,5 @@
 [[SQL-Projections]]
+[discrete]
 #### Projections 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Projections.md" float=right]
 
@@ -16,6 +17,7 @@ has three projections:
 - `age * 12 as ageInMonths`
 - `out("Friend")`
 
+[discrete]
 ##### Syntax
 
 **A projection** has the following syntax:
@@ -32,9 +34,11 @@ A projection block has the following syntax:
 - `DISTINCT`: removes duplicates from the result-set
 
 
+[discrete]
 ##### Query result
 
 By default, a query returns a different result-set based on the projections it has:
+
 - **`*` alone**: The result set is made of records as they arrive from the target, with the original @rid and @type attributes (if any)
 - **`*` plus other projections**: records of the original target, merged with the other projection values, with @rid and @type of the original record. 
 - **no projections**: same behavior as `*`
@@ -71,6 +75,7 @@ IMPORTANT: the result of the query can be further unwound using the UNWIND opera
 
 IMPORTANT: `expand()` cannot be used together with `GROUP BY`.
 
+[discrete]
 ##### Aliases
 
 The alias is the field name that a projection will have in the result-set.
@@ -111,7 +116,7 @@ result:
 [{"full_name": "John Smith"}] 
 ```
 
-The String representation of a projection is the exact representation of the projection string, without spaces before and after dots and brackets, no spaces before commans, a single space before and after operators.
+The String representation of a projection is the exact representation of the projection string, without spaces before and after dots and brackets, no spaces before commands, a single space before and after operators.
 
 eg.
 
@@ -136,9 +141,10 @@ result:
 [{"items<<4]": "John Smith"}] 
 ```
 
+[discrete]
 ##### Nested projections
 
-###### Syntax:
+**Syntax**:
 
 `":{" ( * | (<<"!"] <identifier> <<"*"] (<comma> <<"!"] <identifier> <<"*"])* ) ) "}"`
 

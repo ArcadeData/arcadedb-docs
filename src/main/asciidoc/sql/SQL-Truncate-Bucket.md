@@ -1,4 +1,5 @@
 [[SQL-Truncate-Bucket]]
+[discrete]
 ### SQL - `TRUNCATE BUCKET` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Truncate-Bucket.md" float=right]
 

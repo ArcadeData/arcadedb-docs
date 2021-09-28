@@ -1,13 +1,16 @@
 [[SQL-Filtering]]
+[discrete]
 #### Filtering 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Where.md" float=right]
 
 The Where condition is shared among many SQL commands.
 
+[discrete]
 #### Syntax
 
 `[<item>] <operator> <item>`
 
+[discrete]
 #### Items
 
 And `item` can be:
@@ -26,6 +29,7 @@ And `item` can be:
 |===
 
 
+[discrete]
 ##### Record attributes
 
 
@@ -39,8 +43,10 @@ And `item` can be:
 |===
 
 [[SQL-Filtering-Operators]]
+[discrete]
 #### Operators
 
+[discrete]
 ##### Conditional Operators
 
 [%header,cols=4]
@@ -67,6 +73,7 @@ And `item` can be:
 |any|TRAVERSE[(&lt;minDepth&gt; <<,&lt;maxDepth&gt; <<,&lt;fields&gt;]]|*This function was born before the SQL Traverse statement and today it's pretty limited. Look at <<Traversing graphs,../java/Java-Traverse>> to know more about traversing in better ways.* <br>true if traversing the declared field(s) at the level from &lt;minDepth&gt; to &lt;maxDepth&gt; matches the condition. A minDepth = 0 means the root node, maxDepth = -1 means no limit: traverse all the graph recursively. If &lt;minDepth&gt; and &lt;maxDepth&gt; are not used, then (0, -1) will be taken. If &lt;fields&gt; is not passed, than any() will be used.|select from profile where any() **traverse(0,7,'followers,followings')** ( address.city.name = 'Rome' )
 |===
 
+[discrete]
 ##### Logical Operators
 
 [%header,cols=3]
@@ -77,6 +84,7 @@ And `item` can be:
 |NOT|true if the condition is false. NOT needs parenthesis on the right with the condition to negate|**not** ( name = 'Luke')
 |===
 
+[discrete]
 ##### Mathematics Operators
 
 
@@ -90,18 +98,16 @@ And `item` can be:
 |Numbers|%|Mod|total % 3
 |===
 
-Starting from v1.4 ArcadeDB supports the `eval()` function to execute complex operations. Example:
-```sql
-select eval( "amount * 120 / 100 - discount" ) as finalPrice from Order
-```
 
+[discrete]
 ##### Methods
 
 Also called "Field Operators", are <<are treated on a separate page,SQL-Methods>>.
 
+[discrete]
 #### Variables
 
-ArcadeDB supports variables managed in the context of the command/query. By default some variables are created. Below the table with the available variables:
+ArcadeDB supports variables managed in the context of the command/query. By default, some variables are created. Below the table with the available variables:
 
 
 [%header,cols=3]
@@ -112,7 +118,7 @@ ArcadeDB supports variables managed in the context of the command/query. By defa
 |$depth|The current depth of nesting|<<TRAVERSE,SQL-Traverse>>
 |$path|The string representation of the current path. Example:  #6:0.in.#5:0#.out. You can also display it with -> select $path from (traverse * from V)|<<TRAVERSE,SQL-Traverse>>
 |$stack|The List of operation in the stack. Use it to access to the history of the traversal|<<TRAVERSE,SQL-Traverse>>|1.1.0|
-|$history|The set of all the records traversed as a Set&lt;ORID&gt;|<<TRAVERSE,SQL-Traverse>>
+|$history|The set of all the records traversed as a Set&lt;ORID&gt;|<<SQL-Traverse,TRAVERSE>>
 |===
 
 

@@ -1,4 +1,5 @@
 [[SQL-Traverse]]
+[discrete]
 ### SQL - `TRAVERSE` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Traverse.md" float=right]
 

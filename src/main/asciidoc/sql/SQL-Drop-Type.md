@@ -1,4 +1,5 @@
 [[SQL-Drop-Type]]
+[discrete]
 ### SQL - `DROP TYPE` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Type.md" float=right]
 

@@ -1,4 +1,5 @@
 [[SQL-Explain]]
+[discrete]
 ### SQL - `EXPLAIN` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Explain.md" float=right]
 

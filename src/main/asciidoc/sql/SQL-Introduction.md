@@ -1,5 +1,6 @@
 [[SQL-Introduction]]
 
+[discrete]
 ### Introduction 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Introduction.md" float=right]
 

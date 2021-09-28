@@ -39,7 +39,7 @@ SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
 - **`ORDER BY`** Designates the field with which to order the result-set. Use the optional `ASC` and `DESC` operators to define the
   direction of the order. The default is ascending. Additionally, if you are using a <<projection,SQL-Query.md#projections), you
   need to include the `ORDER BY` field in the projection. Note that ORDER BY works only on projection fields (fields that are
-  returned in the result set) not on LET variables.
+  returned to the result set) not on LET variables.
 - **<<SQL-Select,`UNWIND`>>** Designates the field on which to unwind the collection.
 - **`SKIP`** Defines the number of records you want to skip from the start of the result-set. You may find this useful in <<
   pagination,Pagination>>, when using it in conjunction with `LIMIT`.

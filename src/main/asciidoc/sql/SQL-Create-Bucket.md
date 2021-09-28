@@ -1,4 +1,5 @@
 [[SQL-Create-Bucket]]
+[discrete]
 ### SQL - `CREATE BUCKET` 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Bucket.md" float=right]
 

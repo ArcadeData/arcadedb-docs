@@ -1,4 +1,5 @@
 [[SQL-Commands]]
+[discrete]
 #### Commands 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Commands.md" float=right]
 
@@ -12,6 +13,6 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<SQL-Traverse,TRAVERSE>> |  |  <<SQL-Alter-Property,ALTER PROPERTY>> | <<Console-Command-Create-Database,CREATE DATABASE (console only)>>   
 | <<SQL-Truncate-Type,TRUNCATE TYPE>> |  | <<SQL-Drop-Property,DROP PROPERTY>> | <<Console-Command-Drop-Database,DROP DATABASE (console only)>> 
 | <<SQL-Truncate-Bucket,TRUNCATE BUCKET>> | | <<SQL-Create-Index,CREATE INDEX>> |  <<SQL-Backup-Database,BACKUP DATABASE>>
-| | | <<SQL-Rebuild-Index,REBUILD INDEX>>  |   |  <<SQL-Import-Database,IMPORT DATABASE>>
-|  | |<<SQL-Drop-Index,DROP INDEX>>  |  | <<SQL-Export-Database,EXPORT DATABASE>>
+| | | <<SQL-Rebuild-Index,REBUILD INDEX>>  |  <<SQL-Import-Database,IMPORT DATABASE>>
+| | | <<SQL-Drop-Index,DROP INDEX>>  |  | <<SQL-Export-Database,EXPORT DATABASE>>
 |===
