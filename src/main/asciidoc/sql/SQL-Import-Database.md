@@ -8,6 +8,7 @@ image:
 Executes an import of the database into the current one. Usually an import database is executed on an empty database, but it is
 possible to execute on any database. In case of conflict (unique index key already existent, etc.), the conflicting records will not
 be imported. The importer automatically recognize the file between the following formats:
+
 - OrientDB database export
 - Neo4J database export
 - GraphML database export

@@ -2324,7 +2324,7 @@ Default is false.</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="_importer">8.4. Importer</h3>
+<h3 id="Importer">8.4. Importer</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/tools/importer.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -2334,16 +2334,22 @@ Default is false.</p>
 <div class="ulist">
 <ul>
 <li>
-<p>XML</p>
+<p>OrientDB exports</p>
 </li>
 <li>
-<p>JSON</p>
+<p>Neo4j exports</p>
 </li>
 <li>
-<p>CSV</p>
+<p>Generic XML files</p>
 </li>
 <li>
-<p>RDF</p>
+<p>Generic JSON files</p>
+</li>
+<li>
+<p>Generic CSV files</p>
+</li>
+<li>
+<p>Generic RDF files</p>
 </li>
 </ul>
 </div>
@@ -2369,10 +2375,10 @@ Default is false.</p>
 <div class="ulist">
 <ul>
 <li>
-<p>local file system (just provide the path)</p>
+<p>local file system (just provide the path or use <code>file://</code> in the URL)</p>
 </li>
 <li>
-<p>and remote, by specifying <code>http</code> or <code>https</code></p>
+<p>and remote, by specifying <code>http://</code> or <code>https://</code> in the URL</p>
 </li>
 </ul>
 </div>
@@ -2464,6 +2470,12 @@ Parsed 362000 (54256/sec) - 0 documents (0/sec) - 164118 vertices (5260/sec) - 3
 <p><code>limitEntries</code> specifies the maximum number of lines to read from the input source. (default=0 &#8594; unlimited)</p>
 </li>
 </ul>
+</div>
+<div class="paragraph">
+<p>See also:</p>
+</div>
+<div class="paragraph">
+<p><a href="#SQL-Import-Database">SQL Import Database command</a></p>
 </div>
 </div>
 </div>
@@ -9651,10 +9663,20 @@ Bear in mind, that the schema must remain coherent.  For instance, avoid removin
 <div class="paragraph">
 <p>Executes an import of the database into the current one. Usually an import database is executed on an empty database, but it is
 possible to execute on any database. In case of conflict (unique index key already existent, etc.), the conflicting records will not
-be imported. The importer automatically recognize the file between the following formats:
-- OrientDB database export
-- Neo4J database export
-- GraphML database export</p>
+be imported. The importer automatically recognize the file between the following formats:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>OrientDB database export</p>
+</li>
+<li>
+<p>Neo4J database export</p>
+</li>
+<li>
+<p>GraphML database export</p>
+</li>
+</ul>
 </div>
 <div class="paragraph">
 <p><strong>Syntax</strong></p>
@@ -14060,23 +14082,200 @@ null || [1, 2] = [1, 2]</code></pre>
 </div>
 <div id="Security" class="paragraph">
 <p>ArcadeDB manages the security at server level only.
-This means if you work in embedded mode, there is no security available.
-Any user can read and write in the database.
-If you still want to use ArcadeDB in embedded mode, please start the server as embedded and get the database instances from the <code>ArcadeDBServer</code> instance.</p>
+This means if you work in embedded mode, there is no security available by default unless you install the server security or your own implementation.
+Without any kind of security active, any user can read and write in the database.
+For this reason it&#8217;s important your application is managing security and profiling.
+You can work in embedded mode and still run a <code>ArcadeDBServer</code> instance to use the security for the incoming connections.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_users">12.4. Users</h3>
+<div class="paragraph">
+<p>Users are stored in the file <code>config/server-users.jsonl</code> file.
+The JSONL format means one json per line.
+When the server starts always checks if there are any users configured.
+If the user file is empty, the <code>root</code> user is created with a password the user must enter in the console where the server is starting.
+Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">+--------------------------------------------------------------------+
+|                WARNING: FIRST RUN CONFIGURATION                    |
++--------------------------------------------------------------------+
+| This is the first time the server is running. Please type a        |
+| password of your choice for the 'root' user or leave it blank      |
+| to auto-generate it.                                               |
+|                                                                    |
+| To avoid this message set the environment variable or JVM          |
+| setting `arcadedb.server.rootPassword` to the root password to use.|
++--------------------------------------------------------------------+
+
+Root password [BLANK=auto generate it]: ***********
+Please type the root password for confirmation (copy and paste will not work): ***********</code></pre>
+</div>
 </div>
 <div class="paragraph">
-<p>The security configuration is stored in the <code>config/security.json</code> file.</p>
+<p>Example of <code>config/server-users.jsonl</code> file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{"name":"root","password":"PBKDF2WithHmacSHA256$65536$hcv0joKV/o/q+KOVmcwNUqhEq1w2/j8OVnEkkVjzkeg=$2q2u4rjUlJjgoKBX9sG0rV0bOh6aHo+RhHsOkXneGkM=","databases":{"*":["admin"]}}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the users file the following information are stored per user:</p>
 </div>
 <div class="ulist">
 <ul>
 <li>
-<p>The security.json file is changing to support new features. Please follow <a href="https://github.com/ArcadeData/arcadedb/discussions/56">this discussion</a> until it&#8217;s final and this documentation paragraph updated.**</p>
+<p>Name, mandatory</p>
+</li>
+<li>
+<p>Password.
+It is always saved hashed by using the algorithm <code>PBKDF2</code> with a configurable salt (default = 32).
+The password is mandatory for all the users, but root.
+In the case root has no password, then ArcadeDB server asks to insert a password at startup (see above).</p>
+</li>
+<li>
+<p>Databases, as the map database name and set of groups for that database. "<strong>*" is a special wildcard and means any.
+The configuration <code>"databases":{"</strong>":["admin"]</code> means use the "admin" group for any database.</p>
 </li>
 </ul>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Secuity-Policy">12.4. Security Policy</h3>
+<h3 id="_groups">12.5. Groups</h3>
+<div class="paragraph">
+<p>ArcadeDB allows each user to belong to zero or multiple groups.
+If no groups are defined, the default setting for the group "<strong>" are used.
+By default, this is the configuration for the "</strong>" group:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{ "*": {
+  "types": {"*": {"access": []}},
+  "access": [],
+  "readTimeout": -1,
+  "resultSetLimit": -1
+} }</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Where:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>types</code> is the map of type and access level</p>
+</li>
+<li>
+<p><code>access</code> is the array containing the allowed permissions for the group.
+The supported permission at group level are:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>updateSecurity</code>: to update the security settings (create, modify and delete users, groups, etc.)</p>
+</li>
+<li>
+<p><code>updateSchema</code>: to update the database schema (create, modify and drop buckets, types and indexes)</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><code>readTimeout</code> if present, specify the maximum timeout for read operations. -1 means no limits.
+If set, all the read operations (lookups and queries) will be limited to maximum <code>&lt;readTimeout&gt;</code> milliseconds.
+This is useful to limit users to execute expensive commands and queries impacting the performance of the server and therefore other connected users.</p>
+</li>
+<li>
+<p><code>resultSetLimit</code> if present, specify the maximum number of entries in the result set returning from a command or query. -1 means no limits.
+If set, any query or command will be interrumped when this limit is reached.
+This is useful to limit users to retrieve huge result sets impacting the performance of the server and therefore other connected users.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>You can profile the access of each group up to the type level.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>createRecord</code>, allows creating new records</p>
+</li>
+<li>
+<p><code>readRecord</code>, allows reading records</p>
+</li>
+<li>
+<p><code>updateRecord</code>, allows updating records</p>
+</li>
+<li>
+<p><code>deleteRecord</code>, allows deleting records</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Example of the definition of the group for a Blog writer, where he can only read from the "Blog" type and have full access to the "Post" type:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{
+  "types": {
+    "*": {
+      "access": []
+    },
+    "Blog": {
+      "access": [
+        "readRecord"
+      ]
+    },
+    "Post": {
+      "access": [
+        "createRecord",
+        "readRecord",
+        "updateRecord",
+        "deleteRecord"
+      ]
+    }
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The default settings for the <code>admin</code> group are:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{
+  "access": [
+    "updateSecurity",
+    "updateSchema"
+  ],
+  "resultSetLimit": -1,
+  "readTimeout": -1,
+  "types": {
+    "*": {
+      "access": [
+        "createRecord",
+        "readRecord",
+        "updateRecord",
+        "deleteRecord"
+      ]
+    }
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Which allows to execute any operation against the security, the schema and records.</p>
+</div>
+<div class="paragraph">
+<p>You can use any JSON editor to edit the file <code>config/server-groups.json</code>.
+It&#8217;s recommended to keep a copy of the current file before editing the groups.
+In this way if there are any errors, it&#8217;s easy to restore the previous file.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="Security-Policy">12.6. Security Policy</h3>
 <div class="paragraph">
 <p>The default rule of security are pretty basic.
 The username must be between 4 and 256 characters.
@@ -14096,12 +14295,12 @@ You can implement your own security policy by providing your own implementation:
 </div>
 </div>
 <div class="sect2">
-<h3 id="Storage-Internals">12.5. Storage Internals</h3>
+<h3 id="Storage-Internals">12.7. Storage Internals</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/storage.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="sect3">
-<h4 id="_page_version">12.5.1. Page Version</h4>
+<h4 id="_page_version">12.7.1. Page Version</h4>
 <div class="paragraph">
 <p>Records are stored in pages.
 Each page has its own version number, which increments on each update.
@@ -14111,7 +14310,7 @@ In optimistic transactions, ArcadeDB checks the version in order to avoid confli
 </div>
 </div>
 <div class="sect2">
-<h3 id="ReportAnIssue">12.6. Report an Issue</h3>
+<h3 id="ReportAnIssue">12.8. Report an Issue</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/issues.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -14200,7 +14399,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-09-27 21:57:45 UTC
+Last updated 2021-09-28 02:56:14 UTC
 </div>
 </div>
 </body>

@@ -1,14 +1,141 @@
 [[Security]]
 ArcadeDB manages the security at server level only.
-This means if you work in embedded mode, there is no security available.
-Any user can read and write in the database.
-If you still want to use ArcadeDB in embedded mode, please start the server as embedded and get the database instances from the `ArcadeDBServer` instance.
+This means if you work in embedded mode, there is no security available by default unless you install the server security or your own implementation.
+Without any kind of security active, any user can read and write in the database.
+For this reason it's important your application is managing security and profiling.
+You can work in embedded mode and still run a `ArcadeDBServer` instance to use the security for the incoming connections.
 
-The security configuration is stored in the `config/security.json` file.
+=== Users
 
-** The security.json file is changing to support new features. Please follow https://github.com/ArcadeData/arcadedb/discussions/56[this discussion] until it's final and this documentation paragraph updated.**
+Users are stored in the file `config/server-users.jsonl` file.
+The JSONL format means one json per line.
+When the server starts always checks if there are any users configured.
+If the user file is empty, the `root` user is created with a password the user must enter in the console where the server is starting.
+Example:
 
-[[Secuity-Policy]]
+```shell
++--------------------------------------------------------------------+
+|                WARNING: FIRST RUN CONFIGURATION                    |
++--------------------------------------------------------------------+
+| This is the first time the server is running. Please type a        |
+| password of your choice for the 'root' user or leave it blank      |
+| to auto-generate it.                                               |
+|                                                                    |
+| To avoid this message set the environment variable or JVM          |
+| setting `arcadedb.server.rootPassword` to the root password to use.|
++--------------------------------------------------------------------+
+
+Root password [BLANK=auto generate it]: ***********
+Please type the root password for confirmation (copy and paste will not work): ***********
+```
+
+Example of `config/server-users.jsonl` file:
+
+```json
+{"name":"root","password":"PBKDF2WithHmacSHA256$65536$hcv0joKV/o/q+KOVmcwNUqhEq1w2/j8OVnEkkVjzkeg=$2q2u4rjUlJjgoKBX9sG0rV0bOh6aHo+RhHsOkXneGkM=","databases":{"*":["admin"]}}
+```
+
+In the users file the following information are stored per user:
+
+- Name, mandatory
+- Password.
+It is always saved hashed by using the algorithm `PBKDF2` with a configurable salt (default = 32).
+The password is mandatory for all the users, but root.
+In the case root has no password, then ArcadeDB server asks to insert a password at startup (see above).
+- Databases, as the map database name and set of groups for that database. "**" is a special wildcard and means any.
+The configuration `"databases":{"*":["admin"]` means use the "admin" group for any database.
+
+=== Groups
+
+ArcadeDB allows each user to belong to zero or multiple groups.
+If no groups are defined, the default setting for the group "**" are used.
+By default, this is the configuration for the "**" group:
+
+```json
+{ "*": {
+  "types": {"*": {"access": []}},
+  "access": [],
+  "readTimeout": -1,
+  "resultSetLimit": -1
+} }
+```
+
+Where:
+
+* `types` is the map of type and access level
+* `access` is the array containing the allowed permissions for the group.
+The supported permission at group level are:
+** `updateSecurity`: to update the security settings (create, modify and delete users, groups, etc.)
+** `updateSchema`: to update the database schema (create, modify and drop buckets, types and indexes)
+* `readTimeout` if present, specify the maximum timeout for read operations. -1 means no limits.
+If set, all the read operations (lookups and queries) will be limited to maximum `<readTimeout>` milliseconds.
+This is useful to limit users to execute expensive commands and queries impacting the performance of the server and therefore other connected users.
+* `resultSetLimit` if present, specify the maximum number of entries in the result set returning from a command or query. -1 means no limits.
+If set, any query or command will be interrumped when this limit is reached.
+This is useful to limit users to retrieve huge result sets impacting the performance of the server and therefore other connected users.
+
+You can profile the access of each group up to the type level.
+
+* `createRecord`, allows creating new records
+* `readRecord`, allows reading records
+* `updateRecord`, allows updating records
+* `deleteRecord`, allows deleting records
+
+Example of the definition of the group for a Blog writer, where he can only read from the "Blog" type and have full access to the "Post" type:
+
+```json
+{
+  "types": {
+    "*": {
+      "access": []
+    },
+    "Blog": {
+      "access": [
+        "readRecord"
+      ]
+    },
+    "Post": {
+      "access": [
+        "createRecord",
+        "readRecord",
+        "updateRecord",
+        "deleteRecord"
+      ]
+    }
+  }
+}
+```
+
+The default settings for the `admin` group are:
+
+```json
+{
+  "access": [
+    "updateSecurity",
+    "updateSchema"
+  ],
+  "resultSetLimit": -1,
+  "readTimeout": -1,
+  "types": {
+    "*": {
+      "access": [
+        "createRecord",
+        "readRecord",
+        "updateRecord",
+        "deleteRecord"
+      ]
+    }
+  }
+}
+```
+
+Which allows to execute any operation against the security, the schema and records.
+
+You can use any JSON editor to edit the file `config/server-groups.json`.
+It's recommended to keep a copy of the current file before editing the groups.
+In this way if there are any errors, it's easy to restore the previous file.
+
+[[Security-Policy]]
 === Security Policy
 
 The default rule of security are pretty basic.
