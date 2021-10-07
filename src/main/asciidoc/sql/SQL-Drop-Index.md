@@ -27,7 +27,7 @@ ArcadeDB> DROP INDEX Users.Id
 
 
 >For more information, see:
- 
+
 - <<SQL-Create-Index,`CREATE INDEX`>>
 - <<Indexes,Indexes>>
 
