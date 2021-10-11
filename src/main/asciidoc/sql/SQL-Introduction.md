@@ -1,8 +1,11 @@
 [[SQL-Introduction]]
 
 [discrete]
-### Introduction 
-image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Introduction.md" float=right]
+
+### Introduction
+
+image:
+../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Introduction.md" float=right]
 
 When it comes to query languages, SQL is the most widely recognized standard. The majority of developers have experience and are
 comfortable with SQL. For this reason ArcadeDB uses SQL as its query language and adds some extensions to enable graph
@@ -59,7 +62,7 @@ SELECT FROM INDEX:myIndex WHERE key = 'Jay'
 
 **ArcadeDB SQL dialect**
 
-ArcadeDB supports SQL as a query language with some differences compared with SQL. Arcade Technologies decided to avoid creating
+ArcadeDB supports SQL as a query language with some differences compared with SQL. ArcadeDB Team decided to avoid creating
 Yet-Another-Query-Language. Instead we started from familiar SQL with extensions to work with graphs. We prefer to focus on
 standards.
 
