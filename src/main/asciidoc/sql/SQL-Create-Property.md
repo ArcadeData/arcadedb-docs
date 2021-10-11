@@ -9,15 +9,15 @@ Creates a new property in the schema.  It requires that the type for the propert
 
 ```
 CREATE PROPERTY 
-<type>.<property> <type> 
+<type>.<property> <data-type> 
 [<link-type>|<link-type>] 
-( <property constraint> [, <property-constraint>]* ) 
+( <property-constraint> [, <property-constraint>]* ) 
 [UNSAFE]
 ```
 
 - **`<type>`** Defines the type for the new property.
 - **`<property>`** Defines the logical name for the property.
-- **`<type>`** Defines the property data type.  For supported types, see the table below.
+- **`<data-type>`** Defines the property data type.  For supported types, see the table below.
 - **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
 - **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
 - **`<property-constraint>`** See <<`ALTER PROPERTY`,SQL-Alter-Property>> `<attribute-name> << <attribute-value> ]`
