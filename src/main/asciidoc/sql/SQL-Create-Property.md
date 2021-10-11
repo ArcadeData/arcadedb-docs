@@ -46,12 +46,6 @@ ArcadeDB> CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING
 ArcadeDB> CREATE PROPERTY Profile.friends EMBEDDEDMAP Profile
 ```
 
-- Create the property `name` of the string type in the type `User`, mandatory, with minimum and maximum length:
-
-```
-ArcadeDB> CREATE PROPERTY User.name STRING (MANDATORY TRUE, MIN 5, MAX 25)  
-```
-
 
 
 >For more information, see:
