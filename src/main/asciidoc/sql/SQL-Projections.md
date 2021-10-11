@@ -22,7 +22,7 @@ has three projections:
 
 **A projection** has the following syntax:
 
-`<expression> [<nestedProjection>] << AS <alias> ]`
+`<expression> [<nestedProjection>] [ AS <alias> ]`
 
 - `<expression>` is an expression (see <<SQL Syntax,SQL-Syntax>>) that represents the way to calculate the value of the single projection
 - `<alias>` is the Identifier (see <<SQL Syntax,SQL-Syntax>>) representing the field name used to return the value in the result set
