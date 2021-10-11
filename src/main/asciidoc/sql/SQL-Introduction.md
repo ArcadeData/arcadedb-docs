@@ -5,7 +5,7 @@
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Introduction.md" float=right]
 
 When it comes to query languages, SQL is the most widely recognized standard. The majority of developers have experience and are
-comfortable with SQL. For this reason Orient DB uses SQL as its query language and adds some extensions to enable graph
+comfortable with SQL. For this reason ArcadeDB uses SQL as its query language and adds some extensions to enable graph
 functionality. There are a few differences between the standard SQL syntax and that supported by ArcadeDB, but for the most part, it
 should feel very natural. The differences are covered in the <<ArcadeDB SQL dialect,ArcadeDB-sql-dialect>> section of this page.
 
@@ -59,7 +59,7 @@ SELECT FROM INDEX:myIndex WHERE key = 'Jay'
 
 **ArcadeDB SQL dialect**
 
-ArcadeDB supports SQL as a query language with some differences compared with SQL. Orient Technologies decided to avoid creating
+ArcadeDB supports SQL as a query language with some differences compared with SQL. Arcade Technologies decided to avoid creating
 Yet-Another-Query-Language. Instead we started from familiar SQL with extensions to work with graphs. We prefer to focus on
 standards.
 
