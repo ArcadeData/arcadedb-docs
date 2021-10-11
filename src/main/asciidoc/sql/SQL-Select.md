@@ -109,7 +109,7 @@ ArcadeDB> SELECT SUM(*) FROM Account GROUP BY city
 - Traverse records from a root node:
 
 ```sql
-ArcadeDB> SELECT FROM 11:4 WHERE ANY() TRAVERSE(0,10) (address.city = 'Rome')
+ArcadeDB> SELECT FROM #11:4 WHERE ANY() TRAVERSE(0,10) (address.city = 'Rome')
 ```
 
 - Return only a limited set of records:
