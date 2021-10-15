@@ -5225,8 +5225,14 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 <div class="paragraph">
 <p>In the examples below we&#8217;re going to always use "root" user with password "root".</p>
 </div>
-<div class="sect3">
-<h4 id="_tutorial">7.2.1. Tutorial</h4>
+<h4 id="_server_side_transactions" class="discrete">Server-Side Transactions</h4>
+<div class="paragraph">
+<p>ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
+A session is created with the <a href="#HTTP-Begin">/begin</a> command and returns a session id in the response header (example <code>arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4</code>).
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <a href="#HTTP-Commit">/commit</a> to commit the server side transaction or <a href="#HTTP-Rollback">/rollback</a> to rollback the changes.
+After a period of inactivity (default is 30 seconds), the server automatically rolls back and purges expired transactions.</p>
+</div>
+<h4 id="_tutorial" class="discrete">Tutorial</h4>
 <div class="paragraph">
 <p>Let&#8217;s first create an empty database "school" on the server:</p>
 </div>
@@ -5280,11 +5286,51 @@ For this reason, you don&#8217;t need a driver, because every modern programming
      --user root:root</code></pre>
 </div>
 </div>
-</div>
 <div class="sect3">
-<h4 id="_reference">7.2.2. Reference</h4>
+<h4 id="_reference">7.2.1. Reference</h4>
 <div class="sect4">
-<h5 id="_execute_a_command_post">Execute a command (POST)</h5>
+<h5 id="HTTP-Begin">Begin a transaction (POST)</h5>
+<div class="paragraph">
+<p>Begins a transaction on the server managed as a session.
+The response header contains the session id.
+Set this id in the following requests to execute them in the same transaction scope.
+See also <a href="#HTTP-Commit">/commit</a> and <a href="#HTTP-Rollback">/rollback</a>.</p>
+</div>
+<div class="paragraph">
+<p>URL Syntax: <code>/api/v1/begin/{database}</code></p>
+</div>
+<div class="paragraph">
+<p>Where:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>database</code> is the database name</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>curl -X POST http://localhost:2480/api/v1/begin/school
+     --user root:root</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Returns the Session Id in the response header, exampe:</p>
+</div>
+<div class="paragraph">
+<p><code>arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4</code></p>
+</div>
+<div class="paragraph">
+<p>Use the session id in the request header of further commands you want to execute in the same transaction and execute <a href="#HTTP-Commit">/commit</a> to commit the server side transaction or <a href="#HTTP-Rollback">/rollback</a> to rollback the changes.
+After a period of inactivity (default is 30 seconds), the server automatically rollback and purge expired transactions.</p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="HTTP-Command">Execute a command (POST)</h5>
 <div class="paragraph">
 <p>Executes a non-idempotent command.</p>
 </div>
@@ -5341,7 +5387,42 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 </div>
 </div>
 <div class="sect4">
-<h5 id="_create_a_database_post">Create a database (POST)</h5>
+<h5 id="HTTP-Commit">Commit a transaction (POST)</h5>
+<div class="paragraph">
+<p>Commits a transaction on the server.
+Set the session id obtained with the <a href="#HTTP-Begin">/begin</a> command as a header of the request.
+See also <a href="#HTTP-Begin">/begin</a> and <a href="#HTTP-Rollback">/rollback</a>.</p>
+</div>
+<div class="paragraph">
+<p>URL Syntax: <code>/api/v1/commit/{database}</code></p>
+</div>
+<div class="paragraph">
+<p>Where:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>database</code> is the database name</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Set the session id returned from the <a href="#HTTP-Begin">/begin</a> command in the request header.
+If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.</p>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>curl -X POST http://localhost:2480/api/v1/commit/school
+     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
+     --user root:root</code></pre>
+</div>
+</div>
+</div>
+<div class="sect4">
+<h5 id="HTTP-CreateDatabase">Create a database (POST)</h5>
 <div class="paragraph">
 <p>URL Syntax: <code>/api/v1/create/{database}</code></p>
 </div>
@@ -5366,7 +5447,7 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 </div>
 </div>
 <div class="sect4">
-<h5 id="_list_of_databases_get">List of databases (GET)</h5>
+<h5 id="HTTP-ListDatabases">List of databases (GET)</h5>
 <div class="paragraph">
 <p>Returns the list of databases the current user can access to.</p>
 </div>
@@ -5384,7 +5465,7 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 </div>
 </div>
 <div class="sect4">
-<h5 id="_create_a_document_post">Create a document (POST)</h5>
+<h5 id="HTTP-CreateDocument">Create a document (POST)</h5>
 <div class="paragraph">
 <p>URL Syntax: <code>/api/v1/document/{database}</code></p>
 </div>
@@ -5414,7 +5495,7 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 </div>
 </div>
 <div class="sect4">
-<h5 id="_load_a_document_get">Load a document (GET)</h5>
+<h5 id="HTTP-LoadDocument">Load a document (GET)</h5>
 <div class="paragraph">
 <p>URL Syntax: <code>/api/v1/document/{database}/{rid}</code></p>
 </div>
@@ -5447,7 +5528,32 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 </div>
 </div>
 <div class="sect4">
-<h5 id="_execute_a_query_get">Execute a query (GET)</h5>
+<h5 id="HTTP-DropDatabase">Drop a database (POST)</h5>
+<div class="paragraph">
+<p>URL Syntax: <code>/api/v1/drop/{database}</code></p>
+</div>
+<div class="paragraph">
+<p>Where:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>database</code> is the database name</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Example of deleting the database "school":</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>curl -X POST http://localhost:2480/api/v1/drop/school
+     --user root:root</code></pre>
+</div>
+</div>
+</div>
+<div class="sect4">
+<h5 id="HTTP-ExecuteQuery">Execute a query (GET)</h5>
 <div class="paragraph">
 <p>This command allows executing idempotent commands, like <code>SELECT</code> ad <code>MATCH</code>:</p>
 </div>
@@ -5527,9 +5633,14 @@ Only "sql" is available with latest release</p>
 </div>
 </div>
 <div class="sect4">
-<h5 id="_drop_a_database_post">Drop a database (POST)</h5>
+<h5 id="HTTP-Rollback">Rollback a transaction (POST)</h5>
 <div class="paragraph">
-<p>URL Syntax: <code>/api/v1/drop/{database}</code></p>
+<p>Rollbacks a transaction on the server.
+Set the session id obtained with the <a href="#HTTP-Begin">/begin</a> command as a header of the request.
+See also <a href="#HTTP-Begin">/begin</a> and <a href="#HTTP-Commit">/commit</a>.</p>
+</div>
+<div class="paragraph">
+<p>URL Syntax: <code>/api/v1/rollback/{database}</code></p>
 </div>
 <div class="paragraph">
 <p>Where:</p>
@@ -5542,17 +5653,22 @@ Only "sql" is available with latest release</p>
 </ul>
 </div>
 <div class="paragraph">
-<p>Example of deleting the database "school":</p>
+<p>Set the session id returned from the <a href="#HTTP-Begin">/begin</a> command in the request header.
+If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.</p>
+</div>
+<div class="paragraph">
+<p>Example:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>curl -X POST http://localhost:2480/api/v1/drop/school
+<pre class="highlight"><code>curl -X POST http://localhost:2480/api/v1/rollback/school
+     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
      --user root:root</code></pre>
 </div>
 </div>
 </div>
 <div class="sect4">
-<h5 id="_get_server_information_get">Get server information (GET)</h5>
+<h5 id="HTTP-ServerInfo">Get server information (GET)</h5>
 <div class="paragraph">
 <p>Returns the current HA configuration.</p>
 </div>
@@ -15946,7 +16062,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-10-14 15:57:05 UTC
+Last updated 2021-10-15 20:57:10 UTC
 </div>
 </div>
 </body>

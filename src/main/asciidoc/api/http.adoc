@@ -13,6 +13,15 @@ Every command must be authenticated by passing user and password as HTTP Basic a
 
 In the examples below we're going to always use "root" user with password "root".
 
+[discrete]
+==== Server-Side Transactions
+
+ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
+A session is created with the <<HTTP-Begin,/begin>> command and returns a session id in the response header (example `arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`).
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
+After a period of inactivity (default is 30 seconds), the server automatically rolls back and purges expired transactions.
+
+[discrete]
 ==== Tutorial
 
 Let's first create an empty database "school" on the server:
@@ -60,6 +69,35 @@ curl -X POST http://localhost:2480/api/v1/document/school
 
 ==== Reference
 
+[[HTTP-Begin]]
+===== Begin a transaction (POST)
+
+Begins a transaction on the server managed as a session.
+The response header contains the session id.
+Set this id in the following requests to execute them in the same transaction scope.
+See also <<HTTP-Commit,/commit>> and <<HTTP-Rollback,/rollback>>.
+
+URL Syntax: `/api/v1/begin/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example:
+
+```
+curl -X POST http://localhost:2480/api/v1/begin/school
+     --user root:root
+```
+
+Returns the Session Id in the response header, exampe:
+
+`arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`
+
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
+After a period of inactivity (default is 30 seconds), the server automatically rollback and purge expired transactions.
+
+[[HTTP-Command]]
 ===== Execute a command (POST)
 
 Executes a non-idempotent command.
@@ -94,6 +132,31 @@ curl -X POST http://localhost:2480/api/v1/command/company
      --user root:root
 ```
 
+[[HTTP-Commit]]
+===== Commit a transaction (POST)
+
+Commits a transaction on the server.
+Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
+See also <<HTTP-Begin,/begin>> and <<HTTP-Rollback,/rollback>>.
+
+URL Syntax: `/api/v1/commit/{database}`
+
+Where:
+
+- `database` is the database name
+
+Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
+If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+
+Example:
+
+```
+curl -X POST http://localhost:2480/api/v1/commit/school
+     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
+     --user root:root
+```
+
+[[HTTP-CreateDatabase]]
 ===== Create a database (POST)
 
 URL Syntax: `/api/v1/create/{database}`
@@ -109,6 +172,7 @@ curl -X POST http://localhost:2480/api/v1/create/school
      --user root:root
 ```
 
+[[HTTP-ListDatabases]]
 ===== List of databases (GET)
 
 Returns the list of databases the current user can access to.
@@ -122,6 +186,7 @@ curl -X GET http://localhost:2480/api/v1/databases
      --user root:root
 ```
 
+[[HTTP-CreateDocument]]
 ===== Create a document (POST)
 
 URL Syntax: `/api/v1/document/{database}`
@@ -141,6 +206,7 @@ curl -X POST http://localhost:2480/api/v1/document/school
      --user root:root
 ```
 
+[[HTTP-LoadDocument]]
 ===== Load a document (GET)
 
 URL Syntax: `/api/v1/document/{database}/{rid}`
@@ -162,6 +228,23 @@ The output will be:
 {"@rid": "#3:4", "@type": "Person", "name": "Jay", "surname": "Miner", "age": 69}
 ```
 
+[[HTTP-DropDatabase]]
+===== Drop a database (POST)
+
+URL Syntax: `/api/v1/drop/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example of deleting the database "school":
+
+```
+curl -X POST http://localhost:2480/api/v1/drop/school
+     --user root:root
+```
+
+[[HTTP-ExecuteQuery]]
 ===== Execute a query (GET)
 
 This command allows executing idempotent commands, like `SELECT` ad `MATCH`:
@@ -207,21 +290,31 @@ Where:
 Only "sql" is available with latest release
 - `command` the command to execute in encoded format
 
-===== Drop a database (POST)
+[[HTTP-Rollback]]
+===== Rollback a transaction (POST)
 
-URL Syntax: `/api/v1/drop/{database}`
+Rollbacks a transaction on the server.
+Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
+See also <<HTTP-Begin,/begin>> and <<HTTP-Commit,/commit>>.
+
+URL Syntax: `/api/v1/rollback/{database}`
 
 Where:
 
 - `database` is the database name
 
-Example of deleting the database "school":
+Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
+If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+
+Example:
 
 ```
-curl -X POST http://localhost:2480/api/v1/drop/school
+curl -X POST http://localhost:2480/api/v1/rollback/school
+     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
      --user root:root
 ```
 
+[[HTTP-ServerInfo]]
 ===== Get server information (GET)
 
 Returns the current HA configuration.
