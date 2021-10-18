@@ -9324,7 +9324,7 @@ Prints the Java type used to store dates:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">create type Test extends V
+<pre class="highlight"><code class="language-sql" data-lang="sql">create vertex type Test
 insert into Test content {"attr1": "value 1", "attr2": "value 2"}
 
 select @this.toJson('rid,version,fetchPlan:in_*:-2 out_*:-2') from Test</code></pre>
@@ -10106,6 +10106,7 @@ Example of backup file name <code>backups/TheMatrix/TheMatrix-backup-20210921-17
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-sql" data-lang="sql">CREATE EDGE &lt;type&gt; [BUCKET &lt;bucket&gt;] [UPSERT] FROM &lt;rid&gt;|(&lt;query&gt;)|[&lt;rid&gt;]* TO &lt;rid&gt;|(&lt;query&gt;)|[&lt;rid&gt;]*
+                    [IF NOT EXISTS]
                     [SET &lt;field&gt; = &lt;expression&gt;[,]*]|CONTENT {&lt;JSON&gt;}
                     [RETRY &lt;retry&gt; [WAIT &lt;pauseBetweenRetriesInMs]] [BATCH &lt;batch-size&gt;]</code></pre>
 </div>
@@ -10117,6 +10118,9 @@ Example of backup file name <code>backups/TheMatrix/TheMatrix-backup-20210921-17
 </li>
 <li>
 <p><strong><code>&lt;bucket&gt;</code></strong> Defines the bucket in which you want to store the edge.</p>
+</li>
+<li>
+<p><strong><code>IF NOT EXISTS</code></strong> skips the creation of the edge in another edge already exists with the same direction (same from/to) and same edge type.</p>
 </li>
 <li>
 <p><strong><code>UPSERT</code></strong> allows to skip the creation of edges that already exist between two vertices (ie. a unique edge for a couple of vertices). This works only if the edge type has a UNIQUE index on <code>out, in</code> fields, otherwise the statement fails.</p>
@@ -10165,7 +10169,7 @@ Example of backup file name <code>backups/TheMatrix/TheMatrix-backup-20210921-17
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>ArcadeDB&gt; CREATE TYPE E1 EXTENDS E
+<pre class="highlight"><code>ArcadeDB&gt; CREATE EDGE TYPE E1
 ArcadeDB&gt; CREATE EDGE E1 FROM #10:3 TO #11:4</code></pre>
 </div>
 </div>
@@ -10230,6 +10234,20 @@ ArcadeDB&gt; CREATE EDGE E1 FROM #10:3 TO #11:4</code></pre>
 <div class="content">
 <pre class="highlight"><code>ArcadeDB&gt; CREATE EDGE E FROM #22:33 TO #22:55 CONTENT &lt;code type='lang-json userinput'&gt;{ "name": "Jay", 
             "surname": "Miner" }</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Create an edge only if not previously created:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>ArcadeDB&gt; CREATE INDEX Watched_out_in ON Watched (`@out`, `@in`) UNIQUE  
+ArcadeDB&gt; CREATE EDGE Watched FROM (SELECT FROM account WHERE name = 'Luca') TO 
+            (SELECT FROM movies WHERE type.name = 'action') IF NOT EXISTS</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -10371,8 +10389,8 @@ ArcadeDB&gt; CREATE INDEX books ON Book (author, title, publicationYears) UNIQUE
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>ArcadeDB&gt; CREATE TYPE File EXTENDS V
-ArcadeDB&gt; CREATE TYPE Has EXTENDS E
+<pre class="highlight"><code>ArcadeDB&gt; CREATE VERTEX TYPE File
+ArcadeDB&gt; CREATE EDGE TYPE Has
 ArcadeDB&gt; CREATE PROPERTY Has.started DATETIME
 ArcadeDB&gt; CREATE PROPERTY Has.ended DATETIME
 ArcadeDB&gt; CREATE INDEX Has.started_ended ON Has (started, ended) NOTUNIQUE</code></pre>
@@ -10827,7 +10845,7 @@ When using a distributed database, you can create vertexes through two steps (cr
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>ArcadeDB&gt; CREATE TYPE V1 EXTENDS V
+<pre class="highlight"><code>ArcadeDB&gt; CREATE VERTEX TYPE V1
 ArcadeDB&gt; CREATE VERTEX V1</code></pre>
 </div>
 </div>
@@ -14505,7 +14523,7 @@ Much easier developing with ArcadeDB than with OrientDB with multi-threads appli
 </li>
 <li>
 <p>There is no base V and E classes in ArcadeDB, but vertex and edge are first type citizens types of records.
-Use <code>CREATE VERTEX TYPE Product</code> vs OrientDB <code>CREATE CLASS Product EXTENDS V</code></p>
+Use <code>CREATE VERTEX TYPE Product</code> vs OrientDB <code>CREATE VERTEX TYPE Product</code></p>
 </li>
 <li>
 <p>ArcadeDB saves every type and property name in the dictionary to compress the record by storing only the names ids (varint)</p>
@@ -16110,7 +16128,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-10-16 04:03:03 UTC
+Last updated 2021-10-18 19:21:07 UTC
 </div>
 </div>
 </body>

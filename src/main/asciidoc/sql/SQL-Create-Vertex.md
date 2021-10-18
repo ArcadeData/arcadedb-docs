@@ -32,7 +32,7 @@ ArcadeDB> CREATE VERTEX
 - Create a new vertex type, then create a vertex in that type:
 
 ```
-ArcadeDB> CREATE TYPE V1 EXTENDS V
+ArcadeDB> CREATE VERTEX TYPE V1
 ArcadeDB> CREATE VERTEX V1
 ```
 

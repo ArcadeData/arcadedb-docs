@@ -74,8 +74,8 @@ ArcadeDB> CREATE INDEX books ON Book (author, title, publicationYears) UNIQUE
 - Create an index on an edge's date range:
 
 ```
-ArcadeDB> CREATE TYPE File EXTENDS V
-ArcadeDB> CREATE TYPE Has EXTENDS E
+ArcadeDB> CREATE VERTEX TYPE File
+ArcadeDB> CREATE EDGE TYPE Has
 ArcadeDB> CREATE PROPERTY Has.started DATETIME
 ArcadeDB> CREATE PROPERTY Has.ended DATETIME
 ArcadeDB> CREATE INDEX Has.started_ended ON Has (started, ended) NOTUNIQUE

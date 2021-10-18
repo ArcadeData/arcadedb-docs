@@ -684,7 +684,7 @@ Applies to the following types:
 [discrete]
 **Examples**
 ```sql
-create type Test extends V
+create vertex type Test
 insert into Test content {"attr1": "value 1", "attr2": "value 2"}
 
 select @this.toJson('rid,version,fetchPlan:in_*:-2 out_*:-2') from Test
