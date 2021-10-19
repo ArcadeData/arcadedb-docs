@@ -1,0 +1,53 @@
+[[Java-Events]]
+==== Events
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-events.adoc" float=right]
+
+ArcadeDB allows hooking listener to the following events on records (vertices, edges, documents):
+
+- **before** is **created**, by registering the interface `BeforeRecordCreateListener`
+- **after** is **created**, by registering the interface `AfterRecordCreateListener`
+- **before** is **updates**, by registering the interface `BeforeRecordUpdateListener`
+- **after** is **updated**, by registering the interface `AfterRecordUpdateListener`
+- **before** is **deleted**, by registering the interface `BeforeRecordDeleteListener`
+- **after** is **deleted**, by registering the interface `AfterRecordDeleteListener`
+
+The listeners above can be installed and removed at database by using:
+
+```java
+database.getEvents().registerListener()
+```
+
+And at specific type level by using:
+
+```java
+database.getSchema().getType(<type-name>).registerListener()
+```
+
+All the interface listeners that work **before** a record is created, updated or deleted, require to return a boolean value.
+If the callback returns `true`, the listener chain continues and all the following listeners are invoked.
+If `false`, the chain of calls is interrupted and the operation is skipped with no errors.
+In case an error is requested, the callback can throw an exception instead of returning false.
+
+The typical use cases for the listeners are:
+
+- listen before a create or update to enhance the record with additional properties
+- listen before a create or update to validate properties and in case the record is not valid, returning false or an exception to avoid the operation is executed
+- execute cascade operations.
+This is the typical use case for `AfterRecordDeleteListener` where a cascade deletion of multiple connected records can be executed
+- listen to after create, update and delete operations to propagate changes to the external or the webapp via web-socket.
+This allows to have a reactive application that doesn't poll the database for changes, but rather listens and receives updates as soon as they occur
+
+Example of `before-record-create` listener where vertices with "validated" field equal to false cannot be saved (callback returns false):
+
+```java
+database.getEvents().registerListener((BeforeRecordCreateListener)
+  record -> record instanceof Vertex && record.asVertex().getBoolean("validated"));
+```
+
+The same by only for vertex type "Client":
+
+```java
+database.getSchema().getType("Client").getEvents().registerListener((BeforeRecordCreateListener)
+  record -> record.asVertex().getBoolean("validated"));
+```
