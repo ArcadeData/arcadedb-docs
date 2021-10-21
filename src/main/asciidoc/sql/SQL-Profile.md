@@ -44,6 +44,6 @@ result:
 
 You can see the `(1.445μs)` at the end of the first line, it means that fetching from index `Orders.OrderDate` took 1.445 microseconds (1.4 milliseconds)
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Explain,EXPLAIN>>

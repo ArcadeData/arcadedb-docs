@@ -29,7 +29,7 @@ ArcadeDB> REBUILD INDEX Profile.nick
 ArcadeDB> REBUILD INDEX *
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Create-Index,`CREATE INDEX`>>
 - <<SQL-Drop-Index,`DROP INDEX`>>

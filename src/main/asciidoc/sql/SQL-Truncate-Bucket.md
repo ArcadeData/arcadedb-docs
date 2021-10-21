@@ -24,7 +24,7 @@ TRUNCATE BUCKET <bucket>
 ArcadeDB> TRUNCATE BUCKET profile
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Delete,`DELETE`>>
 - <<SQL-Truncate-Type,`TRUNCATE TYPE`>>

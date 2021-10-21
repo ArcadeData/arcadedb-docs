@@ -48,7 +48,7 @@ ArcadeDB> CREATE PROPERTY Profile.friends EMBEDDEDMAP Profile
 
 
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Drop-Property,`DROP PROPERTY`>>
 

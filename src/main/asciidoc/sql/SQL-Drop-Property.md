@@ -24,6 +24,6 @@ ArcadeDB> DROP PROPERTY User.name
 ```
 
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Create-Property,`CREATE PROPERTY`>>

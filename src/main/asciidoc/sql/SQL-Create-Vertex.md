@@ -60,6 +60,6 @@ ArcadeDB> CREATE VERTEX V1 SET brand = 'fiat', name = 'wow'
 ArcadeDB> CREATE VERTEX Employee CONTENT { "name" : "Jay", "surname" : "Miner" }
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Create-Edge,`CREATE EDGE`>>

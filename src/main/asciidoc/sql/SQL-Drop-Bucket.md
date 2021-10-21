@@ -22,7 +22,7 @@ DROP BUCKET <bucket-name>|<bucket-id>
 ArcadeDB> DROP BUCKET Account
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Create-Bucket,`CREATE BUCKET`>>
 - <<SQL-Alter-Bucket,`ALTER BUCKET`>>

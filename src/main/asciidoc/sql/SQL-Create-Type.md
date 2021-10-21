@@ -1,4 +1,5 @@
 [discrete]
+[[SQL-Create-Type]]
 ### SQL - `CREATE TYPE`
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Create-Type.md" float=right]
@@ -69,7 +70,8 @@ distributed database, this keeps the servers balanced with the same amount of da
 or more to avoid slow-downs on insertion.
 |===
 
-> For more information, see:
+
+For more information, see:
 
 - <<SQL-Alter-Type,`ALTER TYPE`>>
 - <<SQL-Drop-Type,`DROP TYPE`>>
