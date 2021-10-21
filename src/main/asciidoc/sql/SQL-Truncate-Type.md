@@ -27,7 +27,7 @@ TRUNCATE TYPE <type> [ POLYMORPHIC ] [ UNSAFE ]
 ArcadeDB> TRUNCATE TYPE Profile
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Delete,`DELETE`>>
 - <<SQL-Truncate-Bucket,`TRUNCATE BUCKET`>>

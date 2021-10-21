@@ -44,7 +44,7 @@ EXPLAIN <command>
 
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Commands,SQL Commands>>
 - <<SQL-Profile,PROFILE>>

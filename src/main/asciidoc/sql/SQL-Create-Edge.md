@@ -84,7 +84,7 @@ ArcadeDB> CREATE EDGE Watched FROM (SELECT FROM account WHERE name = 'Luca') TO
             (SELECT FROM movies WHERE type.name = 'action') IF NOT EXISTS
 ```
 
->For more information, see:
+For more information, see:
 
 - <<SQL-Create-Vertex,`CREATE VERTEX`>>
 

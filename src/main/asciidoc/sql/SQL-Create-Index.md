@@ -113,8 +113,6 @@ ArcadeDB> SELECT inV() FROM Has WHERE started >= '2014-01-01 00:00:00.000'
 ArcadeDB> CREATE INDEX addresses ON Employee (address) NOTUNIQUE
 ```
 
-
-
-> For more information, see:
+For more information, see:
 
 - <<SQL-Drop-Index,`DROP INDEX`>>
