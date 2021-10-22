@@ -3,8 +3,7 @@
 
 ### SQL - `ALTER TYPE`
 
-image:
-../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Alter-Type.md" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Alter-Type.md" float=right]
 
 Change a type defined in the schema. The change is persistent.
 
