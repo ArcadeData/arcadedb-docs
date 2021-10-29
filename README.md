@@ -5,13 +5,15 @@
 Generate html and pdf documentation:
 
 ```shell
-mvn generate-sources
+mvn generate-resources
 ```
+
 Documentation is generated under `target/generated-docs` folder
 
 Serve documentation on local http server:
+
 ```shell
 mvn jetty:run
 ```
-then open the browser to http://localhost:8080
 
+then open the browser to http://localhost:8080

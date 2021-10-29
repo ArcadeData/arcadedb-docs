@@ -22,6 +22,55 @@ Use the session id in the request header of further commands you want to execute
 After a period of inactivity (default is 30 seconds), the server automatically rolls back and purges expired transactions.
 
 [discrete]
+==== Streaming Change Events
+
+IMPORTANT: This feature presently only supports single server deployments. Cluster support is coming soon.
+
+The Java API supports real-time change notifications, which the HTTP API implements via a websocket. You can opt into 
+notifications for all changes that occur on a database, or filter by the operation (i.e. create, update, delete) or underlying entity type.
+
+To connect, point your favorite WebSocket client to the `ws://SERVER:PORT/ws` endpoint. You will need to authenticate with HTTP Basic, which for some clients (like most browsers) is only possible via the URI, like this: `ws://USERNAME:PASSWORD@SERVER:PORT/ws`. Others will require that you set the Authorization header directly. Check the documentation for your client of choice for details.
+
+To subscribe/unsubscribe to change events, send JSON messages using the following structure:
+
+[cols="10h,10h,~",options="header"]
+|===
+|Property|Required|Description
+|action|REQUIRED| `subscribe` or `unsubscribe`.
+|database|REQUIRED| The database name.
+|type|Optional| The entity type to filter by.
+|changeTypes|Optional| Array of change types you'd like to receive. Must be `create`, `update`, or `delete`.
+|===
+
+Example: to subscribe to all changes (create, update, delete) for the type `Movie` in the database `movies`, you'd send this:
+
+```json
+{"action": "subscribe", "database": "movies", "type": "Movie"}
+```
+
+If instead, you only wanted updates, send this:
+
+```json
+{"action": "subscribe", "database": "movies", "type": "Movie", "changeTypes": ["update"]}
+```
+
+If you wanted every change on the database (use with caution!):
+
+```json
+{"action": "subscribe", "database": "movies"}
+```
+
+Once subscribed, you will get JSON messages for any matching changes with the following properties:
+
+[cols="10h,~",options="header"]
+|===
+|Property|Description
+|database| The source database.
+|changeType| create, update or delete.
+|record| The full record that generated the change event.
+|===
+
+[discrete]
 ==== Tutorial
 
 Let's first create an empty database "school" on the server:
