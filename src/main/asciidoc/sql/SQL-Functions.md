@@ -56,7 +56,7 @@ SELECT out('Eats','Favorited') FROM Restaurant WHERE city = 'Rome'
 ```
 ---
 [discrete]
-#####in()
+##### in()
 
 Get the adjacent incoming vertices starting from the current record as Vertex.
 
@@ -79,7 +79,7 @@ SELECT in('Friend','Brother') FROM V
 ```
 ---
 [discrete]
-#####both()
+##### both()
 
 Get the adjacent outgoing and incoming vertices starting from the current record as Vertex.
 
@@ -103,7 +103,7 @@ SELECT both('Friend','Brother') FROM V
 ```
 ---
 [discrete]
-#####outE()
+##### outE()
 
 Get the adjacent outgoing edges starting from the current record as Vertex.
 
@@ -126,7 +126,7 @@ SELECT outE('Eats') FROM SocialNetworkProfile
 ```
 ---
 [discrete]
-#####inE()
+##### inE()
 
 Get the adjacent incoming edges starting from the current record as Vertex.
 
@@ -149,7 +149,7 @@ SELECT inE('Eats') FROM Restaurant WHERE name = 'Bella Napoli'
 ```
 ---
 [discrete]
-#####bothE()
+##### bothE()
 
 Get the adjacent outgoing and incoming edges starting from the current record as Vertex.
 
@@ -170,7 +170,7 @@ SELECT bothE('Friend') FROM Profile WHERE nickname = 'Jay'
 
 ---
 [discrete]
-#####bothV()
+##### bothV()
 
 Get the adjacent outgoing and incoming vertices starting from the current record as Edge.
 
@@ -184,7 +184,7 @@ SELECT bothV() FROM E
 ```
 
 [discrete]
-#####outV()
+##### outV()
 
 Get outgoing vertices starting from the current record as Edge.
 
@@ -201,7 +201,7 @@ SELECT outV() FROM E
 ```
 
 [discrete]
-#####inV()
+##### inV()
 
 Get incoming vertices starting from the current record as Edge.
 
@@ -218,7 +218,7 @@ SELECT inV() FROM E
 ```
 
 [discrete]
-#####eval()
+##### eval()
 
 Syntax: ```eval('<expression>')```
 
@@ -231,7 +231,7 @@ SELECT eval('price * 120 / 100 - discount') AS finalPrice FROM Order
 ```
 
 [discrete]
-#####coalesce()
+##### coalesce()
 
 Returns the first field/value not null parameter. If no field/value is not null, returns null.
 
@@ -247,7 +247,7 @@ SELECT coalesce(amount, amount2, amount3) FROM Account
 ```
 
 [discrete]
-#####if()
+##### if()
 
 Syntax:
 ```
@@ -263,7 +263,7 @@ SELECT if(eval("name = 'John'"), "My name is John", "My name is not John") FROM 
 
 
 [discrete]
-#####ifnull()
+##### ifnull()
 
 Returns the passed field/value (or optional parameter *return_value_if_not_null*). If field/value is not null, otherwise it returns *return_value_if_null*.
 
@@ -280,7 +280,7 @@ SELECT ifnull(salary, 0) FROM Account
 
 ---
 [discrete]
-#####expand()
+##### expand()
 
 This function has two meanings:
 
@@ -306,7 +306,7 @@ This replaces the flatten() now deprecated
 
 ---
 [discrete]
-#####flatten()
+##### flatten()
 
 > Deprecated, use the EXPAND() instead.
 
@@ -324,7 +324,7 @@ SELECT flatten( addresses ) FROM Account
 ```
 ---
 [discrete]
-#####first()
+##### first()
 
 Retrieves only the first item of multi-value fields (arrays, collections and maps). For non multi-value types just returns the value.
 
@@ -337,7 +337,7 @@ select first( addresses ) from Account
 ```
 ---
 [discrete]
-#####last()
+##### last()
 
 Retrieves only the last item of multi-value fields (arrays, collections and maps). For non multi-value types just returns the value.
 
@@ -350,7 +350,7 @@ SELECT last( addresses ) FROM Account
 ```
 ---
 [discrete]
-#####count()
+##### count()
 
 Counts the records that match the query condition. If \* is not used as a field, then the record will be counted only if the field content is not null.
 
@@ -363,7 +363,7 @@ SELECT COUNT(*) FROM Account
 ```
 ---
 [discrete]
-#####min()
+##### min()
 
 Returns the minimum value. If invoked with more than one parameter, the function doesn't aggregate but returns the minimum value between all the arguments.
 
@@ -381,7 +381,7 @@ SELECT min(salary1, salary2, salary3) FROM Account
 ```
 ---
 [discrete]
-#####max()
+##### max()
 
 Returns the maximum value. If invoked with more than one parameter, the function doesn't aggregate, but returns the maximum value between all the arguments.
 
@@ -401,7 +401,7 @@ SELECT max(salary1, salary2, salary3) FROM Account
 
 ---
 [discrete]
-#####abs()
+##### abs()
 
 Returns the absolute value. It works with Integer, Long, Short, Double, Float, BigInteger, BigDecimal, null.
 
@@ -417,7 +417,7 @@ SELECT abs(999) FROM Account
 
 ---
 [discrete]
-#####avg()
+##### avg()
 
 Returns the average value.
 
@@ -431,7 +431,7 @@ SELECT avg(salary) FROM Account
 
 ---
 [discrete]
-#####sum()
+##### sum()
 
 Syntax: ```sum(<field>)```
 
@@ -444,7 +444,7 @@ SELECT sum(salary) FROM Account
 ```
 ---
 [discrete]
-#####date()
+##### date()
 
 Returns a date formatting a string. &lt;date-as-string&gt; is the date in string format, and &lt;format&gt; is the date format following these [rules](http://docs.oracle.com/javase/7/docs/api/java/text/SimpleDateFormat.html). If no format is specified, then the default database format is used. To know more about it, look at [Managing Dates](../general/Managing-Dates.md).
 
@@ -457,7 +457,7 @@ SELECT FROM Account WHERE created <= date('2012-07-02', 'yyyy-MM-dd')
 ```
 ---
 [discrete]
-#####sysdate()
+##### sysdate()
 
 Returns the current date time. If executed with no parameters, it returns a Date object, otherwise a string with the requested format/timezone. To know more about it, look at [Managing Dates](../general/Managing-Dates.md).
 
@@ -470,7 +470,7 @@ SELECT sysdate('dd-MM-yyyy') FROM Account
 ```
 ---
 [discrete]
-#####format()
+##### format()
 
 Formats a value using the [String.format()](http://download.oracle.com/javase/1.5.0/docs/api/java/lang/String.html) conventions. Look [here for more information](http://download.oracle.com/javase/1.5.0/docs/api/java/util/Formatter.html#syntax).
 
@@ -485,7 +485,7 @@ SELECT format("%d - Mr. %s %s (%s)", id, name, surname, address) FROM Account
 
 
 [discrete]
-######decimal()
+##### #decimal()
 
 Converts a number or a String in an absolute precision, decimal number.
 
@@ -500,7 +500,7 @@ SELECT decimal('99.999999999999999999') FROM Account
 
 
 [discrete]
-#####astar()
+##### astar()
 
 A*'s algorithm describes how to find the cheapest path from one node to another node in a directed weighted graph with husrestic function.
 
@@ -531,7 +531,7 @@ SELECT astar($current, #8:10, 'weight') FROM V
 ```
 ---
 [discrete]
-#####dijkstra()
+##### dijkstra()
 
 Returns the cheapest path between two vertices using the [http://en.wikipedia.org/wiki/Dijkstra's_algorithm Dijkstra algorithm] where the **weightEdgeFieldName** parameter is the field containing the weight. Direction can be OUT (default), IN or BOTH.
 
@@ -544,7 +544,7 @@ SELECT dijkstra($current, #8:10, 'weight') FROM V
 ```
 ---
 [discrete]
-#####shortestPath()
+##### shortestPath()
 
 Returns the shortest path between two vertices. Direction can be OUT (default), IN or BOTH.
 
@@ -589,7 +589,7 @@ SELECT shortestPath(#8:32, #8:10, null, null, {"maxDepth": 5})
 
 ---
 [discrete]
-#####distance()
+##### distance()
 
 Syntax: ```distance( <x-field>, <y-field>, <x-value>, <y-value> )```
 
@@ -602,7 +602,7 @@ SELECT FROM POI WHERE distance(x, y, 52.20472, 0.14056 ) <= 30
 ```
 ---
 [discrete]
-#####distinct()
+##### distinct()
 
 Syntax: ```distinct(<field>)```
 
@@ -615,7 +615,7 @@ SELECT distinct(name) FROM City
 ```
 ---
 [discrete]
-#####unionall()
+##### unionall()
 
 Syntax: ```unionall(<field> [,<field-n>]*)```
 
@@ -632,7 +632,7 @@ select unionall(inEdges, outEdges) from OGraphVertex where label = 'test'
 ```
 ---
 [discrete]
-#####intersect()
+##### intersect()
 
 Syntax: ```intersect(<field> [,<field-n>]*)```
 
@@ -649,7 +649,7 @@ SELECT intersect(inEdges, outEdges) FROM OGraphVertex
 ```
 ---
 [discrete]
-#####difference()
+##### difference()
 
 Syntax: ```difference(<field> [,<field-n>]*)```
 
@@ -667,7 +667,7 @@ SELECT difference(inEdges, outEdges) FROM OGraphVertex
 ---
 
 [discrete]
-#####symmetricDifference()
+##### symmetricDifference()
 
 Syntax: ```symmetricDifference(<field> [,<field-n>]*)```
 
@@ -686,7 +686,7 @@ SELECT difference(inEdges, outEdges) FROM OGraphVertex
 ---
 
 [discrete]
-#####set()
+##### set()
 
 Adds a value to a set. The first time the set is created. If ```<value>``` is a collection, then is merged with the set, otherwise ```<value>``` is added to the set.
 
@@ -699,7 +699,7 @@ SELECT name, set(roles.name) AS roles FROM OUser
 ```
 ---
 [discrete]
-#####list()
+##### list()
 
 Adds a value to a list. The first time the list is created. If ```<value>``` is a collection, then is merged with the list, otherwise ```<value>``` is added to the list.
 
@@ -712,7 +712,7 @@ SELECT name, list(roles.name) AS roles FROM OUser
 ```
 ---
 [discrete]
-#####map()
+##### map()
 
 Adds a value to a map. The first time the map is created. If ```<value>``` is a map, then is merged with the map, otherwise the pair ```<key>``` and ```<value>``` is added to the map as new entry.
 
@@ -725,7 +725,7 @@ SELECT map(name, roles.name) FROM OUser
 ```
 ---
 [discrete]
-#####traversedElement()
+##### traversedElement()
 
 Returns the traversed element(s) in Traverse commands.
 
@@ -748,7 +748,7 @@ SELECT traversedElement(-1, 3) FROM ( TRAVERSE out() FROM #34:3232 WHILE $depth 
 ```
 ---
 [discrete]
-#####traversedEdge()
+##### traversedEdge()
 
 Returns the traversed edge(s) in Traverse commands.
 
@@ -771,7 +771,7 @@ SELECT traversedEdge(-1, 3) FROM ( TRAVERSE outE(), inV() FROM #34:3232 WHILE $d
 ```
 ---
 [discrete]
-#####traversedVertex()
+##### traversedVertex()
 
 Returns the traversed vertex(es) in Traverse commands.
 
@@ -794,7 +794,7 @@ SELECT traversedVertex(-1, 3) FROM ( TRAVERSE out() FROM #34:3232 WHILE $depth <
 ```
 ---
 [discrete]
-#####mode()
+##### mode()
 
 Returns the values that occur with the greatest frequency. Nulls are ignored in the calculation.
 
@@ -807,7 +807,7 @@ SELECT mode(salary) FROM Account
 ```
 ---
 [discrete]
-#####median()
+##### median()
 
 Returns the middle value or an interpolated value that represent the middle value after the values are sorted. Nulls are ignored in the calculation.
 
@@ -820,7 +820,7 @@ select median(salary) from Account
 ```
 ---
 [discrete]
-#####percentile()
+##### percentile()
 
 Returns the nth percentiles (the values that cut off the first n percent of the field values when it is sorted in ascending order). Nulls are ignored in the calculation.
 
@@ -836,7 +836,7 @@ SELECT percentile(salary, 0.25, 0.75) AS IQR FROM Account
 ```
 ---
 [discrete]
-#####variance()
+##### variance()
 
 Returns the middle variance: the average of the squared differences from the mean. Nulls are ignored in the calculation.
 
@@ -849,7 +849,7 @@ SELECT variance(salary) FROM Account
 ```
 ---
 [discrete]
-#####stddev()
+##### stddev()
 
 Returns the standard deviation: the measure of how spread out values are. Nulls are ignored in the calculation.
 
@@ -862,7 +862,7 @@ SELECT stddev(salary) FROM Account
 ```
 ---
 [discrete]
-#####uuid()
+##### uuid()
 
 Generates a UUID as a 128-bits value using the Leach-Salz variant. For more information look at: http://docs.oracle.com/javase/6/docs/api/java/util/UUID.html.
 
@@ -877,7 +877,7 @@ INSERT INTO Account SET id = UUID()
 ```
 ---
 [discrete]
-#####strcmpci()
+##### strcmpci()
 
 Compares two string ignoring case. Return value is -1 if first string ignoring case is less than second, 0 if strings ignoring case are equals, 1 if second string ignoring case is less than first one. Before comparison both strings are transformed to lowercase and then compared.
 
@@ -899,12 +899,12 @@ SELECT * from State where strcmpci("washington", name) = 0
 The SQL engine can be extended with custom functions written with a Scripting language or via Java.
 
 [discrete]
-#####Database's function
+##### Database's function
 
 Look at the [Functions](../admin/Functions.md) page.
 
 [discrete]
-#####Custom functions in Java
+##### Custom functions in Java
 
 Before to use them in your queries you need to register:
 
