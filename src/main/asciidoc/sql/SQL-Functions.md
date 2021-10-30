@@ -472,7 +472,7 @@ SELECT sysdate('dd-MM-yyyy') FROM Account
 [discrete]
 ##### format()
 
-Formats a value using the [String.format()](http://download.oracle.com/javase/1.5.0/docs/api/java/lang/String.html) conventions. Look [here for more information](http://download.oracle.com/javase/1.5.0/docs/api/java/util/Formatter.html#syntax).
+Formats a value using the http://download.oracle.com/javase/1.5.0/docs/api/java/lang/String.html[String.format()] conventions. Look http://download.oracle.com/javase/1.5.0/docs/api/java/util/Formatter.html#syntax[here for more information].
 
 Syntax: ```format( <format> [,<arg1> ](,<arg-n>]*.md)```
 
