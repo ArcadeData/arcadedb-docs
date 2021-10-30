@@ -8,11 +8,12 @@ Removes a type from the schema.
 **Syntax**
 
 ```sql
-DROP TYPE <type> [ UNSAFE ]
+DROP TYPE <type> [ UNSAFE ][IF EXISTS]
 ```
 
 - **`<type>`** Defines the type you want to remove.
 - **`UNSAFE`** Defines whether the command drops non-empty edge and vertex typees.  Note, this can disrupt data consistency.  Be sure to create a backup before running it.
+- **`IF EXISTS`** Prevent errors if the type does not exits when attempting to drop it.
 
 
 
