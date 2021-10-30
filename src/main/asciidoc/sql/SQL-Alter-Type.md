@@ -10,12 +10,14 @@ Change a type defined in the schema. The change is persistent.
 **Syntax**
 
 ```sql
-ALTER TYPE <type> <attribute-name> <attribute-value>
+ALTER TYPE <type> [<attribute-name> <attribute-value>] [CUSTOM <custom-key> <custom-value>]
 ```
 
 - **`<type>`** Defines the type you want to change.
 - **`<attribute-name>`** Defines the attribute you want to change. For a list of supported attributes, see the table below.
 - **`<attribute-value>`** Defines the value you want to set.
+- **`<custom-key>`** Defines the custom property you want to define.
+- **`<custom-value>`** Defines the custom value for the property you want to set. Supported types are strings and numbers.
 
 **Examples**
 
@@ -55,6 +57,12 @@ In the event that the bucket does not exist, it automatically creates it.
 
 ```
 ArcadeDB> ALTER TYPE Account BUCKET -34
+```
+
+- Set the custom value with key 'description':
+
+```
+ArcadeDB> ALTER TYPE Account CUSTOM description = 'All users'
 ```
 
 For more information, see:

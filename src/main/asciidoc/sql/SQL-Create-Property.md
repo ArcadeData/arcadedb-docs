@@ -46,10 +46,9 @@ ArcadeDB> CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING
 ArcadeDB> CREATE PROPERTY Profile.friends EMBEDDEDMAP Profile
 ```
 
-
-
 For more information, see:
 
+- <<SQL-Alter-Property,`ALTER PROPERTY`>>
 - <<SQL-Drop-Property,`DROP PROPERTY`>>
 
 
@@ -72,5 +71,4 @@ It supports the following data types for container properties.
 |===
 
 For these data types, you can optionally define the contained type and type.  The supported link types are the same as the standard property data types above.
-
 

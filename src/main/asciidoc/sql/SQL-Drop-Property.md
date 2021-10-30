@@ -23,7 +23,7 @@ DROP PROPERTY <type>.<property> [FORCE]
 ArcadeDB> DROP PROPERTY User.name
 ```
 
-
 For more information, see:
 
+- <<SQL-Alter-Property,`ALTER PROPERTY`>>
 - <<SQL-Create-Property,`CREATE PROPERTY`>>
