@@ -73,10 +73,12 @@ For more information, see:
 ## Supported Attributes
 
 [%header,cols="20%,20%,20%,40%",stripes=even]
-|=== | Attribute | Type | Support| Description | `NAME` | Identifier | | Changes the type name. | `SUPERTYPE` | Identifier | |
-Defines a super-type for the type. Use `NULL` to remove a super-type assignment. Beginning with version 2.1, it supports multiple
-inheritances. To add a new type, you can use the syntax `+<type>`, to remove it use `-<type>`. | `SUPERTYPEES` | Identifier \[,
-Identifier\]* | | Defines a super-typees for the type. Beginning with version 2.1, it supports multiple inheritances. To add a new
-type, you can use the syntax `+<type>`, to remove it use `-<type>`. | `BUCKET` | Identifier or Integer | | `+` to add a bucket
+|===
+| Attribute | Type | Support| Description
+| `NAME` | Identifier | | Changes the type name. 
+| `SUPERTYPE` | Identifier | |Defines a super-type for the type. Use `NULL` to remove a super-type assignment. Beginning with version 2.1, it supports multiple
+inheritances. To add a new type, you can use the syntax `+<type>`, to remove it use `-<type>`. 
+| `BUCKET` | Identifier or Integer | | `+` to add a bucket
 and `-` to remove it from the type. If the bucket doesn't exist, it creates a physical bucket. Adding buckets to a type is also
-useful in storing records in distributed servers. |===
+useful in storing records in distributed servers.
+|===

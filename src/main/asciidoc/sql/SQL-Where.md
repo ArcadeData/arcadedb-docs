@@ -24,8 +24,8 @@ And `item` can be:
 |column|The number of the column. Useful in Column Database|where *column(1)* > 300
 |any()|Represents any field of the Document. The condition is true if ANY of the fields matches the condition|where *any()* like 'L%'
 |all()|Represents all the fields of the Document. The condition is true if ALL the fields match the condition|where *all()* is null
-|<<functions,SQL-Functions>>|Any <<function,SQL-Functions>> between the defined ones|where distance(x, y, 52.20472, 0.14056 ) <= 30
-|<<$variable,SQL-Where.md#variables)|Context variable prefixed with $|where $depth <= 3
+|<<SQL-Functions,functions>>|Any <<function,SQL-Functions>> between the defined ones|where distance(x, y, 52.20472, 0.14056 ) <= 30
+|<<SQL-Where,$variable>>|Context variable prefixed with $|where $depth <= 3
 |===
 
 
@@ -69,8 +69,7 @@ And `item` can be:
 |map|CONTAINSKEY|true if the map contains at least one key equals to the requested. You can also use map.keys() CONTAINS in place of it|connections *containsKey* 'Luke'
 |map|CONTAINSVALUE|true if the map contains at least one value equals to the requested. You can also use map.values() CONTAINS in place of it|connections *containsValue* 10:3
 |string|CONTAINSTEXT| When used against an indexed field, a lookup in the index will be performed with the text specified as key. When there is no index a simple Java indexOf will be performed. So the result set could be different if you have an index or not on that field |text *containsText* 'jay'
-|string|MATCHES|Matches the string using a http://www.regular-expressions.info/|Regular Expression|text matches '\b<<A-Z0-9.%+-]+@<<A-Z0-9.-]+\.<<A-Z]{2,4}\b'
-|any|TRAVERSE[(&lt;minDepth&gt; <<,&lt;maxDepth&gt; <<,&lt;fields&gt;]]|*This function was born before the SQL Traverse statement and today it's pretty limited. Look at <<Traversing graphs,../java/Java-Traverse>> to know more about traversing in better ways.* <br>true if traversing the declared field(s) at the level from &lt;minDepth&gt; to &lt;maxDepth&gt; matches the condition. A minDepth = 0 means the root node, maxDepth = -1 means no limit: traverse all the graph recursively. If &lt;minDepth&gt; and &lt;maxDepth&gt; are not used, then (0, -1) will be taken. If &lt;fields&gt; is not passed, than any() will be used.|select from profile where any() **traverse(0,7,'followers,followings')** ( address.city.name = 'Rome' )
+|string|MATCHES|Matches the string using a http://www.regular-expressions.info/[Regular Expression]|text matches `\b<<A-Z0-9.%+-]+@<<A-Z0-9.-]+\.<<A-Z]{2,4}\b`
 |===
 
 [discrete]
