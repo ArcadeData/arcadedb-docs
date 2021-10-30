@@ -70,7 +70,7 @@ For more information, see:
 - <<SQL-Create-Type,`CREATE TYPE`>>
 - <<SQL-Drop-Type,`DROP TYPE`>>.
 
-## Supported Attributes
+**Supported Attributes**
 
 [%header,cols="20%,20%,20%,40%",stripes=even]
 |===
