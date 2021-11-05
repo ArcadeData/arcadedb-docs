@@ -6406,7 +6406,12 @@ To specify multiple plugins, use the comma <code>,</code> as separator.</p>
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/redis.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="paragraph">
-<p>ArcadeDB Server supports a subset of the <a href="https://redis.io">Redis</a> protocol, like CRUD operations and queries.</p>
+<p>ArcadeDB Server supports a subset of the <a href="https://redis.io">Redis</a> protocol. Please open an issue or a discussion on GitHub to support more commands.</p>
+</div>
+<div class="paragraph">
+<p>ArcadeDB Redis plugin works in 2 ways:
+- Manage transient (non-persistent) entries in the server. This is useful to manage user sessions and other records you don&#8217;t need to store in the database.
+- Manage persistent entries in the database. You can save and read any documents, vertices and edges from the underlying database.</p>
 </div>
 <div class="paragraph">
 <p>If you&#8217;re using ArcadeDB as embedded, please add the dependency to the <code>arcadedb-redisw</code> library.
@@ -6422,7 +6427,7 @@ If you&#8217;re using Maven include this dependency in your <code>pom.xml</code>
 </div>
 </div>
 <div class="sect3">
-<h4 id="Redis-Protocol">7.9.1. Redis Protocol Plugin</h4>
+<h4 id="Redis-Protocol">7.9.1. Installation</h4>
 <div class="paragraph">
 <p>To start the Redis plugin, enlist it in the <a href="#_settings"><code>server.plugins</code></a> settings.
 To specify multiple plugins, use the comma <code>,</code> as separator.
@@ -6452,7 +6457,7 @@ Example:</p>
 <pre class="highlight"><code>2018-10-09 18:47:58:395 INFO  &lt;ArcadeDB_0&gt; - Redis Protocol plugin started [ArcadeDBServer]</code></pre>
 </div>
 </div>
-<h5 id="_ram_only_commands" class="discrete">RAM Only Commands</h5>
+<h4 id="_transient_ram_only_commands" class="discrete">Transient (RAM Only) Commands</h4>
 <div class="paragraph">
 <p>Below you can find the supported commands.
 The link takes you to the official Redis documentation.
@@ -6493,11 +6498,11 @@ This means all the stored values are reset when the server restarts.</p>
 </li>
 </ul>
 </div>
-<h5 id="_persistent_commands" class="discrete">Persistent Commands</h5>
+<h4 id="_persistent_commands" class="discrete">Persistent Commands</h4>
 <div class="paragraph">
 <p>The following commands act on persistent buckets in the database.
 Records (documents, vertices and edges) are always in form of JSON embedded in strings.
-The bucket name is mapped as the database name first, then type or index based on the use case.
+The bucket name is mapped as the database name first, then type, the index or the record&#8217;s <a href="#RID"><code>RID</code></a> based on the use case.
 An index must exist on the property you used to retrieve the document, otherwise an error is returned.</p>
 </div>
 <div class="paragraph">
@@ -6528,7 +6533,7 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase.Account[id] 123
-"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -6537,7 +6542,38 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase.Account[email] "jay.miner@commodore.com"
-"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To retrieve the document inserted above by it <a href="#RID"><code>RID</code></a>, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase "#1:0"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can also get multiple record in one call by using the <a href="https://redis.io/commands/hmget">HMGET</a> Redis command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">HMGET MyDatabase "#1:0" "#1:1" "#1:2"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:2','@type':'Account','id':12,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or the same, but by a key:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">HMGET MyDatabase.Account[id] 123 232 12
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:2','@type':'Account','id':12,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -6559,13 +6595,16 @@ This is because JSON doesn&#8217;t maintain the order of properties, but only of
 <div class="ulist">
 <ul>
 <li>
-<p><a href="https://redis.io/commands/hdel">HDEL</a>, to delete one or more records</p>
+<p><a href="https://redis.io/commands/hdel">HDEL</a>, to delete one or more records by a key, a composite key or record&#8217;s id</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/hget">HGET</a>, to retrieve a record</p>
+<p><a href="https://redis.io/commands/hget">HGET</a>, to retrieve a record by a key, a composite key or record&#8217;s id</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/hset">HSET</a>, to create and update one or more records</p>
+<p><a href="https://redis.io/commands/hget">HMGET</a>, to retrieve multiple records by a key, a composite key or record&#8217;s id</p>
+</li>
+<li>
+<p><a href="https://redis.io/commands/hset">HSET</a>, to create and update one or more records by a key, a composite key or record&#8217;s id</p>
 </li>
 </ul>
 </div>
@@ -16847,7 +16886,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-11-05 06:47:11 UTC
+Last updated 2021-11-05 16:07:16 UTC
 </div>
 </div>
 </body>
