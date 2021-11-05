@@ -48,52 +48,64 @@ Below you can find the supported commands.
 The link takes you to the official Redis documentation.
 Please open an issue or a discussion on GitHub to support more commands.
 
-The following commands that do not take the bucket as parameter work only in RAM.
+The following commands do not take the bucket as parameter because they work only in RAM on a shared (thread-safe) hashmap.
 This means all the stored values are reset when the server restarts.
 
-- https://redis.io/commands/decr[INCDECR]
-- https://redis.io/commands/decrby[DECRBY]
-- https://redis.io/commands/get[GET]
-- https://redis.io/commands/getdel[GETDEL]
-- https://redis.io/commands/incr[INCR]
-- https://redis.io/commands/incrby[INCRBY]
-- https://redis.io/commands/incrbyfloat[INCRBYFLOAT]
-- https://redis.io/commands/set[SET]
+**Available transient commands (in alphabetic order)**:
+
+- https://redis.io/commands/decr[DECR], Decrement a value by 1
+- https://redis.io/commands/decrby[DECRBY], Decrement a value by a specific amount (64 bit precision)
+- https://redis.io/commands/get[GET], Returns the value associated to a key
+- https://redis.io/commands/getdel[GETDEL], Remove and returns the value associated to a key
+- https://redis.io/commands/incr[INCR], Increment a value by 1
+- https://redis.io/commands/incrby[INCRBY], Increment a value by a specific amount (64 bit precision)
+- https://redis.io/commands/incrbyfloat[INCRBYFLOAT], Increment a value by a specific amount expresses as a float (64 bit precision)
+- https://redis.io/commands/set[SET], Sets a value associated with a key
 
 [discrete]
 ===== Persistent Commands
 
 The following commands act on persistent buckets in the database.
-The returning value is always a JSON.
-The bucket name is mapped as the database name.
-When requested, the key is the name of the type defined in ArcadeDB database.
-An index must exist on the property you use to retrieve the document, otherwise an error is returned.
+Records (documents, vertices and edges) are always in form of JSON embedded in strings.
+The bucket name is mapped as the database name first, then type or index based on the use case.
+An index must exist on the property you used to retrieve the document, otherwise an error is returned.
 
-Example of creating the account document type and the indexed id as a unique string:
+Example of creating the account document type totally schemaless but for 2 indexed properties: `id` as a unique long and `email` as a unique string:
 
 ```SQL
 CREATE DOCUMENT TYPE Account
+
+CREATE PROPERTY Account.id LONG
+CREATE INDEX `Account[id]` ON Account (id) UNIQUE
+
 CREATE PROPERTY Account.email STRING
 CREATE INDEX `Account[email]` ON Account (email) UNIQUE
 ```
 
 Now you can create a new document with Redis protocol:
 
-```
-HSET MyDatabase Account "{'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+```json
+HSET MyDatabase.Account "{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
-To retrieve the document inserted above by id, you can use the https://redis.io/commands/hget[HGET] Redis command:
+To retrieve the document inserted above by `id`, you can use the https://redis.io/commands/hget[HGET] Redis command:
 
+```json
+HGET MyDatabase.Account[id] 123
+"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
-HGET MyDatabase Account.email "jay.miner@commodore.com"
-"{'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+
+To retrieve the document inserted above by `email`, you can use the https://redis.io/commands/hget[HGET] Redis command:
+
+```json
+HGET MyDatabase.Account[email] "jay.miner@commodore.com"
+"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
 !NOTE: The returning JSON could have a different ordering of the properties from the one you have inserted.
 This is because JSON doesn't maintain the order of properties, but only of arrays (`[]`).
 
-**Available persistent commands**:
+**Available persistent commands (in alphabetic order)**:
 
 - https://redis.io/commands/hget[HGET]
 - https://redis.io/commands/hset[HSET]

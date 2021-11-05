@@ -6459,51 +6459,57 @@ The link takes you to the official Redis documentation.
 Please open an issue or a discussion on GitHub to support more commands.</p>
 </div>
 <div class="paragraph">
-<p>The following commands that do not take the bucket as parameter work only in RAM.
+<p>The following commands do not take the bucket as parameter because they work only in RAM on a shared (thread-safe) hashmap.
 This means all the stored values are reset when the server restarts.</p>
+</div>
+<div class="paragraph">
+<p><strong>Available transient commands (in alphabetic order)</strong>:</p>
 </div>
 <div class="ulist">
 <ul>
 <li>
-<p><a href="https://redis.io/commands/decr">INCDECR</a></p>
+<p><a href="https://redis.io/commands/decr">DECR</a>, Decrement a value by 1</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/decrby">DECRBY</a></p>
+<p><a href="https://redis.io/commands/decrby">DECRBY</a>, Decrement a value by a specific amount (64 bit precision)</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/get">GET</a></p>
+<p><a href="https://redis.io/commands/get">GET</a>, Returns the value associated to a key</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/getdel">GETDEL</a></p>
+<p><a href="https://redis.io/commands/getdel">GETDEL</a>, Remove and returns the value associated to a key</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/incr">INCR</a></p>
+<p><a href="https://redis.io/commands/incr">INCR</a>, Increment a value by 1</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/incrby">INCRBY</a></p>
+<p><a href="https://redis.io/commands/incrby">INCRBY</a>, Increment a value by a specific amount (64 bit precision)</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/incrbyfloat">INCRBYFLOAT</a></p>
+<p><a href="https://redis.io/commands/incrbyfloat">INCRBYFLOAT</a>, Increment a value by a specific amount expresses as a float (64 bit precision)</p>
 </li>
 <li>
-<p><a href="https://redis.io/commands/set">SET</a></p>
+<p><a href="https://redis.io/commands/set">SET</a>, Sets a value associated with a key</p>
 </li>
 </ul>
 </div>
 <h5 id="_persistent_commands" class="discrete">Persistent Commands</h5>
 <div class="paragraph">
 <p>The following commands act on persistent buckets in the database.
-The returning value is always a JSON.
-The bucket name is mapped as the database name.
-When requested, the key is the name of the type defined in ArcadeDB database.
-An index must exist on the property you use to retrieve the document, otherwise an error is returned.</p>
+Records (documents, vertices and edges) are always in form of JSON embedded in strings.
+The bucket name is mapped as the database name first, then type or index based on the use case.
+An index must exist on the property you used to retrieve the document, otherwise an error is returned.</p>
 </div>
 <div class="paragraph">
-<p>Example of creating the account document type and the indexed id as a unique string:</p>
+<p>Example of creating the account document type totally schemaless but for 2 indexed properties: <code>id</code> as a unique long and <code>email</code> as a unique string:</p>
 </div>
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-SQL" data-lang="SQL">CREATE DOCUMENT TYPE Account
+
+CREATE PROPERTY Account.id LONG
+CREATE INDEX `Account[id]` ON Account (id) UNIQUE
+
 CREATE PROPERTY Account.email STRING
 CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 </div>
@@ -6513,16 +6519,25 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>HSET MyDatabase Account "{'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+<pre class="highlight"><code class="language-json" data-lang="json">HSET MyDatabase.Account "{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>To retrieve the document inserted above by id, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+<p>To retrieve the document inserted above by <code>id</code>, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>HGET MyDatabase Account.email "jay.miner@commodore.com"
-"{'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+<pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase.Account[id] 123
+"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To retrieve the document inserted above by <code>email</code>, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase.Account[email] "jay.miner@commodore.com"
+"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -6530,7 +6545,7 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 This is because JSON doesn&#8217;t maintain the order of properties, but only of arrays (<code>[]</code>).</p>
 </div>
 <div class="paragraph">
-<p><strong>Available persistent commands</strong>:</p>
+<p><strong>Available persistent commands (in alphabetic order)</strong>:</p>
 </div>
 <div class="ulist">
 <ul>
@@ -16820,7 +16835,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-11-05 05:08:03 UTC
+Last updated 2021-11-05 06:10:00 UTC
 </div>
 </div>
 </body>
