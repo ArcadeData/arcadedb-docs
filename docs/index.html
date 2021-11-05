@@ -6506,7 +6506,7 @@ The bucket name is mapped as the database name first, then type, the index or th
 An index must exist on the property you used to retrieve the document, otherwise an error is returned.</p>
 </div>
 <div class="paragraph">
-<p>Example of creating the account document type totally schemaless but for 2 indexed properties: <code>id</code> as a unique long and <code>email</code> as a unique string:</p>
+<p>For the sake of this tutorial, we&#8217;re going to create the account document type totally schemaless but for some indexed properties: <code>id</code> as a unique long, <code>email</code> as a unique string and the pair <code>firstName</code> and <code>lastName</code> both strings and indexed with a composite key:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -6516,41 +6516,54 @@ CREATE PROPERTY Account.id LONG
 CREATE INDEX `Account[id]` ON Account (id) UNIQUE
 
 CREATE PROPERTY Account.email STRING
-CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
+CREATE INDEX `Account[email]` ON Account (email) UNIQUE
+
+CREATE PROPERTY Account.firstName STRING
+CREATE PROPERTY Account.lastName STRING
+CREATE INDEX `Account[firstName,lastName]` ON Account (firstName,lastName) UNIQUE</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>Now you can create a new document with Redis protocol:</p>
+<p>Now you can create a new document with Redis protocol and the <a href="https://redis.io/commands/hset">HSET</a> Redis command:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HSET MyDatabase.Account "{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+<pre class="highlight"><code class="language-redis" data-lang="redis">HSET MyDatabase.Account "{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>To retrieve the document inserted above by <code>id</code>, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+<p>To retrieve the document inserted above by <code>id</code> (O(logN) complexity), you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase.Account[id] 123
+<pre class="highlight"><code class="language-redis" data-lang="redis">HGET MyDatabase.Account[id] 123
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>To retrieve the document inserted above by <code>email</code>, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+<p>To retrieve the same document by <code>email</code> (O(logN) complexity), you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase.Account[email] "jay.miner@commodore.com"
+<pre class="highlight"><code class="language-redis" data-lang="redis">HGET MyDatabase.Account[email] "jay.miner@commodore.com"
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>To retrieve the document inserted above by it <a href="#RID"><code>RID</code></a>, you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+<p>To retrieve the same document by the pair <code>firstName</code> and <code>lastName</code> (O(logN) complexity), we are going to use the composite key we created before:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HGET MyDatabase "#1:0"
+<pre class="highlight"><code class="language-redis" data-lang="redis">HGET MyDatabase.Account[firstName,lastName] "[\"Jay\",\"Miner\"]"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To retrieve the document inserted above by it <a href="#RID"><code>RID</code></a> (O(1) complexity), you can use the <a href="https://redis.io/commands/hget">HGET</a> Redis command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-redis" data-lang="redis">HGET MyDatabase "#1:0"
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
 </div>
 </div>
@@ -6559,7 +6572,7 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HMGET MyDatabase "#1:0" "#1:1" "#1:2"
+<pre class="highlight"><code class="language-redis" data-lang="redis">HMGET MyDatabase "#1:0" "#1:1" "#1:2"
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 "{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 "{'@rid':'#1:2','@type':'Account','id':12,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
@@ -6570,7 +6583,7 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HMGET MyDatabase.Account[id] 123 232 12
+<pre class="highlight"><code class="language-redis" data-lang="redis">HMGET MyDatabase.Account[id] 123 232 12
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 "{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 "{'@rid':'#1:2','@type':'Account','id':12,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"</code></pre>
@@ -6581,7 +6594,7 @@ CREATE INDEX `Account[email]` ON Account (email) UNIQUE</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">HDEL MyDatabase.Account[email] "jay.miner@commodore.com"
+<pre class="highlight"><code class="language-redis" data-lang="redis">HDEL MyDatabase.Account[email] "jay.miner@commodore.com"
 :1</code></pre>
 </div>
 </div>
@@ -16886,7 +16899,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-11-05 16:07:16 UTC
+Last updated 2021-11-05 16:27:05 UTC
 </div>
 </div>
 </body>
