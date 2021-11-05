@@ -74,7 +74,7 @@ Records (documents, vertices and edges) are always in form of JSON embedded in s
 The bucket name is mapped as the database name first, then type, the index or the record's <<RID,`RID`>> based on the use case.
 An index must exist on the property you used to retrieve the document, otherwise an error is returned.
 
-Example of creating the account document type totally schemaless but for 2 indexed properties: `id` as a unique long and `email` as a unique string:
+For the sake of this tutorial, we're going to create the account document type totally schemaless but for some indexed properties: `id` as a unique long, `email` as a unique string and the pair `firstName` and `lastName` both strings and indexed with a composite key:
 
 ```SQL
 CREATE DOCUMENT TYPE Account
@@ -84,38 +84,49 @@ CREATE INDEX `Account[id]` ON Account (id) UNIQUE
 
 CREATE PROPERTY Account.email STRING
 CREATE INDEX `Account[email]` ON Account (email) UNIQUE
+
+CREATE PROPERTY Account.firstName STRING
+CREATE PROPERTY Account.lastName STRING
+CREATE INDEX `Account[firstName,lastName]` ON Account (firstName,lastName) UNIQUE
 ```
 
-Now you can create a new document with Redis protocol:
+Now you can create a new document with Redis protocol and the https://redis.io/commands/hset[HSET] Redis command:
 
-```json
+```redis
 HSET MyDatabase.Account "{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
-To retrieve the document inserted above by `id`, you can use the https://redis.io/commands/hget[HGET] Redis command:
+To retrieve the document inserted above by `id` (O(logN) complexity), you can use the https://redis.io/commands/hget[HGET] Redis command:
 
-```json
+```redis
 HGET MyDatabase.Account[id] 123
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
-To retrieve the document inserted above by `email`, you can use the https://redis.io/commands/hget[HGET] Redis command:
+To retrieve the same document by `email` (O(logN) complexity), you can use the https://redis.io/commands/hget[HGET] Redis command:
 
-```json
+```redis
 HGET MyDatabase.Account[email] "jay.miner@commodore.com"
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
-To retrieve the document inserted above by it <<RID,`RID`>>, you can use the https://redis.io/commands/hget[HGET] Redis command:
+To retrieve the same document by the pair `firstName` and `lastName` (O(logN) complexity), we are going to use the composite key we created before:
 
-```json
+```redis
+HGET MyDatabase.Account[firstName,lastName] "[\"Jay\",\"Miner\"]"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+```
+
+To retrieve the document inserted above by it <<RID,`RID`>> (O(1) complexity), you can use the https://redis.io/commands/hget[HGET] Redis command:
+
+```redis
 HGET MyDatabase "#1:0"
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
 You can also get multiple record in one call by using the https://redis.io/commands/hmget[HMGET] Redis command:
 
-```json
+```redis
 HMGET MyDatabase "#1:0" "#1:1" "#1:2"
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 "{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
@@ -124,7 +135,7 @@ HMGET MyDatabase "#1:0" "#1:1" "#1:2"
 
 Or the same, but by a key:
 
-```json
+```redis
 HMGET MyDatabase.Account[id] 123 232 12
 "{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 "{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
@@ -134,7 +145,7 @@ HMGET MyDatabase.Account[id] 123 232 12
 
 To delete the document inserted above by `email`, you can use the https://redis.io/commands/hdel[HDEL] Redis command:
 
-```json
+```redis
 HDEL MyDatabase.Account[email] "jay.miner@commodore.com"
 :1
 ```
