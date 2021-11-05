@@ -3,7 +3,11 @@
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/redis.adoc" float=right]
 
-ArcadeDB Server supports a subset of the https://redis.io[Redis] protocol, like CRUD operations and queries.
+ArcadeDB Server supports a subset of the https://redis.io[Redis] protocol. Please open an issue or a discussion on GitHub to support more commands.
+
+ArcadeDB Redis plugin works in 2 ways:
+- Manage transient (non-persistent) entries in the server. This is useful to manage user sessions and other records you don't need to store in the database.
+- Manage persistent entries in the database. You can save and read any documents, vertices and edges from the underlying database.
 
 If you're using ArcadeDB as embedded, please add the dependency to the `arcadedb-redisw` library.
 If you're using Maven include this dependency in your `pom.xml` file.
@@ -17,7 +21,7 @@ If you're using Maven include this dependency in your `pom.xml` file.
 ```
 
 [[Redis-Protocol]]
-==== Redis Protocol Plugin
+==== Installation
 
 To start the Redis plugin, enlist it in the <<#_settings,`server.plugins`>> settings.
 To specify multiple plugins, use the comma `,` as separator.
@@ -42,7 +46,7 @@ The Server output will contain this line:
 ```
 
 [discrete]
-===== RAM Only Commands
+==== Transient (RAM Only) Commands
 
 Below you can find the supported commands.
 The link takes you to the official Redis documentation.
@@ -63,11 +67,11 @@ This means all the stored values are reset when the server restarts.
 - https://redis.io/commands/set[SET], Sets a value associated with a key
 
 [discrete]
-===== Persistent Commands
+==== Persistent Commands
 
 The following commands act on persistent buckets in the database.
 Records (documents, vertices and edges) are always in form of JSON embedded in strings.
-The bucket name is mapped as the database name first, then type or index based on the use case.
+The bucket name is mapped as the database name first, then type, the index or the record's <<RID,`RID`>> based on the use case.
 An index must exist on the property you used to retrieve the document, otherwise an error is returned.
 
 Example of creating the account document type totally schemaless but for 2 indexed properties: `id` as a unique long and `email` as a unique string:
@@ -92,15 +96,41 @@ To retrieve the document inserted above by `id`, you can use the https://redis.i
 
 ```json
 HGET MyDatabase.Account[id] 123
-"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
 
 To retrieve the document inserted above by `email`, you can use the https://redis.io/commands/hget[HGET] Redis command:
 
 ```json
 HGET MyDatabase.Account[email] "jay.miner@commodore.com"
-"{'id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
 ```
+
+To retrieve the document inserted above by it <<RID,`RID`>>, you can use the https://redis.io/commands/hget[HGET] Redis command:
+
+```json
+HGET MyDatabase "#1:0"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+```
+
+You can also get multiple record in one call by using the https://redis.io/commands/hmget[HMGET] Redis command:
+
+```json
+HMGET MyDatabase "#1:0" "#1:1" "#1:2"
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:2','@type':'Account','id':12,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+```
+
+Or the same, but by a key:
+
+```json
+HMGET MyDatabase.Account[id] 123 232 12
+"{'@rid':'#1:0','@type':'Account','id':123,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:1','@type':'Account','id':232,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+"{'@rid':'#1:2','@type':'Account','id':12,'email':'jay.miner@commodore.com','firstName':'Jay','lastName':'Miner'}"
+```
+
 
 To delete the document inserted above by `email`, you can use the https://redis.io/commands/hdel[HDEL] Redis command:
 
@@ -115,9 +145,10 @@ This is because JSON doesn't maintain the order of properties, but only of array
 
 **Available persistent commands (in alphabetic order)**:
 
-- https://redis.io/commands/hdel[HDEL], to delete one or more records
-- https://redis.io/commands/hget[HGET], to retrieve a record
-- https://redis.io/commands/hset[HSET], to create and update one or more records
+- https://redis.io/commands/hdel[HDEL], to delete one or more records by a key, a composite key or record's id
+- https://redis.io/commands/hget[HGET], to retrieve a record by a key, a composite key or record's id
+- https://redis.io/commands/hget[HMGET], to retrieve multiple records by a key, a composite key or record's id
+- https://redis.io/commands/hset[HSET], to create and update one or more records by a key, a composite key or record's id
 
 [discrete]
 ===== Settings
