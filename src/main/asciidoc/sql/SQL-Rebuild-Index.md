@@ -1,30 +1,36 @@
 [[SQL-Rebuild-Index]]
 [discrete]
-### SQL - `REBUILD INDEX` 
-image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Rebuild-Index.md" float=right]
+
+### SQL - `REBUILD INDEX`
+
+image:
+../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Rebuild-Index.md" float=right]
 
 Rebuilds automatic indexes.
 
 **Syntax**
 
 ```sql
-REBUILD INDEX <index>
+REBUILD INDEX <index-name>
 ```
 
-- **`<index>`** Defines the index that you want to rebuild.  Use `*` to rebuild all automatic indexes.
+- **`<index-name>`** It is the index name that you want to rebuild. Use `*` to rebuild all automatic indexes. Quote the index name
+  if it contains special characters like square brackets.
 
-NOTE: During the rebuild, any idempotent queries made against the index, skip the index and perform sequential scans.  This means that queries run slower during this operation.  Non-idempotent commands, such as <<SQL-Insert,`INSERT`>>, <<SQL-Update,`UPDATE`>>, and <<SQL-Delete,`DELETE`>> are blocked waiting until the indexes are rebuilt.
+NOTE: During the rebuild, any idempotent queries made against the index, skip the index and perform sequential scans. This means
+that queries run slower during this operation. Non-idempotent commands, such as <<SQL-Insert,`INSERT`>>, <<SQL-Update,`UPDATE`>>,
+and <<SQL-Delete,`DELETE`>> are blocked waiting until the indexes are rebuilt.
 
 **Examples**
 
-- Rebuild an index on the `nick` property on the type `Profile`:
+- Rebuild an index on the `email` property on the type `Profile`:
 
 ```
-ArcadeDB> REBUILD INDEX Profile.nick
+ArcadeDB> REBUILD INDEX `Profile[email]`
 ```
 
 - Rebuild all indexes:
-  
+
 ```
 ArcadeDB> REBUILD INDEX *
 ```
