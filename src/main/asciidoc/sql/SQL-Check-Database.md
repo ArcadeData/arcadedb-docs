@@ -3,8 +3,7 @@
 
 ### SQL - `CHECK DATABASE`
 
-image:
-../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Check-Database.md" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Check-Database.md" float=right]
 
 Executes an integrity check and in case a repair of the database. This commands analizes the following things:
 
