@@ -33,7 +33,7 @@ To create an automatic index bound to the schema property, use the `ON` clause, 
 
 In the event that the `ON` and `<key-type>` clauses both exist, the database validates the specified property types.  If the property types don't equal those specified in the key type list, it throws an exception.
 
-!NOTE: Null values are not indexed, so any query that is looking for null values will not use the index with a full scan.
+NOTE: Null values are not indexed, so any query that is looking for null values will not use the index with a full scan.
 
 >You can use list key types when creating manual composite indexes, but bear in mind that such indexes are not yet fully supported.
 

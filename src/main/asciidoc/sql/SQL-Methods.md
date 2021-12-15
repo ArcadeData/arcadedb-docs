@@ -17,7 +17,7 @@ SELECT FROM salary.toJSON() FROM employee
 
 As you can see the method is executed against a field/value. Methods can receive parameters, like functions. You can concatenate N operators in sequence.
 
-!NOTE: methods are case-insensitive.
+NOTE: methods are case-insensitive.
 
 
 [[SQL-Method-Squared]]
