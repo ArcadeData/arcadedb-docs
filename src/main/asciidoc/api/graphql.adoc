@@ -1,0 +1,124 @@
+[[GraphQL]]
+=== GraphQL
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/graphql.adoc" float=right]
+
+ArcadeDB Server supports a subset of the https://graphql.org/[GraphQL] specification.
+Please open an issue or a discussion on GitHub to increase the support for GraphQL.
+
+If you're using ArcadeDB as embedded, please add the dependency to the `arcadedb-graphql` library.
+If you're using Maven include this dependency in your `pom.xml` file.
+
+```xml
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-graphql</artifactId>
+    <version>21.12.1</version>
+</dependency>
+```
+
+GraphQL is supported in ArcadeDB as a query language engine.
+This means you can execute a GraphQL command from:
+
+- Java API by using the non-idempotent `.command()` and the idempotent `.query()` API by using `"graphql"` as language.
+Example: `Resultset resultset = db.query("graphql", "{ bookById(id: "book-1"){ id name authors { firstName, lastName } }");`
+- HTTP API by using `/command` and `/query` commands and `"graphql"` as language
+- Postgres Driver by prefixing with `{graphql}` your query to execute. Example: `{graphql}{ bookById(id: "book-1"){ id name authors { firstName, lastName } }`
+
+[discrete]
+==== Type definition
+
+GraphQL requires to define the types used. If you're using the <<Document-Model,Document Model>> and links to connect documents, then you can map 1-1 the GraphQL type to ArcadeDB type. Example:
+
+
+```graphql
+type Book {
+  id: ID
+  name: String
+  pageCount: Int
+  authors: [Author]
+}
+```
+
+If you're using a <<Graph-Model,Graph Model>> for your domain, then you need to declare with a GraphQL directive how the relationship is translated on the graph model.
+
+In the example below, the `authors` is a collection of Author retrieved by looking at the incoming (`direction: IN`) edges of type "IS_AUTHOR_OF" (`type: "IS_AUTHOR_OF"`):
+
+```graphql
+type Book {
+  id: ID
+  name: String
+  pageCount: Int
+  authors: [Author] @relationship(type: "IS_AUTHOR_OF", direction: IN)
+}
+```
+
+You can define your model incrementally and apply it to the current database instance by executing a command containing the type definition. Example by using Java API (but the same by using <<HTTP-Command,HTTP Command>> API):
+
+```java
+String types = "type Query {" +
+              "  bookById(id: ID): Book" +
+              "}" +
+              "type Book {" +
+              "  id: ID" +
+              "  name: String" +
+              "  pageCount: Int" +
+              "  authors: [Author] @relationship(type: \"IS_AUTHOR_OF\", direction: IN)" +
+              "}" +
+              "type Author {" +
+              "  id: ID" +
+              "  firstName: String" +
+              "  lastName: String" +
+              "}";
+
+database.command("graphql", types);
+```
+
+With this example the types `Book` and `Author` are defined together with the query `bookById`. You can add new types or replace existing types by just submitting the type(s) again. The GraphQL module will update the current definition of types.
+
+NOTE: This definition is not saved in the database and must be declared after the database is open, before executing any GraphQL queries.
+
+[discrete]
+==== Supported directives
+
+[discrete]
+===== @relationship
+
+Applies to: `Field`
+
+Syntax: `@relationship([type: "<type-name>"] [, direction: <OUT|IN|BOTH>])`
+
+Where:
+- `type` is the edge type, optional. If not specified, then all the types are considered
+- `direction` is the direction of the edge, optional. If not specified, then BOTH is used
+
+Example:
+
+```graphql
+friends: [Account] @relationship(type: "FRIEND", direction: BOTH)" +
+```
+
+===== @relationship
+
+Applies to: `Field`
+
+Syntax: `@rid`
+
+Mark the field as the record identity or <<RID>>.
+
+Example:
+
+```graphql
+{ bookById(id: "book-1")
+  {
+    rid @rid
+    id
+    name
+    authors {
+      firstName
+      lastName
+    }
+  }
+}
+```
+
