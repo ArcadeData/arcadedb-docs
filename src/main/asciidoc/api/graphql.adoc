@@ -22,14 +22,16 @@ This means you can execute a GraphQL command from:
 
 - Java API by using the non-idempotent `.command()` and the idempotent `.query()` API by using `"graphql"` as language.
 Example: `Resultset resultset = db.query("graphql", "{ bookById(id: "book-1"){ id name authors { firstName, lastName } }");`
-- HTTP API by using `/command` and `/query` commands and `"graphql"` as language
-- Postgres Driver by prefixing with `{graphql}` your query to execute. Example: `{graphql}{ bookById(id: "book-1"){ id name authors { firstName, lastName } }`
+- HTTP API by using <<HTTP-Command,`/command`>> and <<HTTP-ExecuteQuery,`/query`>> commands and `"graphql"` as language
+- <<Postgres-Driver,Postgres Driver>> by prefixing with `{graphql}` your query to execute.
+Example: `{graphql}{ bookById(id: "book-1"){ id name authors { firstName, lastName } }`
 
 [discrete]
 ==== Type definition
 
-GraphQL requires to define the types used. If you're using the <<Document-Model,Document Model>> and links to connect documents, then you can map 1-1 the GraphQL type to ArcadeDB type. Example:
-
+GraphQL requires to define the types used.
+If you're using the <<Document-Model,Document Model>> and links to connect documents, then you can map 1-1 the GraphQL type to ArcadeDB type.
+Example:
 
 ```graphql
 type Book {
@@ -53,7 +55,11 @@ type Book {
 }
 ```
 
-You can define your model incrementally and apply it to the current database instance by executing a command containing the type definition. Example by using Java API (but the same by using <<HTTP-Command,HTTP Command>> API):
+NOTE: Directives can be defined on both types and queries.
+Directives defined in queries override any directives defined in types, only for the query execution context.
+
+You can define your model incrementally and apply it to the current database instance by executing a command containing the type definition.
+Example by using Java API (but the same by using <<HTTP-Command,HTTP Command>> API):
 
 ```java
 String types = "type Query {" +
@@ -74,33 +80,41 @@ String types = "type Query {" +
 database.command("graphql", types);
 ```
 
-With this example the types `Book` and `Author` are defined together with the query `bookById`. You can add new types or replace existing types by just submitting the type(s) again. The GraphQL module will update the current definition of types.
+With this example the types `Book` and `Author` are defined together with the query `bookById`.
+You can add new types or replace existing types by just submitting the type(s) again.
+The GraphQL module will update the current definition of types.
 
 NOTE: This definition is not saved in the database and must be declared after the database is open, before executing any GraphQL queries.
 
 [discrete]
 ==== Supported directives
 
+Directives can be defined on both types and queries.
+Directives defined in queries override any directives defined in types, only for the query execution context.
+
 [discrete]
 ===== @relationship
 
-Applies to: `Field`
+Applies to: `Query Field` and `Field Definition`
 
 Syntax: `@relationship([type: "<type-name>"] [, direction: <OUT|IN|BOTH>])`
 
 Where:
-- `type` is the edge type, optional. If not specified, then all the types are considered
-- `direction` is the direction of the edge, optional. If not specified, then BOTH is used
+
+- `type` is the edge type, optional.
+If not specified, then all the types are considered
+- `direction` is the direction of the edge, optional.
+If not specified, then BOTH is used
 
 Example:
 
 ```graphql
-friends: [Account] @relationship(type: "FRIEND", direction: BOTH)" +
+friends: [Account] @relationship(type: "FRIEND", direction: BOTH)
 ```
 
-===== @relationship
+===== @rid
 
-Applies to: `Field`
+Applies to: `Query Field` and `Field Definition`
 
 Syntax: `@rid`
 
