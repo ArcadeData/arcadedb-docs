@@ -1770,6 +1770,7 @@ XNIO NIO Implementation Version 3.3.8.Final [nio]
 <p>ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.</p>
 </div>
 <div class="literalblock">
+<div class="title">Cluster of Servers</div>
 <div class="content">
 <pre> +------------+        +------------+        +------------+
  | ArcadeDB_1 |&lt;-------| ArcadeDB_0 |-------&gt;| ArcadeDB_2 |
@@ -1788,23 +1789,48 @@ XNIO NIO Implementation Version 3.3.8.Final [nio]
 <p>Each server has its own Journal. The Journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes. All the write operations must be coordinated by the Leader node.</p>
 </div>
 <div class="paragraph">
-<p>In case a client is connected to a Replica, all the read requests will be executed by the replica, but any write requests will be transparently forwarded to the Leader. Everything is transparent for the end user.</p>
+<p>Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the Leader server.</p>
 </div>
 <div class="literalblock">
+<div class="title">Read Request executed on a Replica</div>
 <div class="content">
-<pre> +------------+
- |   Client   |
- +-----+------+
-       |
-       V
- +------------+        +------------+
- | ArcadeDB_1 |-------&gt;| ArcadeDB_0 |
- |  Replica   |forward |   Leader   |
- +------------+        +------------+</pre>
+<pre>            +------------+
+            |  Client A  |
+            +-----+------+
+               ^  |
+(2) send result|  | (1) read request
+ to the client |  V
+            +------------+
+            | ArcadeDB_1 |
+            |  Replica   |
+            +------------+</pre>
 </div>
 </div>
 <div class="paragraph">
-<p>More coming soon.</p>
+<p>ArcadeDB doesn&#8217;t mandate the clients to be connected directly to the leader to execute write operations, but will use the Replica server to forward the write request to the Leader server. Everything is transparent for the end user where both Leader and Replica servers can read and write, but internally only the read requests are executed on the connected server. All the write requests will be transparently forwarded to the Leader.</p>
+</div>
+<div class="paragraph">
+<p>Look at the picture below where the client <code>Client A</code> is connected to the replica server <code>ArcadeDB_1</code> where it executes a write request.</p>
+</div>
+<div class="literalblock">
+<div class="title">Write Request executed on a Replica</div>
+<div class="content">
+<pre>            +------------+
+            |  Client A  |
+            +-----+------+
+               ^  |
+(6) send result|  | (1) write request
+ to the client |  V
+            +------------+              +------------+
+            | ArcadeDB_1 |-------------&gt;| ArcadeDB_0 | (3) execute write request
+            |  Replica   | (2) forward  |   Leader   | (4) replicate to all the servers
+            +------------+              +------------+  (including ArcadeDB_1)
+                  ^                           |
+                  |                           |
+                  +---------------------------+
+                   (5) Send result back to the
+                      requesting server</pre>
+</div>
 </div>
 </div>
 <div class="sect3">
@@ -17495,7 +17521,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-12-19 06:53:32 UTC
+Last updated 2021-12-27 16:27:41 UTC
 </div>
 </div>
 </body>
