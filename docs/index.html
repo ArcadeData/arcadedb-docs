@@ -1742,15 +1742,33 @@ user and password are specified in the docker command above
 <p>ArcadeDB supports a High Availability mode where multiple servers share the same database (replication).</p>
 </div>
 <div class="paragraph">
-<p>To start ArcadeDB Server in High Availability (HA) mode, modify the default setting <a href="#_settings"><code>ha.enabled</code></a> to <code>true</code> and the server will listen for incoming connections from other nodes.
-If any other servers are already started, then the current server will join the cluster.</p>
+<p>In order to start an ArcadeDB server with the support for replication, you need to:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Enable the HA module by setting the configuration <code>arcadedb.ha.enabled</code> to <code>true</code></p>
+</li>
+<li>
+<p>Define the servers that are part of the clusters (if you are using Kubernetes, look at <a href="#HA-Kubernetes">Kubernetes</a> paragraph).
+To setup the server list, define the <code>arcadedb.ha.serverList</code> setting by separating the servers with commas (<code>,</code>) and using the following format for servers: <code>&lt;hostname/ip-address[:port]&gt;</code>.
+The default port is <code>2424</code> if not specified.</p>
+</li>
+<li>
+<p>Define the local server name by setting the <code>arcadedb.server.name</code> configuration.
+Each node must have a unique name.
+If not specified, the default server name is "ArcadeDB_0"</p>
+</li>
+</ol>
 </div>
 <div class="paragraph">
-<p>In order to start an ArcadeDB server with the support for replication, set the configuration <code>arcadedb.ha.enabled</code> to true.</p>
+<p>Example:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">$ bin/server.sh -Darcadedb.ha.enabled=true</code></pre>
+<pre class="highlight"><code class="language-shell" data-lang="shell">$ bin/server.sh -Darcadedb.ha.enabled=true
+                -Darcadedb.server.name=FloridaServer
+                -Darcadedb.ha.serverList=localhost,192.168.0.1:2424,japan-server:8888</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -1758,18 +1776,25 @@ If any other servers are already started, then the current server will join the 
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">[HttpServer] &lt;ArcadeDB_0&gt; - HTTP Server started (host=0.0.0.0 port=2480)
+<pre class="highlight"><code class="language-shell" data-lang="shell">[HttpServer] &lt;FloridaServer&gt; - HTTP Server started (host=0.0.0.0 port=2480)
 [LeaderNetworkListener] &lt;ArcadeDB_0&gt; Listening for replication connections on 127.0.0.1:2424 (protocol v.-1)
-[HAServer] &lt;ArcadeDB_0&gt; Unable to find any Leader, start election (cluster=arcadedb configuredServers=1 majorityOfVotes=1)
-[HAServer] &lt;ArcadeDB_0&gt; Change election status from DONE to VOTING_FOR_ME
-[HAServer] &lt;ArcadeDB_0&gt; Starting election of local server asking for votes from [] (turn=1 retry=0 lastReplicationMessage=-1 configuredServers=1 majorityOfVotes=1)
-[HAServer] &lt;ArcadeDB_0&gt; Current server elected as new Leader (turn=1 totalVotes=1 majority=1)
-[HAServer] &lt;ArcadeDB_0&gt; Change election status from VOTING_FOR_ME to LEADER_WAITING_FOR_QUORUM
-[HAServer] &lt;ArcadeDB_0&gt; Contacting all the servers for the new leadership (turn=1)...</code></pre>
+[HAServer] &lt;FloridaServer&gt; Unable to find any Leader, start election (cluster=arcadedb configuredServers=1 majorityOfVotes=1)
+[HAServer] &lt;FloridaServer&gt; Change election status from DONE to VOTING_FOR_ME
+[HAServer] &lt;FloridaServer&gt; Starting election of local server asking for votes from [] (turn=1 retry=0 lastReplicationMessage=-1 configuredServers=1 majorityOfVotes=1)
+[HAServer] &lt;FloridaServer&gt; Current server elected as new Leader (turn=1 totalVotes=1 majority=1)
+[HAServer] &lt;FloridaServer&gt; Change election status from VOTING_FOR_ME to LEADER_WAITING_FOR_QUORUM
+[HAServer] &lt;FloridaServer&gt; Contacting all the servers for the new leadership (turn=1)...</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>At startup, the ArcadeDB server will look for an existent cluster to join, otherwise a new cluster will be created.</p>
+<p>At startup, the ArcadeDB server will look for an existent cluster to join based on the configured list of servers, otherwise a new cluster will be created.
+In this example we set the server name to <code>FloridaServer</code>.</p>
+</div>
+<div class="paragraph">
+<p>Every time a server joins a cluster, it starts the process to elect the new Leader.
+If the cluster exists and already contains a Leader, then the existent Leader is kept.
+Every time a server leaves the cluster (because it becomes unreachable), the election process is started again.
+To know more about the RAFT election process, look at <a href="https://raft.github.io/">RAFT protocol</a>.</p>
 </div>
 <div class="admonitionblock note">
 <table>
@@ -1785,34 +1810,8 @@ Example: <code>bin/server.sh -Darcadedb.ha.clusterName=projectB</code>
 </tr>
 </table>
 </div>
-<div class="paragraph">
-<p>Every time a server joins a cluster, it starts the process to elect the new Leader.
-If the cluster exists and already contains a Leader, then the existent Leader is kept.
-Every time a server leaves the cluster (because it becomes unreachable), the election process is started again.
-To know more about the RAFT election process, look at <a href="https://raft.github.io/">RAFT protocol</a>.</p>
-</div>
 <div class="sect3">
-<h4 id="_server_list">4.3.1. Server List</h4>
-<div class="paragraph">
-<p>Auto-discovery is enabled by default and uses TCP/IP UDP Multicast. It works only in LAN (Local Area Network) where this protocol is enabled in network routers and firewalls of your LAN.</p>
-</div>
-<div class="paragraph">
-<p>To create a cluster outside a LAN, you have to specify the servers that are part of the cluster in terms of their ip address or host name and port.
-To setup the server list, define the <code>arcadedb.ha.serverList</code> setting by separating the servers with commas (<code>,</code>) and using the following format for servers: <code>&lt;hostname/ip-address[:port]&gt;</code>.
-The default port is <code>2424</code> if not specified.</p>
-</div>
-<div class="paragraph">
-<p>Example:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">$ bin/server.sh -Darcadedb.ha.enabled=true
-                -Darcadedb.ha.serverList=localhost,192.168.0.1:2424,japan-server:8888</code></pre>
-</div>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_architecture">4.3.2. Architecture</h4>
+<h4 id="_architecture">4.3.1. Architecture</h4>
 <div class="paragraph">
 <p>ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.</p>
 </div>
@@ -1885,7 +1884,7 @@ All the write requests will be transparently forwarded to the Leader.</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_auto_fail_over">4.3.3. Auto fail-over</h4>
+<h4 id="_auto_fail_over">4.3.2. Auto fail-over</h4>
 <div class="paragraph">
 <p>ArcadeDB cluster uses a quorum to assure the integrity of the database is maintained across all the servers forming the cluster.
 The quorum is set by default to <code>MAJORITY</code>, that means the majority of the servers in the cluster must return the same result to be considered accepted and propagated to all the servers.</p>
@@ -1935,20 +1934,22 @@ Example: <code>bin/server.sh -Darcadedb.ha.quorum=all</code>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_auto_balancing_clients">4.3.4. Auto balancing clients</h4>
+<h4 id="_auto_balancing_clients">4.3.3. Auto balancing clients</h4>
 <div class="paragraph">
 <p>More coming soon.</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_troubleshooting">4.3.5. Troubleshooting</h4>
+<h4 id="_troubleshooting">4.3.4. Troubleshooting</h4>
 <div class="sect4">
 <h5 id="_servers_do_not_see_each_other_in_the_same_lan">Servers do not see each other in the same LAN</h5>
-
+<div class="paragraph">
+<p>Check UDP Broadcast protocol is enabled in your LAN on both firewalls and routers.</p>
+</div>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_ha_settings">4.3.6. HA Settings</h4>
+<h4 id="_ha_settings">4.3.5. HA Settings</h4>
 <div class="paragraph">
 <p>The following <a href="#_settings">settings</a> are used by the High Availability module:</p>
 </div>
@@ -17697,7 +17698,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-12-27 17:46:59 UTC
+Last updated 2021-12-27 18:06:55 UTC
 </div>
 </div>
 </body>

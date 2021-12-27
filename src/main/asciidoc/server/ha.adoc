@@ -5,54 +5,48 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 
 ArcadeDB supports a High Availability mode where multiple servers share the same database (replication).
 
-To start ArcadeDB Server in High Availability (HA) mode, modify the default setting <<#_settings,`ha.enabled`>> to `true` and the server will listen for incoming connections from other nodes.
-If any other servers are already started, then the current server will join the cluster.
+In order to start an ArcadeDB server with the support for replication, you need to:
 
-In order to start an ArcadeDB server with the support for replication, set the configuration `arcadedb.ha.enabled` to true.
+1. Enable the HA module by setting the configuration `arcadedb.ha.enabled` to `true`
+2. Define the servers that are part of the clusters (if you are using Kubernetes, look at <<HA-Kubernetes,Kubernetes>> paragraph).
+To setup the server list, define the `arcadedb.ha.serverList` setting by separating the servers with commas (`,`) and using the following format for servers: `<hostname/ip-address[:port]>`.
+The default port is `2424` if not specified.
+3. Define the local server name by setting the `arcadedb.server.name` configuration.
+Each node must have a unique name.
+If not specified, the default server name is "ArcadeDB_0"
+
+Example:
 
 ```shell
 $ bin/server.sh -Darcadedb.ha.enabled=true
+                -Darcadedb.server.name=FloridaServer
+                -Darcadedb.ha.serverList=localhost,192.168.0.1:2424,japan-server:8888
 ```
 
 The log should look like this:
 
 ```shell
-[HttpServer] <ArcadeDB_0> - HTTP Server started (host=0.0.0.0 port=2480)
+[HttpServer] <FloridaServer> - HTTP Server started (host=0.0.0.0 port=2480)
 [LeaderNetworkListener] <ArcadeDB_0> Listening for replication connections on 127.0.0.1:2424 (protocol v.-1)
-[HAServer] <ArcadeDB_0> Unable to find any Leader, start election (cluster=arcadedb configuredServers=1 majorityOfVotes=1)
-[HAServer] <ArcadeDB_0> Change election status from DONE to VOTING_FOR_ME
-[HAServer] <ArcadeDB_0> Starting election of local server asking for votes from [] (turn=1 retry=0 lastReplicationMessage=-1 configuredServers=1 majorityOfVotes=1)
-[HAServer] <ArcadeDB_0> Current server elected as new Leader (turn=1 totalVotes=1 majority=1)
-[HAServer] <ArcadeDB_0> Change election status from VOTING_FOR_ME to LEADER_WAITING_FOR_QUORUM
-[HAServer] <ArcadeDB_0> Contacting all the servers for the new leadership (turn=1)...
+[HAServer] <FloridaServer> Unable to find any Leader, start election (cluster=arcadedb configuredServers=1 majorityOfVotes=1)
+[HAServer] <FloridaServer> Change election status from DONE to VOTING_FOR_ME
+[HAServer] <FloridaServer> Starting election of local server asking for votes from [] (turn=1 retry=0 lastReplicationMessage=-1 configuredServers=1 majorityOfVotes=1)
+[HAServer] <FloridaServer> Current server elected as new Leader (turn=1 totalVotes=1 majority=1)
+[HAServer] <FloridaServer> Change election status from VOTING_FOR_ME to LEADER_WAITING_FOR_QUORUM
+[HAServer] <FloridaServer> Contacting all the servers for the new leadership (turn=1)...
 ```
 
-At startup, the ArcadeDB server will look for an existent cluster to join, otherwise a new cluster will be created.
-
-NOTE: The cluster name by default is "arcadedb", but you can have multiple clusters in the same network.
-To specify a custom name, set the configuration `arcadedb.ha.clusterName=<name>`.
-Example: `bin/server.sh -Darcadedb.ha.clusterName=projectB`
+At startup, the ArcadeDB server will look for an existent cluster to join based on the configured list of servers, otherwise a new cluster will be created.
+In this example we set the server name to `FloridaServer`.
 
 Every time a server joins a cluster, it starts the process to elect the new Leader.
 If the cluster exists and already contains a Leader, then the existent Leader is kept.
 Every time a server leaves the cluster (because it becomes unreachable), the election process is started again.
 To know more about the RAFT election process, look at https://raft.github.io/[RAFT protocol].
 
-==== Server List
-
-Auto-discovery is enabled by default and uses TCP/IP UDP Multicast. It works only in LAN (Local Area Network) where this protocol is enabled in network routers and firewalls of your LAN.
-
-To create a cluster outside a LAN, you have to specify the servers that are part of the cluster in terms of their ip address or host name and port.
-To setup the server list, define the `arcadedb.ha.serverList` setting by separating the servers with commas (`,`) and using the following format for servers: `<hostname/ip-address[:port]>`.
-The default port is `2424` if not specified.
-
-Example:
-
-```shell
-$ bin/server.sh -Darcadedb.ha.enabled=true
-                -Darcadedb.ha.serverList=localhost,192.168.0.1:2424,japan-server:8888
-```
-
+NOTE: The cluster name by default is "arcadedb", but you can have multiple clusters in the same network.
+To specify a custom name, set the configuration `arcadedb.ha.clusterName=<name>`.
+Example: `bin/server.sh -Darcadedb.ha.clusterName=projectB`
 
 ==== Architecture
 
@@ -151,6 +145,8 @@ More coming soon.
 ==== Troubleshooting
 
 ===== Servers do not see each other in the same LAN
+
+Check UDP Broadcast protocol is enabled in your LAN on both firewalls and routers.
 
 ==== HA Settings
 
