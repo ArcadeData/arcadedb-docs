@@ -1742,7 +1742,8 @@ user and password are specified in the docker command above
 <p>ArcadeDB supports a High Availability mode where multiple servers share the same database (replication).</p>
 </div>
 <div class="paragraph">
-<p>To start ArcadeDB Server in High Availability (HA) mode, modify the default setting <a href="#_settings"><code>ha.enabled</code></a> to <code>true</code> and the server will listen for incoming connections from other nodes. If any other servers are already started, then the current server will join the cluster.</p>
+<p>To start ArcadeDB Server in High Availability (HA) mode, modify the default setting <a href="#_settings"><code>ha.enabled</code></a> to <code>true</code> and the server will listen for incoming connections from other nodes.
+If any other servers are already started, then the current server will join the cluster.</p>
 </div>
 <div class="paragraph">
 <p>In order to start an ArcadeDB server with the support for replication, set the configuration <code>arcadedb.ha.enabled</code> to true.</p>
@@ -1777,16 +1778,41 @@ user and password are specified in the docker command above
 <div class="title">Note</div>
 </td>
 <td class="content">
-The cluster name by default is "arcadedb", but you can have multiple clusters in the same network. To specify a custom name, set the configuration <code>arcadedb.ha.clusterName=&lt;name&gt;</code>. Example: <code>bin/server.sh -Darcadedb.ha.clusterName=projectB</code>
+The cluster name by default is "arcadedb", but you can have multiple clusters in the same network.
+To specify a custom name, set the configuration <code>arcadedb.ha.clusterName=&lt;name&gt;</code>.
+Example: <code>bin/server.sh -Darcadedb.ha.clusterName=projectB</code>
 </td>
 </tr>
 </table>
 </div>
 <div class="paragraph">
-<p>Every time a server joins a cluster, it starts the process to elect the new Leader. If the cluster exists and already contains a Leader, then the existent Leader is kept. Every time a server leaves the cluster (because it becomes unreachable), the election process is started again. To know more about the RAFT election process, look at <a href="https://raft.github.io/">RAFT protocol</a>.</p>
+<p>Every time a server joins a cluster, it starts the process to elect the new Leader.
+If the cluster exists and already contains a Leader, then the existent Leader is kept.
+Every time a server leaves the cluster (because it becomes unreachable), the election process is started again.
+To know more about the RAFT election process, look at <a href="https://raft.github.io/">RAFT protocol</a>.</p>
 </div>
 <div class="sect3">
-<h4 id="_architecture">4.3.1. Architecture</h4>
+<h4 id="_server_list">4.3.1. Server List</h4>
+<div class="paragraph">
+<p>Auto-discovery is enabled by default and uses TCP/IP UDP Multicast. It works only in LAN (Local Area Network) where this protocol is enabled in network routers and firewalls of your LAN.</p>
+</div>
+<div class="paragraph">
+<p>To create a cluster outside a LAN, you have to specify the servers that are part of the cluster in terms of their ip address or host name and port.
+To setup the server list, define the <code>arcadedb.ha.serverList</code> setting by separating the servers with commas (<code>,</code>) and using the following format for servers: <code>&lt;hostname/ip-address[:port]&gt;</code>.
+The default port is <code>2424</code> if not specified.</p>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">$ bin/server.sh -Darcadedb.ha.enabled=true
+                -Darcadedb.ha.serverList=localhost,192.168.0.1:2424,japan-server:8888</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_architecture">4.3.2. Architecture</h4>
 <div class="paragraph">
 <p>ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.</p>
 </div>
@@ -1807,7 +1833,9 @@ The cluster name by default is "arcadedb", but you can have multiple clusters in
 </div>
 </div>
 <div class="paragraph">
-<p>Each server has its own Journal. The Journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes. All the write operations must be coordinated by the Leader node.</p>
+<p>Each server has its own Journal.
+The Journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes.
+All the write operations must be coordinated by the Leader node.</p>
 </div>
 <div class="paragraph">
 <p>Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the Leader server.</p>
@@ -1828,7 +1856,9 @@ The cluster name by default is "arcadedb", but you can have multiple clusters in
 </div>
 </div>
 <div class="paragraph">
-<p>ArcadeDB doesn&#8217;t mandate the clients to be connected directly to the leader to execute write operations, but will use the Replica server to forward the write request to the Leader server. Everything is transparent for the end user where both Leader and Replica servers can read and write, but internally only the read requests are executed on the connected server. All the write requests will be transparently forwarded to the Leader.</p>
+<p>ArcadeDB doesn&#8217;t mandate the clients to be connected directly to the leader to execute write operations, but will use the Replica server to forward the write request to the Leader server.
+Everything is transparent for the end user where both Leader and Replica servers can read and write, but internally only the read requests are executed on the connected server.
+All the write requests will be transparently forwarded to the Leader.</p>
 </div>
 <div class="paragraph">
 <p>Look at the picture below where the client <code>Client A</code> is connected to the replica server <code>ArcadeDB_1</code> where it executes a write request.</p>
@@ -1855,9 +1885,10 @@ The cluster name by default is "arcadedb", but you can have multiple clusters in
 </div>
 </div>
 <div class="sect3">
-<h4 id="_auto_fail_over">4.3.2. Auto fail-over</h4>
+<h4 id="_auto_fail_over">4.3.3. Auto fail-over</h4>
 <div class="paragraph">
-<p>ArcadeDB cluster uses a quorum to assure the integrity of the database is maintained across all the servers forming the cluster. The quorum is set by default to <code>MAJORITY</code>, that means the majority of the servers in the cluster must return the same result to be considered accepted and propagated to all the servers.</p>
+<p>ArcadeDB cluster uses a quorum to assure the integrity of the database is maintained across all the servers forming the cluster.
+The quorum is set by default to <code>MAJORITY</code>, that means the majority of the servers in the cluster must return the same result to be considered accepted and propagated to all the servers.</p>
 </div>
 <div class="admonitionblock note">
 <table>
@@ -1866,7 +1897,10 @@ The cluster name by default is "arcadedb", but you can have multiple clusters in
 <div class="title">Note</div>
 </td>
 <td class="content">
-The quorum is <code>MAJORITY</code> by default. You can specify a different quorum by setting the number of servers or <code>none</code> to have no quorum and <code>all</code> to wait thr response from all the servers. Set the configuration <code>arcadedb.ha.quorum=&lt;quorum&gt;</code>. Example: <code>bin/server.sh -Darcadedb.ha.quorum=all</code>
+The quorum is <code>MAJORITY</code> by default.
+You can specify a different quorum by setting the number of servers or <code>none</code> to have no quorum and <code>all</code> to wait thr response from all the servers.
+Set the configuration <code>arcadedb.ha.quorum=&lt;quorum&gt;</code>.
+Example: <code>bin/server.sh -Darcadedb.ha.quorum=all</code>
 </td>
 </tr>
 </table>
@@ -1901,15 +1935,22 @@ The quorum is <code>MAJORITY</code> by default. You can specify a different quor
 </div>
 </div>
 <div class="sect3">
-<h4 id="_auto_balancing_clients">4.3.3. Auto balancing clients</h4>
+<h4 id="_auto_balancing_clients">4.3.4. Auto balancing clients</h4>
 <div class="paragraph">
 <p>More coming soon.</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_ha_settings">4.3.4. HA Settings</h4>
+<h4 id="_troubleshooting">4.3.5. Troubleshooting</h4>
+<div class="sect4">
+<h5 id="_servers_do_not_see_each_other_in_the_same_lan">Servers do not see each other in the same LAN</h5>
+
+</div>
+</div>
+<div class="sect3">
+<h4 id="_ha_settings">4.3.6. HA Settings</h4>
 <div class="paragraph">
-<p>The following settings are used by the High Availability module:</p>
+<p>The following <a href="#_settings">settings</a> are used by the High Availability module:</p>
 </div>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
@@ -1927,12 +1968,14 @@ The quorum is <code>MAJORITY</code> by default. You can specify a different quor
 <tbody>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">arcadedb.ha.clusterName</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Cluster name. Useful in case of multiple clusters in the same network</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Cluster name.
+Useful in case of multiple clusters in the same network</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">arcadedb</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">arcadedb.ha.serverList</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Servers in the cluster as a list of &lt;hostname/ip-address:port&gt; items separated by comma. Example: localhost:2424,192.168.0.1:2424. If not specified, auto-discovery is enabled</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Servers in the cluster as a list of &lt;hostname/ip-address:port&gt; items separated by comma.
+Example: localhost:2424,192.168.0.1:2424. If not specified, auto-discovery is enabled</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">NOT DEFINED (auto discovery is enabled by default)</p></td>
 </tr>
 <tr>
@@ -1952,7 +1995,8 @@ The quorum is <code>MAJORITY</code> by default. You can specify a different quor
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">arcadedb.ha.k8sSuffix</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">When running inside Kubernetes use this suffix to reach the other servers. Example: arcadedb.default.svc.cluster.local</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">When running inside Kubernetes use this suffix to reach the other servers.
+Example: arcadedb.default.svc.cluster.local</p></td>
 <td class="tableblock halign-left valign-top"></td>
 </tr>
 <tr>
@@ -17653,7 +17697,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2021-12-27 17:28:12 UTC
+Last updated 2021-12-27 17:46:59 UTC
 </div>
 </div>
 </body>
