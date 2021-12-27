@@ -29,6 +29,7 @@ XNIO NIO Implementation Version 3.3.8.Final [nio]
 
 ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.
 
+.Cluster of Servers
 [ditaa,ha-architecture]
 ....
  +------------+        +------------+        +------------+
@@ -47,24 +48,48 @@ ArcadeDB has a Leader/Replica model by using RAFT consensus for election and rep
 Each server has its own Journal. The Journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes. All the write operations must be coordinated by the Leader node.
 
 
-In case a client is connected to a Replica, all the read requests will be executed by the replica, but any write requests will be transparently forwarded to the Leader. Everything is transparent for the end user.
+Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the Leader server.
 
-[ditaa,ha-architecture]
+.Read Request executed on a Replica
+[ditaa,ha-replica-read]
 ....
- +------------+
- |   Client   |
- +-----+------+
-       |
-       V
- +------------+        +------------+
- | ArcadeDB_1 |------->| ArcadeDB_0 |
- |  Replica   |forward |   Leader   |
- +------------+        +------------+
+            +------------+
+            |  Client A  |
+            +-----+------+
+               ^  |
+(2) send result|  | (1) read request
+ to the client |  V
+            +------------+
+            | ArcadeDB_1 |
+            |  Replica   |
+            +------------+
 ....
 
 
+ArcadeDB doesn't mandate the clients to be connected directly to the leader to execute write operations, but will use the Replica server to forward the write request to the Leader server. Everything is transparent for the end user where both Leader and Replica servers can read and write, but internally only the read requests are executed on the connected server. All the write requests will be transparently forwarded to the Leader.
 
-More coming soon.
+Look at the picture below where the client `Client A` is connected to the replica server `ArcadeDB_1` where it executes a write request.
+
+.Write Request executed on a Replica
+[ditaa,ha-replica-forward]
+....
+            +------------+
+            |  Client A  |
+            +-----+------+
+               ^  |
+(6) send result|  | (1) write request
+ to the client |  V
+            +------------+              +------------+
+            | ArcadeDB_1 |------------->| ArcadeDB_0 | (3) execute write request
+            |  Replica   | (2) forward  |   Leader   | (4) replicate to all the servers
+            +------------+              +------------+  (including ArcadeDB_1)
+                  ^                           |
+                  |                           |
+                  +---------------------------+
+                   (5) Send result back to the
+                      requesting server
+....
+
 
 ==== Starting multiple servers in cluster
 
