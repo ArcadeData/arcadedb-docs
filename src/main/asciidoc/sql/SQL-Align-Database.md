@@ -5,8 +5,9 @@
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Align-Database.md" float=right]
 
-Executes a distributed alignment of the database. It must be executed on the Leader server.
-The alignment computes a checksum of each file and send them to the replica nodes. Each replica node will compute the checksum on their own files. The files that are mismatching are requested by the replica to the leader. In the future single pages could be transferred instead of the entire file.
+Executes a distributed alignment of the database. It must be executed on the Leader server. The alignment computes a checksum of
+each file and sends them to the replica nodes. Each replica node will compute the checksum on its own files. The files that are
+mismatching are requested by the replica to the leader. In the future single pages could be transferred instead of the entire file.
 
 **Syntax**
 
