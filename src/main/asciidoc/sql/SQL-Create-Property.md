@@ -37,13 +37,13 @@ ArcadeDB> CREATE PROPERTY User.name STRING
 - Create a property formed from a list of strings called `tags` in the type `Profile`:
 
 ```
-ArcadeDB> CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING
+ArcadeDB> CREATE PROPERTY Profile.tags LIST
 ```
 
 - Create the property `friends`, as an embedded map in a circular reference:
 
 ```
-ArcadeDB> CREATE PROPERTY Profile.friends EMBEDDEDMAP Profile
+ArcadeDB> CREATE PROPERTY Profile.friends MAP
 ```
 
 For more information, see:

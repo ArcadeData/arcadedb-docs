@@ -66,7 +66,7 @@ ArcadeDB> CREATE INDEX thumbsValue ON Movie (thumbs BY VALUE) UNIQUE
 ```
 ArcadeDB> CREATE PROPERTY Book.author STRING
 ArcadeDB> CREATE PROPERTY Book.title STRING
-ArcadeDB> CREATE PROPERTY Book.publicationYears EMBEDDEDLIST INTEGER
+ArcadeDB> CREATE PROPERTY Book.publicationYears LIST
 ArcadeDB> CREATE INDEX books ON Book (author, title, publicationYears) UNIQUE
 ```
 
