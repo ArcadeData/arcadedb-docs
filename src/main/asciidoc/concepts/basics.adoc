@@ -59,72 +59,81 @@ The syntax for the RID is the pound sign with the bucket identifier, colon, and 
 `#<bucket-identifier>:<record-position>`.
 
 - **bucket-identifier**: This number indicates the bucket id to which the record belongs.
-Positive numbers in the bucket identifier indicate persistent records. You can have up to 2,147,483,648 buckets in a database.
+Positive numbers in the bucket identifier indicate persistent records.
+You can have up to 2,147,483,648 buckets in a database.
 
 - **record-position**: This number defines the absolute position of the record in the bucket.
 
 `#-1:-1` is a null RID.
 
-NOTE: The prefix character `#` is mandatory. 
+NOTE: The prefix character `#` is mandatory.
 
-Each Record ID is immutable, universal, and is never reused. 
+Each Record ID is immutable, universal, and is never reused.
 Additionally, records can be accessed directly through their RIDs at{nbsp}O(1){nbsp}complexity which means the query speed is constant, unaffected by database size.
 For this reason, you don't need to create a field to serve as the primary key as you do in Relational databases.
 
 [discrete]
 ### Types
 
-The concept of the Type is taken from the http://en.wikipedia.org/wiki/Object-oriented_programming[Object Oriented Programming] paradigm.
+The concept of the Type is taken from the http://en.wikipedia.org/wiki/Object-oriented_programming[Object Oriented Programming] paradigm, sometimes as 'Class'.
 In ArcadeDB, types define records.
-It is closest to the concept of a table in Relational databases.
+It is closest to the concept of a 'Table' in Relational databases and a 'Class' in an Object Database.
 
-Types can be schema-less, schema-full, or a mix. They can inherit from other types, creating a tree of types. http://en.wikipedia.org/wiki/Inheritance_%28object-oriented_programming%29[Inheritance], in this context, means that a sub-type extends a parent type, inheriting all of its attributes.
+Types can be schema-less, schema-full, or a mix.
+They can inherit from other types, creating a tree of types. http://en.wikipedia.org/wiki/Inheritance_%28object-oriented_programming%29[Inheritance], in this context, means that a subtype extends a parent type, inheriting all of its attributes.
 
 Each type has its own <<Bucket,buckets (data files)>>.
 A type can support multiple buckets.
 When you execute a query against a type, it automatically fetches from all the buckets that are part of the type.
 When you create a new record, ArcadeDB selects the bucket to store it in using a <<Bucket-Selection,configurable strategy>>.
 
-As a default, ArcadeDB creates as many buckets per type as many cores(processors) the host machine has.
-
-
-[discrete]
-#### Types vs. Buckets in Queries
-
-The combination of types and buckets is very powerful and has a number of use cases.Consider an example where you create a type `Invoice`,with two buckets `invoice2015` and `invoice2016`.You can query all invoices using the type as a target with[`SELECT`](../sql/SQL-Query.md).
-
-```
-arcadeDB> SELECT FROM Invoice
-```
-
-In addition to this, you can filter the result-set by year.
-The type `Invoice` includes a `year` field, you can filter it through the <<SQL-Where,`WHERE`>> clause.
-
-```
-arcadeDB> SELECT FROM Invoice WHERE year=2012
-```
-
-You can also query specific objects from a single bucket.
-By splitting the type `Invoice` across multiple buckets, (that is, one per year),y ou can optimize the query by narrowing the potential result-set.
-
-```
-arcadeDB> SELECT FROM BUCKET:invoice2012
-```
-
-Due to the optimization, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
+As a default, ArcadeDB creates as many buckets per type as many cores (processors) the host machine has.
+In this, CRUD operations can go full speed in parallel with zero contention between CPUs and/or COREs.
+Having many buckets per type means having more files at file system level.
+Check if your Operative System has any limitation with the number of files supported and opened at the same time (`ulimit` for Unix-like systems).
 
 [[Bucket]]
 [discrete]
 ### Buckets
 
 Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
-It is comparable to the collection in Document databases and the table in Relational databases. You can have up to 2,147,483,648 buckets in a database.
+Each bucker is one file at file system level.
+It is comparable to the "collection" in Document databases, the "table" in Relational databases and the "cluster" in OrientDB.
+You can have up to 2,147,483,648 buckets in a database.
 
-When you create a new type, the <<SQL-Create-Type,`CREATE TYPE`>> process also creates physical buckets that serve as the default location in which to store data for that type.
-ArcadeDB forms the bucket names using the type name, with all lower case letters.
+When you create a new type, the <<SQL-Create-Type,`CREATE TYPE`>> statement creates automatically the physical buckets (files) that serve as the default location in which to store data for that type.
+ArcadeDB forms the bucket names by using the type name + underscore + a sequential number starting from 0. For example, the first bucket for the type `Beer` will be `Beer_0` and the correspondent file in the file system will be `Beer_0.31.65536.bucket`.
 ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.
 
 >For more information, see the <<Tutorial-Buckets,Buckets Tutorial>>.
+
+[discrete]
+#### Types vs. Buckets in Queries
+
+The combination of types and buckets is very powerful and has a number of use cases. You should also use Types in your applications, but you can address a specific bucket based on your use case and how you decide to split the records between buckets.
+Consider an example where you create a type `Invoice`, with one bucket per year. `Invoice_2015` and `Invoice_2016`.
+You can query all invoices using the type as a target with the <<SQL-Select,`SELECT`>> statement.
+
+```
+arcadeDB> SELECT FROM Invoice
+```
+
+In addition to this, you can filter the result set by the year.
+The type `Invoice` includes a `year` field, you can filter it through the <<SQL-Filtering,`WHERE`>> clause.
+
+```
+arcadeDB> SELECT FROM Invoice WHERE year = 2016
+```
+
+You can also query specific records from a single bucket.
+By splitting the type `Invoice` across multiple buckets, (that is, one per year in our example), you can optimize the query by narrowing the potential result set.
+
+```
+arcadeDB> SELECT FROM BUCKET:Invoice_2016
+```
+
+By using the explicit cluster instead of the logical type, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
+No index is needed on the year, because all the invoices for year 2016 will be stored in the bucket `Invoice_2016` by the application.
 
 [[Relationships]]
 [discrete]
@@ -197,7 +206,6 @@ In addition, ArcadeDB automatically maintains the consistency of all bidirection
 ### Database
 
 Each server or Java VM can handle multiple database instances,but the database name must be unique.
-
 
 [[Database-URL]]
 [discrete]

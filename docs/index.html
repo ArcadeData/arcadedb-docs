@@ -936,7 +936,8 @@ The syntax for the RID is the pound sign with the bucket identifier, colon, and 
 <ul>
 <li>
 <p><strong>bucket-identifier</strong>: This number indicates the bucket id to which the record belongs.
-Positive numbers in the bucket identifier indicate persistent records. You can have up to 2,147,483,648 buckets in a database.</p>
+Positive numbers in the bucket identifier indicate persistent records.
+You can have up to 2,147,483,648 buckets in a database.</p>
 </li>
 <li>
 <p><strong>record-position</strong>: This number defines the absolute position of the record in the bucket.</p>
@@ -965,12 +966,13 @@ For this reason, you don&#8217;t need to create a field to serve as the primary 
 </div>
 <h3 id="_types" class="discrete">Types</h3>
 <div class="paragraph">
-<p>The concept of the Type is taken from the <a href="http://en.wikipedia.org/wiki/Object-oriented_programming">Object Oriented Programming</a> paradigm.
+<p>The concept of the Type is taken from the <a href="http://en.wikipedia.org/wiki/Object-oriented_programming">Object Oriented Programming</a> paradigm, sometimes as 'Class'.
 In ArcadeDB, types define records.
-It is closest to the concept of a table in Relational databases.</p>
+It is closest to the concept of a 'Table' in Relational databases and a 'Class' in an Object Database.</p>
 </div>
 <div class="paragraph">
-<p>Types can be schema-less, schema-full, or a mix. They can inherit from other types, creating a tree of types. <a href="http://en.wikipedia.org/wiki/Inheritance_%28object-oriented_programming%29">Inheritance</a>, in this context, means that a sub-type extends a parent type, inheriting all of its attributes.</p>
+<p>Types can be schema-less, schema-full, or a mix.
+They can inherit from other types, creating a tree of types. <a href="http://en.wikipedia.org/wiki/Inheritance_%28object-oriented_programming%29">Inheritance</a>, in this context, means that a subtype extends a parent type, inheriting all of its attributes.</p>
 </div>
 <div class="paragraph">
 <p>Each type has its own <a href="#Bucket">buckets (data files)</a>.
@@ -979,11 +981,31 @@ When you execute a query against a type, it automatically fetches from all the b
 When you create a new record, ArcadeDB selects the bucket to store it in using a <a href="#Bucket-Selection">configurable strategy</a>.</p>
 </div>
 <div class="paragraph">
-<p>As a default, ArcadeDB creates as many buckets per type as many cores(processors) the host machine has.</p>
+<p>As a default, ArcadeDB creates as many buckets per type as many cores (processors) the host machine has.
+In this, CRUD operations can go full speed in parallel with zero contention between CPUs and/or COREs.
+Having many buckets per type means having more files at file system level.
+Check if your Operative System has any limitation with the number of files supported and opened at the same time (<code>ulimit</code> for Unix-like systems).</p>
+</div>
+<h3 id="Bucket" class="discrete">Buckets</h3>
+<div class="paragraph">
+<p>Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
+Each bucker is one file at file system level.
+It is comparable to the "collection" in Document databases, the "table" in Relational databases and the "cluster" in OrientDB.
+You can have up to 2,147,483,648 buckets in a database.</p>
+</div>
+<div class="paragraph">
+<p>When you create a new type, the <a href="#SQL-Create-Type"><code>CREATE TYPE</code></a> statement creates automatically the physical buckets (files) that serve as the default location in which to store data for that type.
+ArcadeDB forms the bucket names by using the type name + underscore + a sequential number starting from 0. For example, the first bucket for the type <code>Beer</code> will be <code>Beer_0</code> and the correspondent file in the file system will be <code>Beer_0.31.65536.bucket</code>.
+ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.</p>
+</div>
+<div class="paragraph">
+<p>&gt;For more information, see the <a href="#Tutorial-Buckets">Buckets Tutorial</a>.</p>
 </div>
 <h4 id="_types_vs_buckets_in_queries" class="discrete">Types vs. Buckets in Queries</h4>
 <div class="paragraph">
-<p>The combination of types and buckets is very powerful and has a number of use cases.Consider an example where you create a type <code>Invoice</code>,with two buckets <code>invoice2015</code> and <code>invoice2016</code>.You can query all invoices using the type as a target with[<code>SELECT</code>](../sql/SQL-Query.md).</p>
+<p>The combination of types and buckets is very powerful and has a number of use cases. You should also use Types in your applications, but you can address a specific bucket based on your use case and how you decide to split the records between buckets.
+Consider an example where you create a type <code>Invoice</code>, with one bucket per year. <code>Invoice_2015</code> and <code>Invoice_2016</code>.
+You can query all invoices using the type as a target with the <a href="#SQL-Select"><code>SELECT</code></a> statement.</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -991,38 +1013,26 @@ When you create a new record, ArcadeDB selects the bucket to store it in using a
 </div>
 </div>
 <div class="paragraph">
-<p>In addition to this, you can filter the result-set by year.
-The type <code>Invoice</code> includes a <code>year</code> field, you can filter it through the <a href="#SQL-Where"><code>WHERE</code></a> clause.</p>
+<p>In addition to this, you can filter the result set by the year.
+The type <code>Invoice</code> includes a <code>year</code> field, you can filter it through the <a href="#SQL-Filtering"><code>WHERE</code></a> clause.</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>arcadeDB&gt; SELECT FROM Invoice WHERE year=2012</code></pre>
+<pre class="highlight"><code>arcadeDB&gt; SELECT FROM Invoice WHERE year = 2016</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>You can also query specific objects from a single bucket.
-By splitting the type <code>Invoice</code> across multiple buckets, (that is, one per year),y ou can optimize the query by narrowing the potential result-set.</p>
+<p>You can also query specific records from a single bucket.
+By splitting the type <code>Invoice</code> across multiple buckets, (that is, one per year in our example), you can optimize the query by narrowing the potential result set.</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>arcadeDB&gt; SELECT FROM BUCKET:invoice2012</code></pre>
+<pre class="highlight"><code>arcadeDB&gt; SELECT FROM BUCKET:Invoice_2016</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>Due to the optimization, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.</p>
-</div>
-<h3 id="Bucket" class="discrete">Buckets</h3>
-<div class="paragraph">
-<p>Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
-It is comparable to the collection in Document databases and the table in Relational databases. You can have up to 2,147,483,648 buckets in a database.</p>
-</div>
-<div class="paragraph">
-<p>When you create a new type, the <a href="#SQL-Create-Type"><code>CREATE TYPE</code></a> process also creates physical buckets that serve as the default location in which to store data for that type.
-ArcadeDB forms the bucket names using the type name, with all lower case letters.
-ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.</p>
-</div>
-<div class="paragraph">
-<p>&gt;For more information, see the <a href="#Tutorial-Buckets">Buckets Tutorial</a>.</p>
+<p>By using the explicit cluster instead of the logical type, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
+No index is needed on the year, because all the invoices for year 2016 will be stored in the bucket <code>Invoice_2016</code> by the application.</p>
 </div>
 <h3 id="Relationships" class="discrete">Relationships</h3>
 <div class="paragraph">
@@ -17738,7 +17748,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2022-01-05 14:10:40 UTC
+Last updated 2022-01-06 17:14:34 UTC
 </div>
 </div>
 </body>
