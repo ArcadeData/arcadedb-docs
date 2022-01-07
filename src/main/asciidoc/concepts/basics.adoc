@@ -97,43 +97,106 @@ Check if your Operative System has any limitation with the number of files suppo
 ### Buckets
 
 Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
-Each bucker is one file at file system level.
+Each bucket is one file at file system level.
 It is comparable to the "collection" in Document databases, the "table" in Relational databases and the "cluster" in OrientDB.
 You can have up to 2,147,483,648 buckets in a database.
+
+A bucket can only be part of one type. This means two types can not share the same bucket.
 
 When you create a new type, the <<SQL-Create-Type,`CREATE TYPE`>> statement creates automatically the physical buckets (files) that serve as the default location in which to store data for that type.
 ArcadeDB forms the bucket names by using the type name + underscore + a sequential number starting from 0. For example, the first bucket for the type `Beer` will be `Beer_0` and the correspondent file in the file system will be `Beer_0.31.65536.bucket`.
 ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.
 
->For more information, see the <<Tutorial-Buckets,Buckets Tutorial>>.
-
 [discrete]
 #### Types vs. Buckets in Queries
 
-The combination of types and buckets is very powerful and has a number of use cases. You should also use Types in your applications, but you can address a specific bucket based on your use case and how you decide to split the records between buckets.
+The combination of types and buckets is very powerful and has a number of use cases.
+In most case, you can work with Types and you will be fine.
+But if you are able to split your database in multiple buckets, you could address a specific bucket based instead of the entire Type.
+By wisely using the buckets to divide your database in a way that help you with the retrieval means zero or less use of indexes.
+Indexes slow down insertion and take space on disk and RAM.
+In most cases you need indexes to speed up your queries, but in some use cases you could totally or partially avoid using indexes and still having good performance on queries.
+
+[discrete]
+##### One bucket per period
+
 Consider an example where you create a type `Invoice`, with one bucket per year. `Invoice_2015` and `Invoice_2016`.
 You can query all invoices using the type as a target with the <<SQL-Select,`SELECT`>> statement.
 
-```
+```sql
 arcadeDB> SELECT FROM Invoice
 ```
 
 In addition to this, you can filter the result set by the year.
 The type `Invoice` includes a `year` field, you can filter it through the <<SQL-Filtering,`WHERE`>> clause.
 
-```
+```sql
 arcadeDB> SELECT FROM Invoice WHERE year = 2016
 ```
 
 You can also query specific records from a single bucket.
 By splitting the type `Invoice` across multiple buckets, (that is, one per year in our example), you can optimize the query by narrowing the potential result set.
 
-```
+```sql
 arcadeDB> SELECT FROM BUCKET:Invoice_2016
 ```
 
 By using the explicit cluster instead of the logical type, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
 No index is needed on the year, because all the invoices for year 2016 will be stored in the bucket `Invoice_2016` by the application.
+
+##### One bucket per location
+
+Like with the example above, we could split our records by location creating one cluster per location.
+Example:
+
+```sql
+CREATE BUCKET Customer_Europe
+CREATE BUCKET Customer_Americas
+CREATE BUCKET Customer_Asia
+CREATE BUCKET Customer_Other
+
+CREATE VERTEX TYPE Customer BUCKET Customer_Europe,Customer_Americas,Customer_Asia,Customer_Other
+```
+
+Here we are using the graph model by creating a vertex type, but it's the same with documents.
+Use <<SQL-Create-Type,`CREATE DOCUMENT TYPE`>> instead.
+
+Now in your application store the vertices or documents in the right bucket, based on the location of such customer.
+You can use any API and set the bucket.
+If you're using SQL, this is the way you can insert a new Customer into a specific bucket.
+
+```sql
+arcadeDB> INSERT INTO BUCKET:Customer_Europe CONTENT { firstName: 'Enzo', lastName: 'Ferrari' }
+```
+
+Since a bucket can only be part of one type, when you use the bucket notation with SQL, the type is inferred from the bucket, "Customer" in this case.
+
+When you're looking for customers based in the Europe, you could execute this query:
+
+```sql
+arcadeDB> SELECT FROM BUCKET:Customer_Europe
+```
+
+You can go even more specific, by creating a bucket per country, not just for continent and query from that bucket.
+Example:
+
+```sql
+CREATE BUCKET 'Customer_Europe_Italy'
+CREATE BUCKET 'Customer_Europe_Spain'
+```
+
+Now get all the customer that live in Italy.
+
+```sql
+arcadeDB> SELECT FROM BUCKET:Customer_Europe_Italy
+```
+
+You can also specify a list of buckets in your query.
+This is the query to retrieve both italian and spanish customers.
+
+```sql
+arcadeDB> SELECT FROM BUCKET:Customer_Europe_Italy,Customer_Europe_Spain
+```
 
 [[Relationships]]
 [discrete]
