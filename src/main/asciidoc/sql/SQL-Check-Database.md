@@ -36,7 +36,13 @@ ArcadeDB> CHECK DATABASE
 - Execute the integrity check of the types 'Account' and 'Bill' without fixing any issue found.
 
 ```
-ArcadeDB> CHECK DATABASE BUCKET "Account", "Bill"
+ArcadeDB> CHECK DATABASE TYPE Account, Bill
+```
+
+- Execute the integrity check only on the bucket 'Account_Europe' without fixing any issue found.
+
+```
+ArcadeDB> CHECK DATABASE BUCKET Account_Europe
 ```
 
 - Execute the integrity check of the entire database and auto fix any issues found.
