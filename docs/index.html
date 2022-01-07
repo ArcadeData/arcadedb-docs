@@ -989,27 +989,35 @@ Check if your Operative System has any limitation with the number of files suppo
 <h3 id="Bucket" class="discrete">Buckets</h3>
 <div class="paragraph">
 <p>Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
-Each bucker is one file at file system level.
+Each bucket is one file at file system level.
 It is comparable to the "collection" in Document databases, the "table" in Relational databases and the "cluster" in OrientDB.
 You can have up to 2,147,483,648 buckets in a database.</p>
+</div>
+<div class="paragraph">
+<p>A bucket can only be part of one type. This means two types can not share the same bucket.</p>
 </div>
 <div class="paragraph">
 <p>When you create a new type, the <a href="#SQL-Create-Type"><code>CREATE TYPE</code></a> statement creates automatically the physical buckets (files) that serve as the default location in which to store data for that type.
 ArcadeDB forms the bucket names by using the type name + underscore + a sequential number starting from 0. For example, the first bucket for the type <code>Beer</code> will be <code>Beer_0</code> and the correspondent file in the file system will be <code>Beer_0.31.65536.bucket</code>.
 ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.</p>
 </div>
-<div class="paragraph">
-<p>&gt;For more information, see the <a href="#Tutorial-Buckets">Buckets Tutorial</a>.</p>
-</div>
 <h4 id="_types_vs_buckets_in_queries" class="discrete">Types vs. Buckets in Queries</h4>
 <div class="paragraph">
-<p>The combination of types and buckets is very powerful and has a number of use cases. You should also use Types in your applications, but you can address a specific bucket based on your use case and how you decide to split the records between buckets.
-Consider an example where you create a type <code>Invoice</code>, with one bucket per year. <code>Invoice_2015</code> and <code>Invoice_2016</code>.
+<p>The combination of types and buckets is very powerful and has a number of use cases.
+In most case, you can work with Types and you will be fine.
+But if you are able to split your database in multiple buckets, you could address a specific bucket based instead of the entire Type.
+By wisely using the buckets to divide your database in a way that help you with the retrieval means zero or less use of indexes.
+Indexes slow down insertion and take space on disk and RAM.
+In most cases you need indexes to speed up your queries, but in some use cases you could totally or partially avoid using indexes and still having good performance on queries.</p>
+</div>
+<h5 id="_one_bucket_per_period" class="discrete">One bucket per period</h5>
+<div class="paragraph">
+<p>Consider an example where you create a type <code>Invoice</code>, with one bucket per year. <code>Invoice_2015</code> and <code>Invoice_2016</code>.
 You can query all invoices using the type as a target with the <a href="#SQL-Select"><code>SELECT</code></a> statement.</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>arcadeDB&gt; SELECT FROM Invoice</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; SELECT FROM Invoice</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -1018,7 +1026,7 @@ The type <code>Invoice</code> includes a <code>year</code> field, you can filter
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>arcadeDB&gt; SELECT FROM Invoice WHERE year = 2016</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; SELECT FROM Invoice WHERE year = 2016</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -1027,12 +1035,80 @@ By splitting the type <code>Invoice</code> across multiple buckets, (that is, on
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>arcadeDB&gt; SELECT FROM BUCKET:Invoice_2016</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; SELECT FROM BUCKET:Invoice_2016</code></pre>
 </div>
 </div>
 <div class="paragraph">
 <p>By using the explicit cluster instead of the logical type, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
 No index is needed on the year, because all the invoices for year 2016 will be stored in the bucket <code>Invoice_2016</code> by the application.</p>
+</div>
+<div class="sect4">
+<h5 id="_one_bucket_per_location">One bucket per location</h5>
+<div class="paragraph">
+<p>Like with the example above, we could split our records by location creating one cluster per location.
+Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">CREATE BUCKET Customer_Europe
+CREATE BUCKET Customer_Americas
+CREATE BUCKET Customer_Asia
+CREATE BUCKET Customer_Other
+
+CREATE VERTEX TYPE Customer BUCKET Customer_Europe,Customer_Americas,Customer_Asia,Customer_Other</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here we are using the graph model by creating a vertex type, but it&#8217;s the same with documents.
+Use <a href="#SQL-Create-Type"><code>CREATE DOCUMENT TYPE</code></a> instead.</p>
+</div>
+<div class="paragraph">
+<p>Now in your application store the vertices or documents in the right bucket, based on the location of such customer.
+You can use any API and set the bucket.
+If you&#8217;re using SQL, this is the way you can insert a new Customer into a specific bucket.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; INSERT INTO BUCKET:Customer_Europe CONTENT { firstName: 'Enzo', lastName: 'Ferrari' }</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Since a bucket can only be part of one type, when you use the bucket notation with SQL, the type is inferred from the bucket, "Customer" in this case.</p>
+</div>
+<div class="paragraph">
+<p>When you&#8217;re looking for customers based in the Europe, you could execute this query:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; SELECT FROM BUCKET:Customer_Europe</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can go even more specific, by creating a bucket per country, not just for continent and query from that bucket.
+Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">CREATE BUCKET 'Customer_Europe_Italy'
+CREATE BUCKET 'Customer_Europe_Spain'</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now get all the customer that live in Italy.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; SELECT FROM BUCKET:Customer_Europe_Italy</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can also specify a list of buckets in your query.
+This is the query to retrieve both italian and spanish customers.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">arcadeDB&gt; SELECT FROM BUCKET:Customer_Europe_Italy,Customer_Europe_Spain</code></pre>
+</div>
 </div>
 <h3 id="Relationships" class="discrete">Relationships</h3>
 <div class="paragraph">
@@ -1505,6 +1581,7 @@ For example,</p>
 <div class="paragraph">
 <p>This query returns all the records with the name property set to <code>GOOGLE</code> from all three types, given that the base type <code>Account</code> was specified.
 For the type <code>Account</code>, ArcadeDB searches inside the buckets <code>10</code>, <code>13</code> and <code>27</code>, following the inheritance specified in the schema.</p>
+</div>
 </div>
 </div>
 </div>
@@ -12121,13 +12198,13 @@ You can also define the number of buckets you want to create using the <code>BUC
 <div class="ulist">
 <ul>
 <li>
-<p>Create the vertex type <code>Car</code>, using the bucket ID of <code>10</code>:</p>
+<p>Create the vertex type <code>Car</code>, using the bucket with name 'Car_classic' and 'Car_modern':</p>
 </li>
 </ul>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>ArcadeDB&gt; CREATE TYPE Car BUCKET 10</code></pre>
+<pre class="highlight"><code>ArcadeDB&gt; CREATE VERTEX TYPE Car BUCKET Car_classic,Car_modern</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -17748,7 +17825,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2022-01-06 17:14:34 UTC
+Last updated 2022-01-07 00:18:11 UTC
 </div>
 </div>
 </body>

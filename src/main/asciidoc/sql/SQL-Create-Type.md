@@ -45,10 +45,10 @@ ArcadeDB> CREATE DOCUMENT TYPE Account
 ArcadeDB> CREATE VERTEX TYPE Car EXTENDS Vehicle
 ```
 
-- Create the vertex type `Car`, using the bucket ID of `10`:
+- Create the vertex type `Car`, using the bucket with name 'Car_classic' and 'Car_modern':
 
 ```
-ArcadeDB> CREATE TYPE Car BUCKET 10
+ArcadeDB> CREATE VERTEX TYPE Car BUCKET Car_classic,Car_modern
 ```
 
 **Bucket Selection Strategies**
