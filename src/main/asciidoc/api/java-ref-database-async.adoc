@@ -11,13 +11,12 @@ Use Asynchronous API if the response of the operation can be managed in asynchro
 
 ===== Methods
 
-[cols=5]
+[cols=4]
 |===
-|<<asyncQueryPos,query() positional parameters>>
-|<<asyncQueryMap,query() parameter map>>
-|<<asyncCommandPos,command() positional parameters>>
-|<<asyncCommandMap,command() parameter map>>
-|
+|<<asyncQueryPos,**query()** positional parameters>>
+|<<asyncQueryMap,**query()** parameter map>>
+|<<asyncCommandPos,**command()** positional parameters>>
+|<<asyncCommandMap,**command()** parameter map>>
 |===
 
 [[asyncQueryPos]]
@@ -32,20 +31,25 @@ The execution of any other commands will throw a `IllegalArgumentException` exce
 Syntax:
 
 ```java
-void query( String language, String command, AsyncResultsetCallback callback, Object... positionalParameters )
+void query( String language, String command, AsyncResultsetCallback callback,
+            Object... positionalParameters )
 ```
 
 Where:
 
-- `language`             is the language to use.
-Only "SQL" language is supported for now, but in the future multiple languages could be used
-- `command`              is the command to execute.
+- `language`             is the language to use
+- `command`              is the command to execute
 If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement
-- `callback`             optional, is the callback to execute either if the query succeed (method `onOk()` is called, or in case of error, where the method `onError()` is called.
-If null, no operations are executed in case the command succeed or fail
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set
+Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
 - `positionalParameters` optional variable array of parameters to execute with the query
 
-It returns a `Resultset` object where the result can be iterated.
+To iterate the result, use the callback.
 
 Examples:
 
@@ -90,31 +94,29 @@ The execution of any other commands will throw a `IllegalArgumentException` exce
 Syntax:
 
 ```java
-void query( String language, String command, AsyncResultsetCallback callback, Map<String,Object> parameterMap )
+void query( String language, String command, AsyncResultsetCallback callback,
+            Map<String,Object> parameterMap )
 ```
 
 Where:
 
-- `language`     is the language to use.
-Only "SQL" language is supported for now, but in the future multiple languages could be used
-- `command`      is the command to execute.
+- `language`     is the language to use
+- `command`      is the command to execute
 If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
 - `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
 ** `onStart()` executed when the query is parsed and the first result ready
-** `onNext()` executed foreach result in the result set.
+** `onNext()` executed foreach result in the result set
 Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
 ** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
 ** `onError()` in case of any exception while executing the query
 - `parameterMap` this map is used to extract the named parameters
 
-It returns a `Resultset` object where the result can be iterated.
+To iterate the result, use the callback.
 
 Examples:
 
 ```java
-Map<String,Object> parameters = new HashMap<>();
-parameters.put("age", 18);
-parameters.put("city", "Melbourne");
+Map<String,Object> parameters = Map.of("age", 18, "city", "Melbourne");
 
 db.async().query("sql", "select from V where age > :age and city = :city", new AsyncResultsetCallback(){
   @Override
@@ -132,25 +134,29 @@ db.async().query("sql", "select from V where age > :age and city = :city", new A
 Executes a command that could change the database.
 This method returns immediately.
 This is the equivalent to `query()`, but allows the command to modify the database.
-Only "SQL" language is supported, but in the future multiple languages could be used.
 
 Syntax:
 
 ```java
-void command( String language, String command, AsyncResultsetCallback callback, Object... positionalParameters )
+void command( String language, String command, AsyncResultsetCallback callback,
+              Object... positionalParameters )
 ```
 
 Where:
 
-- `language`             is the language to use.
-Only "SQL" is supported
-- `command`              is the command to execute.
+- `language`             is the language to use
+- `command`              is the command to execute
 If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
-- `callback`             optional, is the callback to execute either if the query succeed (method `onOk()` is called, or in case of error, where the method `onError()` is called.
-If null, no operations are executed in case the command succeed or fail
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set
+Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
 - `positionalParameters` optional variable array of parameters to execute with the query
 
-It returns a `Resultset` object where the result can be iterated.
+To iterate the result, use the callback.
 
 Examples:
 
@@ -189,40 +195,43 @@ db.async().command("sql", "insert into V set name = ? surname = ?", new AsyncRes
 
 Executes a command that could change the database.
 This method returns immediately.
-This is the equivalent to `query()`, but allows the command to modify the database.
-Only "SQL" language is supported, but in the future multiple languages could be used.
+This is the equivalent to `query()`, but allows non-idempotent commands to modify the database.
 
 Syntax:
 
 ```java
-void command( String language, String command, AsyncResultsetCallback callback, Map<String,Object> parameterMap )
+void command( String language, String command, AsyncResultsetCallback callback,
+              Map<String,Object> parameterMap )
 ```
 
 Where:
 
-- `language`     is the language to use.
-Only "SQL" is supported
-- `command`      is the command to execute.
+- `language`     is the language to use
+- `command`      is the command to execute
 If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
-- `callback`     optional, is the callback to execute either if the query succeed (method `onOk()` is called, or in case of error, where the method `onError()` is called.
-If null, no operations are executed in case the command succeed or fail
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set
+Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
 - `parameterMap` this map is used to extract the named parameters
 
-It returns a `Resultset` object where the result can be iterated.
+To iterate the result, use the callback.
 
 Examples:
 
 Create a new record by passing a map of parameters:
 
 ```java
-Map<String,Object> parameters = new HashMap<>();
-parameters.put("name", "Jay");
-parameters.put("surname", "Miner");
+Map<String,Object> parameters = Map.of("name", "Jay", "surname", "Miner");
 
-db.async().command("sql", "insert into V set name = :name, surname = :surname", new SQLCallback() {
+db.async().command("sql", "insert into V set name = :name, surname = :surname", new AsyncResultsetCallback() {
   @Override
-  public void onOk(ResultSet resultset) {
-    System.out.println("Created new record: " + resultset.next() );
+  public boolean onNext(Result result) {
+    System.out.println("Created new record: " + result.toJSON() );
+    return true;
   }
 
   @Override
