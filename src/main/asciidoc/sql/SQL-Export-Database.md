@@ -3,8 +3,7 @@
 
 ### SQL - `EXPORT DATABASE`
 
-image:
-../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Export-Database.md" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Export-Database.md" float=right]
 
 Exports a database in the `exports` directory under the root directory where ArcadeDB is running.
 
