@@ -54,8 +54,8 @@ ArcadeDB> CREATE VERTEX TYPE Car BUCKET Car_classic,Car_modern
 **Bucket Selection Strategies**
 
 When you create a type, it inherits the bucket selection strategy defined at the database-level. By default, this is set to
-`round-robin`. You can change the database default using the <<`ALTER DATABASE`,SQL-Alter-Database>> command and the selection
-strategy for the type using the <<`ALTER TYPE`,SQL-Alter-Type>> command.
+`round-robin`. You can change the database default using the <<SQL-Alter-Database,`ALTER DATABASE`>> command and the selection
+strategy for the type using the <<SQL-Alter-Type,`ALTER TYPE`>> command.
 
 Supported Strategies:
 
