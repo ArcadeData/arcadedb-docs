@@ -10,21 +10,21 @@ Creates a new property in the schema.  It requires that the type for the propert
 ```
 CREATE PROPERTY 
 <type>.<property> <data-type> 
-[<link-type>|<link-type>] 
 ( <property-constraint> [, <property-constraint>]* ) 
-[UNSAFE]
 ```
 
 - **`<type>`** Defines the type for the new property.
 - **`<property>`** Defines the logical name for the property.
 - **`<data-type>`** Defines the property data type.  For supported types, see the table below.
-- **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
-- **`<link-type>`** Defines the contained type for container property data types.  For supported link types, see the table below.
-- **`<property-constraint>`** See <<`ALTER PROPERTY`,SQL-Alter-Property>> `<attribute-name> << <attribute-value> ]`
-- **`UNSAFE`** Defines whether it checks existing records.  On larger databases, with millions of records, this could take a great deal of time.  Skip the check when you are sure the property is new.
+- **`<property-constraint>`** See <<SQL-Alter-Property,`ALTER PROPERTY`>> `<attribute-name> << <attribute-value>`
+** `mandatory = <true|false>` If true, the property must be present. Default is false
+** `notnull = <true|false>` If true, the property, if present, cannot be null. Default is false
+** `readonly = <true|false>` If true, the property cannot be changed after the creation of the record. Default is false
+** `min = <number|string>` Defines the minimum value for this property. For number types it is the minimum number as a value. For strings it represents the minimum number of characters. For dates is the minimum date (uses the database date format)
+** `max = <number|string>` Defines the maximum value for this property. For number types it is the maximum number as a value. For strings it represents the maximum number of characters. For dates is the maximum date (uses the database date format)
+** `regexp = <string>` Defines the mask to validate the input as a Regular Expression
 
-
->When you create a property, ArcadeDB checks the data for property and type.  In the event that persistent data contains incompatible values for the specified type, the property creation fails.  It applies no other constraints on the persistent data.
+NOTE: When you create a property, ArcadeDB checks the data for property and type.  In the event that persistent data contains incompatible values for the specified type, the property creation fails.  It applies no other constraints on the persistent data.
 
 **Examples**
 
@@ -40,10 +40,16 @@ ArcadeDB> CREATE PROPERTY User.name STRING
 ArcadeDB> CREATE PROPERTY Profile.tags LIST
 ```
 
-- Create the property `friends`, as an embedded map in a circular reference:
+- Create the property `friends`, as an embedded map:
 
 ```
 ArcadeDB> CREATE PROPERTY Profile.friends MAP
+```
+
+- Create the property `date` of type date with additional constraints:
+
+```
+ArcadeDB> CREATE PROPERTY Transaction.createdOn DATE mandatory = true, notnull = true, readonly = true, min = "2010-01-01"
 ```
 
 For more information, see:
