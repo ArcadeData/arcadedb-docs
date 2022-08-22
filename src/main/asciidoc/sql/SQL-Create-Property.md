@@ -11,6 +11,7 @@ Creates a new property in the schema.  It requires that the type for the propert
 CREATE PROPERTY 
 <type>.<property> <data-type> 
 ( <property-constraint> [, <property-constraint>]* ) 
+[IF NOT EXISTS]
 ```
 
 - **`<type>`** Defines the type for the new property.
@@ -23,6 +24,7 @@ CREATE PROPERTY
 ** `min = <number|string>` Defines the minimum value for this property. For number types it is the minimum number as a value. For strings it represents the minimum number of characters. For dates is the minimum date (uses the database date format)
 ** `max = <number|string>` Defines the maximum value for this property. For number types it is the maximum number as a value. For strings it represents the maximum number of characters. For dates is the maximum date (uses the database date format)
 ** `regexp = <string>` Defines the mask to validate the input as a Regular Expression
+** `IF NOT EXISTS` If specified, create the property only if not exists. If a property with the same name already exists in the type, then no error is returned
 
 NOTE: When you create a property, ArcadeDB checks the data for property and type.  In the event that persistent data contains incompatible values for the specified type, the property creation fails.  It applies no other constraints on the persistent data.
 
@@ -50,6 +52,12 @@ ArcadeDB> CREATE PROPERTY Profile.friends MAP
 
 ```
 ArcadeDB> CREATE PROPERTY Transaction.createdOn DATE mandatory = true, notnull = true, readonly = true, min = "2010-01-01"
+```
+
+- Create the property `salary` only if it does not exist:
+
+```
+ArcadeDB> CREATE PROPERTY Employee.salary IF NOT EXISTS
 ```
 
 For more information, see:
