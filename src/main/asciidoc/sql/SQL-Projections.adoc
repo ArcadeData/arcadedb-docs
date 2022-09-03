@@ -1,0 +1,344 @@
+[discrete]
+
+=== Projections
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Projections.md" float=right]
+
+A projection is a value that is returned by a query statement (SELECT, MATCH).
+
+Eg. the following query
+
+[source,sql]
+----
+SELECT name as firstName, age * 12 as ageInMonths, out("Friend") from Person where surname = 'Smith'
+
+----
+
+has three projections:
+
+* `name as firstName`
+* `age * 12 as ageInMonths`
+* `out(&quot;Friend&quot;)`
+
+[discrete]
+
+===== Syntax
+
+*A projection* has the following syntax:
+
+`&lt;expression&gt; [&lt;nestedProjection&gt;] [ AS &lt;alias&gt; ]`
+
+* `&lt;expression&gt;` is an expression (see «SQL Syntax,SQL-Syntax») that represents the way to calculate the value of the single projection
+* `&lt;alias&gt;` is the Identifier (see «SQL Syntax,SQL-Syntax») representing the field name used to return the value in the result set
+
+A projection block has the following syntax:
+
+`&lt;&lt;DISTINCT] &lt;projection&gt; &lt;&lt;, &lt;projection&gt; ]*`
+
+* `DISTINCT`: removes duplicates from the result-set
+
+[discrete]
+
+===== Query result
+
+By default, a query returns a different result-set based on the projections it has:
+
+* *`*` alone*: The result set is made of records as they arrive from the target, with the original @rid and @type attributes (if any)
+* *`*` plus other projections*: records of the original target, merged with the other projection values, with @rid and @type of the original record.
+* *no projections*: same behavior as `*`
+* *`expand(&lt;projection&gt;)`*: The result set is made of the records returned by the projection, expanded (if the projection result is a link or a colleciton of links) and unwinded (if the projection result is a collection). Nothing in all the other cases.
+* *one or more projections*: temporary records (with temporary @rid and no @type). Projections that represent links are returned as simple @rid values, unless differently specified in the fetchplan.
+
+_IMPORTANT - projection values can be overwritten in the final result, the overwrite happens from left to right_
+
+eg.
+
+[source,sql]
+----
+SELECT 1 as a, 2 as a 
+----
+
+will return `[{&quot;a&quot;:2}]`
+
+eg.
+
+Having the record `{&quot;@type&quot;:&quot;Foo&quot;, &quot;name&quot;:&quot;bar&quot;, &quot;@rid&quot;:&quot;#12:0&quot;}`
+
+[source,sql]
+----
+SELECT *, "hey" as name from Foo
+----
+
+will return `[{&quot;@type&quot;:&quot;Foo&quot;, &quot;@rid&quot;:&quot;#12:0&quot;, &quot;name&quot;:&quot;hey&quot;}]`
+
+[source,sql]
+----
+SELECT  "hey" as name, * from Foo
+----
+
+will return `[{&quot;@type&quot;:&quot;Foo&quot;, &quot;@rid&quot;:&quot;#12:0&quot;, &quot;name&quot;:&quot;bar&quot;}]`
+
+IMPORTANT: when saving back a record with a valid rid, you will overwrite the existing record! So pay attention
+when using `*` together with other projections. 
+
+IMPORTANT: the result of the query can be further unwound using the UNWIND operator.
+
+IMPORTANT: `expand()` cannot be used together with `GROUP BY`.
+
+[discrete]
+
+===== Aliases
+
+The alias is the field name that a projection will have in the result-set.
+
+An alias can be implicit, if declared with the `AS` keyword, eg.
+
+[source,sql]
+----
+SELECT name + " " + surname as full_name from Person
+
+result:
+[{"full_name":"John Smith"}]
+----
+
+An alias can be implicit, when no `AS` is defined, eg.
+
+[source,sql]
+----
+SELECT name from Person
+
+result:
+[{"name":"John"}]
+----
+
+An implicit alias is calculated based on how the projection is written. By default, ArcadeDB uses the plain String representation of the projection as alias. 
+
+----
+SELECT 1+2 as sum
+
+result:
+[{"sum": 3}] 
+----
+
+----
+SELECT parent.name+" "+parent.surname as full_name from Node
+
+result:
+[{"full_name": "John Smith"}] 
+----
+
+The String representation of a projection is the exact representation of the projection string, without spaces before and after dots and brackets, no spaces before commands, a single space before and after operators.
+
+eg.
+
+----
+SELECT 1+2 
+
+result:
+[{"1 + 2": 3}] /* see the space before and after the + sign */
+----
+
+----
+SELECT parent.name+" "+parent.surname from Node
+
+result:
+[{"parent.name + \" \" + parent.nurname": "John Smith"}] 
+----
+
+----
+SELECT items<<4] from Node
+
+result:
+[{"items<<4]": "John Smith"}] 
+----
+
+[discrete]
+
+===== Nested projections
+
+*Syntax*:
+
+`&quot;:{&quot; ( * | (&lt;&lt;&quot;!&quot;] &lt;identifier&gt; &lt;&lt;&quot;*&quot;] (&lt;comma&gt; &lt;&lt;&quot;!&quot;] &lt;identifier&gt; &lt;&lt;&quot;*&quot;])* ) ) &quot;}&quot;`
+
+A projection can refer to a link or to a collection of links, eg. a LINKLIST or a LINKSET.
+In some cases you can be interested in the expanded object intead of the RID.
+
+Let's clarify this with an example. This is our dataset:
+
+[%header,cols=4]
+|===
+| @rid | name | surname | parent
+| #12:0 | foo | fooz |
+| #12:1 | bar | barz | #12:0
+| #12:2 | baz | bazz | #12:1
+|===
+
+Given this query:
+
+[source,SQL]
+----
+SELECT name, parent FROM TheType WHERE name = 'baz'
+----
+
+The result is
+
+----
+{ 
+   "name": "baz",
+   "parent": #12:1
+}
+----
+
+Now suppose you want to expand the link and retrieve some properties of the linked object.
+You can do it explicitly do it with other projections:
+
+[source,SQL]
+----
+SELECT name, parent.name FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent.name": "bar"
+}
+----
+
+but this will force you to list them one by one, and it's not always possible, especially when you don't know all their names.
+
+Another alternative is to use nested projections, eg.
+
+[source,SQL]
+----
+SELECT name, parent:{name} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "name": "bar"
+   }
+}
+----
+
+or with multiple attributes
+
+[source,SQL]
+----
+SELECT name, parent:{name, surname} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "name": "bar"
+      "surname": "barz"      
+   }
+}
+----
+
+or using a wildcard
+
+[source,SQL]
+----
+SELECT name, parent:{*} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "name": "bar"
+      "surname": "barz"      
+      "parent": #12:0
+   }
+}
+----
+
+You can also use the `!` exclude syntax to define which attributes you want to _exclude_ from the nested projection:
+
+[source,SQL]
+----
+SELECT name, parent:{!surname} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "name": "bar"
+      "parent": #12:0
+   }
+}
+----
+
+You can also use a wildcard on the right of property names, to specify the inclusion of attributes that start with a prefix, eg.
+
+[source,SQL]
+----
+SELECT name, parent:{surna*} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "surname": "barz"      
+   }
+}
+----
+
+or their exclusion
+
+[source,SQL]
+----
+SELECT name, parent:{!surna*} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "name": "bar",      
+      "parent": #12:0
+   }
+}
+----
+
+Nested projection syntax allows for multiple level depth expressions, eg. you can go three levels deep as follows:
+
+----
+SELECT name, parent:{name, surname, parent:{name, surname}} FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "parent": {
+      "name": "bar"
+      "surname": "barz"      
+      "parent": {
+         "name": "foo"
+         "surname": "fooz"      
+      }   
+   }
+}
+----
+
+You can also use expressions and aliases in nested projections:
+
+----
+SELECT name, parent.parent:{name, surname} as grandparent FROM TheType WHERE name = 'baz'
+----
+
+----
+{ 
+   "name": "baz",
+   "grandparent": {
+      "name": "foo"
+      "surname": "fooz"      
+   }   
+}
+----
