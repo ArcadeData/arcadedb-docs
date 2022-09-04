@@ -1,5 +1,5 @@
 [discrete]
-### Record
+=== Record
 
 A record is the smallest unit you can load from and store in the database.
 Records come in three types:
@@ -9,14 +9,15 @@ Records come in three types:
 - Edge
 
 [discrete]
-#### Document
+==== Document
 
 Documents are softly typed and are defined by schema types, but you can also use them in a schema-less mode too.
 Documents handle fields in a flexible manner.
 You can easily import and export them in JSON format.
 For example,
 
-```json
+[source,json]
+----
 {
   "name":"Jay",
   "surname":"Miner",
@@ -29,10 +30,10 @@ For example,
     "company":"Commodore Inc."
   }]
 }
-```
+----
 
 [discrete]
-#### Vertex
+==== Vertex
 
 In Graph databases the vertices (also named vertexes), or nodes represent the main entity that holds the information.
 It can be a Patient, a Company or a Product.
@@ -41,7 +42,7 @@ This means they can contain embedded records and arbitrary properties exactly li
 Vertices are connected with other vertices through Edges.
 
 [discrete]
-#### Edge
+==== Edge
 
 An Edge, or Arc, is the connection between two vertices.
 Edges can be unidirectional and bidirectional.
@@ -51,7 +52,7 @@ For more information on connecting vertices in general, see <<Relationships,Rela
 
 [[RID]]
 [discrete]
-#### Record ID
+==== Record ID
 
 When ArcadeDB generates a record, it auto-assigns a unique identifier called a Record ID, RID for short.
 The syntax for the RID is the pound sign with the bucket identifier, colon, and the position like so:
@@ -73,7 +74,7 @@ Additionally, records can be accessed directly through their RIDs at{nbsp}O(1){n
 For this reason, you don't need to create a field to serve as the primary key as you do in Relational databases.
 
 [discrete]
-### Types
+=== Types
 
 The concept of the Type is taken from the http://en.wikipedia.org/wiki/Object-oriented_programming[Object Oriented Programming] paradigm, sometimes as 'Class'.
 In ArcadeDB, types define records.
@@ -94,7 +95,7 @@ Check if your Operative System has any limitation with the number of files suppo
 
 [[Bucket]]
 [discrete]
-### Buckets
+=== Buckets
 
 Where types provide you with a logical framework for organizing data, buckets provide physical or in-memory space in which ArcadeDB actually stores the data.
 Each bucket is one file at file system level.
@@ -108,7 +109,7 @@ ArcadeDB forms the bucket names by using the type name + underscore + a sequenti
 ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.
 
 [discrete]
-#### Types vs. Buckets in Queries
+==== Types vs. Buckets in Queries
 
 The combination of types and buckets is very powerful and has a number of use cases.
 In most case, you can work with Types and you will be fine.
@@ -118,21 +119,23 @@ Indexes slow down insertion and take space on disk and RAM.
 In most cases you need indexes to speed up your queries, but in some use cases you could totally or partially avoid using indexes and still having good performance on queries.
 
 [discrete]
-##### One bucket per period
+==== One bucket per period
 
 Consider an example where you create a type `Invoice`, with one bucket per year. `Invoice_2015` and `Invoice_2016`.
 You can query all invoices using the type as a target with the <<_sql-select,`SELECT`>> statement.
 
-```sql
+[source,sql]
+----
 arcadeDB> SELECT FROM Invoice
-```
+----
 
 In addition to this, you can filter the result set by the year.
 The type `Invoice` includes a `year` field, you can filter it through the <<_filtering,`WHERE`>> clause.
 
-```sql
+[source,sql]
+----
 arcadeDB> SELECT FROM Invoice WHERE year = 2016
-```
+----
 
 You can also query specific records from a single bucket.
 By splitting the type `Invoice` across multiple buckets, (that is, one per year in our example), you can optimize the query by narrowing the potential result set.
@@ -145,19 +148,20 @@ By using the explicit bucket instead of the logical type, this query runs signif
 No index is needed on the year, because all the invoices for year 2016 will be stored in the bucket `Invoice_2016` by the application.
 
 [discrete]
-##### One bucket per location
+==== One bucket per location
 
 Like with the example above, we could split our records by location creating one bucket per location.
 Example:
 
-```sql
+[source,sql]
+----
 CREATE BUCKET Customer_Europe
 CREATE BUCKET Customer_Americas
 CREATE BUCKET Customer_Asia
 CREATE BUCKET Customer_Other
 
 CREATE VERTEX TYPE Customer BUCKET Customer_Europe,Customer_Americas,Customer_Asia,Customer_Other
-```
+----
 
 Here we are using the graph model by creating a vertex type, but it's the same with documents.
 Use <<_sql-create-type,`CREATE DOCUMENT TYPE`>> instead.
@@ -166,48 +170,53 @@ Now in your application store the vertices or documents in the right bucket, bas
 You can use any API and set the bucket.
 If you're using SQL, this is the way you can insert a new Customer into a specific bucket.
 
-```sql
+[source,sql]
+----
 arcadeDB> INSERT INTO BUCKET:Customer_Europe CONTENT { firstName: 'Enzo', lastName: 'Ferrari' }
-```
+----
 
 Since a bucket can only be part of one type, when you use the bucket notation with SQL, the type is inferred from the bucket, "Customer" in this case.
 
 When you're looking for customers based in Europe, you could execute this query:
 
-```sql
+[source,sql]
+----
 arcadeDB> SELECT FROM BUCKET:Customer_Europe
-```
+----
 
 You can go even more specific by creating a bucket per country, not just for continent, and query from that bucket.
 Example:
 
-```sql
+[source,sql]
+----
 CREATE BUCKET 'Customer_Europe_Italy'
 CREATE BUCKET 'Customer_Europe_Spain'
-```
+----
 
 Now get all the customers that live in Italy.
 
-```sql
+[source,sql]
+----
 arcadeDB> SELECT FROM BUCKET:Customer_Europe_Italy
-```
+----
 
 You can also specify a list of buckets in your query.
 This is the query to retrieve both Italian and Spanish customers.
 
-```sql
+[source,sql]
+----
 arcadeDB> SELECT FROM BUCKET:Customer_Europe_Italy,Customer_Europe_Spain
-```
+----
 
 [[Relationships]]
 [discrete]
-### Relationships
+=== Relationships
 
 ArcadeDB supports two kinds of relationships: **referenced** and **embedded**.
 It can manage relationships in a schema-full or schema-less scenario.
 
 [discrete]
-#### Referenced Relationships
+==== Referenced Relationships
 
 In Relational databases, tables are linked through `JOIN` commands, which can prove costly on computing resources.
 ArcadeDB manages relationships natively without computing `JOIN`'s by storing direct links to the target objects of the relationship. This boosts the load speed for the entire graph of connected objects, such as in Graph and Object database systems.
@@ -220,7 +229,7 @@ Customer Record A -------------> Record B Invoice
 ```
 
 [discrete]
-#### Embedded Relationships
+==== Embedded Relationships
 
 When using Embedded relationships, ArcadeDB stores the relationship within the record that embeds it.
 These relationships are stronger than Reference relationships.
@@ -247,12 +256,12 @@ arcadeDB> SELECT FROM Account WHERE address.city = 'Rome'
 ```
 
 [discrete]
-##### 1:1 and *n*:1 Embedded Relationships
+====# 1:1 and *n*:1 Embedded Relationships
 
 ArcadeDB expresses relationships of these kinds using the `EMBEDDED` type.
 
 [discrete]
-##### 1:*n* and *n*:*n* Embedded Relationships
+====# 1:*n* and *n*:*n* Embedded Relationships
 
 ArcadeDB expresses relationships of these kinds using a list or a map of links, such as:
 
@@ -260,27 +269,27 @@ ArcadeDB expresses relationships of these kinds using a list or a map of links, 
 - `MAP` An ordered map of records as the value and a string as the key, it doesn't accept duplicate keys.
 
 [discrete]
-#### Inverse Relationships
+==== Inverse Relationships
 
 In ArcadeDB, all Edges in the Graph model are bidirectional.
 This differs from the Document model, where relationships are always unidirectional, requiring the developer to maintain data integrity.
 In addition, ArcadeDB automatically maintains the consistency of all bidirectional relationships.
 
 [discrete]
-### Database
+=== Database
 
 Each server or Java VM can handle multiple database instances, but the database name must be unique.
 
 [[Database-URL]]
 [discrete]
-#### Database URL
+==== Database URL
 
 ArcadeDB uses its own http://en.wikipedia.org/wiki/Uniform_Resource_Locator[URL] format, of engine and database name as `<engine>:<db-name>`.
 The embedded engine is the default and can be omitted.
 To open a database on the local file system you can use directly the path as URL.
 
 [discrete]
-#### Database Usage
+==== Database Usage
 
 You must always close the database once you finish working on it.
 
