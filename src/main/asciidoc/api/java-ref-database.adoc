@@ -1,8 +1,10 @@
 [[Database]]
 ==== `Database` Interface
+
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-ref-database.adoc" float=right]
 
-It's the main class to operate with ArcadeDB. To obtain an instance of Database, use the class `<<DatabaseFactory,DatabaseFactory>>`.
+It's the main class to operate with ArcadeDB.
+To obtain an instance of Database, use the class `<<DatabaseFactory,DatabaseFactory>>`.
 
 ===== Methods (Alphabetic order)
 
@@ -35,7 +37,6 @@ It's the main class to operate with ArcadeDB. To obtain an instance of Database,
 |
 |
 |===
-
 
 ===== Methods (By category)
 
@@ -99,15 +100,17 @@ It returns an instance of `<<DatabaseAsyncExecutor,DatabaseAsyncExecutor>>` to e
 
 Syntax:
 
-```java
+[source,java]
+----
 DatabaseAsyncExecutor async()
-```
+----
 
 Example:
 
 Execute an asynchronous query:
 
-```java
+[source,java]
+----
 db.async().query("sql", "select from User", new AsyncResultsetCallback() {
   @Override
   public boolean onNext(Result result) {
@@ -120,11 +123,12 @@ db.async().query("sql", "select from User", new AsyncResultsetCallback() {
     System.err.println("Error on executing the query: " + exception );
   }
 });
-```
+----
 
 ====== begin()
 
-Starts a transaction on the current thread. Each thread can have only one active transaction.
+Starts a transaction on the current thread.
+Each thread can have only one active transaction.
 All the modification to the database become persistent only at pending changes in the transaction are made persistent only when the `<<_commit,commit()>>` method is called.
 ArcadeDB supports ACID transactions.
 Before the commit, no other thread/client can see any of the changes contained in the current transaction.
@@ -137,7 +141,8 @@ begin()
 
 Example:
 
-```java
+[source,java]
+----
 db.begin();  // <--- AT THIS POINT THE TRANSACTION IS STARTED AND ALL THE CHANGES ARE COLLECTED TILL THE COMMIT (SEE BELOW)
 try{
   // YOUR CODE HERE
@@ -145,52 +150,60 @@ try{
 } catch( Exception e ){
   db.rollback();
 }
-```
+----
 
 ====== close()
 
-Closes a database. This method should be called at the end of the application. By using Java7+ AutoClosed statement, the `close()` method is executed automatically at the end of the scope of the database variable.
+Closes a database.
+This method should be called at the end of the application.
+By using Java7+ AutoClosed statement, the `close()` method is executed automatically at the end of the scope of the database variable.
 
 Syntax:
 
-```java
+[source,java]
+----
 void close()
-```
+----
 
 Example:
 
-```java
+[source,java]
+----
 Database db = new DatabaseFactory("/temp/mydb").open();
 try{
   // YOUR CODE HERE
 } finally {
   db.close();
 }
-```
+----
 
 The suggested method is using Java7+ AutoClosed statement, to avoid the explicit `close()` calling:
 
-```java
+[source,java]
+----
 try( Database db = new DatabaseFactory("/temp/mydb").open(); ) {
   // YOUR CODE
 }
-```
+----
 
 ====== drop()
 
-Drops a database. The database will be completely removed from the filesystem.
+Drops a database.
+The database will be completely removed from the filesystem.
 
 Syntax:
 
-```java
+[source,java]
+----
 void drop()
-```
+----
 
 Example:
 
-```java
+[source,java]
+----
 new DatabaseFactory("/temp/mydb").open().drop();
-```
+----
 
 ====== getSchema()
 
@@ -198,15 +211,17 @@ Returns the Schema instance for the database.
 
 Syntax:
 
-```java
+[source,java]
+----
 Schema getSchema()
-```
+----
 
 Example:
 
-```java
+[source,java]
+----
 db.getSchema().createVertexType("Song");
-```
+----
 
 ====== isOpen()
 
@@ -220,26 +235,32 @@ boolean isOpen()
 
 Example:
 
-```java
+[source,java]
+----
 if( db.isOpen() ){
   // YOUR CODE HERE
 }
-```
+----
 
 ====== query( language, command, positionalParameters )
 
-Executes a query, with optional positional parameters. This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database. The execution of any other commands will throw a `IllegalArgumentException` exception.
+Executes a query, with optional positional parameters.
+This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database.
+The execution of any other commands will throw a `IllegalArgumentException` exception.
 
 Syntax:
 
-```java
+[source,java]
+----
 Resultset query( String language, String command, Object... positionalParameters )
-```
+----
 
 Where:
 
-- `language`             is the language to use. Only "SQL" language is supported for now, but in the future multiple languages could be used
-- `command`              is the command to execute. If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement
+- `language`             is the language to use.
+Only "SQL" language is supported for now, but in the future multiple languages could be used
+- `command`              is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement
 - `positionalParameters` optional variable array of parameters to execute with the query
 
 It returns a `Resultset` object where the result can be iterated.
@@ -248,45 +269,53 @@ Examples:
 
 Simple query:
 
-```java
+[source,java]
+----
 ResultSet resultset = db.query("sql", "select from V");
 while (resultset.hasNext()) {
   Result record = resultset.next();
   System.out.println( "Found record, name = " + record.getProperty("name"));
 }
-```
+----
 
 Query passing positional parameters:
 
-```java
+[source,java]
+----
 ResultSet resultset = db.query("sql", "select from V where age > ? and city = ?", 18, "Melbourne");
 while (resultset.hasNext()) {
   Result record = resultset.next();
   System.out.println( "Found record, name = " + record.getProperty("name"));
 }
-```
+----
 
 ====== query( language, command, parameterMap )
 
-Executes a query taking a map for parameters. This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database. The execution of any other commands will throw a `IllegalArgumentException` exception.
+Executes a query taking a map for parameters.
+This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database.
+The execution of any other commands will throw a `IllegalArgumentException` exception.
 
 Syntax:
 
-```java
+[source,java]
+----
 Resultset query( String language, String command, Map<String,Object> parameterMap )
-```
+----
 
 Where:
 
-- `language`     is the language to use. Only "SQL" language is supported for now, but in the future multiple languages could be used
-- `command`      is the command to execute. If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `language`     is the language to use.
+Only "SQL" language is supported for now, but in the future multiple languages could be used
+- `command`      is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
 - `parameterMap` this map is used to extract the named parameters
 
 It returns a `Resultset` object where the result can be iterated.
 
 Examples:
 
-```java
+[source,java]
+----
 Map<String,Object> parameters = new HashMap<>();
 parameters.put("age", 18);
 parameters.put("city", "Melbourne");
@@ -296,24 +325,28 @@ while (resultset.hasNext()) {
   Result record = resultset.next();
   System.out.println( "Found record, name = " + record.getProperty("name"));
 }
-```
+----
 
 ====== command( language, command, positionalParameters )
 
-Executes a command that could change the database. This is the equivalent to `query()`, but allows the command to modify the database. Only "SQL" language is supported, but in the future multiple languages could be used.
+Executes a command that could change the database.
+This is the equivalent to `query()`, but allows the command to modify the database.
+Only "SQL" language is supported, but in the future multiple languages could be used.
 
 Syntax:
 
-```java
+[source,java]
+----
 Resultset command( String language, String command, Object... positionalParameters )
-```
+----
 
 Where:
 
-- `language`             is the language to use. Only "SQL" is supported
-- `command`              is the command to execute. If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
+- `language`             is the language to use.
+Only "SQL" is supported
+- `command`              is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
 - `positionalParameters` optional variable array of parameters to execute with the query
-
 
 It returns a `Resultset` object where the result can be iterated.
 
@@ -321,32 +354,38 @@ Examples:
 
 Create a new record:
 
-```java
+[source,java]
+----
 db.command("sql", insert into V set name = 'Jay', surname = 'Miner'");
-```
+----
 
 Create a new record by passing position parameters:
 
-```java
+[source,java]
+----
 db.command("sql", insert into V set name = ?, surname = ?", "Jay", "Miner");
-```
+----
 
 ====== command( language, command, parameterMap )
 
-Executes a command that could change the database. This is the equivalent to `query()`, but allows the command to modify the database. Only "SQL" language is supported, but in the future multiple languages could be used.
+Executes a command that could change the database.
+This is the equivalent to `query()`, but allows the command to modify the database.
+Only "SQL" language is supported, but in the future multiple languages could be used.
 
 Syntax:
 
-```java
+[source,java]
+----
 Resultset command( String language, String command, Map<String,Object> parameterMap )
-```
+----
 
 Where:
 
-- `language`     is the language to use. Only "SQL" is supported
-- `command`      is the command to execute. If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
+- `language`     is the language to use.
+Only "SQL" is supported
+- `command`      is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
 - `parameterMap` this map is used to extract the named parameters
-
 
 It returns a `Resultset` object where the result can be iterated.
 
@@ -354,32 +393,38 @@ Examples:
 
 Create a new record by passing a map of parameters:
 
-```java
+[source,java]
+----
 Map<String,Object> parameters = new HashMap<>();
 parameters.put("name", "Jay");
 parameters.put("surname", "Miner");
 
 db.command("sql", insert into V set name = :name, surname = :surname", parameters);
-```
+----
 
 ====== commit()
 
-Commits the thread's active transaction. All the pending changes in the transaction are made persistent.
-A transaction must be begun by calling the `<<_begin,begin()>>` method. Rolled back transactions cannot be committed.
+Commits the thread's active transaction.
+All the pending changes in the transaction are made persistent.
+A transaction must be begun by calling the `<<_begin,begin()>>` method.
+Rolled back transactions cannot be committed.
 ArcadeDB supports ACID transactions.
 Before the commit, no other thread/client can see any of the changes contained in the current transaction.
-ArcadeDB uses a WAL (Write Ahead Log) as journal in case a crash happens at commit time. In this way, at the next restart, the database can be rollbacked at the previous state.
+ArcadeDB uses a WAL (Write Ahead Log) as journal in case a crash happens at commit time.
+In this way, at the next restart, the database can be rollbacked at the previous state.
 If the commit operation succeed, the changes are immediately visible to the other threads/clients and further transactions of the current thread.
 
 Syntax:
 
-```java
+[source,java]
+----
 commit()
-```
+----
 
 Example:
 
-```java
+[source,java]
+----
 db.begin();
 try{
   // YOUR CODE HERE
@@ -387,24 +432,26 @@ try{
 } catch( Exception e ){
   db.rollback();
 }
-```
+----
 
 ====== deleteRecord( record )
 
-Deleted a record. The record will be persistently deleted only at commit time.
+Deleted a record.
+The record will be persistently deleted only at commit time.
 
 Syntax:
 
-```java
+[source,java]
+----
 void deleteRecord( Record record )
-```
+----
 
 Examples:
 
-
-```java
+[source,java]
+----
 db.deleteRecord( customer );
-```
+----
 
 ====== iterateBucket( bucketName )
 
@@ -414,15 +461,18 @@ The result are not accumulated in RAM, but tather this method returns an `Iterat
 
 Syntax:
 
-```java
+[source,java]
+----
 Iterator<Record> iterateBucket( String bucketName )
-```
+----
 
 Example:
 
-Aggregate the records by age. This is equivalent to a SQL query with a "group by age":
+Aggregate the records by age.
+This is equivalent to a SQL query with a "group by age":
 
-```java
+[source,java]
+----
 Map<String, AtomicInteger> aggregate = new HashMap<>();
 
 Iterator<Record> result = db.iterateType("V", true );
@@ -437,13 +487,14 @@ while( result.hasNext() ){
   } else
     counter.incrementAndGet();
 }
-```
+----
 
 Example:
 
 Prints all the records in the bucket "Customer" with age major or equals to 21.
 
-```java
+[source,java]
+----
 Iterator<Record> result = db.iterateBucket("Customer");
 while( result.hasNext() ){
   Record record = result.next();
@@ -452,25 +503,29 @@ while( result.hasNext() ){
   if (age =! null && age >= 21 )
     System.out.println("Found customer: " + record.get("name") );
 }
-```
+----
 
 ====== iterateType( className, polymorphic )
 
-Iterates all the records contained in the buckets relative to a type. If `polymorphic` is `true`, then also the sub-types buckets are considered.
+Iterates all the records contained in the buckets relative to a type.
+If `polymorphic` is `true`, then also the sub-types buckets are considered.
 To iterate one bucket only check out the <<_iteratebucket_bucketname,iterateBucket()>> method.
 The result are not accumulated in RAM, but tather this method returns an `Iterator<Record>` that fetches the records only when `.next()` is called.
 
 Syntax:
 
-```java
+[source,java]
+----
 Iterator<Record> iterateType( String typeName, boolean polymorphic )
-```
+----
 
 Example:
 
-Aggregate the records by age. This is equivalent to a SQL query with a "group by age":
+Aggregate the records by age.
+This is equivalent to a SQL query with a "group by age":
 
-```java
+[source,java]
+----
 Map<String, AtomicInteger> aggregate = new HashMap<>();
 
 Iterator<Record> result = db.iterateType("V", true );
@@ -485,7 +540,7 @@ while( result.hasNext() ){
   } else
     counter.incrementAndGet();
 }
-```
+----
 
 ====== lookupByKey( type, properties, keys )
 
@@ -493,9 +548,10 @@ Look ups for one or more records (document, vertex or edge) that match one or mo
 
 Syntax:
 
-```java
+[source,java]
+----
 Cursor<RID> lookupByKey( String type, String[] properties, Object[] keys )
-```
+----
 
 Where:
 
@@ -507,14 +563,16 @@ It returns a `Cursor<RID>` (like an iterator).
 
 Examples:
 
-Look up for an author with name "Jay" and surname "Miner". This requires an index on the type "Author", properties "name" and "surname".
+Look up for an author with name "Jay" and surname "Miner".
+This requires an index on the type "Author", properties "name" and "surname".
 
-```java
+[source,java]
+----
 Cursor<RID> jayMiner = database.lookupByKey("Author", new String[] { "name", "surname" }, new Object[] { "Jay", "Miner" });
 while( jayMiner.hasNext() ){
   System.out.println( "Found Jay! " + jayMiner.next().getProperty("name"));
 }
-```
+----
 
 ====== lookupByRID( rid, loadContent )
 
@@ -522,14 +580,17 @@ Look ups for a record (document, vertex or edge) by its RID (Record Identifier).
 
 Syntax:
 
-```java
+[source,java]
+----
 Record lookupByRID( RID rid, boolean loadContent )
-```
+----
 
 Where:
 
 - `rid`         is the record identifier
-- `loadContent` forces the load of the content too. If the content is not loaded will be lazy loaded at the first access. Use `true` if you are going to access to the record content for sure, otherwise, use `false`
+- `loadContent` forces the load of the content too.
+If the content is not loaded will be lazy loaded at the first access.
+Use `true` if you are going to access to the record content for sure, otherwise, use `false`
 
 It returns a `Record` implementation (document, vertex or edge).
 
@@ -537,19 +598,23 @@ Examples:
 
 Load the vertex by RID and its content:
 
-```java
+[source,java]
+----
 Vertex v = (Vertex) db.lookupByRID(new RID(db, "#3:47"));
-```
+----
 
 ====== newDocument( typeName )
 
-Creates a new document of a certain type. The type must be of type "document" and must be created beforehand. In order to be saved, the method `MutableDocument.save()` must be called.
+Creates a new document of a certain type.
+The type must be of type "document" and must be created beforehand.
+In order to be saved, the method `MutableDocument.save()` must be called.
 
 Syntax:
 
-```java
+[source,java]
+----
 MutableDocument newDocument( typeName )
-```
+----
 
 Where:
 
@@ -561,22 +626,26 @@ Examples:
 
 Create a new document of type "Customer":
 
-```java
+[source,java]
+----
 MutableDocument doc = db.newDocument("Customer");
 doc.set("name", "Jay");
 doc.set("surname", "Miner");
 doc.save();
-```
+----
 
 ====== newVertex( typeName )
 
-Creates a new vertex of a certain type. The type must be of type "vertex" and must be created beforehand. In order to be saved, the method `MutableVertex.save()` must be called.
+Creates a new vertex of a certain type.
+The type must be of type "vertex" and must be created beforehand.
+In order to be saved, the method `MutableVertex.save()` must be called.
 
 Syntax:
 
-```java
+[source,java]
+----
 MutableVertex newVertex( typeName )
-```
+----
 
 Where:
 
@@ -588,12 +657,13 @@ Examples:
 
 Create a new document of type "Customer":
 
-```java
+[source,java]
+----
 MutableVertex v = db.newVertex("Customer");
 v.set("name", "Jay");
 v.set("surname", "Miner");
 v.save();
-```
+----
 
 ====== newEdgeByKeys( sourceVertexType, sourceVertexKey, sourceVertexValue, destinationVertexType, destinationVertexKey, destinationVertexValue, createVertexIfNotExist, edgeType, bidirectional, properties )
 
@@ -601,14 +671,15 @@ Creates a new edge between two vertices found by their keys.
 
 Syntax:
 
-```java
+[source,java]
+----
 Edge newEdgeByKeys( String sourceVertexType, String[] sourceVertexKey,
                     Object[] sourceVertexValue,
                     String destinationVertexType, String[] destinationVertexKey,
                     Object[] destinationVertexValue,
                     boolean createVertexIfNotExist, String edgeType, boolean bidirectional,
                     Object... properties )
-```
+----
 
 Where:
 
@@ -629,28 +700,35 @@ Examples:
 
 Create a new document of type "Customer":
 
-```java
-Edge likes = db.newEdgeByKeys( "Account", new String[] {"id"}, new Object[] {322323},
-                               "Song", new String[] {"title"}, new Object[] {"Chasing Cars"},
+[source,java]
+----
+Edge likes = db.newEdgeByKeys( "Account",
+                                new String[] {"id"}, new Object[] {322323},
+                               "Song",
+                                new String[] {"title"},
+                                new Object[] {"Chasing Cars"},
                                false, "Likes", true);
 likes.save();
-```
+----
 
 ====== rollback()
 
-Aborts the thread's active transaction by rolling back all the pending changes. Usually the transaction rollback is executed in case of errors.
+Aborts the thread's active transaction by rolling back all the pending changes.
+Usually the transaction rollback is executed in case of errors.
 If an exception happens during the call `<<_commit,commit()>>`, the transaction is roll backed automatically.
 Once rolled backed, the transaction cannot be committed anymore but it has to be re-started by calling the `<<_begin,begin()>>` method.
 
 Syntax:
 
-```java
+[source,java]
+----
 rollback()
-```
+----
 
 Example:
 
-```java
+[source,java]
+----
 db.begin();
 try{
   // YOUR CODE HERE
@@ -658,52 +736,60 @@ try{
 } catch( Exception e ){
   db.rollback(); // <--- ROLLBACK IN CASE OF EXCEPTION
 }
-```
+----
 
 ====== scanBucket( bucketName, callback )
 
-Scans all the records contained in a buckets. For each record found, the callback is called passing the current record.
+Scans all the records contained in a buckets.
+For each record found, the callback is called passing the current record.
 To scan a type (with all its buckets), use the method <<_scantype_classname_polymorphic_callback,scanType()>> instead.
 The callback method must return `true` to continue the scan, otherwise `false`.
 Look also at the <<_iteratebucket_bucketname,iterateBucket()>> method if you want to use an iterator approach instead of callback.
 
 Syntax:
 
-```java
+[source,java]
+----
 void scanBucket(String bucketName, RecordCallback callback);
-```
+----
 
 Example:
 
 Prints all the records in the bucket "Customer" with age major or equals to 21.
 
-```java
+[source,java]
+----
 db.scanBucket("Customer", (record) -> {
   Integer age = (Integer) record.get("age");
   if (age =! null && age >= 21 )
     System.out.println("Found customer: " + record.get("name") );
   return true;
 });
-```
+----
 
 ====== scanType( className, polymorphic, callback )
 
-Scans all the records contained in all the buckets relative to a type. If `polymorphic` is `true`, then also the sub-types buckets are considered. For each record found, the callback is called passing the current record.
+Scans all the records contained in all the buckets relative to a type.
+If `polymorphic` is `true`, then also the sub-types buckets are considered.
+For each record found, the callback is called passing the current record.
 To scan one bucket only check out the <<_scanbucket_bucketname_callback,scanBucket()>> method.
 The callback method must return `true` to continue the scan, otherwise `false`.
 Look also at the <<_iteratetype_classname_polymorphic,iterateType()>> method if you want to use an iterator approach instead of callback.
 
 Syntax:
 
-```java
+[source,java]
+----
 scanType( String className, boolean polymorphic, DocumentCallback callback )
-```
+----
 
 Example:
 
-Aggregate the records by age. This is equivalent to a SQL query with a "group by age":
+Aggregate the records by age.
+This is equivalent to a SQL query with a "group by age":
 
-```java
+[source,java]
+----
 Map<String, AtomicInteger> aggregate = new HashMap<>();
 
 db.scanType("V", true, (record) -> {
@@ -717,7 +803,7 @@ db.scanType("V", true, (record) -> {
 
   return true;
 });
-```
+----
 
 ====== transaction( txBlock )
 
@@ -725,31 +811,36 @@ This methods wraps a call to the method <<_transaction_txblock_retries,transacti
 
 ====== transaction( txBlock, retries )
 
-Executes a transaction block as a callback or a clojure. Before calling the callback in `TransactionScope`, the transaction is begun and after the end of the callback, the transaction is committed. In case of any exceptions, the transaction is rolled back.
+Executes a transaction block as a callback or a clojure.
+Before calling the callback in `TransactionScope`, the transaction is begun and after the end of the callback, the transaction is committed.
+In case of any exceptions, the transaction is rolled back.
 In case a `NeedRetryException` exceptions is thrown, the transaction is repeated up to `retries` times
 
 Syntax:
 
-```java
+[source,java]
+----
 void transaction( TransactionScope txBlock )
-```
+----
 
 Examples:
 
 Example by using Java8+ syntax:
 
-```java
+[source,java]
+----
 db.transaction( () -> {
   final MutableVertex v = database.newVertex("Author");
   v.set("name", "Jay");
   v.set("surname", "Miner");
   v.save();
 });
-```
+----
 
 Example by using Java7 syntax:
 
-```java
+[source,java]
+----
 db.transaction( new Database.TransactionScope() {
   @Override
   public void execute(Database database) {
@@ -759,4 +850,4 @@ db.transaction( new Database.TransactionScope() {
     v.save();
   }
 });
-```
+----
