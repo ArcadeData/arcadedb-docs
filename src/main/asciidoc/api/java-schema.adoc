@@ -85,26 +85,35 @@ Bucket             getBucketByName(String name);
 Collection<Bucket> getBuckets();
 ----
 
+[[Indexes]]
 ==== Working with indexes
 
 Like any other DBMS, ArcadeDB has indexes.
 Even if indexes are not used to manage relationships (because ArcadeDB has a native GraphDB engine based on links), indexes are fundamental for a quick lookup of records by one or multiple properties.
 
-NOTE: Null values are not indexed, so any query that is looking for null values will not use the index with a full scan.
+NOTE: By default null values are not indexed, so any query that is looking for null values will not use the index but instead result in a full scan.
 
 ArcadeDB provides automatic and manual indexes:
 
 - `automatic` that are updated automatically when you work with records
 - `manual` are detached from a type and the user is totally responsible to insert and remove entries into and from the index
 
-The specific API to manage indexes are:
+The `Schema` API to manage indexes are:
 
 [source,java]
 ----
-Index[] createClassIndexes(SchemaImpl.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames);
-Index[] createClassIndexes(SchemaImpl.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames, int pageSize);
+TypeIndex createTypeIndex(SchemaImpl.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames);
+
+TypeIndex createTypeIndex(SchemaImpl.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames, int pageSize);
+
+TypeIndex createTypeIndex(EmbeddedSchema.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames, int pageSize, Index.BuildIndexCallback callback);
+
+TypeIndex createTypeIndex(EmbeddedSchema.INDEX_TYPE indexType, boolean unique, String typeName, String[] propertyNames, int pageSize, LSMTreeIndexAbstract.NULL_STRATEGY nullStrategy, Index.BuildIndexCallback callback);
+
 boolean existsIndex(String indexName);
+
 Index[] getIndexes();
+
 Index   getIndexByName(String indexName);
 ----
 
@@ -117,19 +126,34 @@ Where:
 Internally it's managed as a LSM_TREE
 * `unique` tells if the entries in the index must be unique or they can be repeated
 * `typeName` is the name of the type (document, vertex or edge) where the index must be applied
-* `propertyNames` is the array of property names to index.
-In case of more than one property is used, the index is composed
+* `propertyNames` is the array of property names to index. In case of more than one property is used, the index is composed. Property names may also reference a document type's <<Inheritance, polymorphic properties>>
 * `pageSize` is the page size.
 If not specified, the default of 2MB is used
+* `nullStrategy` can be:
+** `SKIP` ignores all null values when creating and reading an index, this is the default.
+** `ERROR` throws an exception when creating or reading a null value indexed property.
+* `callback` is a 2 argument Functional interface called when each `Document` is added to this index. _This is most likely only useful for internal use cases_. The callback receives the `Document` just indexed, and a running count of the total number of documents indexed in the bucket.
+
+The API above sometimes returns `TypeIndex` vs `Index`. The more general `getIndexes` and `getIndexByName` methods return `Index` because the index migh be a bucket index or a type index. The `TypeIndex` should be useful in most cases, but sometimes it may be useful to work at the bucket level.
+
+In addition to the `createTypeIndex` methods above, for each overload there is a matching `getOrCreateTypeIndex` method which returns an existing index rather than thowing an exception if a matching index is found. There are also matching index API creation methods available via the `DocumentType` for creating an index directly from a document type, rather than against the general `Schema` object. When using the `DocumentType` convenience variants `typeName` is provided automatically.
+
+NOTE: An index is unique to a set of property names per document type. Any attempt to create a second index on a non-unique set of [`typeName`, `propertyNames`] will throw an exception using the `createTypeIndex` method variants.
 
 A special mention goes for the method `createManualIndex()` that creates indexes not attached to any type (manual):
 
 [source,java]
 ----
-Index createManualIndex(SchemaImpl.INDEX_TYPE indexType, boolean unique, String indexName, byte[] keyTypes, int pageSize);
+Index createManualIndex(SchemaImpl.INDEX_TYPE indexType, boolean unique, String indexName, com.arcadedb.schema.Type[] keyTypes, int pageSize);
 ----
 
 While by default indexes are updated automatically when you work with records, in this case, the user is totally responsible to insert and remove entries into and from the index.
+
+===== Indexing Edges
+
+Like any other document type, indexes may be defined for `Edge` types as well. If the property name for the index is either `@out` or `@in`, the index property will be a `LINK` type on the adjacently referenced `Vertex`.
+
+The `LINK` type represents @RIDs (like #13:222). Usually creating `LINK` indexes is meant for indexing incoming/outgoing edges in order to prevent https://en.wikipedia.org/wiki/Multigraph[multigraphs] (i.e. duplicates edges between the same vertex pairs).
 
 ==== Database Configuration
 
