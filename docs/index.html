@@ -12505,7 +12505,20 @@ ArcadeDB&gt; CREATE EDGE Watched FROM (SELECT FROM account WHERE name = 'Luca') 
 <p><strong><code>&lt;property&gt;</code></strong> Defines the property you want to automatically index. The property must already exist.</p>
 </li>
 <li>
-<p><strong><code>&lt;index-type&gt;</code></strong> Defines the index type you want to use. For a complete list, see <a href="#Indexes">Indexes</a>.</p>
+<p><strong><code>&lt;index-type&gt;</code></strong> Defines the index type you want to use:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>UNIQUE</code> does not allow duplicate keys,</p>
+</li>
+<li>
+<p><code>NOTUNIQUE</code> allows duplicate keys,</p>
+</li>
+<li>
+<p><code>FULL_TEXT</code> based on any single word of text.</p>
+</li>
+</ul>
+</div>
 </li>
 <li>
 <p><strong><code>&lt;key-type&gt;</code></strong> Defines the key type. With automatic indexes, the key type is automatically selected when the database reads the target schema property. For manual indexes, when not specified, it selects the key at run-time during the first insertion by reading the type of the type. In creating composite indexes, it uses a comma-separated list of types.</p>
@@ -12691,7 +12704,7 @@ ArcadeDB&gt; CREATE INDEX ON Has (started, ended) NOTUNIQUE</pre>
 <div class="content">
 <pre>CREATE PROPERTY
 &lt;type&gt;.&lt;property&gt; &lt;data-type&gt;
-( &lt;property-constraint&gt; [, &lt;property-constraint&gt;]* )
+[&lt;property-constraint&gt;[,]*]
 [IF NOT EXISTS]</pre>
 </div>
 </div>
@@ -12896,7 +12909,7 @@ When you create a property, ArcadeDB checks the data for property and type. In t
 <div class="content">
 <pre class="highlight"><code class="language-sql" data-lang="sql">CREATE &lt;DOCUMENT|VERTEX|EDGE&gt; TYPE &lt;type&gt;
 [ IF NOT EXISTS ]
-[EXTENDS &lt;super-type&gt;] [BUCKET &lt;bucket-id&gt;*] [BUCKETS &lt;total-bucket-number&gt;]</code></pre>
+[EXTENDS &lt;super-type&gt;] [BUCKET &lt;bucket-id&gt;[,]*] [BUCKETS &lt;total-bucket-number&gt;]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -13161,7 +13174,7 @@ ArcadeDB&gt; CREATE VERTEX V1</pre>
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-sql" data-lang="sql">DELETE FROM &lt;Type&gt;|BUCKET:&lt;bucket&gt;|INDEX:&lt;index&gt; [RETURN &lt;returning&gt;]
-  [WHERE &lt;Condition&gt;*] [LIMIT &lt;MaxRecords&gt;] [TIMEOUT &lt;timeout&gt;]</code></pre>
+  [WHERE &lt;Condition&gt;*] [LIMIT &lt;MaxRecords&gt;] [TIMEOUT &lt;MilliSeconds&gt;]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -13378,7 +13391,7 @@ ArcadeDB&gt; CREATE VERTEX V1</pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">DROP TYPE &lt;type&gt; [ UNSAFE ][IF EXISTS]</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">DROP TYPE &lt;type&gt; [UNSAFE] [IF EXISTS]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -13517,7 +13530,7 @@ Bear in mind, that the schema must remain coherent. For instance, avoid removing
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">EXPORT DATABASE &lt;url&gt; [FORMAT "JSONL"|"GRAPHML"] [OVERWRITE TRUE|FALSE]</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">EXPORT DATABASE &lt;url&gt; [FORMAT "JSONL"|"GRAPHML"|"GRAPHSON"] [OVERWRITE TRUE|FALSE]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -13612,7 +13625,7 @@ GraphML is recommended</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">IMPORT DATABASE [ &lt;url&gt; ]</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">IMPORT DATABASE &lt;url&gt;</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -14990,7 +15003,7 @@ implementation and the SQL-92 standard, please refer to <a href="#SQL-Introducti
     [ UNWIND &lt;Field&gt;* ]
     [ SKIP &lt;SkipRecords&gt; ]
     [ LIMIT &lt;MaxRecords&gt; ]
-    [ TIMEOUT &lt;Timeout&gt; [ &lt;STRATEGY&gt; ]</code></pre>
+    [ TIMEOUT &lt;MilliSeconds&gt; [ &lt;STRATEGY&gt; ] ]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -16127,7 +16140,7 @@ You can also define the maximum depth in the <a href="#SQL-Select"><code>SELECT<
   [UPSERT]
   [RETURN &lt;returning&gt; [&lt;returning-expression&gt;]]
   [WHERE &lt;conditions&gt;]
-  [LIMIT &lt;max-records&gt;] [TIMEOUT &lt;timeout&gt;]</code></pre>
+  [LIMIT &lt;max-records&gt;] [TIMEOUT &lt;MilliSeconds&gt;]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -16150,14 +16163,36 @@ You can also define the maximum depth in the <a href="#SQL-Select"><code>SELECT<
 </ul>
 </div>
 <div class="paragraph">
-<p><code>UPSERT</code> requires a <a href="#Filtering"><code>WHERE</code></a> clause and a type target. There are further limitations on <code>UPSERT</code>, explained below.
-- <strong><code>RETURN</code></strong> Specifies an expression to return instead of the record and what to do with the result-set returned by the expression. The available return operators are:
- - <code>COUNT</code> Returns the number of updated records. This is the default return operator.
- - <code>BEFORE</code> Returns the records before the update.
- - <code>AFTER</code> Return the records after the update.
-- <a href="#Filtering"><code>WHERE</code></a>
-- <code>LIMIT</code> Defines the maximum number of records to update.
-- <code>TIMEOUT</code> Defines the time you want to allow the update run before it times out.</p>
+<p><code>UPSERT</code> requires a <a href="#Filtering"><code>WHERE</code></a> clause and a type target. There are further limitations on <code>UPSERT</code>, explained below.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong><code>RETURN</code></strong> Specifies an expression to return instead of the record and what to do with the result-set returned by the expression. The available return operators are:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>COUNT</code> Returns the number of updated records. This is the default return operator.</p>
+</li>
+<li>
+<p><code>BEFORE</code> Returns the records before the update.</p>
+</li>
+<li>
+<p><code>AFTER</code> Return the records after the update.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><a href="#Filtering"><code>WHERE</code></a></p>
+</li>
+<li>
+<p><code>LIMIT</code> Defines the maximum number of records to update.</p>
+</li>
+<li>
+<p><code>TIMEOUT</code> Defines the time you want to allow the update run before it times out.</p>
+</li>
+</ul>
 </div>
 <div class="admonitionblock note">
 <table>
@@ -17125,7 +17160,7 @@ To know more about it, look at <a href="#Managing-Dates">Managing Dates</a></p><
 <td class="tableblock halign-left valign-top"><p class="tableblock">Embedded</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">EMBEDDED</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">The Record is contained inside the owner.
-The contained Record has no <a href="#RID">RIDs</a></p></td>
+The contained record has no <a href="#RID">RID</a></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>EmbeddedDocument</code></p></td>
 <td class="tableblock halign-left valign-top"></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">EmbeddedDocument</p></td>
@@ -17134,7 +17169,7 @@ The contained Record has no <a href="#RID">RIDs</a></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Embedded list</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">LIST</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">The Records are contained inside the owner.
-The contained records have no <a href="#RID">RID</a> and are reachable only by navigating the owner record</p></td>
+The contained records have no <a href="#RID">RIDs</a> and are reachable only by navigating the owner record</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>List&lt;EmbeddedDocument&gt;</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">0 - 41,000,000 items</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">String</p></td>
@@ -17143,7 +17178,7 @@ The contained records have no <a href="#RID">RID</a> and are reachable only by n
 <td class="tableblock halign-left valign-top"><p class="tableblock">Embedded map</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">MAP</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">The Records are contained inside the owner as values of the entries, while the keys can only be Strings.
-The contained ords e no <a href="#RID">RIDs</a> and are reachable only by navigating the owner Record</p></td>
+The contained records have no <a href="#RID">RIDs</a> and are reachable only by navigating the owner Record</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Map&lt;String, EmbeddedDocument&gt;</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">0 - 41,000,000 items</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>Collection&lt;? extends EmbeddedDocument&lt;?&gt;&gt;</code>, <code>String</code></p></td>
@@ -17679,7 +17714,7 @@ Example to increase the default page size for buckets to 1 MB for all the databa
 </div>
 </div>
 <div class="sect2">
-<h3 id="SQL-Syntax">11.3. SQL Syntax </h3>
+<h3 id="SQL-Syntax">11.3. SQL Syntax</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/sql-syntax.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -17724,7 +17759,7 @@ Example to increase the default page size for buckets to 1 MB for all the databa
 </ul>
 </div>
 <div class="paragraph">
-<p>An identifier is a sequence of characters delimited by back-ticks <code>` ` </code><code>. 
+<p>An identifier is a sequence of characters delimited by back-ticks <code>` ` </code><code>.
 Examples of valid identifiers are
 - <code></code> <code>surname</code> </code>`
 - <code>` <code>name and surname</code> </code>`
@@ -17765,9 +17800,9 @@ Examples of valid identifiers are
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-SQL" data-lang="SQL">/* INVALID - `from` is a reserved keyword */
-SELECT from from from 
+SELECT from from from
 /* CORRECT */
-SELECT `from` from `from` 
+SELECT `from` from `from`
 
 /* INVALID - simplified identifiers cannot start with a number */
 SELECT name as 1name from Foo
@@ -17793,7 +17828,7 @@ SELECT `foo\`bar` from Foo</code></pre>
 <p><strong>Case sensitivity</strong></p>
 </div>
 <div class="paragraph">
-<p><strong>(draft)</strong> 
+<p><strong>(draft)</strong>
 In current version, type names are case <strong>insensitive</strong>, all the other identifiers are case sensitive.</p>
 </div>
 <div id="SQL-Reserved-Words" class="paragraph">
@@ -17982,7 +18017,7 @@ In current version, type names are case <strong>insensitive</strong>, all the ot
 </div>
 <div class="paragraph">
 <p>Accepted base types in ArcadeDB SQL are:
-- <strong>integer numbers</strong>: </p>
+- <strong>integer numbers</strong>:</p>
 </div>
 <div class="paragraph">
 <p>Valid integers are</p>
@@ -18135,31 +18170,32 @@ nUll
 - BigDecimal: absolute precision</p>
 </div>
 <div class="paragraph">
-<p><strong>Integers</strong> are represented in SQL as plain numbers, eg. <code>123</code>. If the number represented exceeds the Integer maximum size (see Java java.lang.Integer <code>MAX_VALUE</code> and <code>MIN_VALUE</code>), then it&#8217;s automatically converted to a Long. </p>
+<p><strong>Integers</strong> are represented in SQL as plain numbers, eg. <code>123</code>. If the number represented exceeds the Integer maximum size (see Java java.lang.Integer <code>MAX_VALUE</code> and <code>MIN_VALUE</code>), then it&#8217;s automatically converted to a Long.</p>
 </div>
 <div class="paragraph">
-<p>When an integer is saved to a schemaful property of another numerical type, it is automatically converted. </p>
+<p>When an integer is saved to a schemaful property of another numerical type, it is automatically converted.</p>
 </div>
 <div class="paragraph">
 <p><strong>Longs</strong> are represented in SQL as numbers with <code>L</code> suffix, eg. <code>123L</code> (L can be uppercase or lowercase). Plain numbers (withot L prefix) that exceed the Integer range are also automatically converted to Long. If the number represented exceeds the Long maximum size (see Java java.lang.Long <code>MAX_VALUE</code> and <code>MIN_VALUE</code>), then the result is <code>NULL</code>;</p>
 </div>
 <div class="paragraph">
 <p>Integer and Long numbers can be represented in base 10 (decimal), 8 (octal) or 16 (hexadecimal):
-- decimal: <code>["-"] ("0" | ( ("1"-"9") ("0"-"9")* ) ["l"|"L"]</code>, eg. 
-  - <code>15</code>, <code>15L</code>  
-  - <code>-164</code> 
+- decimal: <code>["-"] ("0" | ( ("1"-"9") ("0"-"9")* ) ["l"|"L"]</code>, eg.
+  - <code>15</code>, <code>15L</code>
+  - <code>-164</code>
   - <code>999999999999</code>
-- octal: <code>["-"] "0" ("0"-"7")+ ["l"|"L"]</code>, eg. 
-  - <code>01</code>, <code>01L</code> (equivalent to decimal 1) 
+- octal: <code>["-"] "0" ("0"-"7")+ ["l"|"L"]</code>, eg.
+  - <code>01</code>, <code>01L</code> (equivalent to decimal 1)
   - <code>010</code>, <code>010L</code> (equivalent to decimal 8)
   - <code>-065</code>, <code>-065L</code> (equivalent to decimal 53)
 - hexadecimal: <code>["-"] "0" ("x"|"X") ("0"-"9"," a"-"f", "A"-"F")+ ["l"|"L"]</code>, eg.
   - <code>0x1</code>, <code>0X1</code>, <code>0x1L</code> (equivalent to 1 decimal)
   - <code>0x10</code> (equivalent to decimal 16)
   - <code>0xff</code>, <code>0xFF</code> (equivalent to decimal 255)
-  - <code>-0xff</code>, <code>-0xFF</code> (equivalent to decimal -255)
-  
-<strong>Float</strong> numbers are represented in SQL as <code>[-][&lt;number&gt;].&lt;number&gt;</code>, eg. valid Float values are <code>1.5</code>, <code>-1567.0</code>, <code>.556767</code>. If the number represented exceeds the Float maximum size (see Java java.lang.Float <code>MAX_VALUE</code> and <code>MIN_VALUE</code>), then it&#8217;s automatically converted to a Double. </p>
+  - <code>-0xff</code>, <code>-0xFF</code> (equivalent to decimal -255)</p>
+</div>
+<div class="paragraph">
+<p><strong>Float</strong> numbers are represented in SQL as <code>[-][&lt;number&gt;].&lt;number&gt;</code>, eg. valid Float values are <code>1.5</code>, <code>-1567.0</code>, <code>.556767</code>. If the number represented exceeds the Float maximum size (see Java java.lang.Float <code>MAX_VALUE</code> and <code>MIN_VALUE</code>), then it&#8217;s automatically converted to a Double.</p>
 </div>
 <div class="paragraph">
 <p><strong>Double</strong> numbers are represented in SQL as <code>[-][&lt;number&gt;].&lt;number&gt;D</code> (D can be uppercase or lowercase), eg. valid Float values are <code>1.5d</code>, <code>-1567.0D</code>, <code>.556767D</code>. If the number represented exceeds the Double maximum size (see Java java.lang.Double <code>MAX_VALUE</code> and <code>MIN_VALUE</code>), then the result is <code>NULL</code></p>
@@ -18179,28 +18215,28 @@ DECIMAL_FLOATING_POINT_LITERAL:
       | (["0"-"9"])+ (&lt;DECIMAL_EXPONENT&gt;)? ["f","F","d","D"]
   &gt;
 
-DECIMAL_EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ 
+DECIMAL_EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+
 
 HEXADECIMAL_FLOATING_POINT_LITERAL:
         "0" ["x", "X"] (["0"-"9","a"-"f","A"-"F"])+ (".")? &lt;HEXADECIMAL_EXPONENT&gt; (["f","F","d","D"])?
       | "0" ["x", "X"] (["0"-"9","a"-"f","A"-"F"])* "." (["0"-"9","a"-"f","A"-"F"])+ &lt;HEXADECIMAL_EXPONENT&gt; (["f","F","d","D"])?
 
-HEXADECIMAL_EXPONENT: ["p","P"] (["+","-"])? (["0"-"9"])+ </code></pre>
+HEXADECIMAL_EXPONENT: ["p","P"] (["+","-"])? (["0"-"9"])+</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>Eg. 
-- base 10 
-  - <code>0.5</code> 
+<p>Eg.
+- base 10
+  - <code>0.5</code>
   - <code>0.5f</code>, <code>0.5F</code>, <code>2f</code> (ATTENTION, this is NOT hexadecimal)
   - <code>0.5d</code>, <code>0.5D</code>, <code>2D</code> (ATTENTION, this is NOT hexadecimal)
   - <code>3.21e2d</code> equivalent to <code>3.21 * 10^2 = 321</code>
 - base 16
-  - <code>0x3p4d</code> equivalent to <code>3 * 2^4 = 48</code>  
+  - <code>0x3p4d</code> equivalent to <code>3 * 2^4 = 48</code>
   - <code>0x3.5p4d</code> equivalent to <code>3.5(base 16) * 2^4</code></p>
 </div>
 <div class="paragraph">
-<p><strong>BigDecimal</strong> in ArcadeDB is represented as a Java BigDecimal. 
+<p><strong>BigDecimal</strong> in ArcadeDB is represented as a Java BigDecimal.
 The instantiation of BigDecimal can be done explicitly, using the <code>bigDecimal(&lt;number&gt; | &lt;string&gt;)</code> funciton, eg. <code>bigDecimal(124.4)</code> or <code>bigDecimal("124.4")</code></p>
 </div>
 <div id="SQL-Mathematical-Operations" class="paragraph">
@@ -18208,11 +18244,11 @@ The instantiation of BigDecimal can be done explicitly, using the <code>bigDecim
 </div>
 <div class="paragraph">
 <p>Mathematical Operations with numbers follow these rules:
-- Operations are calculated from left to right, following the operand priority. 
-- When an operation involves two numbers of different type, both are converted to the higher precision type between the two. </p>
+- Operations are calculated from left to right, following the operand priority.
+- When an operation involves two numbers of different type, both are converted to the higher precision type between the two.</p>
 </div>
 <div class="paragraph">
-<p>Eg. </p>
+<p>Eg.</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -18237,9 +18273,10 @@ The instantiation of BigDecimal can be done explicitly, using the <code>bigDecim
 <div class="paragraph">
 <p>ArcadeDB supports two types of collections:
 - <strong>Lists</strong>: ordered, allow duplicates
-- <strong>Sets</strong>: not ordered (?), no duplicates
- 
-The SQL notation allows to create <code>Lists</code> with square bracket notation, eg.</p>
+- <strong>Sets</strong>: not ordered (?), no duplicates</p>
+</div>
+<div class="paragraph">
+<p>The SQL notation allows to create <code>Lists</code> with square bracket notation, eg.</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -18276,7 +18313,7 @@ ArcadeDB can store binary data (byte arrays) in document fields. There is no nat
 <p>operands in a condition</p>
 </li>
 <li>
-<p>items in a GROUP BY </p>
+<p>items in a GROUP BY</p>
 </li>
 <li>
 <p>items in an ORDER BY</p>
@@ -18287,21 +18324,53 @@ ArcadeDB can store binary data (byte arrays) in document fields. There is no nat
 </ul>
 </div>
 <div class="paragraph">
-<p>Valid expressions are:
-- <code>&lt;base type value&gt;</code> (string, number, boolean)
-- <code>&lt;field name&gt;</code>
-- <code>&lt;@attribute name&gt;</code>
-- <code>&lt;function invocation&gt;</code>
-- <code>&lt;expression&gt; &lt;binary operator&gt; &lt;expression&gt;</code>: for operator precedence, see below table.
-- <code>&lt;unary operator&gt; &lt;expression&gt;</code> 
-- <code>( &lt;expression&gt; )</code>: expression between parenthesis, for precedences
-- <code>( &lt;query&gt; )</code>: query between parenthesis
-- <code>[ &lt;expression&gt; (, &lt;expression&gt;)* ]</code>: a list, an ordered collection that allows duplicates, eg. <code>["a", "b", "c"]</code>)
-- <code>{ &lt;expression&gt;: &lt;expression&gt; (, &lt;expression&gt;: &lt;expression&gt;)* }</code>: the result is an ODocument, with &lt;field&gt;:&lt;value&gt; values, eg. <code>{"a":1, "b": 1+2+3, "c": foo.bar.size() }</code>. The key name is converted to String if it&#8217;s not.
-- <code>&lt;expression&gt; &lt;modifier&gt; ( &lt;modifier&gt; )*</code>: a chain of modifiers (see below)
-- <code>&lt;json&gt;</code>: It is translated to an ODocument. Nested JSON is allowed and is translated to nested ODocuments 
-- <code>&lt;expression&gt; IS NULL</code>: check for null value of an expression
-- <code>&lt;expression&gt; IS NOT NULL</code>: check for non null value of an expression</p>
+<p>Valid expressions are:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>&lt;base type value&gt;</code> (string, number, boolean)</p>
+</li>
+<li>
+<p><code>&lt;field name&gt;</code></p>
+</li>
+<li>
+<p><code>&lt;@attribute name&gt;</code></p>
+</li>
+<li>
+<p><code>&lt;function invocation&gt;</code></p>
+</li>
+<li>
+<p><code>&lt;expression&gt; &lt;binary operator&gt; &lt;expression&gt;</code>: for operator precedence, see below table.</p>
+</li>
+<li>
+<p><code>&lt;unary operator&gt; &lt;expression&gt;</code></p>
+</li>
+<li>
+<p><code>( &lt;expression&gt; )</code>: expression between parenthesis, for precedences</p>
+</li>
+<li>
+<p><code>( &lt;query&gt; )</code>: query between parenthesis</p>
+</li>
+<li>
+<p><code>[ &lt;expression&gt; (, &lt;expression&gt;)* ]</code>: a list, an ordered collection that allows duplicates, eg. <code>["a", "b", "c"]</code>)</p>
+</li>
+<li>
+<p><code>{ &lt;expression&gt;: &lt;expression&gt; (, &lt;expression&gt;: &lt;expression&gt;)* }</code>: the result is an ODocument, with &lt;field&gt;:&lt;value&gt; values, eg. <code>{"a":1, "b": 1+2+3, "c": foo.bar.size() }</code>. The key name is converted to String if it&#8217;s not.</p>
+</li>
+<li>
+<p><code>&lt;expression&gt; &lt;modifier&gt; ( &lt;modifier&gt; )*</code>: a chain of modifiers (see below)</p>
+</li>
+<li>
+<p><code>&lt;json&gt;</code>: It is translated to an ODocument. Nested JSON is allowed and is translated to nested ODocuments</p>
+</li>
+<li>
+<p><code>&lt;expression&gt; IS NULL</code>: check for null value of an expression</p>
+</li>
+<li>
+<p><code>&lt;expression&gt; IS NOT NULL</code>: check for non null value of an expression</p>
+</li>
+</ul>
 </div>
 <div id="SQL-Modifiers" class="paragraph">
 <p><strong>Modifiers</strong></p>
@@ -18309,7 +18378,7 @@ ArcadeDB can store binary data (byte arrays) in document fields. There is no nat
 <div class="paragraph">
 <p>A modifier can be
 - a dot-separated field chain, eg. <code>foo.bar</code>. Dot notation is used to navigate relationships and document fields. eg.
-  <code>`
+  <code>`</code>
   john = {
             name: "John",
             surname: "Jones",
@@ -18318,23 +18387,36 @@ ArcadeDB can store binary data (byte arrays) in document fields. There is no nat
                   name: "London"
                }
             }
-         }
-            
-  john.address.city.name = "London"
-  </code>`
-  
-- a method invocation, eg. <code>foo.size()</code>.</p>
+         }</p>
+</div>
+<div class="literalblock">
+<div class="content">
+<pre>john.address.city.name = "London"
+```</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>a method invocation, eg. <code>foo.size()</code>.</p>
+</li>
+</ul>
 </div>
 <div class="paragraph">
-<p>Method invocations can be chained, eg. <code>foo.toLowerCase().substring(2, 4)</code>
-  
-- a square bracket filter, eg. <code>foo[1]</code> or <code>foo[name = 'John']</code></p>
+<p>Method invocations can be chained, eg. <code>foo.toLowerCase().substring(2, 4)</code></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>a square bracket filter, eg. <code>foo[1]</code> or <code>foo[name = 'John']</code></p>
+</li>
+</ul>
 </div>
 <div class="paragraph">
 <p><strong>Square bracket filters</strong></p>
 </div>
 <div class="paragraph">
-<p>Square brackets can be used to filter collections or maps. </p>
+<p>Square brackets can be used to filter collections or maps.</p>
 </div>
 <div class="paragraph">
 <p><code>field[ ( &lt;expression&gt; | &lt;range&gt; | &lt;condition&gt; ) ]</code></p>
@@ -18375,7 +18457,7 @@ The result of this filtering is ALWAYS a single value.</p>
 <p><strong><code>=</code>  (equals)</strong>: If used in an expression, it is the boolean equals (eg. <code>select from Foo where name = 'John'</code>. If used in an SET section of INSERT/UPDATE statements or on a LET statement, it represents a variable assignment (eg. <code>insert into Foo set name = 'John'</code>)</p>
 </li>
 <li>
-<p><strong><code>!=</code> (not equals)</strong>: inequality operator. </p>
+<p><strong><code>!=</code> (not equals)</strong>: inequality operator.</p>
 </li>
 <li>
 <p><strong><code>&lt;&gt;</code> (not equals)</strong>: same as <code>!=</code></p>
@@ -18406,16 +18488,16 @@ The result of this filtering is ALWAYS a single value.</p>
 <p><strong><code>-</code>  (minus</strong>): subtraction between numbers. Non-number operands are evaluated to zero. Null values are treated as a zero, eg <code>1 + null = 1</code>. Minus can also be used as a unary operator, to invert the sign of a number</p>
 </li>
 <li>
-<p><strong><code>*</code>  (multiplication)</strong>: multiplication between numbers. If one of the operands is null, the multiplication will evaluate to null. </p>
+<p><strong><code>*</code>  (multiplication)</strong>: multiplication between numbers. If one of the operands is null, the multiplication will evaluate to null.</p>
 </li>
 <li>
 <p><strong><code>/</code>  (division)</strong>: division between numbers. If one of the operands is null, the division will evaluate to null.. The result of a division by zero is NaN</p>
 </li>
 <li>
-<p><strong><code>%</code>  (modulo)</strong>: modulo between numbers. If one of the operands is null, the modulo will evaluate to null.. </p>
+<p><strong><code>%</code>  (modulo)</strong>: modulo between numbers. If one of the operands is null, the modulo will evaluate to null..</p>
 </li>
 <li>
-<p><strong><code>&gt;&gt;</code>  (bitwise right shift)</strong>: shifts bits on the right operand by a number of positions equal to the right operand. Eg. <code>8 &gt;&gt; 2 = 2</code>. Both operands have to be Integer or Long values, otherwise the result will be null.  </p>
+<p><strong><code>&gt;&gt;</code>  (bitwise right shift)</strong>: shifts bits on the right operand by a number of positions equal to the right operand. Eg. <code>8 &gt;&gt; 2 = 2</code>. Both operands have to be Integer or Long values, otherwise the result will be null.</p>
 </li>
 <li>
 <p><strong><code>&gt;&gt;&gt;</code>  (unsigned bitwise right shift)</strong> The same as <code>&gt;&gt;</code>, but with negative numbers it will fill with <code>1</code> on the left. Both operands have to be Integer or Long values, otherwise the result will be null.</p>
@@ -18551,7 +18633,7 @@ eg. <code>a += 2</code> is just a shortcut for <code>a = a + 2</code>.</p>
 <div class="content">
 <pre class="highlight"><code>[1, 2] || [2, 3] = [1, 2, 2, 3]
 
-([1, 2] || [2, 3]).asSet() = [1, 2, 3] </code></pre>
+([1, 2] || [2, 3]).asSet() = [1, 2, 3]</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -18590,7 +18672,7 @@ null || [1, 2] = [1, 2]</code></pre>
 <p><strong><code>NOT</code></strong>: logical NOT</p>
 </li>
 <li>
-<p><strong><code>CONTAINS</code></strong>: checks if the left collection contains the right element. The left argument has to be a colleciton, otherwise it returns FALSE. It&#8217;s NOT the check of colleciton intersections, so <code>['a', 'b', 'c'] CONTAINS ['a', 'b']</code> will return FALSE, while <code>['a', 'b', 'c'] CONTAINS 'a'</code> will return TRUE. </p>
+<p><strong><code>CONTAINS</code></strong>: checks if the left collection contains the right element. The left argument has to be a colleciton, otherwise it returns FALSE. It&#8217;s NOT the check of colleciton intersections, so <code>['a', 'b', 'c'] CONTAINS ['a', 'b']</code> will return FALSE, while <code>['a', 'b', 'c'] CONTAINS 'a'</code> will return TRUE.</p>
 </li>
 <li>
 <p><strong><code>IN</code></strong>: the same as CONTAINS, but with inverted operands.</p>
@@ -18617,7 +18699,7 @@ null || [1, 2] = [1, 2]</code></pre>
 <p><strong><code>MATCHES</code></strong>: checks if a string matches a regular expression</p>
 </li>
 <li>
-<p><strong><code>INSTANCEOF</code></strong>: checks the type of a value, the right operand has to be the a String representing a type name, eg. <code>father INSTANCEOF 'Person'</code> </p>
+<p><strong><code>INSTANCEOF</code></strong>: checks the type of a value, the right operand has to be the a String representing a type name, eg. <code>father INSTANCEOF 'Person'</code></p>
 </li>
 </ul>
 </div>
@@ -18727,7 +18809,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2022-10-11 09:52:08 UTC
+Last updated 2022-10-12 04:28:32 UTC
 </div>
 </div>
 </body>
