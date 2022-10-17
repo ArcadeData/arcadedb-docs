@@ -1006,7 +1006,7 @@ They can inherit from other types, creating a tree of types. <a href="http://en.
 <p>Each type has its own <a href="#Buckets">buckets (data files)</a>.
 A type can support multiple buckets.
 When you execute a query against a type, it automatically fetches from all the buckets that are part of the type.
-When you create a new record, ArcadeDB selects the bucket to store it in using a <a href="#_bucket-selection">configurable strategy</a>.</p>
+When you create a new record, ArcadeDB selects the bucket to store it in using a <a href="#Bucket-Selection">configurable strategy</a>.</p>
 </div>
 <div class="paragraph">
 <p>As a default, ArcadeDB creates as many buckets per type as many cores (processors) the host machine has.
@@ -2829,14 +2829,15 @@ quit or exit                        -&gt; exits from the console</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">{mydb}&gt; create document type Profile
+<pre class="highlight"><code>{mydb}&gt; create document type Profile
 
-+-----------+--------+
-|operation  |typeName|
-+-----------+--------+
-|create document type|Profile |
-+-----------+--------+
-Command executed in 176ms</code></pre>
++---------+--------------------+
+|NAME     |VALUE               |
++---------+--------------------+
+|operation|create document type|
+|typeName |Profile             |
++---------+--------------------+
+Command executed in 99ms</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -2847,11 +2848,11 @@ Command executed in 176ms</code></pre>
 <pre class="highlight"><code class="language-shell" data-lang="shell">{mydb}&gt; info types
 
 AVAILABLE TYPES
-+-------+--------+------------+-----------+----------+-------------+
-|NAME   |TYPE    |PARENT TYPES|BUCKETS    |PROPERTIES|SYNC STRATEGY|
-+-------+--------+------------+-----------+----------+-------------+
-|Profile|Document|[]          |[Profile_0]|[]        |round-robin  |
-+-------+--------+------------+-----------+----------+-------------+</code></pre>
++-------+--------+-----------+-------------------------------------+-----------+-------------+
+|NAME   |TYPE    |SUPER TYPES|BUCKETS                              |PROPERTIES |SYNC STRATEGY|
++-------+--------+-----------+-------------------------------------+-----------+-------------+
+|Profile|Document|0[]        |8[Profile_0,...,Profile_7]|0[]       |round-robin|             |
++-------+--------+-----------+-------------------------------------+-----------+-------------+</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -2864,12 +2865,14 @@ AVAILABLE TYPES
 <div class="content">
 <pre class="highlight"><code class="language-shell" data-lang="shell">{mydb}&gt; insert into Profile set name = 'Jay', lastName = 'Miner'
 
-+----+-------+----+--------+
-|@RID|@TYPE  |name|lastName|
-+----+-------+----+--------+
-|#1:0|Profile|Jay |Miner   |
-+----+-------+----+--------+
-Command executed in 29ms</code></pre>
+DOCUMENT @type:Profile @rid:#1:0
++--------+-----+
+|NAME    |VALUE|
++--------+-----+
+|name    |Jay  |
+|lastName|Miner|
++--------+-----+
+Command executed in 17ms</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -2879,12 +2882,14 @@ Command executed in 29ms</code></pre>
 <div class="content">
 <pre class="highlight"><code class="language-shell" data-lang="shell">{mydb}&gt; select from Profile
 
-+----+-------+----+--------+
-|@RID|@TYPE  |name|lastName|
-+----+-------+----+--------+
-|#1:0|Profile|Jay |Miner   |
-+----+-------+----+--------+
-Command executed in 33ms</code></pre>
+DOCUMENT @type:Profile @rid:#1:0
++--------+-----+
+|NAME    |VALUE|
++--------+-----+
+|name    |Jay  |
+|lastName|Miner|
++--------+-----+
+Command executed in 37ms</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -7018,7 +7023,7 @@ Check out the following list with the official drivers for the most popular prog
 </div>
 </div>
 <div class="sect2">
-<h3 id="_execute_multiple_query_languages">7.6. Execute multiple query languages</h3>
+<h3 id="_other_query_languages">7.6. Other query languages</h3>
 <div class="paragraph">
 <p>By default the Postgres driver interprets all the commands as <a href="#SQL">SQL</a>.
 To use another supported language, like <a href="#Open-Cypher">Cypher</a>, <a href="#Gremlin-API">Gremlin</a>, <a href="#GraphQL">GraphQL</a> or <a href="#MongoDB-API">MongoDB</a>, prefix the command with the language to use between curly brackets.</p>
@@ -13173,7 +13178,7 @@ You can also define the number of buckets you want to create using the <code>BUC
 <pre>ArcadeDB&gt; CREATE VERTEX TYPE Car BUCKET Car_classic,Car_modern</pre>
 </div>
 </div>
-<div class="paragraph">
+<div id="Bucket-Selection" class="paragraph">
 <p><strong>Bucket Selection Strategies</strong></p>
 </div>
 <div class="paragraph">
@@ -14079,6 +14084,30 @@ GraphML is recommended</p>
 <div class="content">
 <pre>ArcadeDB&gt; INSERT INTO Profile (name, address) VALUES ('Luca', { "@type": "d",
             "street": "Melrose Avenue"})</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Insert a record with a list property:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>ArcadeDB&gt; INSERT INTO Profile SET friends = list("Joe","Jack","John")</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Insert a record with a map property:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>ArcadeDB&gt; INSERT INTO Profile SET address = map("home","Avenue Lane")</pre>
 </div>
 </div>
 <div class="ulist">
@@ -16861,6 +16890,24 @@ Without any kind of security active, any user can read and write in the database
 For this reason it&#8217;s important your application is managing security and profiling.
 You can work in embedded mode and still run a <code>ArcadeDBServer</code> instance to use the security for the incoming connections.</p>
 </div>
+<h3 id="Security-Policy" class="discrete">Security Policy</h3>
+<div class="paragraph">
+<p>The default rule of security are pretty basic.
+The username must be between 4 and 256 characters.
+The password length must be between 8 and 256 characters.
+You can implement your own security policy by providing your own implementation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">server.getSecurity().setCredentialsValidator( new DefaultCredentialsValidator(){
+  @Override
+  public void validateCredentials(final String userName, final String userPassword) throws ServerSecurityException {
+    if( userPassword.equals("12345678")
+      throw new ServerSecurityException("Guess who was not attending security lesson!");
+  }
+});</code></pre>
+</div>
+</div>
 <h3 id="Users" class="discrete">Users</h3>
 <div class="paragraph">
 <p>Users are stored in the file <code>config/server-users.jsonl</code> file.
@@ -17547,7 +17594,7 @@ Example to increase the default page size for buckets to 1 MB for all the databa
 <td class="tableblock halign-left valign-top"><p class="tableblock">0</p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock">´commitLockTimeout`</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>commitLockTimeout</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Timeout in ms to lock resources during commit</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">5000</p></td>
@@ -17904,15 +17951,13 @@ Example to increase the default page size for buckets to 1 MB for all the databa
 </table>
 </div>
 </div>
-</div>
-</div>
-<h1 id="Managing-Dates" class="sect0">Managing Dates</h1>
+<div class="sect2">
+<h3 id="Managing-Dates">11.3. Managing Dates</h3>
 <div class="paragraph">
-<p>ArcadeDB treats dates as first class citizens. Internally, it saves dates in the [Unix time](<a href="https://en.wikipedia.org/wiki/Unix_time" class="bare">https://en.wikipedia.org/wiki/Unix_time</a>) format.  Meaning, it stores dates as a <code>long</code> variable, which contains the count in milliseconds since the Unix Epoch, (that is, 1 January 1970).</p>
+<p>ArcadeDB treats dates as first class citizens. Internally, it saves dates in the <a href="https://en.wikipedia.org/wiki/Unix_time">Unix time</a> format.
+Meaning, it stores dates as a <code>long</code> variable, which contains the count in milliseconds since the Unix Epoch, (that is, 1 January 1970).</p>
 </div>
-<div class="sect1">
-<h2 id="_date_and_datetime_formats">1. Date and Datetime Formats</h2>
-<div class="sectionbody">
+<h4 id="_date_and_datetime_formats" class="discrete">Date and Datetime Formats</h4>
 <div class="paragraph">
 <p>In order to make the internal count from the Unix Epoch into something human readable, ArcadeDB formats the count into date and datetime formats.  By default, these formats are:</p>
 </div>
@@ -17927,162 +17972,173 @@ Example to increase the default page size for buckets to 1 MB for all the databa
 </ul>
 </div>
 <div class="paragraph">
-<p>In the event that these default formats are not sufficient for the needs of your application, you can customize them through [<code>ALTER DATABASE&#8230;&#8203;DATEFORMAT</code>](../sql/SQL-Alter-Database.md) and [<code>DATETIMEFORMAT</code>](../sql/SQL-Alter-Database.md) commands.  For instance,</p>
+<p>In the event that these default formats are not sufficient for the needs of your application, you can customize them through <a href="#SQL-Alter-Database"><code>ALTER DATABASE &#8230;&#8203; DATEFORMAT</code></a> and <a href="#SQL-Alter-Database"><code>DATETIMEFORMAT</code></a> commands.
+For instance,</p>
 </div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;ALTER DATABASE DATEFORMAT "dd MMMM yyyy"&lt;/code&gt;
-&lt;/pre&gt;</p>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; ALTER DATABASE DATEFORMAT "dd MMMM yyyy"</code></pre>
+</div>
 </div>
 <div class="paragraph">
 <p>This command updates the current database to use the English format for dates.  That is, 14 Febr 2015.</p>
 </div>
-</div>
-</div>
-<div class="sect1">
-<h2 id="_sql_functions_and_methods">2. SQL Functions and Methods</h2>
-<div class="sectionbody">
+<h4 id="_sql_functions_and_methods" class="discrete">SQL Functions and Methods</h4>
 <div class="paragraph">
-<p>To simplify the management of dates, ArcadeDB SQL automatically parses dates to and from strings and longs.  These functions and methods provide you with more control to manage dates:</p>
+<p>To simplify the management of dates, ArcadeDB SQL automatically parses dates to and from strings and longs.
+These functions and methods provide you with more control to manage dates:</p>
 </div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">SQL</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#_date"><code>date()</code></a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Function converts dates to and from strings and dates, also uses custom formats.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#_sysdate"><code>sysdate()</code></a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Function returns the current date.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#_format"><code>.format()</code></a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Method returns the date in different formats.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#_asdate"><code>.asDate()</code></a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Method converts any type into a date.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#_asdatetime"><code>.asDatetime()</code></a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Method converts any type into datetime.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#_aslong"><code>.asLong()</code></a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Method converts any date into long format, (that is, Unix time).</p></td>
+</tr>
+</tbody>
+</table>
 <div class="paragraph">
-<p>| SQL | Description |
-|----|----|
-| [<code>DATE()</code>](../sql/SQL-Functions.md#date) | Function converts dates to and from strings and dates, also uses custom formats.|
-| [<code>SYSDATE()</code>](../sql/SQL-Functions.md#sysdate) | Function returns the current date.|
-| [<code>.format()</code>](../sql/SQL-Methods.md#format) | Method returns the date in different formats.|
-| [<code>.asDate()</code>](../sql/SQL-Methods.md#asdate) | Method converts any type into a date.|
-| [<code>.asDatetime()</code>](../sql/SQL-Methods.md#asdatetime) | Method converts any type into datetime.|
-| [<code>.asLong()</code>](../sql/SQL-Methods.md#aslong)| Method converts any date into long format, (that is, Unix time).|</p>
+<p>For example, consider a case where you need to extract only the years for date entries and to arrange them in order.  You can use the <a href="#_format"><code>.format()</code></a> method to extract dates into different formats.</p>
 </div>
-<div class="paragraph">
-<p>For example, consider a case where you need to extract only the years for date entries and to arrange them in order.  You can use the [<code>.format()</code>](../sql/SQL-Methods.md#format) method to extract dates into different formats.</p>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; SELECT @RID, id, date.format('yyyy') AS year FROM Order
+
++--------+----+------+
+| @RID   | id | year |
++--------+----+------+
+| #31:10 | 92 | 2015 |
+| #31:10 | 44 | 2014 |
+| #31:10 | 32 | 2014 |
+| #31:10 | 21 | 2013 |
++--------+----+------+</code></pre>
 </div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;SELECT @RID, id, date.format('yyyy') AS year FROM Order&lt;/code&gt;</p>
-</div>
-<div class="paragraph">
-<p>------------------+
- @RID   | id | year |
-------------------+
- #31:10 | 92 | 2015 |
- #31:10 | 44 | 2014 |
- #31:10 | 32 | 2014 |
- #31:10 | 21 | 2013 |
-------------------+
-&lt;/pre&gt;</p>
 </div>
 <div class="paragraph">
 <p>In addition to this, you can also group the results. For instance, extracting the number of orders grouped by year.</p>
 </div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;SELECT date.format('yyyy') AS Year, COUNT(*) AS Total 
-          FROM Order ORDER BY Year&lt;/code&gt;</p>
-</div>
-<div class="paragraph">
-<p>--------------
- Year |  Total |
---------------
- 2015 |      1 |
- 2014 |      2 |
- 2013 |      1 |
---------------
-&lt;/pre&gt;</p>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; SELECT date.format('yyyy') AS Year, COUNT(*) AS Total FROM Order ORDER BY Year
+
++------+--------+
+| Year |  Total |
++------+--------+
+| 2015 |      1 |
+| 2014 |      2 |
+| 2013 |      1 |
++------+--------+</code></pre>
 </div>
 </div>
-</div>
-<div class="sect1">
-<h2 id="_dates_before_1970">3. Dates before 1970</h2>
-<div class="sectionbody">
+<h4 id="_dates_before_1970" class="discrete">Dates before 1970</h4>
 <div class="paragraph">
 <p>While you may find the default system for managing dates in ArcadeDB sufficient for your needs, there are some cases where it may not prove so.  For instance, consider a database of archaeological finds, a number of which date to periods not only before 1970 but possibly even before the Common Era.  You can manage this by defining an era or epoch variable in your dates.</p>
 </div>
 <div class="paragraph">
 <p>For example, consider an instance where you want to add a record noting the date for the foundation of Rome, which is traditionally referred to as April 21, 753 BC.  To enter dates before the Common Era, first run the [<code>ALTER DATABASE DATETIMEFORMAT</code>] command to add the <code>GG</code> variable to use in referencing the epoch.</p>
 </div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;ALTER DATABASE DATETIMEFORMAT "yyyy-MM-dd HH:mm:ss GG"&lt;/code&gt;
-&lt;/pre&gt;</p>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; ALTER DATABASE DATETIMEFORMAT "yyyy-MM-dd HH:mm:ss GG"</code></pre>
+</div>
 </div>
 <div class="paragraph">
 <p>Once you&#8217;ve run this command, you can create a record that references date and datetime by epoch.</p>
 </div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;CREATE VERTEX V SET city = "Rome", date = DATE("0753-04-21 00:00:00 BC")&lt;/code&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;SELECT @RID, city, date FROM V&lt;/code&gt;</p>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; CREATE VERTEX V SET city = "Rome", date = DATE("0753-04-21 00:00:00 BC")
+arcadedb&gt; SELECT @RID, city, date FROM V
+
++-------+------+------------------------+
+| @RID  | city | date                   |
++-------+------+------------------------+
+| #9:10 | Rome | 0753-04-21 00:00:00 BC |
++-------+------+------------------------+</code></pre>
 </div>
-<div class="paragraph">
-<p>-------------------------------------+
- @RID  | city | date                   |
--------------------------------------+
- #9:10 | Rome | 0753-04-21 00:00:00 BC |
--------------------------------------+
-&lt;/pre&gt;</p>
 </div>
-<div class="sect2">
-<h3 id="_using_format_on_insertion">3.1. Using <code>.format()</code> on Insertion</h3>
+<h4 id="_using_format_on_insertion" class="discrete">Using <code>.format()</code> on Insertion</h4>
 <div class="paragraph">
 <p>In addition to the above method, instead of changing the date and datetime formats for the database, you can format the results as you insert the date.</p>
 </div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;CREATE VERTEX V SET city = "Rome", date = DATE("yyyy-MM-dd HH:mm:ss GG")&lt;/code&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;SELECT @RID, city, date FROM V&lt;/code&gt;</p>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; CREATE VERTEX V SET city = "Rome", date = DATE("yyyy-MM-dd HH:mm:ss GG")
+arcadedb&gt;  SELECT @RID, city, date FROM V
+
++------+------+------------------------+
+| @RID | city | date                   |
++------+------+------------------------+
+| #9:4 | Rome | 0753-04-21 00:00:00 BC |
++------+------+------------------------+</code></pre>
 </div>
-<div class="paragraph">
-<p>------------------------------------+
- @RID | city | date                   |
-------------------------------------+
- #9:4 | Rome | 0753-04-21 00:00:00 BC |
-------------------------------------+
-&lt;/pre&gt;</p>
-</div>
-<div class="paragraph">
-<p>Here, you again create a vertex for the traditional date of the foundation of Rome.  However, instead of altering the database, you format the date field in [<code>CREATE VERTEX</code>](../sql/SQL-Create-Vertex.md) command.</p>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_viewing_unix_time">3.2. Viewing Unix Time</h3>
-<div class="paragraph">
-<p>In addition to the formatted date and datetime, you can also view the underlying count from the Unix Epoch, using the [<code>asLong()</code>](../sql/SQL-Methods.md#aslong) method for records.  For example,</p>
 </div>
 <div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class='lang-sql userinput'&gt;SELECT @RID, city, date.asLong() FROM #9:4&lt;/code&gt;</p>
+<p>Here, you again create a vertex for the traditional date of the foundation of Rome.  However, instead of altering the database, you format the date field in <a href="#SQL-Create-Vertex"><code>CREATE VERTEX</code></a> command.</p>
+</div>
+<h4 id="_viewing_unix_time" class="discrete">Viewing Unix Time</h4>
+<div class="paragraph">
+<p>In addition to the formatted date and datetime, you can also view the underlying count from the Unix Epoch, using the <a href="#_aslong"><code>asLong()</code></a> method for records.  For example,</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; SELECT @RID, city, date.asLong() FROM #9:4
+
++------+------+------------------------+
+| @RID | city | date                   |
++------+------+------------------------+
+| #9:4 | Rome | -85889120400000        |
++------+------+------------------------+</code></pre>
+</div>
 </div>
 <div class="paragraph">
-<p>------------------------------------+
- @RID | city | date                   |
-------------------------------------+
- #9:4 | Rome | -85889120400000        |
-------------------------------------+
-&lt;/pre&gt;</p>
+<p>Meaning that, ArcadeDB represents the date of April 21, 753 BC, as -85889120400000 in Unix time.
+You can also work with dates directly as longs.</p>
 </div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>arcadedb&gt; CREATE VERTEX V SET city = "Rome", date = DATE(-85889120400000)
+arcadedb&gt; SELECT @RID, city, date FROM V
+
++-------+------+------------------------+
+| @RID  | city | date                   |
++-------+------+------------------------+
+| #9:11 | Rome | 0753-04-21 00:00:00 BC |
++-------+------+------------------------+</code></pre>
+</div>
+</div>
+<h4 id="_use_iso_8601_dates" class="discrete">Use ISO 8601 Dates</h4>
 <div class="paragraph">
-<p>Meaning that, ArcadeDB represents the date of April 21, 753 BC, as -85889120400000 in Unix time.  You can also work with dates directly as longs.</p>
-</div>
-<div class="paragraph">
-<p>&lt;pre&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;CREATE VERTEX V SET city = "Rome", date = DATE(-85889120400000)&lt;/code&gt;
-arcadedb&gt; &lt;code class="lang-sql userinput"&gt;SELECT @RID, city, date FROM V&lt;/code&gt;</p>
-</div>
-<div class="paragraph">
-<p>-------------------------------------+
- @RID  | city | date                   |
--------------------------------------+
- #9:11 | Rome | 0753-04-21 00:00:00 BC |
--------------------------------------+
-&lt;/pre&gt;</p>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_use_iso_8601_dates">3.3. Use ISO 8601 Dates</h3>
-<div class="paragraph">
-<p>According to ISO 8601, Combined date and time in UTC: 2014-12-20T00:00:00. To use this standard change the date time format in the database:</p>
+<p>According to <a href="https://en.wikipedia.org/wiki/ISO_8601">ISO 8601</a>, Combined date and time in UTC: 2014-12-20T00:00:00. To use this standard change the date time format in the database:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -18091,7 +18147,7 @@ arcadedb&gt; &lt;code class="lang-sql userinput"&gt;SELECT @RID, city, date FROM
 </div>
 </div>
 <div class="sect2">
-<h3 id="SQL-Syntax">3.4. SQL Syntax</h3>
+<h3 id="SQL-Syntax">11.4. SQL Syntax</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/sql-syntax.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -19195,12 +19251,12 @@ null || [1, 2] = [1, 2]</code></pre>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Storage-Internals">3.5. Storage Internals</h3>
+<h3 id="Storage-Internals">11.5. Storage Internals</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/storage.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="sect3">
-<h4 id="_page_version">3.5.1. Page Version</h4>
+<h4 id="_page_version">11.5.1. Page Version</h4>
 <div class="paragraph">
 <p>Records are stored in pages.
 Each page has its own version number, which increments on each update.
@@ -19210,7 +19266,7 @@ In optimistic transactions, ArcadeDB checks the version in order to avoid confli
 </div>
 </div>
 <div class="sect2">
-<h3 id="ReportAnIssue">3.6. Report an Issue</h3>
+<h3 id="ReportAnIssue">11.6. Report an Issue</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/issues.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -19299,7 +19355,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2022-10-17 01:46:35 UTC
+Last updated 2022-10-17 18:55:03 UTC
 </div>
 </div>
 </body>
