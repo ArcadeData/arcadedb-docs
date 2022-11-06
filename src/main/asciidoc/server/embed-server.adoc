@@ -47,3 +47,58 @@ Or this if you want to create a new database if not exists:
 Database database = server.getOrCreateDatabase(<URL>);
 ```
 
+==== Create custom HTTP commands
+
+You can easily add custom HTTP commands on ArcadeDB's Undertow HTTP Server by creating a server plugin (look at `MongoDBProtocolPlugin` plugin implementation)
+and implementing the `registerAPI` method. Example for the HTTP POST API `/myapi/test`:
+
+```java
+package com.yourpackage;
+
+public class MyTest implements ServerPlugin {
+  // ...
+
+  @Override
+  public void registerAPI(HttpServer httpServer, final PathHandler routes) {
+    routes.addPrefixPath("/myapi",//
+    routes.post("/test/{name}", new MyTestAPI(this));
+  }
+}
+```
+
+```java
+public class MyTestAPI extends DatabaseAbstractHandler {
+
+  public MyTestAPI(final HttpServer httpServer) {
+    super(httpServer);
+  }
+
+  @Override
+  public void execute(final HttpServerExchange exchange, ServerSecurityUser user, final Database database) throws IOException {
+    final Deque<String> namePar = exchange.getQueryParameters().get("name");
+    if (namePar == null || namePar.isEmpty()) {
+      exchange.setStatusCode(400);
+      exchange.getResponseSender().send("{ \"error\" : \"name is null\"}");
+      return;
+    }
+
+    final String name = namePar.getFirst();
+
+    // DO SOMETHING MEANINGFUL HERE
+    // ...
+
+    exchange.setStatusCode(204);
+    exchange.getResponseSender().send("");
+  }
+}
+
+```
+
+At startup, ArcadeDB Server will initiate your plugin and register your API. To start the server with your plugin, register the full class in
+`arcadedb.server.plugins` setting:
+
+Example:
+
+```
+java ... -Darcadedb.server.plugins=MyPlugin:com.yourpackage.MyPlugin ...
+```
