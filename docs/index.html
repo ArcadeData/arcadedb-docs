@@ -2207,6 +2207,68 @@ config.setValue(GlobalConfiguration.HA_ENABLED, true);</code></pre>
 </div>
 </div>
 </div>
+<div class="sect3">
+<h4 id="_create_custom_http_commands">4.4.2. Create custom HTTP commands</h4>
+<div class="paragraph">
+<p>You can easily add custom HTTP commands on ArcadeDB&#8217;s Undertow HTTP Server by creating a server plugin (look at <code>MongoDBProtocolPlugin</code> plugin implementation)
+and implementing the <code>registerAPI</code> method. Example for the HTTP POST API <code>/myapi/test</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">package com.yourpackage;
+
+public class MyTest implements ServerPlugin {
+  // ...
+
+  @Override
+  public void registerAPI(HttpServer httpServer, final PathHandler routes) {
+    routes.addPrefixPath("/myapi",//
+    routes.post("/test/{name}", new MyTestAPI(this));
+  }
+}</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">public class MyTestAPI extends DatabaseAbstractHandler {
+
+  public MyTestAPI(final HttpServer httpServer) {
+    super(httpServer);
+  }
+
+  @Override
+  public void execute(final HttpServerExchange exchange, ServerSecurityUser user, final Database database) throws IOException {
+    final Deque&lt;String&gt; namePar = exchange.getQueryParameters().get("name");
+    if (namePar == null || namePar.isEmpty()) {
+      exchange.setStatusCode(400);
+      exchange.getResponseSender().send("{ \"error\" : \"name is null\"}");
+      return;
+    }
+
+    final String name = namePar.getFirst();
+
+    // DO SOMETHING MEANINGFUL HERE
+    // ...
+
+    exchange.setStatusCode(204);
+    exchange.getResponseSender().send("");
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>At startup, ArcadeDB Server will initiate your plugin and register your API. To start the server with your plugin, register the full class in
+<code>arcadedb.server.plugins</code> setting:</p>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>java ... -Darcadedb.server.plugins=MyPlugin:com.yourpackage.MyPlugin ...</code></pre>
+</div>
+</div>
+</div>
 </div>
 <div class="sect2">
 <h3 id="Docker">4.5. Docker</h3>
@@ -19445,7 +19507,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 21.9.1<br>
-Last updated 2022-11-06 18:11:25 UTC
+Last updated 2022-11-06 18:27:25 UTC
 </div>
 </div>
 </body>
