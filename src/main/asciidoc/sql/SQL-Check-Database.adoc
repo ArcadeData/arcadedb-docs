@@ -24,7 +24,48 @@ CHECK DATABASE [ TYPE <type-name>[,]* ] [ BUCKET <bucket-name>[,]* ] [ FIX ]
 * *`&lt;bucket-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific buckets
 * *`FIX`* Optional, if defined auto fix the issue found with the check
 
-The command returns the integrity check report in one record.
+The command returns the integrity check report in one record with the fields:
+
+[cols="1,1"]
+|===
+| `avgPageUsed` | average space used in a page.
+                  This is a percentage value, where 100% means all the pages are full.
+                  If a record is too big, a page is split into multiple pages and multiple reads are necessary.
+                  Sometimes it helps to create buckets with larger pages to accommodate large records,
+                  see the <<Settings,`bucketDefaultPageSize`>> setting.
+| `warnings` | set of warning messages. 
+| `totalSurrogateRecords` | number of records that have been moved between pages.
+                            This happens when a record is updated and doesn't fit the original page,
+                            so a surrogate (placeholder) is set to point to the new page/position or it's a piece of a record stored on multiple pages. Internal, can be ignored.
+| `totalPlaceholderRecords` | see above. Internal, can be ignored. 
+| `pageSize` | internal, can be ignored.
+| `totalDeletedRecords` | number of records deleted in the database.
+                          When a record is deleted, it's RID is not recycled!
+| `totalAllocatedRecords` | total number of records created in the database.
+                            A record can be of type document, vertex or edge.
+| `totalAllocatedVertices` | see above, but only vertex records.
+| `totalAllocatedEdges` | see above, but only edge records.
+| `totalActiveRecords` | total number of records that are "active" (not deleted).
+                         A record can be of type document, vertex or edge.
+| `totalActiveVertices` | see above, but only vertex records.
+| `totalActiveEdges` | see above, but only edge records.
+| `totalMaxOffset` | internal, can be ignored.
+| `deletedRecords` | number of deleted records in the database (allocated minus active).
+| `corruptedRecords` | all the records not found in the database.
+                       This could happen with broken edges (edges pointing to deleted vertices).
+                       This should be zero; if not, it means there is a bug in the graph operations that doesn't keep operations 100% transactional. Please report this.
+| `totalPages` | total number of pages in the database.
+| `rebuiltIndexes` | list of indexes that have been rebuilt automatically if corrupted records were found.
+| `operation` | can be ignored, set by the console.
+| `invalidLinks` | similar to corrupted records; should be zero.
+| `errors` | counter of errors encountered while checking the database.
+             It should be zero.
+| `autoFix` | counter of autofix operations executed by the check database under the hood when corrupted records have been encountered. 
+              Some operations, like broken edges, can be fixed and restored automatically.
+|===
+
+
+
 
 *Examples*
 
