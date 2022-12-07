@@ -2874,6 +2874,7 @@ commit                                                -&gt; commits current tran
 connect &lt;path&gt;|remote:&lt;url&gt; &lt;user&gt; &lt;password&gt;         -&gt; connects to a database
 info types                                            -&gt; prints available types
 info transaction                                      -&gt; prints current transaction
+set language = sql|sqlscript|cypher|gremlin|mongo     -&gt; sets console query language
 rollback                                              -&gt; rolls back current transaction
 quit or exit                                          -&gt; exits from the console</code></pre>
 </div>
@@ -6277,6 +6278,15 @@ For this reason, you don&#8217;t need a driver, because every modern programming
 A session is created with the <a href="#HTTP-Begin">/begin</a> command and returns a session id in the response header (example <code>arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4</code>).
 Use the session id in the request header of further commands you want to execute in the same transaction and execute <a href="#HTTP-Commit">/commit</a> to commit the server side transaction or <a href="#HTTP-Rollback">/rollback</a> to rollback the changes.
 After a period of inactivity (default is 30 seconds), the server automatically rolls back and purges expired transactions.</p>
+</div>
+<h4 id="_transaction_scripts" class="discrete">Transaction Scripts</h4>
+<div class="paragraph">
+<p>In case <a href="#SQL">SQL</a> (<code>sql</code>) is supposed to be used as language for a transactions,
+the language variant "SQL script" (<code>sqlscript</code>) is available.
+A <code>sqlscript</code> can consist of one or multiple SQL statements,
+which are collectively treated as a transaction.
+Hence, for such a batch of SQL statements, no <code>begin</code> and <code>commit</code> commands are necessary,
+since <code>begin</code> and <code>commit</code> implicitly enclose any <code>sqlscript</code> command.</p>
 </div>
 <h4 id="WebSocket-Streaming" class="discrete">Streaming Change Events</h4>
 <div class="admonitionblock important">
@@ -12578,8 +12588,127 @@ be automatically removed if the <code>FIX</code> option is enabled.</p>
 </ul>
 </div>
 <div class="paragraph">
-<p>The command returns the integrity check report in one record.</p>
+<p>The command returns the integrity check report in one record with the fields:</p>
 </div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 25%;">
+<col style="width: 75%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top"><strong>Field</strong></th>
+<th class="tableblock halign-left valign-top"><strong>Description</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>avgPageUsed</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">average space used in a page.
+                  This is a percentage value, where 100% means all the pages are full.
+                  If a record is too big, a page is split into multiple pages and multiple reads are necessary.
+                  Sometimes it helps to create buckets with larger pages to accommodate large records,
+                  see the <a href="#Settings"><code>bucketDefaultPageSize</code></a> setting.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>warnings</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">set of warning messages.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalSurrogateRecords</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">number of records that have been moved between pages.
+                            This happens when a record is updated and doesn&#8217;t fit the original page,
+                            so a surrogate (placeholder) is set to point to the new page/position or it&#8217;s a piece of a record stored on multiple pages. Internal, can be ignored.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalPlaceholderRecords</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above. Internal, can be ignored.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pageSize</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">internal, can be ignored.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalDeletedRecords</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">number of records deleted in the database (allocated minus active).
+                          When a record is deleted, it&#8217;s RID is not recycled!</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalAllocatedRecords</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">total number of records created in the database.
+                            A record can be of type document, vertex or edge.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalAllocatedDocuments</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above, but only documents records.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalAllocatedVertices</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above, but only vertex records.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalAllocatedEdges</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above, but only edge records.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalActiveRecords</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">total number of records that are "active" (not deleted).
+                         A record can be of type document, vertex or edge.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalActiveDocuments</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above, but only vertex document.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalActiveVertices</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above, but only vertex records.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalActiveEdges</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">see above, but only edge records.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalMaxOffset</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">internal, can be ignored.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>deletedRecordsAfterFix</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">holds the list of RIDs deleted after a fix.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>corruptedRecords</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">all the records not found in the database.
+                       This could happen with broken edges (edges pointing to deleted vertices).
+                       This should be zero; if not, it means there is a bug in the graph operations that doesn&#8217;t keep operations 100% transactional. Please report this.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalPages</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">total number of pages in the database.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>rebuiltIndexes</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">list of indexes that have been rebuilt automatically if corrupted records were found.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>operation</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">can be ignored, set by the console.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>invalidLinks</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">similar to corrupted records; should be zero.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>totalErrors</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">counter of errors encountered while checking the database.
+             It should be zero.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>autoFix</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">counter of autofix operations executed by the check database under the hood when corrupted records have been encountered.
+              Some operations, like broken edges, can be fixed and restored automatically.</p></td>
+</tr>
+</tbody>
+</table>
 <div class="paragraph">
 <p><strong>Examples</strong></p>
 </div>
@@ -19661,7 +19790,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 22.10.1<br>
-Last updated 2022-12-01 19:57:46 UTC
+Last updated 2022-12-07 17:28:12 UTC
 </div>
 </div>
 </body>
