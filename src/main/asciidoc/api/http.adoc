@@ -143,21 +143,24 @@ curl -X POST http://localhost:2480/api/v1/document/school
 
 [cols="30,10,~",options="header"]
 |===
-| *Action*                                                               | *Method* | *Endpoint*
-| <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
-| <<#HTTP-Command,Execute a command>>         | POST   | `/api/v1/command/{database}`
-| <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
+| *Action*                                    | *Method* | *Endpoint*
+| <<#HTTP-CheckReady,Get server status>>      | GET    | `/api/v1/ready`
+| <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
+| <<#HTTP-CreateUser,Create a user>>          | POST   | `/api/v1/user`
+| <<#HTTP-DropUser,Drop a user>>              | DELETE | `/api/v1/user/{user}`
 | <<#HTTP-CreateDatabase,Create a database>>  | POST   | `/api/v1/create/{database}`
+| <<#HTTP-DropDatabase,Drop a database>>      | POST   | `/api/v1/drop/{database}`
 | <<#HTTP-ListDatabases,List of databases>>   | GET    | `/api/v1/databases`
 | <<#HTTP-DatabaseExists,Does database exist>>| GET    | `/api/v1/exists/{database}`
-| <<#HTTP-CreateDocument,Create a document>>  | POST   | `/api/v1/document/{database}`
-| <<#HTTP-LoadDocument,Load a document>>      | GET    | `/api/v1/document/{database}/{rid}`
 | <<#HTTP-OpenDatabase,Open a database>>      | POST   | `/api/v1/open/{database}`
 | <<#HTTP-CloseDatabase,Close a database>>    | POST   | `/api/v1/close/{database}`
-| <<#HTTP-DropDatabase,Drop a database>>      | POST   | `/api/v1/drop/{database}`
-| <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{command}`
+| <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
+| <<#HTTP-ExecuteCommand,Execute a command>>  | POST   | `/api/v1/command/{database}`
+| <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
+| <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
 | <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
-| <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
+| <<#HTTP-CreateDocument,Create a document>>  | POST   | `/api/v1/document/{database}`
+| <<#HTTP-LoadDocument,Load a document>>      | GET    | `/api/v1/document/{database}/{rid}`
 |===
 
 [cols="30,10,~",options="header"]
@@ -170,99 +173,82 @@ curl -X POST http://localhost:2480/api/v1/document/school
 | serializer | Optional | "graph", "record"
 |===
 
-[[HTTP-Begin]]
-===== Begin a transaction (POST)
+[[HTTP-CheckReady]]
+===== Check if server is ready (GET)
 
-Begins a transaction on the server managed as a session.
-The response header contains the session id.
-Set this id in the following requests to execute them in the same transaction scope.
-See also <<HTTP-Commit,/commit>> and <<HTTP-Rollback,/rollback>>.
+Returns a header-only status 204 (no content) if the ArcadeDB server is ready.
 
-URL Syntax: `/api/v1/begin/{database}`
+URL Syntax: `/api/v1/ready`
 
-Where:
-
-- `database` is the database name
-
-Example:
-
-```
-curl -X POST http://localhost:2480/api/v1/begin/school
-     --user root:arcadedb-password -I
-```
-
-Returns the Session Id in the response header, example:
-
-`arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`
-
-Use the session id in the request header of further commands you want to execute in the same transaction and execute <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
-After a period of inactivity (default is 30 seconds), the server automatically rollback and purge expired transactions.
-
-[[HTTP-Command]]
-===== Execute a command (POST)
-
-Executes a non-idempotent command.
-
-URL Syntax: `/api/v1/command/{database}`
-
-Where:
-
-- `database` is the database name
-
-Example to create the new document type "Class":
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/command/school
-     -d '{ "language": "sql", "command": "create document type Class"}'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password
-----
-
-The payload, as a JSON, accepts the following parameters:
-
-- `language` is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
-- `command` the command to execute in encoded format
-- `limit` (optional) is the maximum number of results to return
-- `params` (optional), is the map of parameters to pass to the query engine
-- `serializer` (optional) specify the serializer used for the result:
-** `graph`: returns as a graph separating vertices from edges
-** `record`: returns everything as records
-** by default it's like record but with additional metadata for vertex records, such as the number of outgoing edges in `@out` property and total incoming edges in `@in` property.
-This serialzier is used by Studio
-
-Example of insertion of a new Client by using parameters:
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/command/company
-     -d '{ "language": "sql", "command": "create vertex Client set firstName = :firstName, lastName = :lastName", params: { "firstName": "Jay", "lastName", "Miner" } }'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password
-----
-
-[[HTTP-Commit]]
-===== Commit a transaction (POST)
-
-Commits a transaction on the server.
-Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
-See also <<HTTP-Begin,/begin>> and <<HTTP-Rollback,/rollback>>.
-
-URL Syntax: `/api/v1/commit/{database}`
-
-Where:
-
-- `database` is the database name
-
-Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
-If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+This endpoint accepts (GET) requests without authentication,
+and is useful for remote monitoring of server readiness.
 
 Example:
 
 [source,shell]
 ----
-curl -X POST http://localhost:2480/api/v1/commit/school
-     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
+curl -X GET http://localhost:2480/api/v1/ready
+----
+
+Return:
+
+```
+HTTP/1.1 204 OK
+```
+
+[[HTTP-ServerInfo]]
+===== Get server information (GET)
+
+Returns the current HA configuration.
+
+URL Syntax: `/api/v1/server`
+
+If ArcadeDB runs distributed, it returns the cluster configuration, otherwise just `{}`, hence it can also be used to check if the server is ready.
+
+Example:
+
+[source,shell]
+----
+curl -X GET http://localhost:2480/api/v1/server
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "leaderServer": "europe0", "replicaServers" : ["usa0", "usa1"]}
+----
+
+[[HTTP-CreateUser]]
+===== Create a user (POST)
+
+Creates a user.
+
+URL Syntax: `/api/v1/user/`
+
+Example:
+
+[source,shell]
+----
+curl -X DELETE http://localhost:2480/api/v1/user/
+     -d '{"name":"elon","password":"muskmusk","databases":{"*":["admin"]}}'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+[[HTTP-DropUser]]
+===== Drop a user (DELETE)
+
+Deletes a user.
+
+URL Syntax: `/api/v1/user/{user}`
+
+Example:
+
+[source,shell]
+----
+curl -X DELETE http://localhost:2480/api/v1/user/elon
      --user root:arcadedb-password
 ----
 
@@ -280,6 +266,23 @@ Example to create a new database:
 [source,shell]
 ----
 curl -X POST http://localhost:2480/api/v1/create/school
+     --user root:arcadedb-password
+----
+
+[[HTTP-DropDatabase]]
+===== Drop a database (POST)
+
+URL Syntax: `/api/v1/drop/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example of deleting the database "school":
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/drop/school
      --user root:arcadedb-password
 ----
 
@@ -324,6 +327,194 @@ Example:
 ```json
 {"result": true}
 ```
+
+[[HTTP-OpenDatabase]]
+===== Open a database (POST)
+
+Opens a database on the server.
+By default, all the databases under the `databases/` directory on the server are loaded at startup.
+You can manually load the databases by setting `arcadedb.server.databaseLoadAtStartup=false` and invoking the open command on the databases you are going to use.
+Also, you can open a database previously closed because of a restore database command.
+
+URL Syntax: `/api/v1/open/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example of opening the database "school":
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/open/school
+     --user root:arcadedb-password
+----
+
+[[HTTP-CloseDatabase]]
+===== Close a database (POST)
+
+Closes a database on the server.
+Use this command to free resources in case there are many databases managed by the server.
+Also, close the database before a restore of the database.
+
+URL Syntax: `/api/v1/close/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example of closing the database "school":
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/close/school
+     --user root:arcadedb-password
+----
+
+[[HTTP-ExecuteQuery]]
+===== Execute a query (GET)
+
+This command allows executing idempotent commands, like `SELECT` and `MATCH`:
+
+URL Syntax: `/api/v1/query/{database}/{language}/{command}`
+
+Where:
+
+- `database` is the database name
+- `language` is the query language used.
+is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
+- `command` the command to execute in encoded format
+
+You might need to encode the URL if contains special characters and spaces.
+
+Example:
+
+[source,shell]
+----
+curl -X GET http://localhost:2480/api/v1/query/school/sql/select%20from%20Class
+     --user root:arcadedb-password
+----
+
+[[HTTP-ExecuteCommand]]
+===== Execute a command (POST)
+
+Executes a non-idempotent command.
+
+URL Syntax: `/api/v1/command/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example to create the new document type "Class":
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/command/school
+     -d '{ "language": "sql", "command": "create document type Class"}'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+The payload, as a JSON, accepts the following parameters:
+
+- `language` is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
+- `command` the command to execute in encoded format
+- `limit` (optional) is the maximum number of results to return
+- `params` (optional), is the map of parameters to pass to the query engine
+- `serializer` (optional) specify the serializer used for the result:
+** `graph`: returns as a graph separating vertices from edges
+** `record`: returns everything as records
+** by default it's like record but with additional metadata for vertex records, such as the number of outgoing edges in `@out` property and total incoming edges in `@in` property.
+This serialzier is used by Studio
+
+Example of insertion of a new Client by using parameters:
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/command/company
+     -d '{ "language": "sql", "command": "create vertex Client set firstName = :firstName, lastName = :lastName", params: { "firstName": "Jay", "lastName", "Miner" } }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+[[HTTP-Begin]]
+===== Begin a transaction (POST)
+
+Begins a transaction on the server managed as a session.
+The response header contains the session id.
+Set this id in the following requests to execute them in the same transaction scope.
+See also <<HTTP-Commit,/commit>> and <<HTTP-Rollback,/rollback>>.
+
+URL Syntax: `/api/v1/begin/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example:
+
+```
+curl -X POST http://localhost:2480/api/v1/begin/school
+     --user root:arcadedb-password -I
+```
+
+Returns the Session Id in the response header, example:
+
+`arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`
+
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
+After a period of inactivity (default is 30 seconds), the server automatically rollback and purge expired transactions.
+
+[[HTTP-Commit]]
+===== Commit a transaction (POST)
+
+Commits a transaction on the server.
+Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
+See also <<HTTP-Begin,/begin>> and <<HTTP-Rollback,/rollback>>.
+
+URL Syntax: `/api/v1/commit/{database}`
+
+Where:
+
+- `database` is the database name
+
+Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
+If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+
+Example:
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/commit/school
+     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
+     --user root:arcadedb-password
+----
+
+[[HTTP-Rollback]]
+===== Rollback a transaction (POST)
+
+Rollbacks a transaction on the server.
+Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
+See also <<HTTP-Begin,/begin>> and <<HTTP-Commit,/commit>>.
+
+URL Syntax: `/api/v1/rollback/{database}`
+
+Where:
+
+- `database` is the database name
+
+Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
+If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+
+Example:
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/rollback/school
+     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
+     --user root:arcadedb-password
+----
 
 [[HTTP-CreateDocument]]
 ===== Create a document (POST) (Deprecated)
@@ -374,137 +565,3 @@ The output will be:
 ----
 {"@rid": "#3:4", "@type": "Person", "name": "Jay", "surname": "Miner", "age": 69}
 ----
-
-[[HTTP-OpenDatabase]]
-===== Open a database (POST)
-
-Opens a database on the server.
-By default, all the databases under the `databases/` directory on the server are loaded at startup.
-You can manually load the databases by setting `arcadedb.server.databaseLoadAtStartup=false` and invoking the open command on the databases you are going to use.
-Also, you can open a database previously closed because of a restore database command.
-
-URL Syntax: `/api/v1/open/{database}`
-
-Where:
-
-- `database` is the database name
-
-Example of opening the database "school":
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/open/school
-     --user root:arcadedb-password
-----
-
-[[HTTP-CloseDatabase]]
-===== Close a database (POST)
-
-Closes a database on the server.
-Use this command to free resources in case there are many databases managed by the server.
-Also, close the database before a restore of the database.
-
-URL Syntax: `/api/v1/close/{database}`
-
-Where:
-
-- `database` is the database name
-
-Example of closing the database "school":
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/close/school
-     --user root:arcadedb-password
-----
-
-[[HTTP-DropDatabase]]
-===== Drop a database (POST)
-
-URL Syntax: `/api/v1/drop/{database}`
-
-Where:
-
-- `database` is the database name
-
-Example of deleting the database "school":
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/drop/school
-     --user root:arcadedb-password
-----
-
-[[HTTP-ExecuteQuery]]
-===== Execute a query (GET)
-
-This command allows executing idempotent commands, like `SELECT` and `MATCH`:
-
-URL Syntax: `/api/v1/query/{database}/{language}/{command}`
-
-Where:
-
-- `database` is the database name
-- `language` is the query language used.
-is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
-- `command` the command to execute in encoded format
-
-You might need to encode the URL if contains special characters and spaces.
-
-Example:
-
-[source,shell]
-----
-curl -X GET http://localhost:2480/api/v1/query/school/sql/select%20from%20Class
-     --user root:arcadedb-password
-----
-
-[[HTTP-Rollback]]
-===== Rollback a transaction (POST)
-
-Rollbacks a transaction on the server.
-Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
-See also <<HTTP-Begin,/begin>> and <<HTTP-Commit,/commit>>.
-
-URL Syntax: `/api/v1/rollback/{database}`
-
-Where:
-
-- `database` is the database name
-
-Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
-If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
-
-Example:
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/rollback/school
-     -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
-     --user root:arcadedb-password
-----
-
-[[HTTP-ServerInfo]]
-===== Get server information (GET)
-
-Returns the current HA configuration.
-
-URL Syntax: `/api/v1/server`
-
-If ArcadeDB runs distributed, it returns the cluster configuration, otherwise just `{}`, hence it can also be used to check if the server is ready.
-
-Example:
-
-[source,shell]
-----
-curl -X GET http://localhost:2480/api/v1/server
-     --user root:arcadedb-password
-----
-
-Return:
-
-[source,json]
-----
-{ "leaderServer": "europe0", "replicaServers" : ["usa0", "usa1"]}
-----
-
