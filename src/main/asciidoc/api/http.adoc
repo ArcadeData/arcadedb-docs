@@ -146,6 +146,7 @@ curl -X POST http://localhost:2480/api/v1/document/school
 | *Action*                                    | *Method* | *Endpoint*
 | <<#HTTP-CheckReady,Get server status>>      | GET    | `/api/v1/ready`
 | <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
+| <<#HTTP-ServerCommand,Send server command>> | POST   | `/api/v1/server`
 | <<#HTTP-CreateUser,Create a user>>          | POST   | `/api/v1/user`
 | <<#HTTP-DropUser,Drop a user>>              | DELETE | `/api/v1/user/{user}`
 | <<#HTTP-CreateDatabase,Create a database>>  | POST   | `/api/v1/create/{database}`
@@ -159,8 +160,6 @@ curl -X POST http://localhost:2480/api/v1/document/school
 | <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
 | <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
 | <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
-| <<#HTTP-CreateDocument,Create a document>> (Deprecated) | POST   | `/api/v1/document/{database}`
-| <<#HTTP-LoadDocument,Load a document>> (Deprecated)     | GET    | `/api/v1/document/{database}/{rid}`
 |===
 
 [cols="30,10,~",options="header"]
@@ -218,6 +217,34 @@ Return:
 [source,json]
 ----
 { "leaderServer": "europe0", "replicaServers" : ["usa0", "usa1"]}
+----
+
+[[HTTP-ServerCommand]]
+===== Send server command (POST)
+
+Sends control commands to server.
+
+URL Syntax: `/api/v1/server`
+
+Currently, the following command is available:
+
+* `shutdown` kills the server gracefully (only the *root* user can run this command).
+
+Example:
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "shutdown" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "result": "ok"}
 ----
 
 [[HTTP-CreateUser]]
@@ -514,54 +541,4 @@ Example:
 curl -X POST http://localhost:2480/api/v1/rollback/school
      -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4"
      --user root:arcadedb-password
-----
-
-[[HTTP-CreateDocument]]
-===== Create a document (POST) (Deprecated)
-
-NOTE: This API has been deprecated starting from v22.9.1. Use the query language to create a new document, such as the SQL `INSERT` statement. Example: `INSERT INTO Account SET name = 'Elon'`.
-
-URL Syntax: `/api/v1/document/{database}`
-
-Where:
-
-- `database` is the database name
-
-The Payload is the JSON document to insert.
-
-Example of inserting a new document of type "Person":
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/document/school
-     -d '{"@type": "Person", "name": "Jay", "surname": "Miner", "age": 69}'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password
-----
-
-[[HTTP-LoadDocument]]
-===== Load a document (GET) (Deprecated)
-
-NOTE: This API has been deprecated starting from v22.9.1. Use the query language to retrieve a document by record id, such as `SELECT FROM <RID>` SQL statement.
-Example: `SELECT FROM #10:33`.
-
-URL Syntax: `/api/v1/document/{database}/{rid}`
-
-Where:
-
-- `database` is the database name
-
-Example of retrieving a document by RID:
-
-[source,shell]
-----
-curl -X GET http://localhost:2480/api/v1/document/school/3:4
-     --user root:arcadedb-password
-----
-
-The output will be:
-
-[source,json]
-----
-{"@rid": "#3:4", "@type": "Person", "name": "Jay", "surname": "Miner", "age": 69}
 ----
