@@ -147,19 +147,19 @@ curl -X POST http://localhost:2480/api/v1/document/school
 | <<#HTTP-CheckReady,Get server status>>      | GET    | `/api/v1/ready`
 | <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
 | <<#HTTP-ServerCommand,Send server command>> | POST   | `/api/v1/server`
-| <<#HTTP-CreateUser,Create a user>>          | POST   | `/api/v1/user`
-| <<#HTTP-DropUser,Drop a user>>              | DELETE | `/api/v1/user/{user}`
-| <<#HTTP-CreateDatabase,Create a database>>  | POST   | `/api/v1/create/{database}`
-| <<#HTTP-DropDatabase,Drop a database>>      | POST   | `/api/v1/drop/{database}`
 | <<#HTTP-ListDatabases,List of databases>>   | GET    | `/api/v1/databases`
 | <<#HTTP-DatabaseExists,Does database exist>>| GET    | `/api/v1/exists/{database}`
 | <<#HTTP-OpenDatabase,Open a database>>      | POST   | `/api/v1/open/{database}`
-| <<#HTTP-CloseDatabase,Close a database>>    | POST   | `/api/v1/close/{database}`
 | <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
-| <<#HTTP-ExecuteCommand,Execute a command>>  | POST   | `/api/v1/command/{database}`
+| <<#HTTP-ExecuteCommand,Execute database command>>  | POST   | `/api/v1/command/{database}`
 | <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
 | <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
 | <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
+| <<#HTTP-CreateUser,Create a user>> (*<<#HTTP-ServerCommand,Deprecated>>*)         | POST   | `/api/v1/user`
+| <<#HTTP-DropUser,Drop a user>> (*<<#HTTP-ServerCommand,Deprecated>>*)             | DELETE | `/api/v1/user/{user}`
+| <<#HTTP-CreateDatabase,Create a database>> (*<<#HTTP-ServerCommand,Deprecated>>*) | POST   | `/api/v1/create/{database}`
+| <<#HTTP-DropDatabase,Drop a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)     | POST   | `/api/v1/drop/{database}`
+| <<#HTTP-CloseDatabase,Close a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)   | POST   | `/api/v1/close/{database}`
 |===
 
 [cols="30,10,~",options="header"]
@@ -226,11 +226,105 @@ Sends control commands to server.
 
 URL Syntax: `/api/v1/server`
 
-Currently, the following command is available:
+Currently, the following commands are available:
 
-* `shutdown` kills the server gracefully (only the *root* user can run this command).
+* `create database <dbname>` creates database with name `dbname`
+* `drop database <dbname>` deletes database with name `dbname`
+* `close database <dbname>` closes database with name `dbname`
+* `create user { "name": "<username>", "password": "<password>", "databases": { "<dbname>": "admin", "<dbname>": "admin" } }` creates user credentials `username` and `password` and admin access to databases `dbname`.
+* `drop user <username>` deletes user `username`
+* `shutdown` kills the server gracefully.
 
-Example:
+NOTE: Only *root* users can run these command
+
+Examples:
+
+====== Create database
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "create database mydatabase" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "result": "ok"}
+----
+
+====== Drop database
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "drop database mydatabase" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "result": "ok"}
+----
+
+====== Close database
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "close database mydatabase" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "result": "ok"}
+----
+
+====== Create user
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "create user { \"name\": \"myuser\", \"password\": \"mypassword\", \"databases\": { \"mydatabase\": \"admin\" } }" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "result": "ok"}
+----
+
+====== Drop user
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "drop user myuser" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{ "result": "ok"}
+----
+
+====== Shutdown server
 
 [source,shell]
 ----
@@ -423,7 +517,7 @@ curl -X GET http://localhost:2480/api/v1/query/school/sql/select%20from%20Class
 ----
 
 [[HTTP-ExecuteCommand]]
-===== Execute a command (POST)
+===== Execute database command (POST)
 
 Executes a non-idempotent command.
 
