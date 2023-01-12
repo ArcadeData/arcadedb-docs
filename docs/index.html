@@ -20374,7 +20374,7 @@ This class contains an instance of a LSMTreeIndexMutable class that manages the 
 <p>ArcadeDB uses pages to store index entries.
 Those pages are immutable once full and cannot be changed.
 This is why it is considered an append-only index.
-After a while, ArcadeDB runs the compactor that compact the index by reading the content of the pages from disk, compress the content and write them back into new pages to disk.
+After a while, ArcadeDB runs the compactor that compacts the index by reading the content of the pages from disk, compresses the content and write them back into new pages to disk.
 This process happens in background while the index can be used by the application.</p>
 </div>
 <div class="paragraph">
@@ -20386,12 +20386,25 @@ Since the pages are immutable, deletion are managed with special placeholders to
 <p>Since the LSM-Tree is append only, the most updated entries are at the end of the index.
 If an entry is created and then deleted, the deletion will always be after the creation.
 For this reason cursors start from the last pages back to the first one available.
-While the cursor is browaing the pages back, it keeps track of the deleted values encountered.</p>
+While the cursor is browsing the pages back, it keeps track of the deleted values encountered.</p>
 </div>
+<div class="sect4">
+<h5 id="_compaction">Compaction</h5>
 <div class="paragraph">
 <p>During compaction, new compressed version of the pages are stored.
 The pages are stored in segments where the root page is the first page of the segment.
-A file can have multiple segments.</p>
+A file can have multiple segments.
+The compaction requires a lot of RAM to properly compact large indexes and make them efficient.
+To control the amount of RAM the compaction task is using, the setting <code>arcadedb.indexCompactionRAM</code> is used to determine the maximum amount of RAM allowed to use for compaction.
+By default is 300MB of RAM.
+Also, the setting <code>arcadedb.indexCompactionMinPagesSchedule</code> tells the index when it is time for scheduling a compaction.
+By default the minimum is 10 pages not compacted.
+If you set <code>0</code>, the automatic compaction is disabled.</p>
+</div>
+<div class="paragraph">
+<p>If, for example, the compaction task finds 20 pages to compact, but the RAM requirements allow only 10 pages to be compacted, then the task will process the first 10 pages in one segment and the remaining 10 pages in the following segment.
+Having multiple segments in the same file allows to run the compaction with a minimum amount of RAM if needed.</p>
+</div>
 </div>
 <div class="sect4">
 <h5 id="_page_layout">Page layout</h5>
@@ -20402,7 +20415,7 @@ A page is full when there is no space between the head (key pointers) and the ta
 When a page is full, another page is created, waiting for a compaction.</p>
 </div>
 <div class="paragraph">
-<p>Root Page</p>
+<p><strong>Root Page</strong></p>
 </div>
 <div class="paragraph">
 <p>It&#8217;s the first page of a segment of pages.
@@ -20412,7 +20425,7 @@ With mutable indexes the only difference is that the root page has a larger head
 For compacted indexes, the root page does not store entries, but contains pointers to the data pages with the first key indexed on the page of the current segment.</p>
 </div>
 <div class="paragraph">
-<p><strong>Header</strong></p>
+<p>Header:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -20451,6 +20464,9 @@ If the numberOfKeys is 3, then 3 bytes for keyType are written</p>
 </div>
 <div class="paragraph">
 <p><strong>Data Page</strong></p>
+</div>
+<div class="paragraph">
+<p>Header:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -20626,7 +20642,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 22.12.1<br>
-Last updated 2023-01-12 05:17:52 UTC
+Last updated 2023-01-12 06:36:59 UTC
 </div>
 </div>
 </body>
