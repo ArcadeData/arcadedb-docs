@@ -1718,6 +1718,9 @@ If the data is found, it will be returned to you</p>
 </li>
 </ol>
 </div>
+<div class="paragraph">
+<p>If you&#8217;re interested to ArcadeDB&#8217;s LSM-Tree index implementation detail, look at <a href="#LSM-Tree">LSM-Tree</a></p>
+</div>
 </div>
 </div>
 </div>
@@ -20351,7 +20354,133 @@ In optimistic transactions, ArcadeDB checks the version in order to avoid confli
 </div>
 </div>
 <div class="sect2">
-<h3 id="Requirements">11.7. Requirements</h3>
+<h3 id="LSM-Tree">11.7. LSM-Tree Algorithm</h3>
+<div class="paragraph">
+<p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/lsm-tree.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
+</div>
+<div class="paragraph">
+<p>ArcadeDB indexes are built by using the LSM Tree algorithm.</p>
+</div>
+<div class="sect3">
+<h4 id="_quick_overview">11.7.1. Quick Overview</h4>
+<div class="paragraph">
+<p>The LSM-Tree index is optimized for writes with a complexity of O(1) in writing because it does not require a re-balancing of the tree (like the B+Tree) and O(log(N)) to O(log(N)^2) with reads, depending on how fragmented (non compacted) the index is at a point of time.</p>
+</div>
+<div class="paragraph">
+<p>The class LSMTreeIndex is the main entrypoint for the index.
+This class contains an instance of a LSMTreeIndexMutable class that manages the current mutable index and a subIndex in case there is a compacted index connected.</p>
+</div>
+<div class="paragraph">
+<p>ArcadeDB uses pages to store index entries.
+Those pages are immutable once full and cannot be changed.
+This is why it is considered an append-only index.
+After a while, ArcadeDB runs the compactor that compact the index by reading the content of the pages from disk, compress the content and write them back into new pages to disk.
+This process happens in background while the index can be used by the application.</p>
+</div>
+<div class="paragraph">
+<p>The LSMTreeIndexMutable class holds the current page in RAM so new entries can be quickly appended to the page.
+When the database is closed or when the page is full, the page is serialized to disk and becomes immutable.
+Since the pages are immutable, deletion are managed with special placeholders to mark the entries as removed.</p>
+</div>
+<div class="paragraph">
+<p>Since the LSM-Tree is append only, the most updated entries are at the end of the index.
+If an entry is created and then deleted, the deletion will always be after the creation.
+For this reason cursors start from the last pages back to the first one available.
+While the cursor is browaing the pages back, it keeps track of the deleted values encountered.</p>
+</div>
+<div class="paragraph">
+<p>During compaction, new compressed version of the pages are stored.
+The pages are stored in segments where the root page is the first page of the segment.
+A file can have multiple segments.</p>
+</div>
+<div class="sect4">
+<h5 id="_page_layout">Page layout</h5>
+<div class="paragraph">
+<p>There are 2 types of pages: root page and data page.
+The pages are populated from the head of the page by storing the pointers to the pair of key/value that are written from the tail.
+A page is full when there is no space between the head (key pointers) and the tail (key/value pairs).
+When a page is full, another page is created, waiting for a compaction.</p>
+</div>
+<div class="paragraph">
+<p>Root Page</p>
+</div>
+<div class="paragraph">
+<p>It&#8217;s the first page of a segment of pages.
+The header contains more information than the Data Page (see below).
+Both root pages and data pages store keys.
+With mutable indexes the only difference is that the root page has a larger header.
+For compacted indexes, the root page does not store entries, but contains pointers to the data pages with the first key indexed on the page of the current segment.</p>
+</div>
+<div class="paragraph">
+<p><strong>Header</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>[offsetFreeKeyValueContent(int:4),numberOfEntries(int:4),mutable(boolean:1),compactedPageNumberOfSeries(int:4),subIndexFileId(int:4),numberOfKeys(byte:1),keyType(byte:1)*]</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>offsetFreeKeyValueContent</strong> is the offset in the page of free space to store key/value pairs.
+When a page is new, the offset points to the end of the page because the pairs are filled from the end to the beginning</p>
+</li>
+<li>
+<p><strong>numberOfEntries</strong> number of entries (pairs) in the current page</p>
+</li>
+<li>
+<p><strong>mutable</strong> 1 means mutable, 0 immutable.
+Immutable pages cannot be modified, only compacted and then removed at the end of compaction cycle</p>
+</li>
+<li>
+<p><strong>compactedPageNumberOfSeries</strong> number of pages in the compacted segment.
+This is stored in the last page of the segment and it is used to count the pages of the current segment and therefore finding the root page of the segment</p>
+</li>
+<li>
+<p><strong>subIndexFileId</strong> file id of compacted page segment</p>
+</li>
+<li>
+<p><strong>numberOfKeys</strong> number of keys.
+If you&#8217;re using a composite index, multiple keys are used, otherwise only 1</p>
+</li>
+<li>
+<p><strong>keyType</strong> an array of key types.
+If the numberOfKeys is 3, then 3 bytes for keyType are written</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Data Page</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>[offsetFreeKeyValueContent(int:4),numberOfEntries(int:4),mutable(boolean:1),compactedPageNumberOfSeries(int:4)]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Look the root page for the meaning of the header fields.</p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="_mutable_structure">Mutable Structure</h5>
+<div class="paragraph">
+<p>Before being compacted, the LSM-Tree index is conceptually simple: new entries are always inserted in the last page of the file that is the only mutable page of the index.
+If the page is full, a new mutable page is created and the old mutable page become immutable and stored on disk.
+The entries in the page are written already ordered by key.
+This means a cursor can just browse the page from the first entry to the last to have ordered items.
+The search of a key is executed with the <a href="https://en.wikipedia.org/wiki/Dichotomic_search">dichotomy algorithm</a>.
+Pages can have entries with the same key, because have been added later in the index.
+On writing, the order of the keys is maintained inside the same page.
+This means to have a true ordered iterator, a virtual iterator is created with pointers to all the pages.
+Every time you move forward in the iterator, the next available key in the page pointer is compared among each other and the minor is returned.
+This can become quite expensive in the case of millions of entries and hundreds of pages.
+For this reason a periodic compaction is needed to keep values ordered together in the same page and also to remove deleted items.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="Requirements">11.8. Requirements</h3>
 <h4 id="_memory" class="discrete">Memory</h4>
 <div class="paragraph">
 <p>ArcadeDB&#8217;s memory (RAM) requirements depend on the <a href="#Settings">configured profile</a>:</p>
@@ -20411,7 +20540,7 @@ tested JREs are:</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="ReportAnIssue">11.8. Report an Issue</h3>
+<h3 id="ReportAnIssue">11.9. Report an Issue</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/issues.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -20497,7 +20626,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 22.12.1<br>
-Last updated 2023-01-11 20:50:12 UTC
+Last updated 2023-01-12 05:17:52 UTC
 </div>
 </div>
 </body>

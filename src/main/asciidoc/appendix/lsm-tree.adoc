@@ -1,0 +1,88 @@
+[[LSM-Tree]]
+=== LSM-Tree Algorithm
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/lsm-tree.adoc" float=right]
+
+ArcadeDB indexes are built by using the LSM Tree algorithm.
+
+==== Quick Overview
+
+The LSM-Tree index is optimized for writes with a complexity of O(1) in writing because it does not require a re-balancing of the tree (like the B+Tree) and O(log(N)) to O(log(N)^2) with reads, depending on how fragmented (non compacted) the index is at a point of time.
+
+The class LSMTreeIndex is the main entrypoint for the index.
+This class contains an instance of a LSMTreeIndexMutable class that manages the current mutable index and a subIndex in case there is a compacted index connected.
+
+ArcadeDB uses pages to store index entries.
+Those pages are immutable once full and cannot be changed.
+This is why it is considered an append-only index.
+After a while, ArcadeDB runs the compactor that compact the index by reading the content of the pages from disk, compress the content and write them back into new pages to disk.
+This process happens in background while the index can be used by the application.
+
+The LSMTreeIndexMutable class holds the current page in RAM so new entries can be quickly appended to the page.
+When the database is closed or when the page is full, the page is serialized to disk and becomes immutable.
+Since the pages are immutable, deletion are managed with special placeholders to mark the entries as removed.
+
+Since the LSM-Tree is append only, the most updated entries are at the end of the index.
+If an entry is created and then deleted, the deletion will always be after the creation.
+For this reason cursors start from the last pages back to the first one available.
+While the cursor is browaing the pages back, it keeps track of the deleted values encountered.
+
+During compaction, new compressed version of the pages are stored.
+The pages are stored in segments where the root page is the first page of the segment.
+A file can have multiple segments.
+
+===== Page layout
+
+There are 2 types of pages: root page and data page.
+The pages are populated from the head of the page by storing the pointers to the pair of key/value that are written from the tail.
+A page is full when there is no space between the head (key pointers) and the tail (key/value pairs).
+When a page is full, another page is created, waiting for a compaction.
+
+Root Page
+
+It's the first page of a segment of pages.
+The header contains more information than the Data Page (see below).
+Both root pages and data pages store keys.
+With mutable indexes the only difference is that the root page has a larger header.
+For compacted indexes, the root page does not store entries, but contains pointers to the data pages with the first key indexed on the page of the current segment.
+
+**Header**
+
+```
+[offsetFreeKeyValueContent(int:4),numberOfEntries(int:4),mutable(boolean:1),compactedPageNumberOfSeries(int:4),subIndexFileId(int:4),numberOfKeys(byte:1),keyType(byte:1)*]
+```
+
+- *offsetFreeKeyValueContent* is the offset in the page of free space to store key/value pairs.
+When a page is new, the offset points to the end of the page because the pairs are filled from the end to the beginning
+- *numberOfEntries* number of entries (pairs) in the current page
+- *mutable* 1 means mutable, 0 immutable.
+Immutable pages cannot be modified, only compacted and then removed at the end of compaction cycle
+- *compactedPageNumberOfSeries* number of pages in the compacted segment.
+This is stored in the last page of the segment and it is used to count the pages of the current segment and therefore finding the root page of the segment
+- *subIndexFileId* file id of compacted page segment
+- *numberOfKeys* number of keys.
+If you're using a composite index, multiple keys are used, otherwise only 1
+- *keyType* an array of key types.
+If the numberOfKeys is 3, then 3 bytes for keyType are written
+
+**Data Page**
+
+```
+[offsetFreeKeyValueContent(int:4),numberOfEntries(int:4),mutable(boolean:1),compactedPageNumberOfSeries(int:4)]
+```
+
+Look the root page for the meaning of the header fields.
+
+===== Mutable Structure
+
+Before being compacted, the LSM-Tree index is conceptually simple: new entries are always inserted in the last page of the file that is the only mutable page of the index.
+If the page is full, a new mutable page is created and the old mutable page become immutable and stored on disk.
+The entries in the page are written already ordered by key.
+This means a cursor can just browse the page from the first entry to the last to have ordered items.
+The search of a key is executed with the https://en.wikipedia.org/wiki/Dichotomic_search[dichotomy algorithm].
+Pages can have entries with the same key, because have been added later in the index.
+On writing, the order of the keys is maintained inside the same page.
+This means to have a true ordered iterator, a virtual iterator is created with pointers to all the pages.
+Every time you move forward in the iterator, the next available key in the page pointer is compared among each other and the minor is returned.
+This can become quite expensive in the case of millions of entries and hundreds of pages.
+For this reason a periodic compaction is needed to keep values ordered together in the same page and also to remove deleted items.
