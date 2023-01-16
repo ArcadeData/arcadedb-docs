@@ -4,6 +4,34 @@
 ArcadeDB treats dates as first class citizens. Internally, it saves dates in the https://en.wikipedia.org/wiki/Unix_time[Unix time] format.
 Meaning, it stores dates as a `long` variable, which contains the count in milliseconds since the Unix Epoch, (that is, 1 January 1970).
 
+Starting from v21.1.1, ArcadeDB sully support the new Java Time API with a custom precision from second to nanoseconds. The data types to manage date/time are:
+
+- `DATE`, to handle dates without a time. Example: `01/01/2023`
+- `DATETIME_SECOND`, to handle datetime with the precision of the second. Example: `01/01/2023 10:30:00`
+- `DATETIME`, to handle datetime with the precision of the millisecond. Example: `01/01/2023 10:30:00.333`
+- `DATETIME_MICROS`, to handle datetime with the precision of the microsecond. Example: `01/01/2023 10:30:00`
+- `DATETIME_NANOS`, to handle datetime with the precision of the nanosecond. Example: `01/01/2023 10:30:00`
+
+NOTE: using high precision types increase the space used on disk. For example, using nanosecond precision instead of millisecond increase the space requested to store the datetime of a factor of 2X.
+
+If you're working with the Java API, the class used for both `DATE` and `DATETIME` is `java.util.Date`. With `DATETIME` values, if you're using higher precision than millisecond you need to use the new Java Time API:
+
+- `java.time.LocalDateTime`
+- `java.time.ZonedDateTime`
+- `java.time.Instant`
+
+If you're starting a new project with ArcadeDB, using the new Java Time API is strongly advised. For example, if you want to use `LocalDateTime` as default class that represent `DATETIME`, set it in the binary serializer at startup and ArcadeDB will always return a LocalDateTime for DATETIME types:
+
+```sql
+alter database `arcadedb.dateTimeImplementation` `java.time.LocalDateTime`
+```
+
+You can do the same for `DATE` types using the new Java Time API for dates `java.time.LocalDate`:
+
+```sql
+alter database `arcadedb.dateImplementation` `java.time.LocalDate`
+```
+
 [discrete]
 #### Date and Datetime Formats
 
@@ -36,6 +64,7 @@ These functions and methods provide you with more control to manage dates:
 | <<_asdate,`.asDate()`>> | Method converts any type into a date.
 | <<_asdatetime,`.asDatetime()`>> | Method converts any type into datetime.
 | <<_aslong,`.asLong()`>> | Method converts any date into long format, (that is, Unix time).
+| <<_precision,`.precision()`>> | Method modifies the precision of a datetime property. For example, `.precision('millisecond')` returns the datetime property with millisecond precision
 |===
 
 For example, consider a case where you need to extract only the years for date entries and to arrange them in order.  You can use the <<_format,`.format()`>> method to extract dates into different formats.
