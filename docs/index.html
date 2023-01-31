@@ -6806,207 +6806,8 @@ The result can be managed in the DeletedRecordCallback callback and errors in Er
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="paragraph">
-<p>The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol.
-The protocol is very simple.
-For this reason, you don&#8217;t need a driver, because every modern programming language provides an easy way to execute HTTP requests and parse JSON.</p>
+<p><strong>Overview Endpoints</strong></p>
 </div>
-<div class="paragraph">
-<p>For the examples in this chapter we&#8217;re going to use curl.</p>
-</div>
-<div class="paragraph">
-<p>Every command must be authenticated by passing user and password as HTTP Basic authentication (in HTTP Headers).</p>
-</div>
-<div class="paragraph">
-<p>In the examples below we&#8217;re going to always use "root" user with password "arcadedb-password".</p>
-</div>
-<h4 id="_server_side_transactions" class="discrete">Server-Side Transactions</h4>
-<div class="paragraph">
-<p>ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
-A session is created with the <a href="#HTTP-Begin">/begin</a> command and returns a session id in the response header (example <code>arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4</code>).
-Use the session id in the request header of further commands you want to execute in the same transaction and execute <a href="#HTTP-Commit">/commit</a> to commit the server side transaction or <a href="#HTTP-Rollback">/rollback</a> to rollback the changes.
-After a period of inactivity (default is 30 seconds), the server automatically rolls back and purges expired transactions.</p>
-</div>
-<h4 id="_transaction_scripts" class="discrete">Transaction Scripts</h4>
-<div class="paragraph">
-<p>In case <a href="#SQL">SQL</a> (<code>sql</code>) is supposed to be used as language for a transactions,
-the language variant "SQL script" (<code>sqlscript</code>) is available.
-A <code>sqlscript</code> can consist of one or multiple SQL statements,
-which are collectively treated as a transaction.
-Hence, for such a batch of SQL statements, no <code>begin</code> and <code>commit</code> commands are necessary,
-since <code>begin</code> and <code>commit</code> implicitly enclose any <code>sqlscript</code> command.</p>
-</div>
-<h4 id="WebSocket-Streaming" class="discrete">Streaming Change Events</h4>
-<div class="admonitionblock important">
-<table>
-<tr>
-<td class="icon">
-<div class="title">Important</div>
-</td>
-<td class="content">
-This feature presently only supports single server deployments.
-Cluster support is coming soon.
-</td>
-</tr>
-</table>
-</div>
-<div class="paragraph">
-<p>The Java API supports real-time change notifications, which the HTTP API implements via a websocket.
-You can opt into notifications for all changes that occur on a database, or filter by the operation (i.e. create, update, delete) or underlying entity type.</p>
-</div>
-<div class="paragraph">
-<p>To connect, point your favorite WebSocket client to the <code>ws://SERVER:PORT/ws</code> endpoint.
-You will need to authenticate with HTTP Basic, which for some clients (like most browsers) is only possible via the URI, like this: <code>ws://USERNAME:PASSWORD@SERVER:PORT/ws</code>.
-Others will require that you set the Authorization header directly.
-Check the documentation for your client of choice for details.</p>
-</div>
-<div class="paragraph">
-<p>To subscribe/unsubscribe to change events, send JSON messages using the following structure:</p>
-</div>
-<table class="tableblock frame-all grid-all stretch">
-<colgroup>
-<col style="width: 10%;">
-<col style="width: 10%;">
-<col>
-</colgroup>
-<thead>
-<tr>
-<th class="tableblock halign-left valign-top">Property</th>
-<th class="tableblock halign-left valign-top">Required</th>
-<th class="tableblock halign-left valign-top">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">action</p></th>
-<th class="tableblock halign-left valign-top"><p class="tableblock">REQUIRED</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscribe</code> or <code>unsubscribe</code>.</p></td>
-</tr>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">database</p></th>
-<th class="tableblock halign-left valign-top"><p class="tableblock">REQUIRED</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock">The database name.</p></td>
-</tr>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">type</p></th>
-<th class="tableblock halign-left valign-top"><p class="tableblock">Optional</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock">The entity type to filter by.</p></td>
-</tr>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">changeTypes</p></th>
-<th class="tableblock halign-left valign-top"><p class="tableblock">Optional</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Array of change types you&#8217;d like to receive. Must be <code>create</code>, <code>update</code>, or <code>delete</code>.</p></td>
-</tr>
-</tbody>
-</table>
-<div class="paragraph">
-<p>Example: to subscribe to all changes (create, update, delete) for the type <code>Movie</code> in the database <code>movies</code>, you&#8217;d send this:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">{"action": "subscribe", "database": "movies", "type": "Movie"}</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>If instead, you only wanted updates, send this:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">{"action": "subscribe", "database": "movies", "type": "Movie", "changeTypes": ["update"]}</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>If you wanted every change on the database (use with caution!):</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-json" data-lang="json">{"action": "subscribe", "database": "movies"}</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Once subscribed, you will get JSON messages for any matching changes with the following properties:</p>
-</div>
-<table class="tableblock frame-all grid-all stretch">
-<colgroup>
-<col style="width: 10%;">
-<col>
-</colgroup>
-<thead>
-<tr>
-<th class="tableblock halign-left valign-top">Property</th>
-<th class="tableblock halign-left valign-top">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">database</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock">The source database.</p></td>
-</tr>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">changeType</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock">create, update or delete.</p></td>
-</tr>
-<tr>
-<th class="tableblock halign-left valign-top"><p class="tableblock">record</p></th>
-<td class="tableblock halign-left valign-top"><p class="tableblock">The full record that generated the change event.</p></td>
-</tr>
-</tbody>
-</table>
-<h4 id="_tutorial" class="discrete">Tutorial</h4>
-<div class="paragraph">
-<p>Let&#8217;s first create an empty database "school" on the server:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/create/school
-     --user root:arcadedb-password</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Now let&#8217;s create the type "Class":</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/command/school
-     -d '{ "language": "sql", "command": "create document type Class"}'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>We could insert our first Class by using SQL:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/command/school
-     -d '{ "language": "sql", "command": "insert into Class set name = '\''English'\'', location = '\''3rd floor'\''"}'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Or better, using parameters with SQL:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/command/school
-     -d '{ "language": "sql", "command": "insert into Class set name = :name, location = :location", "params": { "name": "English", "location": "3rd floor" }}'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Or by using the <code>api/v1/document</code> API:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/document/school
-     -d '{"@type": "Class", "name": "English", "location": "3rd floor"}'
-     -H "Content-Type: application/json"
-     --user root:arcadedb-password</code></pre>
-</div>
-</div>
-<div class="sect3">
-<h4 id="_reference">7.4.1. Reference</h4>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
 <col style="width: 30%;">
@@ -7103,6 +6904,9 @@ Check the documentation for your client of choice for details.</p>
 </tr>
 </tbody>
 </table>
+<div class="paragraph">
+<p><strong>Overview Parameters</strong></p>
+</div>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
 <col style="width: 30%;">
@@ -7144,6 +6948,207 @@ Check the documentation for your client of choice for details.</p>
 </tr>
 </tbody>
 </table>
+<h4 id="_introduction" class="discrete">Introduction</h4>
+<div class="paragraph">
+<p>The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol.
+The protocol is very simple.
+For this reason, you don&#8217;t need a driver, because every modern programming language provides an easy way to execute HTTP requests and parse JSON.</p>
+</div>
+<div class="paragraph">
+<p>For the examples in this chapter we&#8217;re going to use <a href="https://curl.se/"><code>curl</code></a>.
+Every request must be authenticated by passing user and password as HTTP basic authentication (in HTTP Headers).
+In the examples below we&#8217;re going to always use "root" user with password "arcadedb-password".</p>
+</div>
+<h4 id="_server_side_transactions" class="discrete">Server-Side Transactions</h4>
+<div class="paragraph">
+<p>ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
+A session is created with the <a href="#HTTP-Begin">/begin</a> command and returns a session id in the response header (example <code>arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4</code>).
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <a href="#HTTP-Commit">/commit</a> to commit the server side transaction or <a href="#HTTP-Rollback">/rollback</a> to rollback the changes.
+After a period of inactivity (default is 30 seconds, see <a href="#Settings"><code>server.httpTxExpireTimeout</code></a>), the server automatically rolls back and purges expired transactions.</p>
+</div>
+<h4 id="_transaction_scripts" class="discrete">Transaction Scripts</h4>
+<div class="paragraph">
+<p>In case <a href="#SQL">SQL</a> (<code>sql</code>) is supposed to be used as language for a transactions,
+the language variant "SQL script" (<code>sqlscript</code>) is also available.
+A <code>sqlscript</code> can consist of one or multiple SQL statements,
+which is collectively treated as a transaction.
+Hence, for such a batch of SQL statements, no <code>begin</code> and <code>commit</code> commands are necessary,
+since <code>begin</code> and <code>commit</code> implicitly enclose any <code>sqlscript</code> command.</p>
+</div>
+<h4 id="WebSocket-Streaming" class="discrete">Streaming Change Events</h4>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Important</div>
+</td>
+<td class="content">
+This feature presently only supports single server deployments.
+Cluster support is coming soon.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The Java API supports real-time change notifications, which the HTTP API implements via a websocket.
+You can opt into notifications for all changes that occur on a database, or filter by the operation (i.e. create, update, delete) or underlying entity type.</p>
+</div>
+<div class="paragraph">
+<p>To connect, point your favorite WebSocket client to the <code>ws://SERVER:PORT/ws</code> endpoint.
+You will need to authenticate with HTTP Basic, which for some clients (like most browsers) is only possible via the URI, like this: <code>ws://USERNAME:PASSWORD@SERVER:PORT/ws</code>.
+Others will require that you set the Authorization header directly.
+Check the documentation for your client of choice for details.</p>
+</div>
+<div class="paragraph">
+<p>To subscribe/unsubscribe to change events, send JSON messages using the following structure:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 10%;">
+<col style="width: 10%;">
+<col>
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Property</th>
+<th class="tableblock halign-left valign-top">Required</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">action</p></th>
+<th class="tableblock halign-left valign-top"><p class="tableblock">Required</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>subscribe</code> or <code>unsubscribe</code>.</p></td>
+</tr>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">database</p></th>
+<th class="tableblock halign-left valign-top"><p class="tableblock">Required</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The database name.</p></td>
+</tr>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">type</p></th>
+<th class="tableblock halign-left valign-top"><p class="tableblock">Optional</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The entity type to filter by.</p></td>
+</tr>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">changeTypes</p></th>
+<th class="tableblock halign-left valign-top"><p class="tableblock">Optional</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Array of change types you&#8217;d like to receive. Must be <code>create</code>, <code>update</code>, or <code>delete</code>.</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>Example: to subscribe to all changes (create, update, delete) for the type <code>Movie</code> in the database <code>movies</code>, use:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{"action": "subscribe", "database": "movies", "type": "Movie"}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If instead, you only want updates, send:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{"action": "subscribe", "database": "movies", "type": "Movie", "changeTypes": ["update"]}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If you want every change on the database (use with caution!):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{"action": "subscribe", "database": "movies"}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once subscribed, you will get JSON messages for any matching changes with the following properties:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 10%;">
+<col>
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Property</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">database</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The source database.</p></td>
+</tr>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">changeType</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock">create, update or delete.</p></td>
+</tr>
+<tr>
+<th class="tableblock halign-left valign-top"><p class="tableblock">record</p></th>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The full record that generated the change event.</p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_tutorial" class="discrete">Tutorial</h4>
+<div class="paragraph">
+<p>Let&#8217;s first create an empty database "school" on the server:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "create database school" }'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now let&#8217;s create the type "Class":</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/command/school
+     -d '{ "language": "sql", "command": "create document type Class"}'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We could insert our first Class by using SQL:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/command/school
+     -d '{ "language": "sql", "command": "insert into Class set name = '\''English'\'', location = '\''3rd floor'\''"}'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or better, using parameters with SQL:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/command/school
+     -d '{ "language": "sql", "command": "insert into Class set name = :name, location = :location", "params": { "name": "English", "location": "3rd floor" }}'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or by using the <code>api/v1/document</code> API:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X POST http://localhost:2480/api/v1/document/school
+     -d '{"@type": "Class", "name": "English", "location": "3rd floor"}'
+     -H "Content-Type: application/json"
+     --user root:arcadedb-password</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_reference">7.4.1. Reference</h4>
 <div class="sect4">
 <h5 id="HTTP-CheckReady">Check if server is ready (GET)</h5>
 <div class="paragraph">
@@ -7248,7 +7253,8 @@ and is useful for remote monitoring of server readiness.</p>
 <div class="title">Note</div>
 </td>
 <td class="content">
-Only <strong>root</strong> users can run these command
+Only <strong>root</strong> users can run these command, except the <code>list databases</code> command,
+      which every user can run, and this user&#8217;s accessible databases are listed.
 </td>
 </tr>
 </table>
@@ -9314,7 +9320,7 @@ To change the default port (6379) set <code>arcadedb.redis.port</code>.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="_introduction" class="discrete">Introduction</h3>
+<h3 id="_introduction_2" class="discrete">Introduction</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Introduction.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -21090,7 +21096,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.1.1<br>
-Last updated 2023-01-31 15:42:34 UTC
+Last updated 2023-01-31 20:29:06 UTC
 </div>
 </div>
 </body>
