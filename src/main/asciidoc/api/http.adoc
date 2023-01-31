@@ -3,14 +3,50 @@
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc" float=right]
 
+*Overview Endpoints*
+
+[cols="30,10,~",options="header"]
+|===
+| *Action*                                    | *Method* | *Endpoint*
+| <<#HTTP-CheckReady,Get server status>>      | GET    | `/api/v1/ready`
+| <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
+| <<#HTTP-ServerCommand,Send server command>> | POST   | `/api/v1/server`
+| <<#HTTP-DatabaseExists,Does database exist>>| GET    | `/api/v1/exists/{database}`
+| <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
+| <<#HTTP-ExecuteCommand,Execute database command>>  | POST   | `/api/v1/command/{database}`
+| <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
+| <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
+| <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
+| <<#HTTP-ListDatabases,List of databases>>  (*<<#HTTP-ServerCommand,Deprecated>>*) | GET    | `/api/v1/databases`
+| <<#HTTP-CreateUser,Create a user>> (*<<#HTTP-ServerCommand,Deprecated>>*)         | POST   | `/api/v1/user`
+| <<#HTTP-DropUser,Drop a user>> (*<<#HTTP-ServerCommand,Deprecated>>*)             | DELETE | `/api/v1/user/{user}`
+| <<#HTTP-CreateDatabase,Create a database>> (*<<#HTTP-ServerCommand,Deprecated>>*) | POST   | `/api/v1/create/{database}`
+| <<#HTTP-DropDatabase,Drop a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)     | POST   | `/api/v1/drop/{database}`
+| <<#HTTP-CloseDatabase,Open a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)   | POST   | `/api/v1/open/{database}`
+| <<#HTTP-OpenDatabase,Close a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)     | POST   | `/api/v1/close/{database}`
+|===
+
+*Overview Parameters*
+
+[cols="30,10,~",options="header"]
+|===
+| *Parameters* | *Type*     | *Values*
+| language   | Required | "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo", and others
+| command    | Required | encoded command string
+| limit      | Optional | maximum number of results
+| params     | Optional | map of parameters
+| serializer | Optional | "graph", "record"
+|===
+
+[discrete]
+==== Introduction
+
 The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol.
 The protocol is very simple.
 For this reason, you don't need a driver, because every modern programming language provides an easy way to execute HTTP requests and parse JSON.
 
-For the examples in this chapter we're going to use curl.
-
-Every command must be authenticated by passing user and password as HTTP Basic authentication (in HTTP Headers).
-
+For the examples in this chapter we're going to use https://curl.se/[`curl`].
+Every request must be authenticated by passing user and password as HTTP basic authentication (in HTTP Headers).
 In the examples below we're going to always use "root" user with password "arcadedb-password".
 
 [discrete]
@@ -19,15 +55,15 @@ In the examples below we're going to always use "root" user with password "arcad
 ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
 A session is created with the <<HTTP-Begin,/begin>> command and returns a session id in the response header (example `arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`).
 Use the session id in the request header of further commands you want to execute in the same transaction and execute <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
-After a period of inactivity (default is 30 seconds), the server automatically rolls back and purges expired transactions.
+After a period of inactivity (default is 30 seconds, see <<Settings,`server.httpTxExpireTimeout`>>), the server automatically rolls back and purges expired transactions.
 
 [discrete]
 ==== Transaction Scripts
 
 In case <<SQL,SQL>> (`sql`) is supposed to be used as language for a transactions,
-the language variant "SQL script" (`sqlscript`) is available.
+the language variant "SQL script" (`sqlscript`) is also available.
 A `sqlscript` can consist of one or multiple SQL statements,
-which are collectively treated as a transaction.
+which is collectively treated as a transaction.
 Hence, for such a batch of SQL statements, no `begin` and `commit` commands are necessary,
 since `begin` and `commit` implicitly enclose any `sqlscript` command.
 
@@ -51,27 +87,27 @@ To subscribe/unsubscribe to change events, send JSON messages using the followin
 [cols="10h,10h,~",options="header"]
 |===
 |Property|Required|Description
-|action|REQUIRED| `subscribe` or `unsubscribe`.
-|database|REQUIRED| The database name.
+|action|Required| `subscribe` or `unsubscribe`.
+|database|Required| The database name.
 |type|Optional| The entity type to filter by.
 |changeTypes|Optional| Array of change types you'd like to receive. Must be `create`, `update`, or `delete`.
 |===
 
-Example: to subscribe to all changes (create, update, delete) for the type `Movie` in the database `movies`, you'd send this:
+Example: to subscribe to all changes (create, update, delete) for the type `Movie` in the database `movies`, use:
 
 [source,json]
 ----
 {"action": "subscribe", "database": "movies", "type": "Movie"}
 ----
 
-If instead, you only wanted updates, send this:
+If instead, you only want updates, send:
 
 [source,json]
 ----
 {"action": "subscribe", "database": "movies", "type": "Movie", "changeTypes": ["update"]}
 ----
 
-If you wanted every change on the database (use with caution!):
+If you want every change on the database (use with caution!):
 
 [source,json]
 ----
@@ -95,7 +131,9 @@ Let's first create an empty database "school" on the server:
 
 [source,shell]
 ----
-curl -X POST http://localhost:2480/api/v1/create/school
+curl -X POST http://localhost:2480/api/v1/server
+     -d '{ "command": "create database school" }'
+     -H "Content-Type: application/json"
      --user root:arcadedb-password
 ----
 
@@ -140,37 +178,6 @@ curl -X POST http://localhost:2480/api/v1/document/school
 ----
 
 ==== Reference
-
-[cols="30,10,~",options="header"]
-|===
-| *Action*                                    | *Method* | *Endpoint*
-| <<#HTTP-CheckReady,Get server status>>      | GET    | `/api/v1/ready`
-| <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
-| <<#HTTP-ServerCommand,Send server command>> | POST   | `/api/v1/server`
-| <<#HTTP-DatabaseExists,Does database exist>>| GET    | `/api/v1/exists/{database}`
-| <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
-| <<#HTTP-ExecuteCommand,Execute database command>>  | POST   | `/api/v1/command/{database}`
-| <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
-| <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
-| <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
-| <<#HTTP-ListDatabases,List of databases>>  (*<<#HTTP-ServerCommand,Deprecated>>*) | GET    | `/api/v1/databases`
-| <<#HTTP-CreateUser,Create a user>> (*<<#HTTP-ServerCommand,Deprecated>>*)         | POST   | `/api/v1/user`
-| <<#HTTP-DropUser,Drop a user>> (*<<#HTTP-ServerCommand,Deprecated>>*)             | DELETE | `/api/v1/user/{user}`
-| <<#HTTP-CreateDatabase,Create a database>> (*<<#HTTP-ServerCommand,Deprecated>>*) | POST   | `/api/v1/create/{database}`
-| <<#HTTP-DropDatabase,Drop a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)     | POST   | `/api/v1/drop/{database}`
-| <<#HTTP-CloseDatabase,Open a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)   | POST   | `/api/v1/open/{database}`
-| <<#HTTP-OpenDatabase,Close a database>> (*<<#HTTP-ServerCommand,Deprecated>>*)     | POST   | `/api/v1/close/{database}`
-|===
-
-[cols="30,10,~",options="header"]
-|===
-| *Parameters* | *Type*     | *Values*
-| language   | Required | "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo", and others
-| command    | Required | encoded command string
-| limit      | Optional | maximum number of results
-| params     | Optional | map of parameters
-| serializer | Optional | "graph", "record"
-|===
 
 [[HTTP-CheckReady]]
 ===== Check if server is ready (GET)
@@ -237,7 +244,8 @@ The following commands are available:
 * `drop user <username>` deletes user `username`
 * `shutdown` kills the server gracefully.
 
-NOTE: Only *root* users can run these command
+NOTE: Only *root* users can run these command, except the `list databases` command,
+      which every user can run, and this user's accessible databases are listed.
 
 Examples:
 
