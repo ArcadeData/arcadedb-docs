@@ -3747,7 +3747,124 @@ The first line of the CSV file set the property names:</p>
 </table>
 </div>
 <div class="sect3">
-<h4 id="OrientDB-Importer">6.4.2. OrientDB Importer</h4>
+<h4 id="JSON-Importer">6.4.2. JSON Importer</h4>
+<div class="paragraph">
+<p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/tools/json-importer.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
+</div>
+<div class="paragraph">
+<p>ArcadeDB is able to import data from JSON format.
+Thanks to the flexible mapping, it&#8217;s possible to define the rules of conversion between the input json file and the graph.</p>
+</div>
+<div class="paragraph">
+<p>Example to import the database of food and nutrients from the <a href="https://fdc.nal.usda.gov/download-datasets.html">U.S. DEPARTMENT OF AGRICULTURE website (USDA)</a>.
+USDA provides updated files to download in both CSV and JSON format.</p>
+</div>
+<div class="paragraph">
+<p>First, create a new database "food" by using the console:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>~/arcadedb $ create database food</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then execute the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>import database https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2022-10-28.zip
+with mapping = {
+	"FoundationFoods": [{
+		"@cat": "v",
+		"@type": "&lt;foodClass&gt;",
+		"foodNutrients": [{
+			"@cat": "e",
+			"@type": "HAS_NUTRIENT",
+			"@in": "nutrient",
+			"nutrient": {
+				"@cat": "v",
+				"@type": "Nutrient",
+				"@id": "id",
+				"@idType": "long",
+				"@strategy": "merge"
+			},
+			"foodNutrientDerivation": "@ignore"
+		}],
+		"inputFoods": [{
+			"@cat": "e",
+			"@type": "INPUT",
+			"@in": "inputFood",
+			"inputFood": {
+				"@cat": "v",
+				"@type": "&lt;foodClass&gt;",
+				"@id": "fdcId",
+				"@idType": "long",
+				"@strategy": "merge",
+				"foodCategory": {
+					"@cat": "e",
+					"@type": "HAS_CATEGORY",
+					"@in": {
+						"@cat": "v",
+						"@type": "FoodCategory",
+						"@id": "id",
+						"@idType": "long",
+						"@strategy": "merge"
+					}
+				}
+			}
+		}]
+	}]
+}</code></pre>
+</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/json-import.png" alt="json import">
+</div>
+</div>
+<div class="paragraph">
+<p>This command downloads the zip file from the USDA website and uses the mapping to create the graph from the JSON file.</p>
+</div>
+<div class="paragraph">
+<p>The mapping file is a JSON snippet with directives about what to import, what to ignore and how to map edges with JSON objects.
+Below all the supported tags:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>@cat</code>: is the category of record to use between "v" for vertex, "e" for edge and "d" for document</p>
+</li>
+<li>
+<p><code>@type</code>: is the type name to use on record creation.
+If the type doesn&#8217;t exist, it&#8217;s implicitly created during the import</p>
+</li>
+<li>
+<p><code>@id</code>: is the property that works as primary key. if not already defined, a unique index is created on the configured <code>@id</code> property</p>
+</li>
+<li>
+<p><code>@idType</code>: is the type of the primary key in the <code>@id</code> property.
+If not defined, the type is taken from the first value found.
+In case of numbers, the JSON parser always uses DOUBLE as a type.
+You can, for example, use LONG to force using LONG instead of DOUBLE</p>
+</li>
+<li>
+<p><code>@cardinality</code>: if "no=duplicates", the edges are not created if there is an edge of the same type between the two vertices</p>
+</li>
+<li>
+<p><code>@strategy</code>: represents the strategy to use when the record with the configured <code>@id</code> already exists By default the existent record is used, but the "merge" strategy allows to merge the current record with the existent one.
+The current properties will overwrite the existent ones</p>
+</li>
+<li>
+<p><code>@in</code>: used for edges and represents the destination vertex for the edge</p>
+</li>
+<li>
+<p><code>@ignore</code>: ignore the property, do not import into the database</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="OrientDB-Importer">6.4.3. OrientDB Importer</h4>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/tools/orientdb-importer.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -3768,7 +3885,7 @@ The first line of the CSV file set the property names:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="Neo4j-Importer">6.4.3. Neo4j Importer</h4>
+<h4 id="Neo4j-Importer">6.4.4. Neo4j Importer</h4>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/tools/neo4j-importer.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -21149,7 +21266,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.1.1<br>
-Last updated 2023-02-06 05:47:48 UTC
+Last updated 2023-02-06 23:26:23 UTC
 </div>
 </div>
 </body>
