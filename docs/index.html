@@ -6924,7 +6924,148 @@ The result can be managed in the DeletedRecordCallback callback and errors in Er
 </div>
 </div>
 <div class="sect2">
-<h3 id="HTTP-API">7.4. HTTP/JSON Protocol</h3>
+<h3 id="Java-API-Remote">7.4. Java API (Remote)</h3>
+<div class="paragraph">
+<p>ArcadeDB comes with a convenient Java library to work with a remote database.</p>
+</div>
+<div class="paragraph">
+<p>Add the following dependencies in your Maven pom.xml file under the tag <code>&lt;dependencies&gt;</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-xml" data-lang="xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.arcadedb&lt;/groupId&gt;
+    &lt;artifactId&gt;arcadedb-engine&lt;/artifactId&gt;
+    &lt;version&gt;23.1.2&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;com.arcadedb&lt;/groupId&gt;
+    &lt;artifactId&gt;arcadedb-network&lt;/artifactId&gt;
+    &lt;version&gt;23.1.2&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_10_minute_tutorial">7.4.1. 10-Minute Tutorial</h4>
+<div class="sect4">
+<h5 id="_connect_to_a_remote_database">Connect to a remote database</h5>
+<div class="paragraph">
+<p>The central class that handles the connection to the remote database and translates the Java API to http-calls is the <code><a href="#RemoteDatabase">RemoteDatabase</a></code>. Let&#8217;s get an instance of it:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">RemoteDatabase database = new RemoteDatabase("localhost", 5432, "mydb", "root", "playwithdata");</code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+The <code>RemoteDatabase</code> is not thread-safe. It holds a backend session. If a thread closes a transaction, it also closes the session, so that any request performed by a concurrent thread using the same RemoteDatabase instance leads to unexpected behavior. To avoid concurrency problems you should not hold RemoteDatabase instances as fields on the heap, but rather create a new instance in method scope as a variable on the stack.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the <code>RemoteDatabase</code> make sure that the database exists, or, if it doesn&#8217;t, create it.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">if (!database.exists()) {
+    database.create();
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For a list of all databases hosted by the server use:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">List&lt;String&gt; databases = database.databases();
+assert(databases.contains("mydb"));</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now that we have the database created we may create the schema (but we may also work without):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">String schema =
+"""
+    create vertex type Customer if not exists;
+    create property Customer.name if not exists string;
+    create property Customer.surname if not exists string;
+    create index if not exists on Customer (name, surname) unique;
+""";
+database.command("sqlscript", schema);</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>As language we have used <code>sqlscript</code>, which has the advantage that all the statements in the script are executed within one single transaction. Of course you can also send these requests line by line with <code>sql</code> as language. If you go line by line it is important to enclose the requests in a common transaction:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">database.begin();
+database.command("sql", "create vertex type Customer if not exists");
+database.command("sql", "create property Customer.name if not exists string");
+database.command("sql", "create property Customer.surname if not exists string");
+database.command("sql", "create index if not exists on Customer (name, surname) unique");
+database.commit();</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">database.transaction(() -&gt; {
+    ...
+});</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The <code>transaction</code> method encloses the lambda function with a <code>begin</code> - <code>commit</code>, or a <code>rollback</code> in case of any exception.</p>
+</div>
+<div class="paragraph">
+<p>Now that the schema is in place, we will insert some data:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">database.command("sql", "insert into Customer(name, surname) values(?, ?)", "Jay", "Miner");
+database.command("sql",
+        "update Customer set lastcall = :lastcall where name = :name and surname = :surname",
+        Map.of("lastcall", Date.from(Instant.now()), "name", "Jay", "surname", "Miner"));</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The first command creates a new vertex of type 'Customer'. The second command updates this vertex by adding a new value for the property 'lastcall'. The first command uses unnamed parameters where the values are mapped by their order in the parameter list. Whereas the second command uses named parameters, which are mapped by the parameter names.</p>
+</div>
+<div class="paragraph">
+<p>We can now query some customer data from our database:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">ResultSet resultSet = database.query("sql", "select from Customer where name = :name",
+        Map.of("name", "Jay"));
+Map&lt;String, Object&gt; customer = resultSet.stream().findFirst().map(Result::toMap).orElse(Map.of());</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The query returns a <code>ResultSet</code>, which holds an arry of objects of type <code>Result</code>, which can be read as Map:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-javascript" data-lang="javascript">{name=Jay, @cat=d, @rid=#1:0, lastcall=1675961747290, surname=Miner, @type=Customer}</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="HTTP-API">7.5. HTTP/JSON Protocol</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -7913,7 +8054,7 @@ If the session (and therefore the server side transaction) is expired, then a 50
 </div>
 </div>
 <div class="sect2">
-<h3 id="Postgres-Driver">7.5. Postgres Protocol Plugin</h3>
+<h3 id="Postgres-Driver">7.6. Postgres Protocol Plugin</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/postgres.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8009,7 +8150,7 @@ Check out the following list with the official drivers for the most popular prog
 <p>For the complete list, please check <a href="https://wiki.postgresql.org/wiki/List_of_drivers">Postgres website</a>.</p>
 </div>
 <div class="sect3">
-<h4 id="_other_query_languages">7.5.1. Other query languages</h4>
+<h4 id="_other_query_languages">7.6.1. Other query languages</h4>
 <div class="paragraph">
 <p>By default the Postgres driver interprets all the commands as <a href="#SQL">SQL</a>.
 To use another supported language, like <a href="#Open-Cypher">Cypher</a>, <a href="#Gremlin-API">Gremlin</a>, <a href="#GraphQL">GraphQL</a> or <a href="#MongoDB-API">MongoDB</a>, prefix the command with the language to use between curly brackets.</p>
@@ -8040,7 +8181,7 @@ To use another supported language, like <a href="#Open-Cypher">Cypher</a>, <a hr
 </div>
 </div>
 <div class="sect3">
-<h4 id="_current_limitations">7.5.2. Current limitations</h4>
+<h4 id="_current_limitations">7.6.2. Current limitations</h4>
 <div class="paragraph">
 <p>The documentation about Postgres wire protocol is not exhaustive to build a bullet proof protocol.
 In particular the state machine.
@@ -8048,7 +8189,7 @@ For this reason this plugin was created by reading the available documentation o
 </div>
 </div>
 <div class="sect3">
-<h4 id="_transactions">7.5.3. Transactions</h4>
+<h4 id="_transactions">7.6.3. Transactions</h4>
 <div class="paragraph">
 <p>Enabling auto commit to false is not 100% supported.
 With JDBC, leave the default settings or set:</p>
@@ -8060,7 +8201,7 @@ With JDBC, leave the default settings or set:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_postgres_tools_known_to_work">7.5.4. Postgres Tools Known to Work</h4>
+<h4 id="_postgres_tools_known_to_work">7.6.4. Postgres Tools Known to Work</h4>
 <div class="admonitionblock note">
 <table>
 <tr>
@@ -8124,7 +8265,7 @@ Even non-SQL queries will work, though expect squigglies!</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="JDBC">7.6. Connect with JDBC Driver</h3>
+<h3 id="JDBC">7.7. Connect with JDBC Driver</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/jdbc.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8162,7 +8303,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:postgresql://localhost/
 </div>
 </div>
 <div class="sect2">
-<h3 id="Open-Cypher">7.7. Open Cypher</h3>
+<h3 id="Open-Cypher">7.8. Open Cypher</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/cypher.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8264,7 +8405,7 @@ Example of executing an idempotent query with HTTP GET command:</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Gremlin-API">7.8. Gremlin API</h3>
+<h3 id="Gremlin-API">7.9. Gremlin API</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/gremlin.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8412,7 +8553,7 @@ In case you&#8217;re running ArcadeDB with Docker, open the port <code>8182</cod
 </div>
 </div>
 <div class="sect2">
-<h3 id="GraphQL">7.9. GraphQL</h3>
+<h3 id="GraphQL">7.10. GraphQL</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/graphql.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8684,7 +8825,7 @@ The query can use parameters passed at invocation time.</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="MongoDB-API">7.10. MongoDB API</h3>
+<h3 id="MongoDB-API">7.11. MongoDB API</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/mongo.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8705,7 +8846,7 @@ If you&#8217;re using Maven include this dependency in your <code>pom.xml</code>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_mongodb_query_language">7.10.1. MongoDB Query Language</h4>
+<h4 id="_mongodb_query_language">7.11.1. MongoDB Query Language</h4>
 <div class="paragraph">
 <p>If you want to use MongoDB Query Language from <a href="#Java-API">Java API</a>, you can simply keep the relevant jars in your classpath and execute a query or a command with "mongo" as language.</p>
 </div>
@@ -8773,7 +8914,7 @@ Example of executing an idempotent query with HTTP GET command:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="MongoDB-Protocol">7.10.2. MongoDB Protocol Plugin</h4>
+<h4 id="MongoDB-Protocol">7.11.2. MongoDB Protocol Plugin</h4>
 <div class="paragraph">
 <p>If your application is written for <a href="https://mongodb.com">MongoDB</a> and you&#8217;d like to run it with ArcadeDB instead, you can simply replace the MongoDB server with ArcadeDB server with the MongoDB Plugin installed.
 This plugin supports MongoDB BSON Network protocol.
@@ -8819,7 +8960,7 @@ To specify multiple plugins, use the comma <code>,</code> as separator.</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Redis-API">7.11. Redis API</h3>
+<h3 id="Redis-API">7.12. Redis API</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/redis.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -8856,7 +8997,7 @@ You can save and read any documents, vertices and edges from the underlying data
 </ul>
 </div>
 <div class="sect3">
-<h4 id="Redis-Protocol">7.11.1. Installation</h4>
+<h4 id="Redis-Protocol">7.12.1. Installation</h4>
 <div class="paragraph">
 <p>To start the Redis plugin, enlist it in the <a href="#Settings"><code>server.plugins</code></a> settings.
 To specify multiple plugins, use the comma <code>,</code> as separator.
@@ -8891,7 +9032,7 @@ Example:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="Redis-HowWorks">7.11.2. How it works</h4>
+<h4 id="Redis-HowWorks">7.12.2. How it works</h4>
 <div class="paragraph">
 <p>ArcadeDB works in 2 ways with the Redis protocol:</p>
 </div>
@@ -21255,7 +21396,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.1.2<br>
-Last updated 2023-02-09 14:54:28 UTC
+Last updated 2023-02-09 18:23:53 UTC
 </div>
 </div>
 </body>
