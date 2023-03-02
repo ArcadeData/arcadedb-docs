@@ -152,9 +152,24 @@ This error means you're running ArcadeDB with a JDK 16 or major.
 Unfortunately Apache Gremlin is not compliant with such version of the JDK.
 We suggest to use JDK 11 to run ArcadeDB.
 
-===== Servers do not see each other in the same LAN
+===== Performance: insertion is slow
 
-Check UDP Broadcast protocol is enabled in your LAN on both firewalls and routers.
+ArcadeDB uses an optimistic lock approach: if two threads try to update the same page, the first thread wins, the second thread throws a `ConcurrentModificationException` and forces the client to retry the transaction or fail after a certain number of retries (configurable).
+Often this fail/retry mechanism is totally hidden to the developer that executes a transaction via HTTP or via the Java API:
+
+```java
+db.transaction( ()-> {
+  // MY TRANSACTION CODE
+});
+```
+
+If you are inserting a lot of record in parallel (by using the Server, or just via API multi-thread), you could benefit by allocating the bucket per thread. Example to change the bucket selection strategy for the vertex type "User":
+
+```sql
+alter type User BucketSelectionStrategy `thread`
+```
+
+With the command above, in insertion ArcadeDB will select the physical bucket based on the thread the request is coming from. If you have enough buckets (created by default when you create a new type, but you can manually adjust it) insertions can go truly in parallel with zero contentions in pages, meaning zero exception and retries.
 
 ==== HA Settings
 
