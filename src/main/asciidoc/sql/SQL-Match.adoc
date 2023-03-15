@@ -45,11 +45,11 @@ MATCH
     }*
   ]*
 RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
-GROUP BY <expression> [, <expression>]*
-ORDER BY <expression> [, <expression>]*
-SKIP <number>
-LIMIT <number>
-
+[ GROUP BY <expression> [, <expression>]* ]
+[ ORDER BY <expression> [, <expression>]* ]
+[ UNWIND <Field>* ]
+[ SKIP <number> ]
+[ LIMIT <number> ]
 ----
 
 * *`&lt;type&gt;`* Defines a valid target type.
@@ -75,6 +75,7 @@ For out(), in(), both() also a shortened _arrow_ syntax is supported:
 * `$pathElements` Indicating that all the elements that would be returned by the $paths have to be returned flattened, without duplicates.
 * *`optional`* if set to true, allows to evaluate and return a pattern even if that particular node does not match the pattern itself (ie. there is no value for that node in the pattern). In current version, optional nodes are allowed only on right terminal nodes, eg. `{} --&gt; {optional:true}` is allowed, `{optional:true} &lt;-- {}` is not.
 * *`NOT` patterns* Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won't be returned.
+* *<<SQL-Select-Unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
 
 *Examples*
 
@@ -328,7 +329,7 @@ ArcadeDB> MATCH {type: Person, as: person,
 		  where: (name = 'John')}.both('Friend'){as: friend}
 		  RETURN 
 		  person.name as name, person.surname as surname, 
-		  friend.name as firendName, friend.surname as friendSurname
+		  friend.name as friendName, friend.surname as friendSurname
 
 --------+----------+------------+---------------
  name   | surname  | friendName | friendSurname
@@ -378,11 +379,10 @@ In this case, you would use the following query to find out who's the manager to
 
 [source,sql ]
 ----
-ArcadeDB> SELECT EXPAND(manager) FROM (MATCH {type:Employee, 
-          where: (name = ?)}.out('WorksAt').out('ParentDepartment')
+ArcadeDB> MATCH {type:Employee, where: (name = ?)}.out('WorksAt').out('ParentDepartment')
 		  {while: (out('Manager').size() == 0), 
 		  where: (out('Manager').size() > 0)}.out('Manager')
-		  {as: manager} RETURN manager)
+		  {as: manager} RETURN expand(manager)
 ----
 
 [[Deep-Traversal]]
@@ -478,7 +478,14 @@ ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')}
           RETURN person
 ----
 
-The efficiency remains the same. Both queries use an index. With <<SQL-Select,`SELECT`>>, you obtain expanded records, while with <<SQL-Match,`MATCH`>>, you only obtain the Record ID's.
+The efficiency remains the same. Both queries use an index. With <<SQL-Select,`SELECT`>>, you obtain expanded records, while with <<SQL-Match,`MATCH`>>, you only obtain the Record ID's. If you want to return expanded records from the MATCH, use the `expand()` function in the return statement:
+
+[source,sql]
+----
+ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')}
+          RETURN expand(person)
+----
+
 
 *Filtering on Record Attributes of Connected Elements*
 

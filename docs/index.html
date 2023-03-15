@@ -15928,10 +15928,11 @@ vertices and edges can be inserted via the <code>INSERT</code> command:</p>
     }*
   ]*
 RETURN [DISTINCT] &lt;expression&gt; [ AS &lt;alias&gt; ] [, &lt;expression&gt; [ AS &lt;alias&gt; ]]*
-GROUP BY &lt;expression&gt; [, &lt;expression&gt;]*
-ORDER BY &lt;expression&gt; [, &lt;expression&gt;]*
-SKIP &lt;number&gt;
-LIMIT &lt;number&gt;</pre>
+[ GROUP BY &lt;expression&gt; [, &lt;expression&gt;]* ]
+[ ORDER BY &lt;expression&gt; [, &lt;expression&gt;]* ]
+[ UNWIND &lt;Field&gt;* ]
+[ SKIP &lt;number&gt; ]
+[ LIMIT &lt;number&gt; ]</pre>
 </div>
 </div>
 <div class="ulist">
@@ -16002,6 +16003,9 @@ For out(), in(), both() also a shortened <em>arrow</em> syntax is supported:</p>
 </li>
 <li>
 <p><strong><code>NOT</code> patterns</strong> Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won&#8217;t be returned.</p>
+</li>
+<li>
+<p><strong><a href="#SQL-Select-Unwind"><code>UNWIND</code></a></strong> Designates the field on which to unwind the collection.</p>
 </li>
 </ul>
 </div>
@@ -16346,7 +16350,7 @@ as a result, you have to specify the DISTINCT keyword in the RETURN statement.</
 		  where: (name = 'John')}.both('Friend'){as: friend}
 		  RETURN
 		  person.name as name, person.surname as surname,
-		  friend.name as firendName, friend.surname as friendSurname
+		  friend.name as friendName, friend.surname as friendSurname
 
 --------+----------+------------+---------------
  name   | surname  | friendName | friendSurname
@@ -16400,11 +16404,10 @@ as a result, you have to specify the DISTINCT keyword in the RETURN statement.</
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; SELECT EXPAND(manager) FROM (MATCH {type:Employee,
-          where: (name = ?)}.out('WorksAt').out('ParentDepartment')
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; MATCH {type:Employee, where: (name = ?)}.out('WorksAt').out('ParentDepartment')
 		  {while: (out('Manager').size() == 0),
 		  where: (out('Manager').size() &gt; 0)}.out('Manager')
-		  {as: manager} RETURN manager)</code></pre>
+		  {as: manager} RETURN expand(manager)</code></pre>
 </div>
 </div>
 <div id="Deep-Traversal" class="paragraph">
@@ -16524,7 +16527,13 @@ as a result, you have to specify the DISTINCT keyword in the RETURN statement.</
 </div>
 </div>
 <div class="paragraph">
-<p>The efficiency remains the same. Both queries use an index. With <a href="#SQL-Select"><code>SELECT</code></a>, you obtain expanded records, while with <a href="#SQL-Match"><code>MATCH</code></a>, you only obtain the Record ID&#8217;s.</p>
+<p>The efficiency remains the same. Both queries use an index. With <a href="#SQL-Select"><code>SELECT</code></a>, you obtain expanded records, while with <a href="#SQL-Match"><code>MATCH</code></a>, you only obtain the Record ID&#8217;s. If you want to return expanded records from the MATCH, use the <code>expand()</code> function in the return statement:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; MATCH {type: Person, as: person, where: (name = 'John')}
+          RETURN expand(person)</code></pre>
+</div>
 </div>
 <div class="paragraph">
 <p><strong>Filtering on Record Attributes of Connected Elements</strong></p>
@@ -21566,7 +21575,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.2.1<br>
-Last updated 2023-03-15 15:29:23 UTC
+Last updated 2023-03-15 16:32:40 UTC
 </div>
 </div>
 </body>
