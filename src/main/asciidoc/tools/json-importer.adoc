@@ -6,7 +6,82 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 ArcadeDB is able to import data from JSON format.
 Thanks to the flexible mapping, it's possible to define the rules of conversion between the input json file and the graph.
 
-Example to import the database of food and nutrients from the link:https://fdc.nal.usda.gov/download-datasets.html[U.S. DEPARTMENT OF AGRICULTURE website (USDA)].
+Let's start from this simple JSON file to import as an example. The file contains a flat structure of records with a relationship of employee and manager:
+
+```json
+{
+  "Users":[
+    {
+      "EmployeeID":"1234",
+      "ManagerID":"1230",
+      "Name":"Marcus"
+    },
+    {
+      "EmployeeID":"1230",
+      "ManagerID":"1231",
+      "Name":"Win"
+    }
+  ]
+}
+```
+
+First, create a new database "employees" by using the console:
+
+```
+~/arcadedb $ create database employees
+```
+
+Then execute the following command (assuming the file above is saved in the local directory as `employees.json`:
+
+```
+import database employees.json
+with mapping = {
+    "Users": [{
+        "@cat": "v",
+        "@type": "User",
+        "@id": "id",
+        "@idType": "string",
+        "@strategy": "merge",
+        "EmployeeID": "@ignore",
+        "ManagerID": {
+            "@cat": "e",
+            "@type": "HAS_MANAGER",
+            "@cardinality": "no-duplicates",
+            "@in": {
+                "@cat": "v",
+                "@type": "User",
+                "@id": "id",
+                "@idType": "string",
+                "@strategy": "merge",
+                "EmployeeID": "@ignore",
+                "id": "<../ManagerID>"
+            }
+        }
+    }]
+}
+```
+
+The mapping file is a JSON snippet with directives about what to import, what to ignore and how to map edges with JSON objects.
+Below all the supported tags:
+
+* `@cat`: is the category of record to use between "v" for vertex, "e" for edge and "d" for document
+* `@type`: is the type name to use on record creation.
+If the type doesn't exist, it's implicitly created during the import
+* `@id`: is the property that works as primary key. if not already defined, a unique index is created on the configured `@id` property
+* `@idType`: is the type of the primary key in the `@id` property.
+If not defined, the type is taken from the first value found.
+In case of numbers, the JSON parser always uses DOUBLE as a type.
+You can, for example, use LONG to force using LONG instead of DOUBLE
+* `@cardinality`: if "no-duplicates", the edges are not created if there is an edge of the same type between the two vertices
+* `@strategy`: represents the strategy to use when the record with the configured `@id` already exists By default the existent record is used, but the "merge" strategy allows to merge the current record with the existent one.
+The current properties will overwrite the existent ones
+* `@in`: used for edges and represents the destination vertex for the edge
+* `@ignore`: ignore the property, do not import into the database
+
+Note the "id" property in the manager is taken by using `"<../ManagerID>"` that means get the property "ManagerID" from the parent (`../`).
+
+
+How to import a JSON file with a hierarchical structure? Let's look at the second example coming from the JSON export of food and nutrients from the link:https://fdc.nal.usda.gov/download-datasets.html[U.S. DEPARTMENT OF AGRICULTURE website (USDA)].
 USDA provides updated files to download in both CSV and JSON format.
 
 First, create a new database "food" by using the console:
