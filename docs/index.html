@@ -3827,7 +3827,108 @@ The first line of the CSV file set the property names:</p>
 Thanks to the flexible mapping, it&#8217;s possible to define the rules of conversion between the input json file and the graph.</p>
 </div>
 <div class="paragraph">
-<p>Example to import the database of food and nutrients from the <a href="https://fdc.nal.usda.gov/download-datasets.html">U.S. DEPARTMENT OF AGRICULTURE website (USDA)</a>.
+<p>Let&#8217;s start from this simple JSON file to import as an example. The file contains a flat structure of records with a relationship of employee and manager:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{
+  "Users":[
+    {
+      "EmployeeID":"1234",
+      "ManagerID":"1230",
+      "Name":"Marcus"
+    },
+    {
+      "EmployeeID":"1230",
+      "ManagerID":"1231",
+      "Name":"Win"
+    }
+  ]
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>First, create a new database "employees" by using the console:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>~/arcadedb $ create database employees</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then execute the following command (assuming the file above is saved in the local directory as <code>employees.json</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>import database employees.json
+with mapping = {
+    "Users": [{
+        "@cat": "v",
+        "@type": "User",
+        "@id": "id",
+        "@idType": "string",
+        "@strategy": "merge",
+        "EmployeeID": "@ignore",
+        "ManagerID": {
+            "@cat": "e",
+            "@type": "HAS_MANAGER",
+            "@cardinality": "no-duplicates",
+            "@in": {
+                "@cat": "v",
+                "@type": "User",
+                "@id": "id",
+                "@idType": "string",
+                "@strategy": "merge",
+                "EmployeeID": "@ignore",
+                "id": "&lt;../ManagerID&gt;"
+            }
+        }
+    }]
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The mapping file is a JSON snippet with directives about what to import, what to ignore and how to map edges with JSON objects.
+Below all the supported tags:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>@cat</code>: is the category of record to use between "v" for vertex, "e" for edge and "d" for document</p>
+</li>
+<li>
+<p><code>@type</code>: is the type name to use on record creation.
+If the type doesn&#8217;t exist, it&#8217;s implicitly created during the import</p>
+</li>
+<li>
+<p><code>@id</code>: is the property that works as primary key. if not already defined, a unique index is created on the configured <code>@id</code> property</p>
+</li>
+<li>
+<p><code>@idType</code>: is the type of the primary key in the <code>@id</code> property.
+If not defined, the type is taken from the first value found.
+In case of numbers, the JSON parser always uses DOUBLE as a type.
+You can, for example, use LONG to force using LONG instead of DOUBLE</p>
+</li>
+<li>
+<p><code>@cardinality</code>: if "no-duplicates", the edges are not created if there is an edge of the same type between the two vertices</p>
+</li>
+<li>
+<p><code>@strategy</code>: represents the strategy to use when the record with the configured <code>@id</code> already exists By default the existent record is used, but the "merge" strategy allows to merge the current record with the existent one.
+The current properties will overwrite the existent ones</p>
+</li>
+<li>
+<p><code>@in</code>: used for edges and represents the destination vertex for the edge</p>
+</li>
+<li>
+<p><code>@ignore</code>: ignore the property, do not import into the database</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Note the "id" property in the manager is taken by using <code>"&lt;../ManagerID&gt;"</code> that means get the property "ManagerID" from the parent (<code>../</code>).</p>
+</div>
+<div class="paragraph">
+<p>How to import a JSON file with a hierarchical structure? Let&#8217;s look at the second example coming from the JSON export of food and nutrients from the <a href="https://fdc.nal.usda.gov/download-datasets.html">U.S. DEPARTMENT OF AGRICULTURE website (USDA)</a>.
 USDA provides updated files to download in both CSV and JSON format.</p>
 </div>
 <div class="paragraph">
@@ -21587,7 +21688,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.2.1<br>
-Last updated 2023-03-15 20:46:41 UTC
+Last updated 2023-03-18 14:21:53 UTC
 </div>
 </div>
 </body>
