@@ -89,6 +89,23 @@ db.async().query("sql", "select from V where age > ? and city = ?", new AsyncRes
 }, 18, "Melbourne");
 ```
 
+When you have multiple independent queries that could be executed in parallel, you could use the asynchronous interface and a `CountDownLatch`. The following example
+executes 3 queries in parallel and wait for all of them to have finished.
+
+```java
+CountDownLatch counter = new CountDownLatch(3);
+
+Resultset resultset1 = database.async().query("sql", "select from X", new AsyncResultsetCallback() { public void onComplete() { counter.countDown(); } });
+Resultset resultset2 = database.async().query("sql", "select from Y", new AsyncResultsetCallback() { public void onComplete() { counter.countDown(); } });
+Resultset resultset3 = database.async().query("sql", "select from Z", new AsyncResultsetCallback() { public void onComplete() { counter.countDown(); } });
+
+// WAIT INDEFINITELY
+counter.await();
+
+// OR YOU CAN SPECIFY A TIMEOUT, LIKE 10 SECONDS TOP
+// counter.await(10, TimeUnit.SECONDS);
+```
+
 [[asyncQueryMap]]
 [discrete]
 ====== query( language, command, callback, parameterMap )
