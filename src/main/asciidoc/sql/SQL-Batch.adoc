@@ -9,10 +9,10 @@ Batch of commands are very useful when you have to execute multiple things at th
 
 SQL Batch supports all the ArcadeDB <<SQL-Commands,SQL Commands>>, plus the following:
 
-* `begin [isolation &lt;isolation-level&gt;]`, where `&lt;isolation-level&gt;` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
-* `commit [retry &lt;retry&gt;]`, where:
+* `BEGIN [isolation &lt;isolation-level&gt;]`, where `&lt;isolation-level&gt;` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
+* `COMMIT [retry &lt;retry&gt;]`, where:
 ** `&lt;retry&gt;` is the number of retries in case of concurrent modification exception
-* `let &lt;variable&gt; = &lt;SQL&gt;`, to assign the result of a SQL command to a variable. To reuse the variable prefix it with the dollar sign `$`.
+* `LET &lt;variable&gt; = &lt;SQL&gt;`, to assign the result of a SQL command to a variable. To reuse the variable prefix it with the dollar sign `$`.
 * `IF(&lt;condition&gt;){ &lt;statememt&gt;; [&lt;statement&gt;;]* }`. Look at <<Conditional-Execution,conditional execution>>.
 * `WHILE(&lt;condition&gt;){ &lt;statememt&gt;; [&lt;statement&gt;;]* }`. Look at <<Loops,loop>>.
 * `FOREACH(&lt;variable&gt; IN &lt;expression&gt;){ &lt;statememt&gt;; [&lt;statement&gt;;]* }`. Look at <<Loops,loops>>.
@@ -22,7 +22,7 @@ SQL Batch supports all the ArcadeDB <<SQL-Commands,SQL Commands>>, plus the foll
 * `console.error &lt;text&gt;`, writes a message in the console's standard output. Context variables can be used with `${&lt;variable&gt;}`.
 * `console.output &lt;text&gt;`, writes a message in the console's standard error. Context variables can be used with `${&lt;variable&gt;}`.
 ////
-* `return <value>`, where `value` can be:
+* `RETURN <value>`, where `value` can be:
 ** any value. Example: `return 3`
 ** any variable with `$` as prefix. Example: `return $a`
 ** arrays (HTTP protocol only, see below). Example: `return [ $a, $b ]`
@@ -32,7 +32,7 @@ SQL Batch supports all the ArcadeDB <<SQL-Commands,SQL Commands>>, plus the foll
 NOTE: to return arrays and maps (eg. Java or Node.js driver) it's strongly recommended using a RETURN SELECT, eg. 
 
 ----
-return (SELECT $a as first, $b as second)
+RETURN (SELECT $a as first, $b as second)
 ----
 
 This will work on any protocol and driver.
@@ -53,20 +53,6 @@ return $e;
 
 Note the usage of `$account` and `$city` in further SQL commands.
 
-*Pessimistic transaction*
-
-This script above used an Optimistic approach: in case of conflict it retries up top 100 times by re-executing the entire transaction (commit retry 100). To follow a Pessimistic approach by locking the records, try this:
-
-[source,sql]
-----
-BEGIN;
-let account = CREATE VERTEX Account SET name = 'Luke';
-let city = SELECT FROM City WHERE name = 'London';
-let e = CREATE EDGE Lives FROM $account TO $city;
-COMMIT;
-return $e;
-----
-
 [[Conditional-Execution]]
 *Conditional execution*
 SQL Batch provides IF constructor to allow conditional execution.
@@ -74,7 +60,7 @@ The syntax is
 
 [source,sql]
 ----
-if(<sql-predicate>){
+IF( <sql-predicate> ){
    <statement>;
    <statement>;
    ...
@@ -86,7 +72,7 @@ In current release it's mandatory to have `IF(){`, `&lt;statement&gt;` and `}` o
 
 [source,sql]
 ----
-if($a.size() > 0) {
+if( $a.size() > 0 ) {
   ROLLBACK;
 }
 ----
@@ -95,8 +81,8 @@ The right syntax is following:
 
 [source,sql]
 ----
-if($a.size() > 0) { 
-   ROLLBACK;
+IF( $a.size() > 0 ) {
+  ROLLBACK;
 }
 ----
 
@@ -115,7 +101,7 @@ The syntax is
 
 [source,sql]
 ----
-FOREACH(<variable> IN <expression>){
+FOREACH( <variable> IN <expression> ){
    <statement>;
    <statement>;
    ...
@@ -126,7 +112,7 @@ Example
 
 [source,sql]
 ----
-FOREACH ($i IN [1, 2, 3]){
+FOREACH( $i IN [1, 2, 3] ){
   INSERT INTO Foo SET value = $i;
 }
 ----
@@ -141,7 +127,7 @@ The syntax is
 
 [source,sql]
 ----
-WHILE(<condition>){
+WHILE( <condition> ){
    <statement>;
    <statement>;
    ...
