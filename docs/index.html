@@ -2075,6 +2075,76 @@ The current log file has the number 0, and is rotated based on server starts or 
 <p>You can also use your own configuration for logging. In this case replace the path above with your own file.</p>
 </div>
 </div>
+<div class="sect3">
+<h4 id="Server-Plugin">4.1.5. Server Plugins (Extend The Server)</h4>
+<div class="paragraph">
+<p>You can extend ArcadeDB server by creating custom plugins. A Plugin is a Java class that implements the interface <code>com.arcadedb.server.ServerPlugin</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">public interface ServerPlugin {
+  void startService();
+
+  default void stopService() {
+  }
+
+  default void configure(ArcadeDBServer arcadeDBServer, ContextConfiguration configuration) {
+  }
+
+  default void registerAPI(final HttpServer httpServer, final PathHandler routes) {
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once registered the plugin (see below), ArcadeDB Server will instantiate your plugin class and will call the method <code>configure()</code> passing the server configuration. At startup of the server, the <code>startService()</code> method will be invoked. Instead, when the server is shut down, the <code>stopService()</code> will be invoked where you can free any resources used by the plugin. The method <code>registerAPI()</code>, if implemented, wil be invoked when the HTTP server is initializing where you can register your own HTTP commands. For more information about how to create custom HTTP commands, look at <a href="#Custom-HTTP">Custom HTTP commands</a>.</p>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">package com.yourpackage;
+
+public class MyPlugin implements ServerPlugin {
+  @Override
+  public void startService() {
+    System.out.println( "Plugin started" );
+  }
+
+  @Override
+  public void stopService() {
+    System.out.println( "Plugin halted" );
+  }
+
+  @Override
+  default void configure(ArcadeDBServer arcadeDBServer, ContextConfiguration configuration) {
+    System.out.println( "Plugin configured" );
+  }
+
+  @Override
+  default void registerAPI(final HttpServer httpServer, final PathHandler routes) {
+    System.out.println( "Registering HTTP commands" );
+  }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To register your plugin, register the name and add your class (with full package name) in
+<code>arcadedb.server.plugins</code> setting:</p>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>java ... -Darcadedb.server.plugins=MyPlugin:com.yourpackage.MyPlugin ...</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In case of multiple plugins, use the comma to separate them.</p>
+</div>
+</div>
 </div>
 <div class="sect2">
 <h3 id="Changing-Settings">4.2. Changing Settings</h3>
@@ -2541,9 +2611,9 @@ If you try to create or open another database instance from the <code>DatabaseFa
 </div>
 </div>
 <div class="sect3">
-<h4 id="_create_custom_http_commands">4.4.2. Create custom HTTP commands</h4>
+<h4 id="Custom-HTTP">4.4.2. Create custom HTTP commands</h4>
 <div class="paragraph">
-<p>You can easily add custom HTTP commands on ArcadeDB&#8217;s Undertow HTTP Server by creating a server plugin (look at <code>MongoDBProtocolPlugin</code> plugin implementation) and implementing the <code>registerAPI</code> method.
+<p>You can easily add custom HTTP commands on ArcadeDB&#8217;s Undertow HTTP Server by creating a <a href="#Server-Plugin">Server Plugin</a> (look at <code>MongoDBProtocolPlugin</code> plugin implementation for a real example) and implementing the <code>registerAPI</code> method.
 Example for the HTTP POST API <code>/myapi/test</code>:</p>
 </div>
 <div class="listingblock">
@@ -21886,7 +21956,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.3.1<br>
-Last updated 2023-04-10 21:02:16 UTC
+Last updated 2023-04-11 14:44:28 UTC
 </div>
 </div>
 </body>

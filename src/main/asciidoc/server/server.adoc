@@ -160,3 +160,65 @@ java ... -Djava.util.logging.config.file=$ARCADEDB_HOME/config/arcadedb-log.prop
 ```
 
 You can also use your own configuration for logging. In this case replace the path above with your own file.
+
+[[Server-Plugin]]
+==== Server Plugins (Extend The Server)
+
+You can extend ArcadeDB server by creating custom plugins. A Plugin is a Java class that implements the interface `com.arcadedb.server.ServerPlugin`:
+
+```java
+public interface ServerPlugin {
+  void startService();
+
+  default void stopService() {
+  }
+
+  default void configure(ArcadeDBServer arcadeDBServer, ContextConfiguration configuration) {
+  }
+
+  default void registerAPI(final HttpServer httpServer, final PathHandler routes) {
+  }
+}
+```
+
+Once registered the plugin (see below), ArcadeDB Server will instantiate your plugin class and will call the method `configure()` passing the server configuration. At startup of the server, the `startService()` method will be invoked. Instead, when the server is shut down, the `stopService()` will be invoked where you can free any resources used by the plugin. The method `registerAPI()`, if implemented, wil be invoked when the HTTP server is initializing where you can register your own HTTP commands. For more information about how to create custom HTTP commands, look at <<Custom-HTTP,Custom HTTP commands>>.
+
+Example:
+
+```java
+package com.yourpackage;
+
+public class MyPlugin implements ServerPlugin {
+  @Override
+  public void startService() {
+    System.out.println( "Plugin started" );
+  }
+
+  @Override
+  public void stopService() {
+    System.out.println( "Plugin halted" );
+  }
+
+  @Override
+  default void configure(ArcadeDBServer arcadeDBServer, ContextConfiguration configuration) {
+    System.out.println( "Plugin configured" );
+  }
+
+  @Override
+  default void registerAPI(final HttpServer httpServer, final PathHandler routes) {
+    System.out.println( "Registering HTTP commands" );
+  }
+}
+```
+
+
+To register your plugin, register the name and add your class (with full package name) in
+`arcadedb.server.plugins` setting:
+
+Example:
+
+```
+java ... -Darcadedb.server.plugins=MyPlugin:com.yourpackage.MyPlugin ...
+```
+
+In case of multiple plugins, use the comma to separate them.
