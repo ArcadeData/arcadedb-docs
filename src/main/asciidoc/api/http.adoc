@@ -13,6 +13,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<#HTTP-ServerCommand,Send server command>> | POST   | `/api/v1/server`
 | <<#HTTP-DatabaseExists,Does database exist>>| GET    | `/api/v1/exists/{database}`
 | <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
+| <<#HTTP-ExecuteQuery,Execute a query>>      | POST   | `/api/v1/query/{database}`
 | <<#HTTP-ExecuteCommand,Execute database command>>  | POST   | `/api/v1/command/{database}`
 | <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
 | <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
@@ -421,7 +422,7 @@ Example:
 
 [discrete]
 [[HTTP-ExecuteQuery]]
-===== Execute a query (GET)
+===== Execute a query (GET|POST)
 
 This command allows executing idempotent commands, like `SELECT` and `MATCH`:
 
@@ -437,10 +438,10 @@ is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gr
 You might need to encode the URL if contains special characters and spaces.
 
 NOTE: Due to security reasons (encoded) slashes `/` (`%2F`) which are used for divisions or block
-      comments, cannot be used in queries via the `query/` endpoint.
+      comments, cannot be used in queries via the GET method with the `query/` endpoint.
 
 
-NOTE: Question marks (`?`) cause the server to stop reading the query string.
+NOTE: Question marks (`?`) cause the server to stop reading the query string when sent via GET.
       To use question marks (inside strings) one can use `format('%c',63)`;
       in this case make sure to replace all percent symbols (`%`) in the format string with `%%`.
 
@@ -449,6 +450,16 @@ Example:
 [source,shell]
 ----
 curl -X GET http://localhost:2480/api/v1/query/school/sql/select%20from%20Class
+     --user root:arcadedb-password
+----
+
+The `query` endpoint may also be used via the POST method, which has no character restrictions such as `/` or `?` in the query.
+
+[source,shell]
+----
+curl -X POST http://localhost:2480/api/v1/query/school
+     -d '{ "language": "sql", "command": "select from Class" }'
+     -H "Content-Type: application/json"
      --user root:arcadedb-password
 ----
 
