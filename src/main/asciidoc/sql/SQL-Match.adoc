@@ -5,79 +5,7 @@
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Match.adoc" float=right]
 
-Queries the database in a declarative manner, using pattern matching.
-
-*Simplified Syntax*
-
-----
-MATCH 
-  {
-    [type: <type>], 
-    [as: <alias>], 
-    [where: (<whereCondition>)]
-  }
-  .<functionName>(){
-    [type: <typeName>], 
-    [as: <alias>], 
-    [where: (<whereCondition>)], 
-    [while: (<whileCondition>)],
-    [maxDepth: <number>],    
-    [depthAlias: <identifier> ], 
-    [pathAlias: <identifier> ],     
-    [optional: (true | false)]
-  }*
-  [,
-    [NOT]
-    {
-      [as: <alias>], 
-      [type: <type>], 
-      [where: (<whereCondition>)]
-    }
-    .<functionName>(){
-      [type: <typeName>], 
-      [as: <alias>], 
-      [where: (<whereCondition>)], 
-      [while: (<whileCondition>)],
-      [maxDepth: <number>],    
-      [depthAlias: <identifier> ], 
-      [pathAlias: <identifier> ],     
-      [optional: (true | false)]
-    }*
-  ]*
-RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
-[ GROUP BY <expression> [, <expression>]* ]
-[ ORDER BY <expression> [, <expression>]* ]
-[ UNWIND <Field>* ]
-[ SKIP <number> ]
-[ LIMIT <number> ]
-----
-
-* *`&lt;type&gt;`* Defines a valid target type.
-* *`as: &lt;alias&gt;`* Defines an alias for a node in the pattern.
-* *`&lt;whereCondition&gt;`* Defines a filter condition to match a node in the pattern. It supports the normal SQL <<Filtering,`WHERE`>> clause. You can also use the `$currentMatch` and `$matched` <<Match-Context-Variables,context variables>>.
-* *`&lt;functionName&gt;`* Defines a graph function to represent the connection between two nodes. For instance, `out()`, `in()`, `outE()`, `inE()`, etc.
-For out(), in(), both() also a shortened _arrow_ syntax is supported:
-* `{...}.out(){...}` can be written as `{...}--&gt;{...}`
-* `{...}.out(&quot;EdgeType&quot;){...}` can be written as `{...}-EdgeType-&gt;{...}`
-* `{...}.in(){...}` can be written as `{...}&lt;--{...}`
-* `{...}.in(&quot;EdgeType&quot;){...}` can be written as `{...}&lt;-EdgeType-{...}`
-* `{...}.both(){...}` can be written as `{...}--{...}`
-* `{...}.both(&quot;EdgeType&quot;){...}` can be written as `{...}-EdgeType-{...}`
-* *`&lt;whileCondition&gt;`* Defines a condition that the statement must meet to allow the traversal of this path. It supports the normal SQL <<Filtering,`WHERE`>> clause. You can also use the `$currentMatch`, `$matched` and `$depth` <<Match-Context-Variables,context variables>>. For more information, see <<Deep-Traversal,Deep Traversal While Condition>>, below.
-* *`&lt;maxDepth&gt;`* Defines the maximum depth for this single path.
-* *`&lt;depthAlias&gt;`* This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the depth of this traversal. This alias can be used in the `RETURN` block to retrieve the depth of current traversal.
-* *`&lt;pathAlias&gt;`* This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the elements traversed to reach this alias. This alias can be used in the `RETURN` block to retrieve the elements traversed to reach this alias.
-* *`RETURN &lt;expression&gt; [ AS &lt;alias&gt; ]`* Defines elements in the pattern that you want returned. It can use one of the following:
-* Aliases defined in the `as:` block.
-* `$matches` Indicating all defined aliases.
-* `$paths` Indicating the full traversed paths.
-* `$elements` Indicating that all the elements that would be returned by the $matches have to be returned flattened, without duplicates.
-* `$pathElements` Indicating that all the elements that would be returned by the $paths have to be returned flattened, without duplicates.
-* *`optional`* if set to true, allows to evaluate and return a pattern even if that particular node does not match the pattern itself (ie. there is no value for that node in the pattern). In current version, optional nodes are allowed only on right terminal nodes, eg. `{} --&gt; {optional:true}` is allowed, `{optional:true} &lt;-- {}` is not.
-* *`NOT` patterns* Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won't be returned.
-* *<<SQL-Select-Unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
-
-*Examples*
+Queries the database in a declarative manner, using pattern matching. Let's start with some examples.
 
 The following examples are based on this sample data-set from the type `People`:
 
@@ -235,6 +163,143 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John' AND
             surname = 'Doe')}.both('Friend'){as: friend}, 
 			{type: Person, where: (name = 'Jenny')}.both('Friend')
 			{as: friend} RETURN friend
+----
+
+
+==== Simplified Syntax
+
+----
+MATCH
+  {
+    [type: <type>],
+    [as: <alias>],
+    [where: (<whereCondition>)]
+  }
+  .<functionName>(){
+    [type: <typeName>],
+    [as: <alias>],
+    [where: (<whereCondition>)],
+    [while: (<whileCondition>)],
+    [maxDepth: <number>],
+    [depthAlias: <identifier> ],
+    [pathAlias: <identifier> ],
+    [optional: (true | false)]
+  }*
+  [,
+    [NOT]
+    {
+      [as: <alias>],
+      [type: <type>],
+      [where: (<whereCondition>)]
+    }
+    .<functionName>(){
+      [type: <typeName>],
+      [as: <alias>],
+      [where: (<whereCondition>)],
+      [while: (<whileCondition>)],
+      [maxDepth: <number>],
+      [depthAlias: <identifier> ],
+      [pathAlias: <identifier> ],
+      [optional: (true | false)]
+    }*
+  ]*
+RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
+[ GROUP BY <expression> [, <expression>]* ]
+[ ORDER BY <expression> [, <expression>]* ]
+[ UNWIND <Field>* ]
+[ SKIP <number> ]
+[ LIMIT <number> ]
+----
+
+* *`&lt;type&gt;`* Defines a valid target type.
+* *`as: &lt;alias&gt;`* Defines an alias for a node in the pattern.
+* *`&lt;whereCondition&gt;`* Defines a filter condition to match a node in the pattern. It supports the normal SQL <<Filtering,`WHERE`>> clause. You can also use the `$currentMatch` and `$matched` <<Match-Context-Variables,context variables>>.
+* *`&lt;functionName&gt;`* Defines a graph function to represent the connection between two nodes. For instance, `out()`, `in()`, `outE()`, `inE()`, etc.
+For out(), in(), both() also a shortened _arrow_ syntax is supported:
+* `{...}.out(){...}` can be written as `{...}--&gt;{...}`
+* `{...}.out(&quot;EdgeType&quot;){...}` can be written as `{...}-EdgeType-&gt;{...}`
+* `{...}.in(){...}` can be written as `{...}&lt;--{...}`
+* `{...}.in(&quot;EdgeType&quot;){...}` can be written as `{...}&lt;-EdgeType-{...}`
+* `{...}.both(){...}` can be written as `{...}--{...}`
+* `{...}.both(&quot;EdgeType&quot;){...}` can be written as `{...}-EdgeType-{...}`
+* *`&lt;whileCondition&gt;`* Defines a condition that the statement must meet to allow the traversal of this path. It supports the normal SQL <<Filtering,`WHERE`>> clause. You can also use the `$currentMatch`, `$matched` and `$depth` <<Match-Context-Variables,context variables>>. For more information, see <<Deep-Traversal,Deep Traversal While Condition>>, below.
+* *`&lt;maxDepth&gt;`* Defines the maximum depth for this single path.
+* *`&lt;depthAlias&gt;`* This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the depth of this traversal. This alias can be used in the `RETURN` block to retrieve the depth of current traversal.
+* *`&lt;pathAlias&gt;`* This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the elements traversed to reach this alias. This alias can be used in the `RETURN` block to retrieve the elements traversed to reach this alias.
+* *`RETURN &lt;expression&gt; [ AS &lt;alias&gt; ]`* Defines elements in the pattern that you want returned. It can use one of the following:
+* Aliases defined in the `as:` block.
+* `$matches` Indicating all defined aliases.
+* `$paths` Indicating the full traversed paths.
+* `$elements` Indicating that all the elements that would be returned by the $matches have to be returned flattened, without duplicates.
+* `$pathElements` Indicating that all the elements that would be returned by the $paths have to be returned flattened, without duplicates.
+* *`optional`* if set to true, allows to evaluate and return a pattern even if that particular node does not match the pattern itself (ie. there is no value for that node in the pattern). In current version, optional nodes are allowed only on right terminal nodes, eg. `{} --&gt; {optional:true}` is allowed, `{optional:true} &lt;-- {}` is not.
+* *`NOT` patterns* Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won't be returned.
+* *<<SQL-Select-Unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
+
+==== Arrow notation
+
+`out()`, `in()` and `both()` operators can be replaced with arrow notation `--&gt;`, `&lt;--` and `--`
+
+Eg. the query
+
+[source,sql]
+----
+MATCH {type: V, as: a}.out(){}.out(){}.out(){as:b}
+RETURN a, b
+----
+
+can be written as
+
+[source,sql]
+----
+MATCH {type: V, as: a}-->{}-->{}-->{as:b}
+RETURN a, b
+----
+
+Eg. the query (things that belong to friends)
+
+[source,sql]
+----
+MATCH {type: Person, as: a}.out('Friend'){as:friend}.in('BelongsTo'){as:b}
+RETURN a, b
+----
+
+can be written as
+
+[source,sql]
+----
+MATCH {type: Person, as: a}-Friend->{as:friend}<-BelongsTo-{as:b}
+RETURN a, b
+----
+
+Using arrow notation the curly braces are mandatory on both sides. eg:
+
+[source,sql]
+----
+MATCH {type: Person, as: a}-->{}-->{as:b} RETURN a, b  //is allowed
+
+MATCH {type: Person, as: a}-->-->{as:b} RETURN a, b  //is NOT allowed
+
+MATCH {type: Person, as: a}.out().out(){as:b} RETURN a, b  //is allowed
+
+MATCH {type: Person, as: a}.out(){}.out(){as:b} RETURN a, b  //is allowed
+----
+
+*Negative (NOT) patterns*
+
+Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if the result matches at least one of the negative patterns it won't be returned.
+
+As an example, consider the following problem: given a social network, choose a single person and return all the people that are friends of their friends, but that are not their direct friends.
+
+The pattern can be calculated as follows:
+
+----
+
+MATCH
+  {type:Person, as:a, where:(name = "John")}-FriendOf->{as:b}-FriendOf-> {as:c},
+  NOT {as:a}-FriendOf->{as:c}
+RETURN c.name
+
 ----
 
 *DISTINCT*
@@ -722,70 +787,4 @@ result:
 
 ----
 
-*IMPORTANT*: When using MATCH statemet in ArcadeDB Studio Graph panel you have to use $elements or $pathElements as return type, to let the Graph panel render the matched patterns correctly
-
-*Arrow notation*
-
-`out()`, `in()` and `both()` operators can be replaced with arrow notation `--&gt;`, `&lt;--` and `--`
-
-Eg. the query 
-
-[source,sql]
-----
-MATCH {type: V, as: a}.out(){}.out(){}.out(){as:b}
-RETURN a, b
-----
-
-can be written as
-
-[source,sql]
-----
-MATCH {type: V, as: a} --> {} --> {} --> {as:b}
-RETURN a, b
-----
-
-Eg. the query (things that belong to friends)
-
-[source,sql]
-----
-MATCH {type: Person, as: a}.out('Friend'){as:friend}.in('BelongsTo'){as:b}
-RETURN a, b
-----
-
-can be written as
-
-[source,sql]
-----
-MATCH {type: Person, as: a}  -Friend-> {as:friend} <-BelongsTo- {as:b}
-RETURN a, b
-----
-
-Using arrow notation the curly braces are mandatory on both sides. eg:
-
-[source,sql]
-----
-MATCH {type: Person, as: a} --> {} --> {as:b} RETURN a, b  //is allowed
-
-MATCH {type: Person, as: a} --> --> {as:b} RETURN a, b  //is NOT allowed
-
-MATCH {type: Person, as: a}.out().out(){as:b} RETURN a, b  //is allowed
-
-MATCH {type: Person, as: a}.out(){}.out(){as:b} RETURN a, b  //is allowed
-----
-
-*Negative (NOT) patterns*
-
-Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if the result matches at least one of the negative patterns it won't be returned.
-
-As an example, consider the following problem: given a social network, choose a single person and return all the people that are friends of their friends, but that are not their direct friends.
-
-The pattern can be calculated as follows:
-
-----
-
-MATCH
-  {type:Person, as:a, where:(name = "John")} -FriendOf-> {as:b} -FriendOf-> {as:c},
-  NOT {as:a} -FriendOf-> {as:c}
-RETURN c.name
-
-----
+*NOTE*: When using the MATCH statement in ArcadeDB Studio Graph panel you have to use `$elements` or `$pathElements` as return type, to let the Graph panel render the matched patterns correctly.
