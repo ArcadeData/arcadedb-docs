@@ -72,6 +72,24 @@ Each Record ID is immutable, universal, and is never reused.
 Additionally, records can be accessed directly through their RIDs at{nbsp}O(1){nbsp}complexity which means the query speed is constant, unaffected by database size.
 For this reason, you don't need to create a field to serve as the primary key as you do in Relational databases.
 
+[discrete]
+===== Record Retrieval Complexity
+
+Retrieving a record by <<RID,RID>> is of complexity O(1).
+This is possible as the RID itself encodes both, the file a record is stored in, and the position inside it.
+In an RID, i.e. `#12:1000000`, the bucket identifier (here `#12`) specifies the record's associated file,
+while the record position (here `1000000`) describes the position inside the file.
+Bucket files are organized in pages (with default size `64KB`) with a maximum number records per page (by default `2048`).
+To determine the byte position of a record in a bucket file,
+the rounded down quotient of record position and maximum records per page yields the page (here `⌊1000000 / 2048⌋`),
+and the remainder gives the position on the page (here `⌊1000000 % 2048⌋`).
+In pseudo-code this computation is given by:
+
+```
+int pageId = floor(rid.getPosition() / maxRecordsInPage);
+int positionInPage = floor(rid.getPosition() % maxRecordsInPage);
+```
+
 [[Types]]
 === Types
 
@@ -275,6 +293,21 @@ ArcadeDB expresses relationships of these kinds using a list or a map of links, 
 In ArcadeDB, all Edges in the Graph model are bidirectional.
 This differs from the Document model, where relationships are always unidirectional, requiring the developer to maintain data integrity.
 In addition, ArcadeDB automatically maintains the consistency of all bidirectional relationships.
+
+[discrete]
+==== Relationship Traversal Complexity
+
+As a native graph database, ArcadeDB supports index free adjacency.
+This means constant graph traversal complexity of O(1), independent of the graph expanse (database size).
+
+To traverse a graph structure, one needs to follow references stored by the current record.
+These references are always stored as RIDs, and are not only pointers to incoming and outgoing edges,
+but also to connected vertices.
+Internally, references are managed by a https://en.wikipedia.org/wiki/Stack_(abstract_data_type)[stack]
+(also known as LIFO), which allows to get the latest insertion first.
+As not only edges, but also connected vertices are stored, neighboring nodes can be reached
+directly, particularly without going via the connecting edge.
+This is useful if edges are used purely to connect vertices and do not carry i.e. properties themselves.
 
 === Database
 
