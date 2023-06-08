@@ -1048,6 +1048,24 @@ The prefix character <code>#</code> is mandatory.
 Additionally, records can be accessed directly through their RIDs at&#160;O(1)&#160;complexity which means the query speed is constant, unaffected by database size.
 For this reason, you don&#8217;t need to create a field to serve as the primary key as you do in Relational databases.</p>
 </div>
+<h5 id="_record_retrieval_complexity" class="discrete">Record Retrieval Complexity</h5>
+<div class="paragraph">
+<p>Retrieving a record by <a href="#RID">RID</a> is of complexity O(1).
+This is possible as the RID itself encodes both, the file a record is stored in, and the position inside it.
+In an RID, i.e. <code>#12:1000000</code>, the bucket identifier (here <code>#12</code>) specifies the record&#8217;s associated file,
+while the record position (here <code>1000000</code>) describes the position inside the file.
+Bucket files are organized in pages (with default size <code>64KB</code>) with a maximum number records per page (by default <code>2048</code>).
+To determine the byte position of a record in a bucket file,
+the rounded down quotient of record position and maximum records per page yields the page (here <code>⌊1000000 / 2048⌋</code>),
+and the remainder gives the position on the page (here <code>⌊1000000 % 2048⌋</code>).
+In pseudo-code this computation is given by:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>int pageId = floor(rid.getPosition() / maxRecordsInPage);
+int positionInPage = floor(rid.getPosition() % maxRecordsInPage);</code></pre>
+</div>
+</div>
 </div>
 <div class="sect2">
 <h3 id="Types">3.2. Types</h3>
@@ -1286,6 +1304,21 @@ For example,</p>
 <p>In ArcadeDB, all Edges in the Graph model are bidirectional.
 This differs from the Document model, where relationships are always unidirectional, requiring the developer to maintain data integrity.
 In addition, ArcadeDB automatically maintains the consistency of all bidirectional relationships.</p>
+</div>
+<h4 id="_relationship_traversal_complexity" class="discrete">Relationship Traversal Complexity</h4>
+<div class="paragraph">
+<p>As a native graph database, ArcadeDB supports index free adjacency.
+This means constant graph traversal complexity of O(1), independent of the graph expanse (database size).</p>
+</div>
+<div class="paragraph">
+<p>To traverse a graph structure, one needs to follow references stored by the current record.
+These references are always stored as RIDs, and are not only pointers to incoming and outgoing edges,
+but also to connected vertices.
+Internally, references are managed by a <a href="https://en.wikipedia.org/wiki/Stack_(abstract_data_type)">stack</a>
+(also known as LIFO), which allows to get the latest insertion first.
+As not only edges, but also connected vertices are stored, neighboring nodes can be reached
+directly, particularly without going via the connecting edge.
+This is useful if edges are used purely to connect vertices and do not carry i.e. properties themselves.</p>
 </div>
 </div>
 <div class="sect2">
@@ -22534,7 +22567,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.4.1<br>
-Last updated 2023-06-06 19:20:05 UTC
+Last updated 2023-06-08 02:33:04 UTC
 </div>
 </div>
 </body>
