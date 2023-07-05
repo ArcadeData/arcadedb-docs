@@ -87,5 +87,62 @@ https://github.com/ArcadeData/arcadedb/discussions/469[Coming Soon].
 [[Vector-Model]]
 ==== Vector Model
 
-https://github.com/ArcadeData/arcadedb/discussions/995[Coming Soon].
+This model uses the https://arxiv.org/abs/1603.09320[hierarchical navigable small world] (HNSW) algorithm
+to index the multi-dimensional vector data. Practically,
+an extended version of the https://github.com/jelmerk/hnswlib[hnswlib] is used.
+Since the HNSW algorithm is based on a graph,
+the vectors are stored as compressed arrays inside ArcadeDB's vertex type,
+and the proximities are represented by actual edges.
+
+===== Java Example
+
+```java
+HnswVectorIndexRAM<String, float[], Word, Float> hnswIndex = HnswVectorIndexRAM.newBuilder(300, DistanceFunctions.FLOAT_INNER_PRODUCT, words.size())
+          .withM(16).withEf(200).withEfConstruction(200).build();
+```
+
+```java
+persistentIndex = hnswIndex.createPersistentIndex(database)//
+.withVertexType("Word").withEdgeType("Proximity").withVectorPropertyName("vector").withIdProperty("name").create();
+
+persistentIndex.save();
+```
+
+```java
+persistentIndex = (HnswVectorIndex) database.getSchema().getIndexByName("Word[name,vector]");
+```
+
+```java
+List<SearchResult<Vertex, Float>> approximateResults = persistentIndex.findNeighbors(input, k);
+```
+
+===== SQL Example
+
+```sql
+import database https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.en.300.vec.gz
+  with distanceFunction = 'cosine', m = 16, ef = 128, efConstruction = 128,
+       vertexType = 'Word', edgeType = 'Proximity', vectorType = 'float', idProperty = 'name';
+```
+
+```sql
+SELECT vectorNeighbors('Word[name,vector]','king',3);
+```
+
+
+[[similarity]]
+===== Similarity Measures
+
+[%header,cols=4]
+|===
+| Measure | Name | Details | Type
+| `cosine` | Cosine Similarity | https://en.wikipedia.org/wiki/Cosine_similarity | L2
+| `?` | Inner Product | https://en.wikipedia.org/wiki/Dot_product | L2
+| `euclidean` | Euclidean Distance | https://en.wikipedia.org/wiki/Euclidean_distance | L2
+| `?` | Bray-Curtis Similarity | https://en.wikipedia.org/wiki/Bray%E2%80%93Curtis_dissimilarity | ?
+| `correlation` | Correlation | https://en.wikipedia.org/wiki/Correlation | L2
+| `manhattan` | Manhattan Distance | https://en.wikipedia.org/wiki/Taxicab_geometry | L1
+| `canberra` | Canberra Distance | https://en.wikipedia.org/wiki/Canberra_distance | L1
+| `?` | Sparse Vector Inner Product |  | L2
+| `chebyshev` | Chebyshev Distance | https://en.wikipedia.org/wiki/Chebyshev_distance | L∞
+|===
 
