@@ -20198,6 +20198,63 @@ It&#8217;s recommended to keep a copy of the current file before editing the gro
 In this way if there are any errors, it&#8217;s easy to restore the previous file.</p>
 </div>
 </div>
+<div class="sect2">
+<h3 id="Secrets">9.4. Handling Secrets</h3>
+<div class="paragraph">
+<p>Passing secrets, like passwords, safely to the server, especially in containers, can be tricky.
+For example, the settings:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>-Darcadedb.server.rootPassword=password</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>for the root password, or:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>-Darcadedb.server.defaultDatabases=database[username:password]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>for database and user generation are comfortable,
+but present the issue that passwords passed this way are readable in plaint text
+in applications like <code>htop</code> or <code>docker compose top</code>.
+This is the case because these settings are passed ultimately via command-line to the JVM (even if using <code>JAVA_OPTS</code> or <code>ARCADEDB_SETTINGS</code>).</p>
+</div>
+<div class="paragraph">
+<p>In the following, an approach is presented to avoid this problem.
+The idea is to use the special environment variable <a href="https://docs.oracle.com/en/java/javase/11/troubleshoot/environment-variables-and-system-properties.html#GUID-BE6E7B7F-A4BE-45C0-9078-AA8A66754B97"><code>JAVA_TOOL_OPTIONS</code></a> to pass the settings
+directly into the JVM (alternatively <a href="https://docs.oracle.com/en/java/javase/11/tools/java.html#GUID-3B1CE181-CD30-4178-9602-230B800D4FAE__USINGTHEJDK_JAVA_OPTIONSLAUNCHERENV-F3C0E3BA"><code>JDK_JAVA_OPTIONS</code></a> or the undocumented <code>_JAVA_OPTIONS</code> may be used).
+However, just using this particular environment variable would mean that the
+JVM writes the contents of this variable to the standard error stream,
+which means the secrets would appear in logs.
+To suppress this logging, a <a href="https://superuser.com/a/585696/1824014">workaround</a> can be used
+by wrapping the <code>server.sh</code> script:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">#!/bin/sh
+
+export JAVA_TOOL_OPTIONS="-Darcadedb.server.rootPassword=password0 -Darcadedb.server.defaultDatabases=database1[user1:password1]"
+./bin/server.sh 2&gt; &gt;(grep -v "^Picked up JAVA_TOOL_OPTIONS:") &amp;
+
+PID="$!"
+
+unset JAVA_TOOL_OPTIONS
+
+wait $PID</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This way the secrets are passed directly into the JVM without being resolved before,
+and the <code>stderr</code> logging is filtered.
+The server is send to the background and its process ID saved.
+Then, by unsetting the <code>JAVA_TOOL_OPTIONS</code> variable immediately after using it,
+ensures the secrets will not linger in the environment.</p>
+</div>
+</div>
 </div>
 </div>
 <div class="sect1">
@@ -22944,6 +23001,9 @@ tested JREs are:</p>
 </ul>
 </div>
 <div class="paragraph">
+<p>Note, that <strong>headless</strong> variants of JRE packages are compatible to ArcadeDB.</p>
+</div>
+<div class="paragraph">
 <p>Newer JRE versions (<strong>16</strong> and onwards) are currently incompatible due to a bug in Gremlin,
 see <a href="https://github.com/ArcadeData/arcadedb/issues/17">ArcadeDB: Gremlin doesn&#8217;t work with Java 16+</a> and <a href="https://issues.apache.org/jira/browse/TINKERPOP-2703">Tinkerpop: Build on JDK17</a>.</p>
 </div>
@@ -23078,7 +23138,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.6.1<br>
-Last updated 2023-07-20 15:53:24 UTC
+Last updated 2023-07-28 12:08:50 UTC
 </div>
 </div>
 </body>
