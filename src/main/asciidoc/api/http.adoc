@@ -20,7 +20,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
 |===
 
-*Overview Parameters*
+*Overview Query & Command Parameters*
 
 [cols="30,10,~",options="header"]
 |===
@@ -121,6 +121,15 @@ Once subscribed, you will get JSON messages for any matching changes with the fo
 |===
 
 [discrete]
+==== Responses
+
+The server answers a HTTP request with a response.
+This response can have a body, which will always be in the JSON format.
+Generally, a successful response (HTTP status codes 2xx) contains a `result` field,
+while an erroneous request (HTTP status code 4xx) has an `error` field,
+and a server error (HTTP status code 5xx), in addition to the `error` field, provides a `detail` and an `exception` field.
+
+[discrete]
 ==== Tutorial
 
 Let's first create an empty database "school" on the server:
@@ -163,16 +172,6 @@ curl -X POST http://localhost:2480/api/v1/command/school \
      --user root:arcadedb-password
 ----
 
-Or by using the `api/v1/document` API:
-
-[source,shell]
-----
-curl -X POST http://localhost:2480/api/v1/document/school \
-     -d '{"@type": "Class", "name": "English", "location": "3rd floor"}' \
-     -H "Content-Type: application/json" \
-     --user root:arcadedb-password
-----
-
 [discrete]
 ==== Reference
 
@@ -180,24 +179,29 @@ curl -X POST http://localhost:2480/api/v1/document/school \
 [[HTTP-CheckReady]]
 ===== Check if server is ready (GET)
 
-Returns a header-only status 204 (no content) if the ArcadeDB server is ready.
+Returns a header-only (no content) status about if the ArcadeDB server is ready.
 
 URL Syntax: `/api/v1/ready`
 
 This endpoint accepts (GET) requests without authentication, and is useful for remote monitoring of server readiness.
 
+Response:
+
+* https://httpstatuses.io/204[`204`] OK
+
 Example:
 
 [source,shell]
 ----
-curl -X GET http://localhost:2480/api/v1/ready
+curl -I -X GET "http://localhost:2480/api/v1/ready"
 ----
 
 Return:
 
-```
+[source,shell]
+----
 HTTP/1.1 204 OK
-```
+----
 
 [discrete]
 [[HTTP-ServerInfo]]
@@ -213,6 +217,11 @@ The following `mode` query parameter values are available:
 * `default` returns full server configuration (default value when no parameter is given).
 * `cluster` returns cluster layout.
 
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+
 Example:
 
 [source,shell]
@@ -223,9 +232,9 @@ curl -X GET http://localhost:2480/api/v1/server?mode=basic \
 
 Return:
 
-[source,json]
+[source,json,subs="+attributes"]
 ----
-{"user":"root", "version":"23.1.2", "serverName":"ArcadeDB_0"}
+{"user":"root", "version":"{revnumber}", "serverName":"ArcadeDB_0"}
 ----
 
 [discrete]
@@ -254,6 +263,13 @@ The following commands are available:
 * `align database <dbname>` aligns database `<dbname>`, see the associated <<_sql-align-database,SQL command>>
 
 NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] invalid command
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/400[`500`] invalid JSON request body
 
 Examples:
 
@@ -517,18 +533,25 @@ Returns boolean answering if database exists.
 
 URL Syntax: `/api/v1/exists/{database}`
 
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] no database passed
+
+Example:
+
 [source,shell]
 ----
 curl -X GET http://localhost:2480/api/v1/exists/school \
      --user root:arcadedb-password
 ----
 
-The response is a simple boolean result.
-Example:
+Return:
 
-```json
-{"result": true}
-```
+[source,json,subs="+attributes"]
+----
+{"user":"root","version":"{revnumber}","serverName":"ArcadeDB_0","result":true}
+----
 
 [discrete]
 [[HTTP-ExecuteQuery]]
@@ -556,6 +579,13 @@ These restrictions do not apply to the `POST` variant, where the `language` and 
 are send in the body.
 
 NOTE: Even though a `POST` method is used, the query in `command` has to be idempotent.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] invalid language, invalid query
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/400[`500`] database does not exist, cannot execute query
 
 Example:
 
@@ -607,7 +637,13 @@ The payload, as a JSON, accepts the following parameters:
 ** `graph`: returns as a graph separating vertices from edges
 ** `record`: returns everything as records
 ** by default it's like record but with additional metadata for vertex records, such as the number of outgoing edges in `@out` property and total incoming edges in `@in` property.
-This serialzier is used by Studio
+This serializer is used by <<Studio,Studio>>.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] invalid language, invalid command
+* https://httpstatuses.io/403[`403`] invalid credentials
 
 Example of insertion of a new Client by using parameters:
 
@@ -638,12 +674,20 @@ The payload, optional as a JSON, accepts the following parameters:
 
 - `isolationLevel` is isolation level for the current transaction between `READ_COMMITTED` (default) and `REPEATABLE_READ`.
 
+Responses:
+
+* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/401[`400`] invalid value
+* https://httpstatuses.io/401[`401`] transaction already started
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/500[`500`] invalid database, invalid JSON, invalid body
+
 Example:
 
 [source,shell]
 ----
-curl -X POST http://localhost:2480/api/v1/begin/school \
-     --user root:arcadedb-password -I
+curl -I -X POST http://localhost:2480/api/v1/begin/school \
+     --user root:arcadedb-password
 ----
 
 Returns the Session Id in the response header, example:
@@ -668,13 +712,19 @@ Where:
 - `database` is the database name
 
 Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
-If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
+
+Response:
+
+* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
 
 Example:
 
 [source,shell]
 ----
-curl -X POST http://localhost:2480/api/v1/commit/school \
+curl -I -X POST http://localhost:2480/api/v1/commit/school \
      -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4" \
      --user root:arcadedb-password
 ----
@@ -694,13 +744,19 @@ Where:
 - `database` is the database name
 
 Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
-If the session (and therefore the server side transaction) is expired, then a 500 Internal server error is returned.
+If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
+
+Response:
+
+* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
 
 Example:
 
 [source,shell]
 ----
-curl -X POST http://localhost:2480/api/v1/rollback/school \
+curl -I -X POST http://localhost:2480/api/v1/rollback/school \
      -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4" \
      --user root:arcadedb-password
 ----
