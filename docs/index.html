@@ -5761,7 +5761,61 @@ Example:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="Java-Events">7.2.7. Events</h4>
+<h4 id="_using_vector_embeddings_from_java_api">7.2.7. Using Vector Embeddings from Java API</h4>
+<div class="paragraph">
+<p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-vectors.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
+</div>
+<div class="paragraph">
+<p>Using the Embedded Java API is the fastest way to insert vector embeddings into the database. At the beginning it&#8217;s much faster to pass through the <code>HnswVectorIndexRAM</code> implementation and then generate the persistent index after loaded.</p>
+</div>
+<div class="paragraph">
+<p>Schema types are created automatically, but you could create them in advance if you want special settings, like a specific numbe rof buckets, or a custom page size.</p>
+</div>
+<div class="paragraph">
+<p>Example of inserting embeddings in RAM first, and then create the persistent HNSW index.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">if (!database.getSchema().existsIndex(indexName)) {
+  // FIRST TIME: USE OPTIMIZED RAM BASED HNSW INDEX AS FIRST STEP
+  final HnswVectorIndexRAM&lt;Object, float[], Item&lt;Object, float[]&gt;, Float&gt; hnswIndex = HnswVectorIndexRAM.newBuilder(
+          embeddingService.getDimensions(), distanceFunction, 100_000).withM(m).withEf(ef).withEfConstruction(efConstruction)
+      .build();
+
+  hnswIndex.addAll((Collection&lt;Item&lt;Object, float[]&gt;&gt;) embeddings, Runtime.getRuntime().availableProcessors(), null;
+
+  // CREATE UNIQUE TYPE ASSOCIATED TO THE LIBRARY
+  final String statementTypeName = getStatementTypeName(vertexLibrary);
+
+  hnswIndex.createPersistentIndex(database)//
+      .withVertexType(STATEMENT_TYPE_NAME).withEdgeType(PROXIMITY_TYPE_NAME)//
+      .withVectorProperty(VECTOR_PROPERTY_NAME, Type.ARRAY_OF_FLOATS)//
+      .withIdProperty(TEXT_PROPERTY_NAME)//
+      .withDeletedProperty(DELETED_PROPERTY_NAME)//
+      .create();
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once the persistent index is created, you can just add new entries into the HNSW index:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">if (database.getSchema().existsIndex(indexName)) {
+  final HnswVectorIndex index = (HnswVectorIndex) database.getSchema().getIndexByName(indexName);
+
+  index.addAll(embeddings, (statement, item, total) -&gt; {
+    // YOUR CALLBACK TO MANAGE CASCADING OPERATIONS WHEN VERTICES ARE CREATED AND INDEXED, IF ANY
+  });
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The callback in the <code>addAll()</code> method is useful when you have a graph/tree connected to the vertices created by the index. For example, if you are indexing a book, probably you calculate a vector of embeddings per statement, and then you group the statements in paragraphs.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="Java-Events">7.2.8. Events</h4>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-events.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -23600,7 +23654,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.9.1<br>
-Last updated 2023-09-26 19:37:13 UTC
+Last updated 2023-09-28 21:06:43 UTC
 </div>
 </div>
 </body>
