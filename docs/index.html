@@ -7835,6 +7835,11 @@ Map&lt;String, Object&gt; customer = resultSet.stream().findFirst().map(Result::
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>/api/v1/server</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#HTTP-ListDatabases">List databases</a></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">GET</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>/api/v1/databases</code></p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><a href="#HTTP-DatabaseExists">Does database exist</a></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">GET</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>/api/v1/exists/{database}</code></p></td>
@@ -8539,6 +8544,43 @@ Only <strong>root</strong> users can run these command, except the <code>list da
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-json" data-lang="json">{ "result" : "ok"}</code></pre>
+</div>
+</div>
+<h5 id="HTTP-ListDatabases" class="discrete">List Databases (GET)</h5>
+<div class="paragraph">
+<p>Returns a list of available databases for the requesting user.</p>
+</div>
+<div class="paragraph">
+<p>URL Syntax: <code>/api/v1/databases</code></p>
+</div>
+<div class="paragraph">
+<p>Responses:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://httpstatuses.io/200"><code>200</code></a> OK</p>
+</li>
+<li>
+<p><a href="https://httpstatuses.io/403"><code>403</code></a> invalid credentials</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">curl -X GET http://localhost:2480/api/v1/databases \
+     --user root:arcadedb-password</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Return:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-json" data-lang="json">{"user":"root","version":"23.9.1","serverName":"ArcadeDB_0","result":["school","mydatabase"]}</code></pre>
 </div>
 </div>
 <h5 id="HTTP-DatabaseExists" class="discrete">Does database exist (GET)</h5>
@@ -16667,7 +16709,9 @@ or more to avoid slow-downs on insertion.</p></td>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">CREATE VERTEX [&lt;type&gt;] [BUCKET &lt;bucket&gt;] [SET &lt;field&gt; = &lt;expression&gt;[,]*]</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">CREATE VERTEX [&lt;type&gt;] [BUCKET &lt;bucket&gt;]
+  [SET &lt;field&gt; = &lt;expression&gt;[,]*]|
+  [CONTENT {&lt;JSON&gt;}|[{&lt;JSON&gt;}[,]*]]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -16760,6 +16804,19 @@ ArcadeDB&gt; CREATE VERTEX V1</pre>
 <div class="listingblock">
 <div class="content">
 <pre>ArcadeDB&gt; CREATE VERTEX Employee CONTENT { "name" : "Jay", "surname" : "Miner" }</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Create multiple vertices using JSON content:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>ArcadeDB&gt; CREATE VERTEX Employee CONTENT [{"name" : "Jay", "surname" : "Miner"},
+            {"name": "Frank", "surname": "Hermier"},{"name": "Emily", "surname": "Sout"}]</pre>
 </div>
 </div>
 <div class="paragraph">
@@ -17333,7 +17390,7 @@ GraphML is recommended</p>
 <pre class="highlight"><code class="language-sql" data-lang="sql">INSERT INTO [TYPE:]&lt;type&gt;|BUCKET:&lt;bucket&gt;|INDEX:&lt;index&gt;
   [(&lt;field&gt;[,]*) VALUES (&lt;expression&gt;[,]*)[,]*]|
   [SET &lt;field&gt; = &lt;expression&gt;|&lt;sub-command&gt;[,]*]|
-  [CONTENT {&lt;JSON&gt;}]
+  [CONTENT {&lt;JSON&gt;}|[{&lt;JSON&gt;}[,]*]]
   [RETURN &lt;expression&gt;]
   [FROM &lt;query&gt;]</code></pre>
 </div>
@@ -17341,7 +17398,10 @@ GraphML is recommended</p>
 <div class="ulist">
 <ul>
 <li>
-<p><strong><code>CONTENT</code></strong> Defines JSON data as an option to set field values.</p>
+<p><strong><code>SET</code></strong> Abbreviated syntax to set field values.</p>
+</li>
+<li>
+<p><strong><code>CONTENT</code></strong> Defines JSON data as an option to set field values of one or multiple records.</p>
 </li>
 <li>
 <p><strong><code>RETURN</code></strong> Defines an expression to return instead of the number of inserted records. You can use any valid SQL expression. The most common use-cases,</p>
@@ -17442,8 +17502,17 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO Profile (name, surname) VALUES ('Jay', 'Miner'),
-            ('Frank', 'Hermier'), ('Emily', 'Sout')</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Profile (name, surname) VALUES ('Jay', 'Miner'),
+            ('Frank', 'Hermier'), ('Emily', 'Sout')</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>again in JSON content syntax, a JSON array of the to-be-inserted objects is passed:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Profile CONTENT [{"name": "Jay", "surname": "Miner"},
+            {"name": "Frank", "surname": "Hermier"},{"name": "Emily", "surname": "Sout"}]</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -17501,8 +17570,8 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO Diver SET name = 'Luca', buddy = (SELECT FROM Diver
-            WHERE name = 'Marko')</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Diver SET name = 'Luca', buddy = (SELECT FROM Diver
+            WHERE name = 'Marko')</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -17514,8 +17583,8 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO Diver SET name = 'Luca', buddy = (INSERT INTO Diver
-            SET name = 'Marko')</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Diver SET name = 'Luca', buddy = (INSERT INTO Diver
+            SET name = 'Marko')</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -17527,7 +17596,7 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO BUCKET:asiaemployee (name) VALUES ('Matthew')</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO BUCKET:asiaemployee (name) VALUES ('Matthew')</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -17551,8 +17620,8 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO Profile (name, address) VALUES ('Luca', { "@type": "d",
-            "street": "Melrose Avenue"})</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Profile (name, address) VALUES ('Luca', { "@type": "d",
+            "street": "Melrose Avenue"})</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -17564,7 +17633,7 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO Profile SET friends = list("Joe","Jack","John")</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Profile SET friends = list("Joe","Jack","John")</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -17576,7 +17645,7 @@ To insert only documents, vertices, or edges with a certain <strong>unique</stro
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; INSERT INTO Profile SET address = map("home","Avenue Lane")</pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO Profile SET address = map("home","Avenue Lane")</code></pre>
 </div>
 </div>
 <div class="ulist">
@@ -23654,7 +23723,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.9.1<br>
-Last updated 2023-09-28 21:06:43 UTC
+Last updated 2023-09-29 11:15:20 UTC
 </div>
 </div>
 </body>
