@@ -1319,7 +1319,8 @@ It is comparable to the "collection" in Document databases, the "table" in Relat
 You can have up to 2,147,483,648 buckets in a database.</p>
 </div>
 <div class="paragraph">
-<p>A bucket can only be part of one type. This means two types can not share the same bucket.</p>
+<p>A bucket can only be part of one type. This means two types can not share the same bucket.
+Also, <a href="#Inheritance">sub-types</a> have their separate buckets from their super-types.</p>
 </div>
 <div class="paragraph">
 <p>When you create a new type, the <a href="#SQL-Create-Type"><code>CREATE TYPE</code></a> statement automatically creates the physical buckets (files) that serve as the default location in which to store data for that type.
@@ -1444,7 +1445,7 @@ It can manage relationships in a schema-full or schema-less scenario.</p>
 <h4 id="_referenced_relationships" class="discrete">Referenced Relationships</h4>
 <div class="paragraph">
 <p>In Relational databases, tables are linked through <code>JOIN</code> commands, which can prove costly on computing resources.
-ArcadeDB manages relationships natively without computing a <code>JOIN</code> but storing direct links to the target objects of the relationship. This boosts the load speed for the entire graph of connected objects, such as in graph and object database systems.</p>
+ArcadeDB manages relationships natively without computing a <code>JOIN</code> but storing a direct <code>LINK</code> to the target object of the relationship. This boosts the load speed for the entire graph of connected objects, such as in graph and object database systems.</p>
 </div>
 <div class="paragraph">
 <p>Example</p>
@@ -1455,6 +1456,11 @@ ArcadeDB manages relationships natively without computing a <code>JOIN</code> bu
  TYPE=Customer            TYPE=Invoice
     RID #5:23               RID #10:2</code></pre>
 </div>
+</div>
+<div class="paragraph">
+<p>Note, that referenced relationships differ from edges:
+references are properties connecting any record while edges are types connecting vertices,
+and particularly, graph traversal is only applicable to edges.</p>
 </div>
 <h4 id="_embedded_relationships" class="discrete">Embedded Relationships</h4>
 <div class="paragraph">
@@ -14173,7 +14179,7 @@ This is the default option.</p>
 <div class="title">Note</div>
 </td>
 <td class="content">
-Bear in mind, that the schema must remain coherent. For instance, avoid removing calsses that are super-types to others. This operation won&#8217;t delete the associated bucket.
+Bear in mind, that the schema must remain coherent. For instance, avoid removing types that are super-types to others. This operation won&#8217;t delete the associated bucket.
 </td>
 </tr>
 </table>
@@ -14771,12 +14777,12 @@ for example due to a schema error, the remaining documents in the JSON array are
 <div class="ulist">
 <ul>
 <li>
-<p>Insert a vertex or edge.</p>
+<p>Insert a vertex.</p>
 </li>
 </ul>
 </div>
 <div class="paragraph">
-<p>Besides the specialized commands <a href="#SQL-Create-Vertex">CREATE VERTEX</a> and <a href="#SQL-Create-Edge">CREATE EDGE</a>,
+<p>Besides the specialized command <a href="#SQL-Create-Vertex">CREATE VERTEX</a>,
 vertices and edges can be inserted via the <code>INSERT</code> command:</p>
 </div>
 <div class="listingblock">
@@ -14784,10 +14790,8 @@ vertices and edges can be inserted via the <code>INSERT</code> command:</p>
 <pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO MyVertexType SET name = 'John Doe'</code></pre>
 </div>
 </div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">ArcadeDB&gt; INSERT INTO MyEdgeType SET @out = #34:23, @in = #91:2323</code></pre>
-</div>
+<div class="paragraph">
+<p>However, edges have to be created with <a href="#SQL-Create-Edge">CREATE EDGE</a>.</p>
 </div>
 <h3 id="SQL-Match" class="discrete">SQL - <code>MATCH</code></h3>
 <div class="paragraph">
@@ -15859,8 +15863,9 @@ GROUP BY OrderDate</code></pre>
 <div class="ulist">
 <ul>
 <li>
-<p><strong><code>&lt;index-name&gt;</code></strong> It is the index name that you want to rebuild. Use <code>*</code> to rebuild all automatic indexes. Quote the index name
-if it contains special characters like square brackets.</p>
+<p><strong><code>&lt;index-name&gt;</code></strong> It is the index name that you want to rebuild.
+Use <code>*</code> to rebuild all automatic indexes.
+Quote the index name if it contains special characters like square brackets.</p>
 </li>
 </ul>
 </div>
@@ -15874,6 +15879,18 @@ if it contains special characters like square brackets.</p>
 During the rebuild, any idempotent queries made against the index, skip the index and perform sequential scans. This means
 that queries run slower during this operation. Non-idempotent commands, such as <a href="#SQL-Insert"><code>INSERT</code></a>, <a href="#SQL-Update"><code>UPDATE</code></a>,
 and <a href="#SQL-Delete"><code>DELETE</code></a> are blocked waiting until the indexes are rebuilt.
+</td>
+</tr>
+</table>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+During normal operations an index rebuild is not necessary. Rebuild an index only if it breaks.
 </td>
 </tr>
 </table>
@@ -17058,7 +17075,7 @@ or visiting each child before progressing down the next level (breadth-first), s
 <p><strong><code>SET</code></strong> Defines the fields to update.</p>
 </li>
 <li>
-<p><strong><code>REMOVE</code></strong> Removes an item in collection and map fields.</p>
+<p><strong><code>REMOVE</code></strong> Removes an item in collection and map fields or a property.</p>
 </li>
 <li>
 <p><strong><code>CONTENT</code></strong> Replaces the record content with a JSON document.</p>
@@ -17110,9 +17127,7 @@ Practically <code>UPSERT</code> means: <code>UPDATE</code> if the <code>WHERE</c
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>ArcadeDB&gt; UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL
-
-  Updated 2 record(s) in 0.008000 sec(s).</pre>
+<pre>ArcadeDB&gt; UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL</pre>
 </div>
 </div>
 <div class="ulist">
@@ -17190,6 +17205,18 @@ Practically <code>UPSERT</code> means: <code>UPDATE</code> if the <code>WHERE</c
 <div class="listingblock">
 <div class="content">
 <pre>ArcadeDB&gt; UPDATE Account REMOVE addresses = 'Luca'</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Update to remove a property values from records</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>ArcadeDB&gt; UPDATE Account REMOVE addresses WHERE addresses = 'unknown'</pre>
 </div>
 </div>
 <div class="ulist">
@@ -20518,8 +20545,10 @@ return $e;</code></pre>
 <p>Note the usage of <code>$account</code> and <code>$city</code> in further SQL commands.</p>
 </div>
 <div id="Conditional-Execution" class="paragraph">
-<p><strong>Conditional execution</strong>
-SQL Batch provides IF constructor to allow conditional execution.
+<p><strong>Conditional execution</strong></p>
+</div>
+<div class="paragraph">
+<p>SQL Batch provides IF constructor to allow conditional execution.
 The syntax is</p>
 </div>
 <div class="listingblock">
@@ -20532,18 +20561,7 @@ The syntax is</p>
 </div>
 </div>
 <div class="paragraph">
-<p><code>&lt;sql-predicate&gt;</code> is any valid SQL predicate (any condition that can be used in a <code>WHERE</code> clause).
-In current release it&#8217;s mandatory to have <code>IF(){</code>, <code>&lt;statement&gt;</code> and <code>}</code> on separate lines, eg. the following is not a valid script</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">if( $a.size() &gt; 0 ) {
-  ROLLBACK;
-}</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>The right syntax is following:</p>
+<p><code>&lt;sql-predicate&gt;</code> is any valid SQL predicate (any condition that can be used in a <code>WHERE</code> clause):</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -20556,14 +20574,15 @@ In current release it&#8217;s mandatory to have <code>IF(){</code>, <code>&lt;st
 <p><strong>Loops</strong></p>
 </div>
 <div class="paragraph">
-<p>SQL Batch provides two different loop blocks: <code>FOREACH</code> and <code>WHILE</code></p>
+<p>SQL Batch provides two different loop blocks: <code>FOREACH</code> and <code>WHILE</code>.</p>
 </div>
 <h4 id="_foreach" class="discrete">FOREACH</h4>
 <div class="paragraph">
-<p>Loops on all the items of a collection and, for each of them, executes a set of SQL statements</p>
+<p>Loops on all the items of a collection and, for each of them, executes a set of SQL statements.
+The expression argument should return an array, and can be a literal array, variable, or result of a sub-query.</p>
 </div>
 <div class="paragraph">
-<p>The syntax is</p>
+<p>The syntax is:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -20586,10 +20605,10 @@ In current release it&#8217;s mandatory to have <code>IF(){</code>, <code>&lt;st
 </div>
 <h4 id="_while" class="discrete">WHILE</h4>
 <div class="paragraph">
-<p>Loops while a condition is true</p>
+<p>Loops while a condition is true.</p>
 </div>
 <div class="paragraph">
-<p>The syntax is</p>
+<p>The syntax is:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -24079,7 +24098,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.10.1<br>
-Last updated 2023-11-14 18:53:00 UTC
+Last updated 2023-11-14 22:36:44 UTC
 </div>
 </div>
 </body>
