@@ -4922,7 +4922,7 @@ ArcadeDB supports multiple languages, so it&#8217;s easier to use it coming from
 </table>
 </div>
 <div class="sect2">
-<h3 id="Java-API">7.2. Java API (Embedded)</h3>
+<h3 id="Java-API">7.2. Java API (Local)</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-api.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -6034,12 +6034,166 @@ This allows to have a reactive application that doesn&#8217;t poll the database 
 </div>
 </div>
 <div class="sect2">
-<h3 id="_java_reference">7.3. Java Reference</h3>
+<h3 id="Java-API-Remote">7.3. Java API (Remote)</h3>
+<div class="paragraph">
+<p>ArcadeDB comes with a convenient Java library to work with a remote database.</p>
+</div>
+<div class="paragraph">
+<p>Add the following dependencies in your Maven pom.xml file under the tag <code>&lt;dependencies&gt;</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-xml" data-lang="xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.arcadedb&lt;/groupId&gt;
+    &lt;artifactId&gt;arcadedb-engine&lt;/artifactId&gt;
+    &lt;version&gt;23.11.1&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;com.arcadedb&lt;/groupId&gt;
+    &lt;artifactId&gt;arcadedb-network&lt;/artifactId&gt;
+    &lt;version&gt;23.11.1&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="_10_minute_tutorial">7.3.1. 10-Minute Tutorial</h4>
+<div class="sect4">
+<h5 id="_connect_to_a_remote_database">Connect to a remote database</h5>
+<div class="paragraph">
+<p>There are 2 main classes that handle the connection to the remote database by translating the Java API into http-calls:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code><a href="#RemoteServer">RemoteServer</a></code>, to create new database on a remote server</p>
+</li>
+<li>
+<p><code><a href="#RemoteDatabase">RemoteDatabase</a></code>, to work with a remote database instance</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s create a RemoteDatabase instance pointing to the database "mydb" on ArcadeDB Server located on "localhost", port 5432. User and passwords are respectively "root" and "playwithdata":</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">RemoteDatabase database = new RemoteDatabase("localhost", 5432, "mydb", "root", "playwithdata");</code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+The <code>RemoteDatabase</code> is not thread-safe. It holds a backend session. If a thread closes a transaction, it also closes the session, so that any request performed by a concurrent thread using the same RemoteDatabase instance leads to unexpected behavior. To avoid concurrency problems you should not hold RemoteDatabase instances as fields on the heap, but rather create a new instance in method scope as a variable on the stack.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the <code>RemoteDatabase</code> make sure that the database exists, or, if it doesn&#8217;t, create it.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">if (!database.exists()) {
+    database.create();
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For a list of all databases hosted by the server use:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">List&lt;String&gt; databases = database.databases();
+assert(databases.contains("mydb"));</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now that we have the database created we may create the schema (but we may also work without):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">String schema =
+"""
+    create vertex type Customer if not exists;
+    create property Customer.name if not exists string;
+    create property Customer.surname if not exists string;
+    create index if not exists on Customer (name, surname) unique;
+""";
+database.command("sqlscript", schema);</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>As language we have used <code>sqlscript</code>, which has the advantage that all the statements in the script are executed within one single transaction. Of course you can also send these requests line by line with <code>sql</code> as language. If you go line by line it is important to enclose the requests in a common transaction:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">database.begin();
+database.command("sql", "create vertex type Customer if not exists");
+database.command("sql", "create property Customer.name if not exists string");
+database.command("sql", "create property Customer.surname if not exists string");
+database.command("sql", "create index if not exists on Customer (name, surname) unique");
+database.commit();</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">database.transaction(() -&gt; {
+    ...
+});</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The <code>transaction</code> method encloses the lambda function with a <code>begin</code> - <code>commit</code>, or a <code>rollback</code> in case of any exception.</p>
+</div>
+<div class="paragraph">
+<p>Now that the schema is in place, we will insert some data:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">database.command("sql", "insert into Customer(name, surname) values(?, ?)", "Jay", "Miner");
+database.command("sql",
+        "update Customer set lastcall = :lastcall where name = :name and surname = :surname",
+        Map.of("lastcall", Date.from(Instant.now()), "name", "Jay", "surname", "Miner"));</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The first command creates a new vertex of type 'Customer'. The second command updates this vertex by adding a new value for the property 'lastcall'. The first command uses unnamed parameters where the values are mapped by their order in the parameter list. Whereas the second command uses named parameters, which are mapped by the parameter names.</p>
+</div>
+<div class="paragraph">
+<p>We can now query some customer data from our database:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">ResultSet resultSet = database.query("sql", "select from Customer where name = :name",
+        Map.of("name", "Jay"));
+Map&lt;String, Object&gt; customer = resultSet.stream().findFirst().map(Result::toMap).orElse(Map.of());</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The query returns a <code>ResultSet</code>, which holds an arry of objects of type <code>Result</code>, which can be read as Map:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-javascript" data-lang="javascript">{name=Jay, @cat=d, @rid=#1:0, lastcall=1675961747290, surname=Miner, @type=Customer}</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_java_reference">7.4. Java Reference</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-reference.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="sect3">
-<h4 id="DatabaseFactory">7.3.1. <code>DatabaseFactory</code> Class</h4>
+<h4 id="DatabaseFactory">7.4.1. <code>DatabaseFactory</code> Class</h4>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-ref-database-factory.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -6145,7 +6299,7 @@ try {
 </div>
 </div>
 <div class="sect3">
-<h4 id="Database">7.3.2. <code>Database</code> Interface</h4>
+<h4 id="Database">7.4.2. <code>Database</code> Interface</h4>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/java-ref-database.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -7774,167 +7928,388 @@ The result can be managed in the DeletedRecordCallback callback and errors in Er
 </div>
 </div>
 <div class="sect2">
-<h3 id="Java-API-Remote">7.4. Java API (Remote)</h3>
+<h3 id="Native-Select">7.5. Native-Select</h3>
 <div class="paragraph">
-<p>ArcadeDB comes with a convenient Java library to work with a remote database.</p>
+<p>The native-select API is an alternative approach to query a database from Java.
+This API combines an object-oriented syntax with SQL semantics and enables faster query processing than SQL.</p>
 </div>
 <div class="paragraph">
-<p>Add the following dependencies in your Maven pom.xml file under the tag <code>&lt;dependencies&gt;</code>:</p>
+<p>Compare the following SQL and native-select queries:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-xml" data-lang="xml">&lt;dependency&gt;
-    &lt;groupId&gt;com.arcadedb&lt;/groupId&gt;
-    &lt;artifactId&gt;arcadedb-engine&lt;/artifactId&gt;
-    &lt;version&gt;23.11.1&lt;/version&gt;
-&lt;/dependency&gt;
-&lt;dependency&gt;
-    &lt;groupId&gt;com.arcadedb&lt;/groupId&gt;
-    &lt;artifactId&gt;arcadedb-network&lt;/artifactId&gt;
-    &lt;version&gt;23.11.1&lt;/version&gt;
-&lt;/dependency&gt;</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT FROM mytype WHERE age &gt; 20 AND name != 'Joe' ORDER BY age LIMIT 10;</code></pre>
 </div>
-</div>
-<div class="sect3">
-<h4 id="_10_minute_tutorial">7.4.1. 10-Minute Tutorial</h4>
-<div class="sect4">
-<h5 id="_connect_to_a_remote_database">Connect to a remote database</h5>
-<div class="paragraph">
-<p>There are 2 main classes that handle the connection to the remote database by translating the Java API into http-calls:</p>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p><code><a href="#RemoteServer">RemoteServer</a></code>, to create new database on a remote server</p>
-</li>
-<li>
-<p><code><a href="#RemoteDatabase">RemoteDatabase</a></code>, to work with a remote database instance</p>
-</li>
-</ul>
-</div>
-<div class="paragraph">
-<p>Let&#8217;s create a RemoteDatabase instance pointing to the database "mydb" on ArcadeDB Server located on "localhost", port 5432. User and passwords are respectively "root" and "playwithdata":</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">RemoteDatabase database = new RemoteDatabase("localhost", 5432, "mydb", "root", "playwithdata");</code></pre>
+<pre class="highlight"><code class="language-java" data-lang="java">database.select().fromType("mytype").where().property("age").ge().value(20).property("name").neq().value("Joe").orderBy("age").limit(10).compile();</code></pre>
 </div>
 </div>
-<div class="admonitionblock note">
-<table>
+<div class="paragraph">
+<p>Note that the projections happen after the query is compiled.</p>
+</div>
+<div class="paragraph">
+<p>An important part of the query is the filtering.
+Filtering in native-select is done by chaining compatible objects.
+A filter is composed of a <code>SelectWhereLeftBlock</code>, <code>SelectWhereOperatorBlock</code>, and <code>SelectWhereRightBlock</code>.
+Filters are chained or filtering is completed by the <code>SelectWhereAfterBlock</code>.</p>
+</div>
+<div class="paragraph">
+<p>In the following tables are listed which group methods belonging to objects related to a native select query.
+The columns of these tables list the method signature, consisting of name, arguments and return type,
+a comment on its effect, and a corresponding SQL element.</p>
+</div>
+<h4 id="_select_object" class="discrete"><code>Select</code> Object</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
 <tr>
-<td class="icon">
-<div class="title">Note</div>
-</td>
-<td class="content">
-The <code>RemoteDatabase</code> is not thread-safe. It holds a backend session. If a thread closes a transaction, it also closes the session, so that any request performed by a concurrent thread using the same RemoteDatabase instance leads to unexpected behavior. To avoid concurrency problems you should not hold RemoteDatabase instances as fields on the heap, but rather create a new instance in method scope as a variable on the stack.
-</td>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
 </tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>select()</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Initializes a "native select" query.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>SELECT</code></p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_select_methods" class="discrete"><code>Select</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>property(String)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a property by its name.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>value(Object)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a literal value.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>parameter(String)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a named placeholder to be specified in the compiled query.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>fromType(String)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Sets type to select from.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>FROM</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>fromBuckets(String, &#8230;&#8203;)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Sets bucket(s) to select from by name.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>FROM</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>fromBuckets(Integer, &#8230;&#8203;)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Sets bucket(s) to select from by number.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>FROM</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>polymorphic(Boolean)</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Allow or disallow polymorphic queries.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>timeout(Long,TimeUnit,Boolean)</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Set a timeout for the query.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>json(JSONObject)</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">paste native-select query as JSON object.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>where()</code> &#8594; <code>SelectWhereLeftBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Initializes a filter.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>WHERE</code></p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_selectwhereleftblock_methods" class="discrete"><code>SelectWhereLeftBlock</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>property(String)</code> &#8594; <code>SelectWhereOperatorBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a property by its name.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>value(Object)</code> &#8594; <code>SelectWhereOperatorBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts an explicit value.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>parameter(String)</code> &#8594; <code>SelectWhereOperatorBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a named placeholder to be specified in the compiled query.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_selectwhereoperatorblock_methods" class="discrete"><code>SelectWhereOperatorBlock</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>eq()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is equal to <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>=</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>neq()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is unequal to <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>!=</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>lt()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is less than <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>&lt;</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>le()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is less or equal than <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>&#8656;</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>gt()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is greater than <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>&gt;</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>ge()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is greater or equal than <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>&gt;=</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>like()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is case-sensitive "like" <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>LIKE</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>ilike()</code> &#8594; <code>SelectWhereRightBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Tests if <code>SelectWhereLeftBlock</code> is case-insensitive "like" <code>SelectWhereRightBlock</code>.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>ILIKE</code></p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_selectwhererightblock_methods" class="discrete"><code>SelectWhereRightBlock</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>property(String)</code> &#8594; <code>SelectWhereAfterBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a property by its name.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>value(Object)</code> &#8594; <code>SelectWhereAfterBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts an explicit value.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>parameter(String)</code> &#8594; <code>SelectWhereAfterBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a named placeholder to be specified in the compiled query.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_selectwhereafterblock_methods" class="discrete"><code>SelectWhereAfterBlock</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top"><code>and()</code> &#8594; <code>SelectWhereLeftBlock</code></th>
+<th class="tableblock halign-left valign-top">Combines two filters using the "and" relation.</th>
+<th class="tableblock halign-left valign-top"><code>AND</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>or()</code> &#8594; <code>SelectWhereLeftBlock</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Combines two filters using the "or" relation.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>OR</code></p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_select_and_selectwhereafterblock_methods" class="discrete"><code>Select</code> and <code>SelectWhereAfterBlock</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>orderBy(String,Boolean)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Orders projections by argument.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>ORDER BY &#8230;&#8203; DESC ASC</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>limit(Integer)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Limits the number of results.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>LIMIT</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>skip(Integer)</code> &#8594; <code>Select</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Skips a number of results.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>SKIP</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>compile()</code> &#8594; <code>SelectCompiled</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Compiles select query.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_selectcompiled_methods" class="discrete"><code>SelectCompiled</code> Methods</h4>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 28.5714%;">
+<col style="width: 57.1428%;">
+<col style="width: 14.2858%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Signature</th>
+<th class="tableblock halign-left valign-top">Comment</th>
+<th class="tableblock halign-left valign-top">SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>parameter(String,Object)</code> &#8594; <code>SelectCompiled</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Inserts a value at a named placeholder.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>document()</code> &#8594; <code>SelectIterator&lt;Document&gt;</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Return document iterator.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>vertices()</code> &#8594; <code>SelectIterator&lt;Vertex&gt;</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Return vertex iterator.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>edges()</code> &#8594; <code>SelectIterator&lt;Edge&gt;</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Return edge iterator.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>json()</code> &#8594; <code>JSONObject</code></p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">-</p></td>
+</tr>
+</tbody>
 </table>
 </div>
-<div class="paragraph">
-<p>The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the <code>RemoteDatabase</code> make sure that the database exists, or, if it doesn&#8217;t, create it.</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">if (!database.exists()) {
-    database.create();
-}</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>For a list of all databases hosted by the server use:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">List&lt;String&gt; databases = database.databases();
-assert(databases.contains("mydb"));</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Now that we have the database created we may create the schema (but we may also work without):</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">String schema =
-"""
-    create vertex type Customer if not exists;
-    create property Customer.name if not exists string;
-    create property Customer.surname if not exists string;
-    create index if not exists on Customer (name, surname) unique;
-""";
-database.command("sqlscript", schema);</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>As language we have used <code>sqlscript</code>, which has the advantage that all the statements in the script are executed within one single transaction. Of course you can also send these requests line by line with <code>sql</code> as language. If you go line by line it is important to enclose the requests in a common transaction:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">database.begin();
-database.command("sql", "create vertex type Customer if not exists");
-database.command("sql", "create property Customer.name if not exists string");
-database.command("sql", "create property Customer.surname if not exists string");
-database.command("sql", "create index if not exists on Customer (name, surname) unique");
-database.commit();</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Or:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">database.transaction(() -&gt; {
-    ...
-});</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>The <code>transaction</code> method encloses the lambda function with a <code>begin</code> - <code>commit</code>, or a <code>rollback</code> in case of any exception.</p>
-</div>
-<div class="paragraph">
-<p>Now that the schema is in place, we will insert some data:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">database.command("sql", "insert into Customer(name, surname) values(?, ?)", "Jay", "Miner");
-database.command("sql",
-        "update Customer set lastcall = :lastcall where name = :name and surname = :surname",
-        Map.of("lastcall", Date.from(Instant.now()), "name", "Jay", "surname", "Miner"));</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>The first command creates a new vertex of type 'Customer'. The second command updates this vertex by adding a new value for the property 'lastcall'. The first command uses unnamed parameters where the values are mapped by their order in the parameter list. Whereas the second command uses named parameters, which are mapped by the parameter names.</p>
-</div>
-<div class="paragraph">
-<p>We can now query some customer data from our database:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-java" data-lang="java">ResultSet resultSet = database.query("sql", "select from Customer where name = :name",
-        Map.of("name", "Jay"));
-Map&lt;String, Object&gt; customer = resultSet.stream().findFirst().map(Result::toMap).orElse(Map.of());</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>The query returns a <code>ResultSet</code>, which holds an arry of objects of type <code>Result</code>, which can be read as Map:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-javascript" data-lang="javascript">{name=Jay, @cat=d, @rid=#1:0, lastcall=1675961747290, surname=Miner, @type=Customer}</code></pre>
-</div>
-</div>
-</div>
-</div>
-</div>
 <div class="sect2">
-<h3 id="Python">7.5. Python</h3>
+<h3 id="Python">7.6. Python</h3>
 <div class="paragraph">
 <p>Work in progress</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="HTTP-API">7.6. HTTP/JSON Protocol</h3>
+<h3 id="HTTP-API">7.7. HTTP/JSON Protocol</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9139,7 +9514,7 @@ If the session (and therefore the server side transaction) is expired, then an i
 </div>
 </div>
 <div class="sect2">
-<h3 id="Postgres-Driver">7.7. Postgres Protocol Plugin</h3>
+<h3 id="Postgres-Driver">7.8. Postgres Protocol Plugin</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/postgres.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9235,7 +9610,7 @@ Check out the following list with the official drivers for the most popular prog
 <p>For the complete list, please check <a href="https://wiki.postgresql.org/wiki/List_of_drivers">Postgres website</a>.</p>
 </div>
 <div class="sect3">
-<h4 id="_other_query_languages">7.7.1. Other query languages</h4>
+<h4 id="_other_query_languages">7.8.1. Other query languages</h4>
 <div class="paragraph">
 <p>By default the Postgres driver interprets all the commands as <a href="#SQL">SQL</a>.
 To use another supported language, like <a href="#Open-Cypher">Cypher</a>, <a href="#Gremlin-API">Gremlin</a>, <a href="#GraphQL">GraphQL</a> or <a href="#MongoDB-API">MongoDB</a>, prefix the command with the language to use between curly brackets.</p>
@@ -9266,7 +9641,7 @@ To use another supported language, like <a href="#Open-Cypher">Cypher</a>, <a hr
 </div>
 </div>
 <div class="sect3">
-<h4 id="_current_limitations">7.7.2. Current limitations</h4>
+<h4 id="_current_limitations">7.8.2. Current limitations</h4>
 <div class="paragraph">
 <p>The documentation about Postgres wire protocol is not exhaustive to build a bullet proof protocol.
 In particular the state machine.
@@ -9274,7 +9649,7 @@ For this reason this plugin was created by reading the available documentation o
 </div>
 </div>
 <div class="sect3">
-<h4 id="_transactions">7.7.3. Transactions</h4>
+<h4 id="_transactions">7.8.3. Transactions</h4>
 <div class="paragraph">
 <p>Enabling auto commit to false is not 100% supported.
 With JDBC, leave the default settings or set:</p>
@@ -9286,7 +9661,7 @@ With JDBC, leave the default settings or set:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_postgres_tools_known_to_work">7.7.4. Postgres Tools Known to Work</h4>
+<h4 id="_postgres_tools_known_to_work">7.8.4. Postgres Tools Known to Work</h4>
 <div class="admonitionblock note">
 <table>
 <tr>
@@ -9343,7 +9718,7 @@ it needs to be URL encoded (also known as "percent encoding").</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="JDBC">7.8. Connect with JDBC Driver</h3>
+<h3 id="JDBC">7.9. Connect with JDBC Driver</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/jdbc.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9381,7 +9756,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:postgresql://localhost/
 </div>
 </div>
 <div class="sect2">
-<h3 id="Open-Cypher">7.9. Open Cypher</h3>
+<h3 id="Open-Cypher">7.10. Open Cypher</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/cypher.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9495,7 +9870,7 @@ Example of executing an idempotent query with HTTP GET command:</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Gremlin-API">7.10. Gremlin API</h3>
+<h3 id="Gremlin-API">7.11. Gremlin API</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/gremlin.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9692,7 +10067,7 @@ var g = new GraphTraversalSource(connection);</code></pre>
 </ul>
 </div>
 <div class="sect3">
-<h4 id="_recommended_tools_with_gremlin">7.10.1. Recommended Tools with Gremlin</h4>
+<h4 id="_recommended_tools_with_gremlin">7.11.1. Recommended Tools with Gremlin</h4>
 <div class="paragraph">
 <p>If you&#8217;re using Gremlin with ArcadeDB, check out <a href="https://gdotv.com/">G.V()</a> graphic tool. It is compatible with ArcadeDB and provides a powerful visual debugger, advanced graph analytics, and much more.</p>
 </div>
@@ -9702,7 +10077,7 @@ var g = new GraphTraversalSource(connection);</code></pre>
 </div>
 </div>
 <div class="sect2">
-<h3 id="GraphQL">7.11. GraphQL</h3>
+<h3 id="GraphQL">7.12. GraphQL</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/graphql.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9974,7 +10349,7 @@ The query can use parameters passed at invocation time.</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="MongoDB-API">7.12. MongoDB API</h3>
+<h3 id="MongoDB-API">7.13. MongoDB API</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/mongo.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -9995,7 +10370,7 @@ If you&#8217;re using Maven include this dependency in your <code>pom.xml</code>
 </div>
 </div>
 <div class="sect3">
-<h4 id="_mongodb_query_language">7.12.1. MongoDB Query Language</h4>
+<h4 id="_mongodb_query_language">7.13.1. MongoDB Query Language</h4>
 <div class="paragraph">
 <p>If you want to use MongoDB Query Language from <a href="#Java-API">Java API</a>, you can simply keep the relevant jars in your classpath and execute a query or a command with "mongo" as language.</p>
 </div>
@@ -10063,7 +10438,7 @@ Example of executing an idempotent query with HTTP GET command:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="MongoDB-Protocol">7.12.2. MongoDB Protocol Plugin</h4>
+<h4 id="MongoDB-Protocol">7.13.2. MongoDB Protocol Plugin</h4>
 <div class="paragraph">
 <p>If your application is written for <a href="https://mongodb.com">MongoDB</a> and you&#8217;d like to run it with ArcadeDB instead, you can simply replace the MongoDB server with ArcadeDB server with the MongoDB Plugin installed.
 This plugin supports MongoDB BSON Network protocol.
@@ -10109,7 +10484,7 @@ To specify multiple plugins, use the comma <code>,</code> as separator.</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Redis-API">7.13. Redis API</h3>
+<h3 id="Redis-API">7.14. Redis API</h3>
 <div class="paragraph">
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/redis.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
@@ -10146,7 +10521,7 @@ You can save and read any documents, vertices and edges from the underlying data
 </ul>
 </div>
 <div class="sect3">
-<h4 id="Redis-Protocol">7.13.1. Installation</h4>
+<h4 id="Redis-Protocol">7.14.1. Installation</h4>
 <div class="paragraph">
 <p>To start the Redis plugin, enlist it in the <a href="#Settings"><code>server.plugins</code></a> settings.
 To specify multiple plugins, use the comma <code>,</code> as separator.
@@ -10181,7 +10556,7 @@ Example:</p>
 </div>
 </div>
 <div class="sect3">
-<h4 id="Redis-HowWorks">7.13.2. How it works</h4>
+<h4 id="Redis-HowWorks">7.14.2. How it works</h4>
 <div class="paragraph">
 <p>ArcadeDB works in 2 ways with the Redis protocol:</p>
 </div>
@@ -10399,9 +10774,9 @@ To change the default port (6379) set <code>arcadedb.redis.port</code>.</p>
 </div>
 </div>
 <div class="sect2">
-<h3 id="Compatible-Tools">7.14. Compatible Tools</h3>
+<h3 id="Compatible-Tools">7.15. Compatible Tools</h3>
 <div class="sect3">
-<h4 id="_g_v_gdotv">7.14.1. G.V() [gdotv]</h4>
+<h4 id="_g_v_gdotv">7.15.1. G.V() [gdotv]</h4>
 <div class="paragraph">
 <p>ArcadeDB is fully compatible to <a href="https://gdotv.com/">G.V()</a>, thus no particular configurations need to be made.
 The only requirement is loading the Gremlin plugin via the server setting:</p>
@@ -10446,7 +10821,7 @@ more fine-grained settings can be made.</p>
 </details>
 </div>
 <div class="sect3">
-<h4 id="_jetbrains_datagripdatabase_plugin">7.14.2. JetBrains DataGrip/Database Plugin</h4>
+<h4 id="_jetbrains_datagripdatabase_plugin">7.15.2. JetBrains DataGrip/Database Plugin</h4>
 <div class="paragraph">
 <p>Connecting via <a href="https://www.jetbrains.com/datagrip/">JetBrains DataGrid</a> database plugin is relatively straightforward.
 The introspection features aren&#8217;t working yet, but the basics seem to work well.</p>
@@ -10484,7 +10859,7 @@ Even non-SQL queries will work, though expect squigglies!</p>
 </details>
 </div>
 <div class="sect3">
-<h4 id="_dbeaver">7.14.3. DBeaver</h4>
+<h4 id="_dbeaver">7.15.3. DBeaver</h4>
 <div class="paragraph">
 <p>The universal database tool <a href="https://dbeaver.io">DBeaver</a> has basic compatibility via the legacy Postgres connector.</p>
 </div>
@@ -10543,7 +10918,7 @@ so various functionalities can reslt in errors.</p>
 </details>
 </div>
 <div class="sect3">
-<h4 id="_dbvisualizer">7.14.4. DbVisualizer</h4>
+<h4 id="_dbvisualizer">7.15.4. DbVisualizer</h4>
 <div class="paragraph">
 <p>The database client <a href="https://www.dbvis.com">DbVisualizer</a> can also be used via its PostgreSQL driver.</p>
 </div>
@@ -10594,7 +10969,7 @@ so various functionalities can reslt in errors.</p>
 </details>
 </div>
 <div class="sect3">
-<h4 id="_libreoffice_base">7.14.5. LibreOffice Base</h4>
+<h4 id="_libreoffice_base">7.15.5. LibreOffice Base</h4>
 <div class="paragraph">
 <p>There is minimal support for ArcadeDB in <a href="https://www.libreoffice.org/discover/base/">LibreOffice Base</a> via a PostgreSQL connection:</p>
 </div>
@@ -24168,7 +24543,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.11.1<br>
-Last updated 2023-12-01 16:46:11 UTC
+Last updated 2023-12-01 22:17:05 UTC
 </div>
 </div>
 </body>
