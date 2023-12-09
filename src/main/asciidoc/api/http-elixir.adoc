@@ -1,0 +1,57 @@
+[[HTTP-API-Elixir]]
+=== HTTP/JSON Elixir
+
+[discrete]
+==== Configuration
+Ensure the Phoenix Elixir framework is installed as per https://hexdocs.pm/phoenix/installation.html[official instructions].
+
+A test project named `testproject` can then be created in a given folder by running `mix phx.new testproject`. Various https://hexdocs.pm/phoenix/Mix.Tasks.Phx.New.html[options during project creation] are available.
+
+A package such as https://hex.pm/packages/httpoison[HTTPoison] must next be added to perform HTTP Requests. 
+
+Open the newly created `mix.exs` file and add the line `{:httpoison, "~> 2.2"}` (check current version of the package as indicated on the https://hex.pm/packages/httpoison[HTTPoison Package site]):
+
+```
+defp deps do
+    [
+      {:phoenix, "~> 1.7.10"},
+      # ... other packages
+      {:httpoison, "~> 2.2"}
+    ]
+  end
+```
+Save and close `mix.exs`. Run `mix deps.get` to update the project and download `HTTPoison` into this project.
+  
+To start an interactive prompt enter `cd testserver` and then `iex -S mix phx.server`. This will begin an Interactive Elixir command prompt as indicated by `iex()>`.
+
+[discrete]
+==== Sample Code
+A simple HTTP request can then be performed by running the following commands sequentially:
+```
+userPass = "root:arcadedb-password"
+base64UserPass = Base.encode64(userPass)
+authString = "Basic " <> base64UserPass
+url = "http://serveraddress:2480/api/v1/command/mydb"
+body = Jason.encode!(%{language: "sql", command: "select from Profile"})
+headers = [{"Authorization", authString}, {"Content-Type", "application/json"}] 
+HTTPoison.post(url, body, headers)
+```
+  
+To process returned data, one can use the following approach:
+
+```
+case HTTPoison.post(url, body, headers) do
+  {:ok, %{status_code: 200, body: body}} ->
+    # do something with the body
+    Jason.decode!(body)
+
+  {:ok, %{status_code: 404}} ->
+    # do something with a 404  
+    IO.puts("error404")
+    
+  {:error, %{reason: reason}} ->
+    # do something with an error    
+    IO.puts(reason)
+    
+end
+```
