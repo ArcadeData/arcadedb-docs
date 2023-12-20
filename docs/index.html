@@ -2146,6 +2146,27 @@ Example:</p>
 </div>
 </div>
 <div class="paragraph">
+<p>Alternatively the password can be passed file-based.
+Example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-shell" data-lang="shell">-Darcadedb.server.rootPasswordPath=/run/secrets/root</code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+The password file is a plain-text file and should not contain any line breaks / new lines.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
 <p>Once inserted the password for the root user, you should see this output.</p>
 </div>
 <div class="listingblock">
@@ -21870,15 +21891,30 @@ The idea is to use the special environment variable <a href="https://docs.oracle
 directly into the JVM (alternatively <a href="https://docs.oracle.com/en/java/javase/11/tools/java.html#GUID-3B1CE181-CD30-4178-9602-230B800D4FAE__USINGTHEJDK_JAVA_OPTIONSLAUNCHERENV-F3C0E3BA"><code>JDK_JAVA_OPTIONS</code></a> or the undocumented <code>_JAVA_OPTIONS</code> may be used).
 However, just using this particular environment variable would mean that the
 JVM writes the contents of this variable to the standard error stream,
-which means the secrets would appear in logs.
-To suppress this logging, a <a href="https://superuser.com/a/585696/1824014">workaround</a> can be used
-by wrapping the <code>server.sh</code> script:</p>
+which means the secrets would appear in logs.</p>
+</div>
+<div class="paragraph">
+<p>For the root password this can be avoided using the setting:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>-Darcadedb.server.rootPasswordPath=/path/to/root_secret</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>which passes the secret via a plain text file which is mounted to a known path inside the container.
+This is a common practice to pass secrets to containers, for example with Docker compose.</p>
+</div>
+<div class="paragraph">
+<p>To suppress this logging for non-root secrets,
+a <a href="https://superuser.com/a/585696/1824014">workaround</a> can be used
+by providing the secret also file-based and wrapping the <code>server.sh</code> script:</p>
 </div>
 <div class="listingblock">
 <div class="content">
 <pre class="highlight"><code class="language-shell" data-lang="shell">#!/bin/sh
 
-export JAVA_TOOL_OPTIONS="-Darcadedb.server.rootPassword=`cat /path/to/root_secret` -Darcadedb.server.defaultDatabases=database1[user1:`cat /path/to/user_secret`]"
+export JAVA_TOOL_OPTIONS="-Darcadedb.server.defaultDatabases=database1[user1:`cat /path/to/user_secret`]"
 ./bin/server.sh 2&gt; &gt;(grep -v "^Picked up JAVA_TOOL_OPTIONS:") &amp;
 
 PID="$!"
@@ -22626,6 +22662,12 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>server.rootPassword</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Password for root user to use at first startup of the server. Set this to avoid asking the password to the user</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">String</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">null</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>server.rootPasswordPath</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Path to file with password for root user to use at first startup of the server. Set this to avoid asking the password to the user</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">String</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">null</p></td>
 </tr>
@@ -24840,7 +24882,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 23.11.1<br>
-Last updated 2023-12-14 05:45:40 UTC
+Last updated 2023-12-20 00:05:49 UTC
 </div>
 </div>
 </body>
