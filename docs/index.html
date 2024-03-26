@@ -1443,8 +1443,26 @@ This is the query to retrieve both Italian and Spanish customers.</p>
 <div class="sect2">
 <h3 id="Relationships">3.4. Relationships</h3>
 <div class="paragraph">
-<p>ArcadeDB supports two kinds of relationships: <strong>referenced</strong> and <strong>embedded</strong>.
+<p>ArcadeDB supports three kinds of relationships: <strong>connections</strong>, <strong>referenced</strong> and <strong>embedded</strong>.
 It can manage relationships in a schema-full or schema-less scenario.</p>
+</div>
+<h4 id="_graph_connections" class="discrete">Graph Connections</h4>
+<div class="paragraph">
+<p>As a graph database, spanning edges between vertices is one way to express a connections between records.
+This is graph model&#8217;s natural way of relationsships and traversable by the SQL, Gremlin, and Cypher query languages. Internally, ArcadeDB deposes a direct (referenced) relationship for edge-wise connected vertices to ensure fast graph traversals.</p>
+</div>
+<div class="paragraph">
+<p>Example</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>    Vertex A -------------&gt; Edge X -------------&gt; Vertex B
+ TYPE=Customer           TYPE=isBilled          TYPE=Invoice
+    RID #5:23              RID #16:9              RID #10:2</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In ArcadeDB&#8217;s SQL, edges are created via the <a href="#SQL-Create-Edge"><code>CREATE EDGE</code></a> command.</p>
 </div>
 <h4 id="_referenced_relationships" class="discrete">Referenced Relationships</h4>
 <div class="paragraph">
@@ -3179,6 +3197,55 @@ user and password are specified in the docker command above
 <div class="content">
 <img src="images/openbeer-demo-graph.png" alt="Demo Database Graph">
 </div>
+</div>
+<h4 id="_persistence" class="discrete">Persistence</h4>
+<div class="paragraph">
+<p>There are multiple options to make databases in an ArcadeDB container persistent,
+yet the practical choice is highly dependent on the application and environment.</p>
+</div>
+<div class="paragraph">
+<p>On the Docker side there are two typical options to persist data in a container:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>A <a href="https://docs.docker.com/storage/volumes/">Docker volume</a> which is a Docker managed section of the host&#8217;s filesystem. This would be the preferred option if the host machine is to store the persistent data.</p>
+</li>
+<li>
+<p>A <a href="https://docs.docker.com/storage/bind-mounts/">Bind mount</a> which is a user-managed folder of the host&#8217;s filesystem. This can be used if the target volume is itself mounted on the host like a network share.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>See the <a href="https://docs.docker.com/storage/">Docker storage</a> documentation on how to set up volumes or mounts.</p>
+</div>
+<div class="paragraph">
+<p>On the ArcadeDB side there are basically two options to consider:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Store the database itself on an external volume. In this case all read and write operations from and to a database take place on the specified volume or mount, which can entail performance limitations.
+Use the setting <code>-Darcadedb.server.databaseDirectory=/mydatabases</code> to specify the mount-point of the volume or mount as absolute path to ArcadeDB.</p>
+</li>
+<li>
+<p>Store only backups on an external volume. In this approach all read and write operation from and to a database happen in the storage provided by Docker to the container. This is faster if the host can provide local storage.
+However, the user needs to take care of regular backups, see <a href="#SQL-Backup-Database"><code>BACKUP DATABASE</code></a>, for which the default backup folder can be set by <code>-Darcadedb.server.backupDirectory=/mybackup</code> to specify the mount-point of the volume or mount as absolute path to ArcadeDB.</p>
+</li>
+</ol>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+Which combination is most suitable depends on the computational environment. For example,
+"local storage" can have different meanings on a bare metal machine, a virtual machine or container cluster.
+</td>
+</tr>
+</table>
 </div>
 <h4 id="DockerTuning" class="discrete">Tuning</h4>
 <div class="paragraph">
@@ -9293,6 +9360,9 @@ is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gr
 <li>
 <p><code>command</code> the command to execute in encoded format</p>
 </li>
+<li>
+<p><code>params</code> (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon <code>:</code>.</p>
+</li>
 </ul>
 </div>
 <div class="paragraph">
@@ -9424,7 +9494,7 @@ Even though a <code>POST</code> method is used, the query in <code>command</code
 <p><code>limit</code> (optional) is the maximum number of results to return</p>
 </li>
 <li>
-<p><code>params</code> (optional), is the map of parameters to pass to the query engine</p>
+<p><code>params</code> (optional), is the map of parameters to pass to the query engine, where parameters are introduced with a colon <code>:</code>.</p>
 </li>
 <li>
 <p><code>serializer</code> (optional) specify the serializer used for the result:</p>
@@ -9871,7 +9941,7 @@ Check out the following list with the official drivers for the most popular prog
 <p><a href="https://www.php.net/manual/en/book.pgsql.php">PHP</a></p>
 </li>
 <li>
-<p><a href="https://github.com/MagicStack/asyncpg">Python</a></p>
+<p><a href="https://www.psycopg.org/docs/">Python</a></p>
 </li>
 <li>
 <p><a href="https://cran.r-project.org/web/packages/RPostgreSQL/index.html">R</a></p>
@@ -10268,7 +10338,7 @@ In order to use the Gremlin Server with ArcadeDB, you have to enable it from Arc
 </div>
 </div>
 <div class="paragraph">
-<p>If you&#8217;re using MS Windows OS, replace <code>server.sh</code> with <code>server.bat</code>.</p>
+<p>If you&#8217;re using MS Windows OS, replace <code>bin/server.sh</code> with <code>bin\server.bat</code>.</p>
 </div>
 <div class="paragraph">
 <p>At startup, the Gremlin Server plugin looks for the file <code>config/gremlin-server.yaml</code> under ArcadeDB path.
@@ -25255,7 +25325,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 24.2.1<br>
-Last updated 2024-03-26 00:38:14 UTC
+Last updated 2024-03-26 22:15:09 UTC
 </div>
 </div>
 </body>
