@@ -26,7 +26,7 @@ And `item` can be:
 // |any()|Represents any field of the Document. The condition is true if ANY of the fields matches the condition|where _any()_ like 'L%'
 // |all()|Represents all the fields of the Document. The condition is true if ALL the fields match the condition|where _all()_ is null
 | <<SQL-Functions,Functions>> |Any <<SQL-Functions,Function>> between the defined ones|`+WHERE distance(x, y, 52.20, 0.14) <= 30+`
-|<<Filtering,$variable>>|Context variable prefixed with `+$+`|`+WHERE $depth <= 3+`
+|`+$variable+`|Context variable prefixed with `+$+`|`+WHERE $depth <= 3+`
 |===
 
 [discrete]
@@ -37,7 +37,7 @@ And `item` can be:
 |===
 |Name|Description|Example
 |`+@this+`|returns the record itself|`+SELECT @this.toJSON() FROM Account+`
-|`+@rid+`|returns the <<RID,RID>> in the form `+bucket:position&gt;+`. It is null for embedded records. _NOTE:_ using `+@rid+` in a where condition slows down queries. Much better to use the <<RID,RID>> as target. Example: change `+SELECT FROM Profile WHERE @rid = #10:44+` to `+SELECT FROM #10:44+` |`+@rid = #11:0+`
+|`+@rid+`|returns the <<RID,RID>> in the form `+bucket:position+`. It is null for embedded records. _NOTE:_ using `+@rid+` in a "Where" condition slows down queries. Much better to use the <<RID,RID>> as target. Example: change `+SELECT FROM Profile WHERE @rid = #10:44+` to `+SELECT FROM #10:44+` |`+@rid = #11:0+`
 |`+@size+`|returns the record size in bytes|`+@size > 1024+`
 |`+@type+`|returns the record type between: 'document', 'column', 'flat', 'bytes'|`+@type = 'flat'+`
 |===
@@ -53,8 +53,8 @@ And `item` can be:
 [%header,cols=4]
 |===
 |Apply to|Operator|Description|Example
-|any|`+=+` or `+==+`|Equal to|`+name = 'Luke'+`
-|any|`+<=>+`|Null-safe equal to, is also true if left and right operands are `+NULL+`|`+name <=> word+`
+|any|`+=+` or `+==+`|Equals|`+name = 'Luke'+`
+|any|`+<=>+`|Null-safe-equals, is also true if left and right operands are `+NULL+`|`+name <=> word+`
 |string|`+LIKE+`|Similar to equals, but allows the wildcards '`+%+`' that means "any characters" and '`+?+`' that means "any single character". `+LIKE+` is case sensitive.|`+name LIKE 'Luk%'+`
 |string|`+ILIKE+`|Similar to `+LIKE+`, but `+ILIKE+` is case insensitive.|`+name ILIKE 'lUk%'+`
 |any|`+<+`|Less than|`+age < 40+`
@@ -64,11 +64,13 @@ And `item` can be:
 |any|`+<>+` or `+!=+`|Not equal to|`+age <> 40+`
 |any|`+BETWEEN+`|The value is between a range. It's equivalent to `+<field> >= <from-value> AND <field> <= <to-value>+`|`+price BETWEEN 10 AND 30+`
 |any|`+IS+`|Used to test if a value is `+NULL+`|`+children IS NULL+`
+|any|`+IS NOT+`|Used to test if a value is not `+NULL+`|`+children IS NOT NULL+`
 |record, string (as type name)|`+INSTANCEOF+`|Used to check if the record extends a type|`+@this INSTANCEOF 'Customer' OR @type INSTANCEOF 'Provider'+`
 |collection|`+IN+`|contains any of the elements listed|`+name IN ['European','Asiatic']+`
-|collection|`+CONTAINS+`|true if the collection contains at least one element that satisfy the next condition. Condition can be a single item: in this case the behaviour is like the `+IN+` operator|`+children CONTAINS (name = 'Luke') - map.values() CONTAINS (name = 'Luke')+`
+|collection|`+NOT IN+`|contains all of the elements not listed|`+name NOT IN ['European','Asiatic']+`
+|collection|`+CONTAINS+`|true if the collection contains at least one element that satisfy the next condition. Use `+@this+` as right item for lists. Condition can be a single item: in this case the behaviour is like the `+IN+` operator|`+children CONTAINS (name = 'Luke')+` ; `+map.values() CONTAINS (name = 'Luke')+` ; `+['a','b'] CONTAINS (@this ILIKE 'A')+`
 |collection|`+CONTAINSALL+`|true if all the elements of the collection satisfy the next condition|`+children CONTAINSALL (name = 'Luke')+`
-|collection|`+CONTAINSANY+`|true if any the elements of the collection satisfy the next condition|children CONTAINSANY (name = 'Luke')+`
+|collection|`+CONTAINSANY+`|true if any the elements of the collection satisfy the next condition|`+children CONTAINSANY (name = 'Luke')+`
 |map|`+CONTAINSKEY+`|true if the map contains at least one key equals to the requested. You can also use `+map.keys() CONTAINS+` in place of it|`+connections CONTAINSKEY 'Luke'+`
 |map|`+CONTAINSVALUE+`|true if the map contains at least one value equals to the requested. You can also use `+map.values() CONTAINS+` in place of it|`+connections CONTAINSVALUE 10:3+`
 |string|`+CONTAINSTEXT+`| When used against an indexed field, a lookup in the index will be performed with the text specified as key. When there is no index a simple Java `+indexOf+` will be performed. So the result set could be different if you have an index or not on that field |`+text CONTAINSTEXT 'jay'+`
