@@ -17,15 +17,17 @@ If not specified, the default server name is "ArcadeDB_0"
 
 Example:
 
-```shell
+[source,shell]
+----
 $ bin/server.sh -Darcadedb.ha.enabled=true
                 -Darcadedb.server.name=FloridaServer
                 -Darcadedb.ha.serverList=192.168.0.2,192.168.0.1:2424,japan-server:8888
-```
+----
 
 The log should look like this:
 
-```shell
+[source,shell]
+----
 [HttpServer] <FloridaServer> - HTTP Server started (host=0.0.0.0 port=2480)
 [LeaderNetworkListener] <ArcadeDB_0> Listening for replication connections on 127.0.0.1:2424 (protocol v.-1)
 [HAServer] <FloridaServer> Unable to find any Leader, start election (cluster=arcadedb configuredServers=1 majorityOfVotes=1)
@@ -34,7 +36,7 @@ The log should look like this:
 [HAServer] <FloridaServer> Current server elected as new Leader (turn=1 totalVotes=1 majority=1)
 [HAServer] <FloridaServer> Change election status from VOTING_FOR_ME to LEADER_WAITING_FOR_QUORUM
 [HAServer] <FloridaServer> Contacting all the servers for the new leadership (turn=1)...
-```
+----
 
 At startup, the ArcadeDB server will look for an existent cluster to join based on the configured list of servers, otherwise a new cluster will be created.
 In this example we set the server name to `FloridaServer`.
@@ -151,17 +153,19 @@ More coming soon.
 ArcadeDB uses an optimistic lock approach: if two threads try to update the same page, the first thread wins, the second thread throws a `ConcurrentModificationException` and forces the client to retry the transaction or fail after a certain number of retries (configurable).
 Often this fail/retry mechanism is totally hidden to the developer that executes a transaction via HTTP or via the Java API:
 
-```java
+[source,java]
+----
 db.transaction( ()-> {
   // MY TRANSACTION CODE
 });
-```
+----
 
-If you are inserting a lot of record in parallel (by using the Server, or just via API multi-thread), you could benefit by allocating the bucket per thread. Example to change the bucket selection strategy for the vertex type "User":
+If you are inserting a lot of record in parallel (by using the Server, or just via API multi-thread), you could benefit by allocating the bucket per thread. Example to change the bucket selection strategy for the vertex type "User" via SQL:
 
-```sql
-alter type User BucketSelectionStrategy `thread`
-```
+[source,sql]
+----
+> ALTER TYPE User BucketSelectionStrategy `thread`
+----
 
 With the command above, in insertion ArcadeDB will select the physical bucket based on the thread the request is coming from. If you have enough buckets (created by default when you create a new type, but you can manually adjust it) insertions can go truly in parallel with zero contentions in pages, meaning zero exception and retries.
 
