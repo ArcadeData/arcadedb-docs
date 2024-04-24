@@ -85,10 +85,11 @@ the rounded down quotient of record position and maximum records per page yields
 and the remainder gives the position on the page (here `⌊1000000 % 2048⌋`).
 In pseudo-code this computation is given by:
 
-```
+[source,java]
+----
 int pageId = floor(rid.getPosition() / maxRecordsInPage);
 int positionInPage = floor(rid.getPosition() % maxRecordsInPage);
-```
+----
 
 [[Types]]
 === Types
@@ -146,7 +147,7 @@ You can query all invoices using the type as a target with the <<SQL-Select,`SEL
 
 [source,sql]
 ----
-arcadeDB> SELECT FROM Invoice
+SELECT FROM Invoice
 ----
 
 In addition to this, you can filter the result set by the year.
@@ -154,15 +155,16 @@ The type `Invoice` includes a `year` field, you can filter it through the <<Filt
 
 [source,sql]
 ----
-arcadeDB> SELECT FROM Invoice WHERE year = 2016
+SELECT FROM Invoice WHERE year = 2016
 ----
 
 You can also query specific records from a single bucket.
 By splitting the type `Invoice` across multiple buckets, (that is, one per year in our example), you can optimize the query by narrowing the potential result set.
 
-```sql
-arcadeDB> SELECT FROM BUCKET:Invoice_2016
-```
+[source,sql]
+----
+SELECT FROM BUCKET:Invoice_2016
+----
 
 By using the explicit bucket instead of the logical type, this query runs significantly faster, because ArcadeDB can narrow the search to the targeted bucket.
 No index is needed on the year, because all the invoices for year 2016 will be stored in the bucket `Invoice_2016` by the application.
@@ -192,7 +194,7 @@ If you're using SQL, this is the way you can insert a new customer into a specif
 
 [source,sql]
 ----
-arcadeDB> INSERT INTO BUCKET:Customer_Europe CONTENT { firstName: 'Enzo', lastName: 'Ferrari' }
+INSERT INTO BUCKET:Customer_Europe CONTENT { firstName: 'Enzo', lastName: 'Ferrari' }
 ----
 
 Since a bucket can only be part of one type, when you use the bucket notation with SQL, the type is inferred from the bucket, "Customer" in this case.
@@ -201,7 +203,7 @@ When you're looking for customers based in Europe, you could execute this query:
 
 [source,sql]
 ----
-arcadeDB> SELECT FROM BUCKET:Customer_Europe
+SELECT FROM BUCKET:Customer_Europe
 ----
 
 You can go even more specific by creating a bucket per country, not just for continent, and query from that bucket.
@@ -217,7 +219,7 @@ Now get all the customers that live in Italy.
 
 [source,sql]
 ----
-arcadeDB> SELECT FROM BUCKET:Customer_Europe_Italy
+SELECT FROM BUCKET:Customer_Europe_Italy
 ----
 
 You can also specify a list of buckets in your query.
@@ -225,7 +227,7 @@ This is the query to retrieve both Italian and Spanish customers.
 
 [source,sql]
 ----
-arcadeDB> SELECT FROM BUCKET:[Customer_Europe_Italy,Customer_Europe_Spain]
+SELECT FROM BUCKET:[Customer_Europe_Italy,Customer_Europe_Spain]
 ----
 
 [[Relationships]]
@@ -242,11 +244,13 @@ This is graph model's natural way of relationsships and traversable by the SQL, 
 
 Example
 
-```
+.Graph Connection
+[ditaa,graph-connection]
+....
     Vertex A -------------> Edge X -------------> Vertex B
- TYPE=Customer           TYPE=isBilled          TYPE=Invoice
-    RID #5:23              RID #16:9              RID #10:2
-```
+  TYPE Customer          TYPE isBilled          TYPE Invoice
+    RID #5꞉23               RID #16꞉9             RID #10꞉2
+....
 
 In ArcadeDB's SQL, edges are created via the <<SQL-Create-Edge,`CREATE EDGE`>> command.
 
@@ -258,11 +262,13 @@ ArcadeDB manages relationships natively without computing a `JOIN` but storing a
 
 Example
 
-```
+.Referenced Relationship
+[ditaa,referenced-relationship]
+....
     Record A -------------> Record B
- TYPE=Customer            TYPE=Invoice
-    RID #5:23               RID #10:2
-```
+  TYPE Customer           TYPE Invoice
+    RID #5꞉23               RID #10꞉2
+....
 
 Note, that referenced relationships differ from edges:
 references are properties connecting any record while edges are types connecting vertices,
@@ -281,19 +287,22 @@ It is only accessible through the container record.
 In the event that you delete the container record, the embedded record is also deleted.
 For example,
 
-```
+.Embedded Relationship
+[ditaa,embedded-relationship]
+....
     Record A <>----------> Record B
-   TYPE=Account          TYPE=Address
-    RID #5:23               NO RID
-```
+  TYPE Account           TYPE Address
+    RID #5꞉23              NO RID
+....
 
 Here, record `A` contains the entirety of record `B` in the property `address`.
 You can reach record `B` only by traversing the container record.
 For example,
 
-```
-arcadeDB> SELECT FROM Account WHERE address.city = 'Rome'
-```
+[source,sql]
+----
+SELECT FROM Account WHERE address.city = 'Rome'
+----
 
 [discrete]
 ==== 1:1 and n:1 Embedded Relationships
@@ -322,11 +331,12 @@ ArcadeDB supports edge constraints, which means limiting the admissible vertex t
 To this end the implicit metadata properties `@in` and `@out` need to be made explicit by creating them.
 For example, for an edge type `HasParts` that is supposed to connect only from vertices of type `Product` to vertices of type `Component`, this can be schemed by:
 
-```sql
+[source,sql]
+----
 CREATE EDGE TYPE HasParts;
 CREATE PROPERTY HasParts.`@out` link OF Product;
 CREATE PROPERTY HasParts.`@in` link OF Component;
-```
+----
 
 [discrete]
 ==== Relationship Traversal Complexity
