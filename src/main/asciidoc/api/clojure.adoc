@@ -1,0 +1,98 @@
+[[Clojure]]
+=== Clojure
+
+The Java API can also be used in other JVM languages such as https://clojure.org[Clojure].
+In the following, the use of the ArcadeDB Java API from Clojure is exemplified
+using Clojure-as-a-jar for simplicity, see https://curiousprogrammer.net/posts/2023-09-18_run-clojure-repl-with-plain-java[this article];
+however Clojure projects build with Leiningen (or alike) are similarly compatible.
+
+
+
+Typically two classes need to be imported:
+`DatabaseFactory` and `Result`
+```clojure
+(import (com.arcadedb database.DatabaseFactory
+                      query.sql.executor.Result))
+```
+Note, that this implicitly imports further classes.
+
+A `DatabaseFactory` can then simple be instantiated by:
+```clojure
+(def mydb (DatabaseFactory. "mydb"))
+```
+
+The local database class is implictly imported and a database can be constructed by:
+```clojure
+(def db (if-not (.exists mydb) (.create mydb) (.open mydb)))
+```
+which opens or creates the `mydb` database depending on if it already exists.
+
+Given a database instance `db`, transactions can be performed, for example, using:
+```clojure
+(try
+  (.begin db)
+
+  (.command db "SQL" "CREATE DOCUMENT TYPE doc" nil)
+
+  (.command db "SQL" "INSERT INTO doc SET name = 'Hello'" nil)
+
+  (.command db "SQL" "INSERT INTO doc SET name = 'World'" nil)
+
+  (.commit db)
+
+  (catch Exception e
+    (println (str "**Exception** " (.getMessage e)))
+
+    (.rollback db))
+)
+```
+The `nil` is necessary to convey that no variable arguments are to be passed.
+
+A query against the database yields a `ResultSet` object, which provides a (Java) iterator (interface) that converts to a (Clojure) sequence of `Result` objects:
+```clojure
+(def results (iterator-seq (.query db "SQL" "SELECT name FROM doc" nil)))
+```
+
+This sequence can be iterated, and a `Result` can be converted to (Java) map that is accessible in Clojure via the `get` function: 
+```clojure
+(doseq [result results] (println (get (.toMap result) "name"))) 
+```
+
+Finally, the (local) database connection needs to be closed:
+```clojure
+(.close db)
+```
+Otherwise a script will not exit.
+
+Altogether, here is the full Clojure AradeDB example:
+```clojure
+(import (com.arcadedb database.DatabaseFactory
+                      query.sql.executor.Result))
+
+(def mydb (DatabaseFactory. "mydb"))
+
+(def db (if-not (.exists mydb) (.create mydb) (.open mydb)))
+
+(try
+  (.begin db)
+
+  (.command db "SQL" "CREATE DOCUMENT TYPE doc" nil)
+
+  (.command db "SQL" "INSERT INTO doc SET name = 'Hello'" nil)
+
+  (.command db "SQL" "INSERT INTO doc SET name = 'World'" nil)
+
+  (.commit db)
+
+  (catch Exception e
+    (println (str "**Exception** " (.getMessage e)))
+
+    (.rollback db))
+)
+
+(def results (iterator-seq (.query db "SQL" "SELECT name FROM doc" nil)))
+
+(doseq [result results] (println (get (.toMap result) "name"))) 
+
+(.close db)
+```
