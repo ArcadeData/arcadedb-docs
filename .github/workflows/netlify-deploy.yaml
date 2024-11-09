@@ -1,0 +1,41 @@
+name: Generate Site
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup Graphviz
+        uses: ts-graphviz/setup-graphviz@v2.0.2
+
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-java@v4.5.0
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set prod env var
+        id: set-prod
+        run: echo "prod=$([[ $GITHUB_REF == refs/heads/main ]] && echo true || echo false)" >> $GITHUB_ENV
+
+      - name: Generate Site
+        run: mvn generate-resources
+
+      - uses: jsmrcaga/action-netlify-deploy@v2.3.0
+        with:
+          build_directory: ./target/generated-docs/
+          install_command: "echo Skipping installing the dependencies"
+          build_command: "echo Skipping building the web files"
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_DEPLOY_TO_PROD: ${{ env.prod }}
+
