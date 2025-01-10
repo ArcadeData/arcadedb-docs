@@ -1337,7 +1337,8 @@ Also, <a href="#Inheritance">sub-types</a> have their separate buckets from thei
 <div class="paragraph">
 <p>When you create a new type, the <a href="#SQL-Create-Type"><code>CREATE TYPE</code></a> statement automatically creates the physical buckets (files) that serve as the default location in which to store data for that type.
 ArcadeDB forms the bucket names by using the type name + underscore + a sequential number starting from 0. For example, the first bucket for the type <code>Beer</code> will be <code>Beer_0</code> and the correspondent file in the file system will be <code>Beer_0.31.65536.bucket</code>.
-ArcadeDB creates additional buckets for each type, (one for each CPU core on the server), to improve performance of parallelism.</p>
+By default ArcadeDB creates one bucket per type.
+For massive inserts, performance can be improved by creating additional buckets and hence taking advantage of parallelism, i.e. by creating one bucket for each CPU core on the server.</p>
 </div>
 <h4 id="_types_vs_buckets_in_queries" class="discrete">Types vs. Buckets in Queries</h4>
 <div class="paragraph">
@@ -3897,6 +3898,9 @@ ArcadeDB Console v.24.11.2 - Copyrights (c) 2021 Arcade Data Ltd (https://arcade
 <li>
 <p><code>-b</code> enables batch mode which exits after executing all commands passed via the command-lines.</p>
 </li>
+<li>
+<p><code>-fae</code> fail-at-end if error occurs during batch (normally batch mode breaks execution at an error).</p>
+</li>
 </ul>
 </div>
 <div class="paragraph">
@@ -6267,7 +6271,7 @@ Example:</p>
 <p>Using the Embedded Java API is the fastest way to insert vector embeddings into the database. At the beginning it&#8217;s much faster to pass through the <code>HnswVectorIndexRAM</code> implementation and then generate the persistent index after loaded.</p>
 </div>
 <div class="paragraph">
-<p>Schema types are created automatically, but you could create them in advance if you want special settings, like a specific numbe rof buckets, or a custom page size.</p>
+<p>Schema types are created automatically, but you could create them in advance if you want special settings, like a specific number of buckets, or a custom page size.</p>
 </div>
 <div class="paragraph">
 <p>Example of inserting embeddings in RAM first, and then create the persistent HNSW index.</p>
@@ -12294,8 +12298,8 @@ are case sensitive. In the following examples keywords are in uppercase but this
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT FROM MyType WHERE id = 1
-select from MyType where id = 1</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT * FROM MyType WHERE id = 1
+select * from MyType where id = 1</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -12303,7 +12307,7 @@ select from MyType where id = 1</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT FROM MyType WHERE ID = 1</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT * FROM MyType WHERE ID = 1</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -12311,7 +12315,7 @@ select from MyType where id = 1</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT FROM mytype WHERE id = 1</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT * FROM mytype WHERE id = 1</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -12324,7 +12328,7 @@ Example:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT FROM INDEX:myIndex WHERE key = 'Jay'</code></pre>
+<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT * FROM INDEX:myIndex WHERE key = 'Jay'</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -12534,7 +12538,7 @@ projection is optional. Example: In SQL to select all of the columns of Customer
 </div>
 </div>
 <div class="paragraph">
-<p>In ArcadeDB, the <code>*</code> is optional:</p>
+<p>In ArcadeDB, the <code>*</code> may be omitted:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -12542,7 +12546,7 @@ projection is optional. Example: In SQL to select all of the columns of Customer
 </div>
 </div>
 <div class="paragraph">
-<p>See <a href="#SQL-Projections">Projections</a>.</p>
+<p>The result is similar, for details see <a href="#_query-results_">Query Results</a>.</p>
 </div>
 <div class="paragraph">
 <p><strong>System Types</strong></p>
@@ -12730,7 +12734,7 @@ WHERE surname = 'Smith'</code></pre>
 </div>
 <h4 id="_syntax" class="discrete">Syntax</h4>
 <div class="paragraph">
-<p><strong>A projection</strong> has the following syntax:</p>
+<p>A <strong>projection</strong> has the following syntax:</p>
 </div>
 <div class="paragraph">
 <p><code>&lt;expression&gt; [&lt;nestedProjection&gt;] [ AS &lt;alias&gt; ]</code></p>
@@ -12765,13 +12769,13 @@ WHERE surname = 'Smith'</code></pre>
 <div class="ulist">
 <ul>
 <li>
-<p><code>*</code> <strong>alone</strong>: The result set is made of records as they arrive from the target, with the original <code>@rid</code> and <code>@type</code> attributes (if any)</p>
+<p><strong>no projections</strong>: The result set is made of records as they arrive from the target, with the original <code>@rid</code> and <code>@type</code> attributes (if any)</p>
+</li>
+<li>
+<p><code>*</code> <strong>alone</strong>: same behavior as without <code>*</code> except the <code>hidden</code> property attribute is applied.</p>
 </li>
 <li>
 <p><code>*</code> <strong>plus other projections</strong>: records of the original target, merged with the other projection values, with <code>@rid</code> and <code>@type</code> of the original record.</p>
-</li>
-<li>
-<p><strong>no projections</strong>: same behavior as <code>*</code></p>
 </li>
 <li>
 <p><code>expand(&lt;projection&gt;)</code>: The result set is made of the records returned by the projection, expanded (if the projection result is a link or a collection of links) and unwinded (if the projection result is a collection). Nothing in all the other cases.</p>
@@ -13382,7 +13386,7 @@ is resolved from left to right.</p>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">string</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>LIKE</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Similar to equals, but allows the wildcards &#8216;%&#8217; that means "any characters" and &#8216;?&#8217; that means "any single character". <code>LIKE</code> is case sensitive.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Similar to equals, but allows the wildcards &#8216;%&#8217; that means "any characters" and &#8216;?&#8217; that means "any single character". <code>LIKE</code> is case sensitive. Does not use index!</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>name LIKE 'Luk%'</code></p></td>
 </tr>
 <tr>
@@ -15759,7 +15763,8 @@ This is the default option.</p>
 <p><span class="image right"><a class="image" href="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/SQL-Drop-Type.adoc"><img src="images/edit.png" alt="edit"></a></span></p>
 </div>
 <div class="paragraph">
-<p>Removes a type from the schema.</p>
+<p>Removes a type from the schema.
+To drop a type (safely), first, all its instances need to be removed.</p>
 </div>
 <div class="paragraph">
 <p><strong>Syntax</strong></p>
@@ -24160,7 +24165,7 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>typeDefaultBuckets</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Default number of buckets to create per type</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">8</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">1</p></td>
 </tr>
 </tbody>
 </table>
@@ -26097,6 +26102,9 @@ That <strong>headless</strong> variants of JRE packages are compatible to Arcade
 <p>Follow us on Twitter: <a href="https://twitter.com/arcade_db" class="bare">https://twitter.com/arcade_db</a></p>
 </li>
 <li>
+<p>or on Bluesky: <a href="https://bsky.app/profile/arcadedb.bsky.social" class="bare">https://bsky.app/profile/arcadedb.bsky.social</a></p>
+</li>
+<li>
 <p>Connect with us on LinkedIn: <a href="https://www.linkedin.com/products/arcadedb" class="bare">https://www.linkedin.com/products/arcadedb</a></p>
 </li>
 <li>
@@ -26278,7 +26286,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 24.11.2<br>
-Last updated 2025-01-03 23:34:21 UTC
+Last updated 2025-01-10 12:01:22 UTC
 </div>
 </div>
 </body>
