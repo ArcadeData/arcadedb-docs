@@ -215,7 +215,7 @@ Now let's create two "Profile" vertices and let's connect them with the friendsh
 [graphviz,dot-example,svg]
 ----
 graph g {
-    Elon -- Steve [label = "IsFriendOf" dir = "both"]
+    Albert -- Michelle [label = "IsFriendOf" dir = "both"]
 }
 ----
 
@@ -223,9 +223,9 @@ graph g {
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    MutableVertex elon = db.newVertex("User", "name", "Elon", "lastName", "Musk").save();
-    MutableVertex steve = db.newVertex("User", "name", "Steve", "lastName", "Jobs").save();
-    elon.newEdge("IsFriendOf", steve, true, "since", 2010);
+    MutableVertex albert = db.newVertex("User", "name", "Albert", "lastName", "Einstein").save();
+    MutableVertex michelle = db.newVertex("User", "name", "Michelle", "lastName", "Besso").save();
+    albert.newEdge("IsFriendOf", michelle, true, "since", 2010);
   });
 }
 ----
@@ -234,7 +234,7 @@ In the code snipped above, we have just created our first graph, made of 2 verti
 Vertices and documents are not persistent until you call the `save()` method.
 Note the 3rd parameter in the `newEdge()` method.
 It's telling to the Graph engine that we want a bidirectional edge.
-In this way, even if the direction is still from the "Elon" vertex to the "Steve" vertex, we can traverse the edge from both sides.
+In this way, even if the direction is still from the "Albert" vertex to the "Michelle" vertex, we can traverse the edge from both sides.
 Use always bidirectional unless you want to avoid creating super-nodes when it's necessary to traverse only from one side.
 Note also that we stored a property "since = 2010" in the edge.
 That's right, edges can have properties like vertices.
@@ -263,7 +263,7 @@ You have basically three ways to do that (<<Java-API,Java API>>, <<SQL,SQL>>, ht
 When using the API, when the SQL and Apache Gremlin?
 The API is the very code based.
 You have total control on the query/traversal.
-With the SQL, you can combine the SELECT with the MATCH statement to create powerful traversals in a just few lines.
+With the SQL, you can combine the `SELECT` with the `MATCH` statement to create powerful traversals in a just few lines.
 You could use Apache Gremlin if you're coming from another GraphDB that supports this language.
 
 ====== Traverse via API
@@ -278,8 +278,8 @@ Example of lookup by RID:
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    // #10:232 in our example is Elon Musk's RID
-    Vertex elon = db.lookupByRID( new RID(db, "#10:232"), true );
+    // #10:232 in our example is Albert Einstein's RID
+    Vertex albert = db.lookupByRID( new RID(db, "#10:232"), true );
   });
 }
 ----
@@ -298,13 +298,13 @@ try( Database db = databaseFactory.open(); ){
 }
 ----
 
-Now we're able to load Steve's vertex in a flash by using this:
+Now we're able to load Michelle's vertex in a flash by using this:
 
 [source,java]
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    Vertex steve = db.lookupByKey( "Profile", new String[]{"name", "lastName"}, new String[]{"Steve", "Jobs"} );
+    Vertex michelle = db.lookupByKey( "Profile", new String[]{"name", "lastName"}, new String[]{"Michelle", "Besso"} );
   });
 }
 ----
@@ -317,8 +317,8 @@ ArcadeDB supports SQL, so try this:
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    ResultSet result = db.query( "SQL", "select from Profile where name = ? and lastName = ?", "Steve", "Jobs" );
-    Vertex steve = result.next();
+    ResultSet result = db.query( "SQL", "select from Profile where name = ? and lastName = ?", "Michelle", "Besso" );
+    Vertex michelle = result.next();
   });
 }
 ----
@@ -327,13 +327,13 @@ With the query approach, if an existent index is available, then it's automatica
 
 Now that we have loaded the root vertex in memory, we're ready to do some traversal.
 Before looking at the API, it's important to understand every edge has a direction: from vertex A to vertex B.
-In the example above, the direction of the friendship is from "Elon" to "Steve".
+In the example above, the direction of the friendship is from "Albert" to "Michelle".
 While in most of the cases the direction is important, sometimes, like with the friendship, it doesn't really matter the direction because if A is friend with B, it's true also the opposite.
 
-In our example, the relationship is `Elon ---Friend---> Steve`.
-This means that if I want to retrieve all Elon's friends, I could start from the vertex "Elon" and traverse all the *outgoing* edges of type "IsFriendOf".
+In our example, the relationship is `Albert ---Friend---> Michelle`.
+This means that if I want to retrieve all Albert's friends, I could start from the vertex "Albert" and traverse all the *outgoing* edges of type "IsFriendOf".
 
-Instead, if I want to retrieve all Steve's friends, I could start from Steve as root vertex and traverse all the **incoming** edges.
+Instead, if I want to retrieve all Michelle's friends, I could start from Michelle as root vertex and traverse all the **incoming** edges.
 
 In case the direction doesn't really matters (like with friendship), I could consider **both** outgoing and incoming.
 
@@ -343,26 +343,26 @@ So the basic traversal operations from one or more vertices, are:
 - incoming, expressed as `IN`
 - both, expressed as `BOTH`
 
-In order to load Steve's friends, this is the example by using API:
+In order to load Michelle's friends, this is the example by using API:
 
 [source,java]
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    Vertex steve; // ALREADY LOADED VIA RID, KEYS OR SQL
-    Iterable<Vertex> friends = steve.getVertices(DIRECTION.IN, "IsFriendOf" );
+    Vertex michelle; // ALREADY LOADED VIA RID, KEYS OR SQL
+    Iterable<Vertex> friends = michelle.getVertices(DIRECTION.IN, "IsFriendOf" );
   });
 }
 ----
 
-Instead, if I start from Elon's vertex, it would be:
+Instead, if I start from Albert's vertex, it would be:
 
 [source,java]
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    Vertex elon; // ALREADY LOADED VIA RID, KEYS OR SQL
-    Iterable<Vertex> friends = elon.getVertices(DIRECTION.OUT, "IsFriendOf");
+    Vertex albert; // ALREADY LOADED VIA RID, KEYS OR SQL
+    Iterable<Vertex> friends = albert.getVertices(DIRECTION.OUT, "IsFriendOf");
   });
 }
 ----
@@ -375,7 +375,7 @@ By using SQL, you can do the traversal by using SELECT:
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    ResultSet friends = db.query( "SQL", "SELECT expand( out('IsFriendOf') ) FROM Profile WHERE name = ? AND lastName = ?", "Steve", "Jobs" );
+    ResultSet friends = db.query( "SQL", "SELECT expand( out('IsFriendOf') ) FROM Profile WHERE name = ? AND lastName = ?", "Michelle", "Besso" );
   });
 }
 ----
@@ -386,7 +386,7 @@ Or with the more powerful MATCH statement:
 ----
 try( Database db = databaseFactory.open(); ){
   db.transaction( () -> {
-    ResultSet friends = db.query( "SQL", "MATCH {type: Profile, as: Profile, where: (name = ? and lastName = ?)}.out('IsFriendOf') {as: Friend} RETURN Friend", "Steve", "Jobs" );
+    ResultSet friends = db.query( "SQL", "MATCH {type: Profile, as: Profile, where: (name = ? and lastName = ?)}.out('IsFriendOf') {as: Friend} RETURN Friend", "Michelle", "Besso" );
   });
 }
 ----
@@ -397,7 +397,7 @@ Since ArcadeDB is 100% compliant with Gremlin 3.7.x, you can run this query agai
 
 [source,gremlin]
 ----
-g.V().has('name','Steve').has('lastName','Jobs').out('IsFriendOf');
+g.V().has('name','Michelle').has('lastName','Besso').out('IsFriendOf');
 ----
 
 For more information about Apache Gremlin see: <<Gremlin-API,Gremlin API>> support
@@ -410,7 +410,7 @@ The same query would be the following:
 [source,cypher]
 ----
 MATCH (me)-[:IsFriendOf]-(friend)
-WHERE me.name = 'Steve' and me.lastName = 'Jobs'
+WHERE me.name = 'Michelle' and me.lastName = 'Besso'
 RETURN friend.name, friend.lastName
 ----
 
