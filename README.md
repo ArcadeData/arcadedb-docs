@@ -17,3 +17,33 @@ mvn jetty:run
 ```
 
 then open the browser to http://localhost:8080
+
+## Documentation Conventions
+
+To maintain consistency across the documentation, please follow these naming conventions:
+
+### File Naming Conventions
+
+All documentation files should use lowercase naming with hyphens between words:
+
+- ✅ `lowercase-with-hyphens.adoc`
+- ❌ `CamelCase.adoc`
+- ❌ `UPPERCASE.adoc`
+- ❌ `snake_case.adoc`
+
+### Document ID Anchors
+
+Document anchors should also use lowercase with hyphens:
+
+```asciidoc
+[[anchor-id-example]]
+== Section Title
+```
+
+### Cross-References
+
+Cross-references should use the lowercase anchor IDs:
+
+```asciidoc
+See the <<anchor-id-example,related section>> for more information.
+```
