@@ -1,9 +1,9 @@
-[[sql-L[[sql-L[[sql-Match]]E]]E]]
+[[sql-match]]
 [discrete]
 
 === SQL - `MATCH`
 
-image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/Llink="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/Llink="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-Match.adoc"E"E" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-match.adoc" float=right]
 
 Queries the database in a declarative manner, using pattern matching (inspired by https://neo4j.com/docs/cypher-manual/current/clauses/match/[Cypher]).
 
@@ -236,7 +236,7 @@ For out(), in(), both() also a shortened _arrow_ syntax is supported:
 * `$pathElements` Indicating that all the elements that would be returned by the $paths have to be returned flattened, without duplicates.
 * *`optional`* if set to true, allows to evaluate and return a pattern even if that particular node does not match the pattern itself (ie. there is no value for that node in the pattern). In current version, optional nodes are allowed only on right terminal nodes, eg. `{} --&gt; {optional:true}` is allowed, `{optional:true} &lt;-- {}` is not.
 * *`NOT` patterns* Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won't be returned.
-* *<<sql-L<<sql-Select-Unwind,E,`UNWIND`>>* Designates the field on which to unwind the collection.
+* *<<sql-select-unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
 
 [discrete]
 ==== Arrow notation
@@ -368,7 +368,7 @@ When running these queries, you can use any of the following context variables:
 
 *Expanding Attributes*
 
-You can run this statement as a sub-query inside of another statement. Doing this allows you to obtain details and aggregate data from the inner <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>> query.
+You can run this statement as a sub-query inside of another statement. Doing this allows you to obtain details and aggregate data from the inner <<sql-select,`SELECT`>> query.
 
 [source,sql]
 ----
@@ -525,9 +525,9 @@ ArcadeDB> MATCH {type: Person, where: (name = 'a')}.out("Parent")
 
 *Best practices*
 
-Queries can involve multiple operations, based on the domain model and use case. In some cases, like projection and aggregation, you can easily manage them with a <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>> query. With others, such as pattern matching and deep traversal, <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> statements are more appropriate.
+Queries can involve multiple operations, based on the domain model and use case. In some cases, like projection and aggregation, you can easily manage them with a <<sql-select,`SELECT`>> query. With others, such as pattern matching and deep traversal, <<sql-match,`MATCH`>> statements are more appropriate.
 
-Use <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>> and <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> statements together (that is, through sub-queries), to give each statement the correct responsibilities. Here,
+Use <<sql-select,`SELECT`>> and <<sql-match,`MATCH`>> statements together (that is, through sub-queries), to give each statement the correct responsibilities. Here,
 
 *Filtering Record Attributes for a Single Type*
 
@@ -546,7 +546,7 @@ ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')}
           RETURN person
 ----
 
-The efficiency remains the same. Both queries use an index. With <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>>, you obtain expanded records, while with <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>>, you only obtain the Record ID's. If you want to return expanded records from the MATCH, use the `expand()` function in the return statement:
+The efficiency remains the same. Both queries use an index. With <<sql-select,`SELECT`>>, you obtain expanded records, while with <<sql-match,`MATCH`>>, you only obtain the Record ID's. If you want to return expanded records from the MATCH, use the `expand()` function in the return statement:
 
 [source,sql]
 ----
@@ -557,9 +557,9 @@ ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John')}
 
 *Filtering on Record Attributes of Connected Elements*
 
-Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>>, while with <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> it is simple.
+Filtering based on the record attributes of connected elements, such as neighboring vertices, can grow trick when using <<sql-select,`SELECT`>>, while with <<sql-match,`MATCH`>> it is simple.
 
-For instance, find all people living in Rome that have a friend called John. There are three different ways you can write this, using <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>>:
+For instance, find all people living in Rome that have a friend called John. There are three different ways you can write this, using <<sql-select,`SELECT`>>:
 
 ----
 ArcadeDB> SELECT FROM Person WHERE BOTH('Friend').name CONTAINS 'John'
@@ -574,7 +574,7 @@ ArcadeDB> SELECT FROM (SELECT in('LivesIn') FROM City WHERE name = 'Rome')
 
 In the first version, the query is more readable, but it does not use indexes, so it is less optimal in terms of execution time. The second and third use indexes if they exist, (on `Person.name` or `City.name`, both in the sub-query), but they're harder to read. Which index they use depends only on the way you write the query. That is, if you only have an index on `City.name` and not `Person.name`, the second version doesn't use an index.
 
-Using a <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> statement, the query becomes:
+Using a <<sql-match,`MATCH`>> statement, the query becomes:
 
 [source,sql]
 ----
@@ -583,13 +583,13 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
 		  RETURN result
 ----
 
-Here, the query executor optimizes the query for you, choosing indexes where they exist. Moreover, the query becomes more readable, especially in complex cases, such as multiple nested <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>> queries.
+Here, the query executor optimizes the query for you, choosing indexes where they exist. Moreover, the query becomes more readable, especially in complex cases, such as multiple nested <<sql-select,`SELECT`>> queries.
 
 *`TRAVERSE` Alternative*
 
-There are similar limitations to using <<sql-L<<sql-L<<sql-Traverse,E,E,`TRAVERSE`>>. You may benefit from using <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> as an alternative.
+There are similar limitations to using <<sql-traverse,`TRAVERSE`>>. You may benefit from using <<sql-match,`MATCH`>> as an alternative.
 
-For instance, consider a simple <<sql-L<<sql-L<<sql-Traverse,E,E,`TRAVERSE`>> statement, like:
+For instance, consider a simple <<sql-traverse,`TRAVERSE`>> statement, like:
 
 [source,sql]
 ----
@@ -597,7 +597,7 @@ ArcadeDB> TRAVERSE out('Friend') FROM (SELECT FROM Person WHERE name = 'John')
           WHILE $depth < 3
 ----
 
-Using a <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> statement, you can write the same query as:
+Using a <<sql-match,`MATCH`>> statement, you can write the same query as:
 
 [source,sql]
 ----
@@ -605,7 +605,7 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.both("Friend")
           {as: friend, while: ($depth < 3)} RETURN friend
 ----
 
-Consider a case where you have a `since` date property on the edge `Friend`. You want to traverse the relationship only for edges where the `since` value is greater than a given date. In a <<sql-L<<sql-L<<sql-Traverse,E,E,`TRAVERSE`>> statement, you might write the query as:
+Consider a case where you have a `since` date property on the edge `Friend`. You want to traverse the relationship only for edges where the `since` value is greater than a given date. In a <<sql-traverse,`TRAVERSE`>> statement, you might write the query as:
 
 [source,sql]
 ----
@@ -613,7 +613,7 @@ ArcadeDB> TRAVERSE bothE('Friend')[since > date('2012-07-02', 'yyyy-MM-dd')].bot
           FROM (SELECT FROM Person WHERE name = 'John') WHILE $depth < 3
 ----
 
-Unfortunately, this statement DOESN'T WORK in the current release. However, you can get the results you want using a <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> statement:
+Unfortunately, this statement DOESN'T WORK in the current release. However, you can get the results you want using a <<sql-match,`MATCH`>> statement:
 
 [source,sql]
 ----
@@ -624,7 +624,7 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John')}.(bothE("Friend")
 
 *Projections and Grouping Operations*
 
-Projections and grouping operations are better expressed with a <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>> query. If you need to filter and do projection or aggregation in the same query, you can use <<sql-L<<sql-L<<sql-Select,E,E,`SELECT`>> and <<sql-L<<sql-L<<sql-Match,E,E,`MATCH`>> in the same statement.
+Projections and grouping operations are better expressed with a <<sql-select,`SELECT`>> query. If you need to filter and do projection or aggregation in the same query, you can use <<sql-select,`SELECT`>> and <<sql-match,`MATCH`>> in the same statement.
 
 This is particular important when you expect a result that contains attributes from different connected records (cartesian product). For instance, to retrieve names, their friends and the date since they became friends:
 
