@@ -1,0 +1,94 @@
+[discrete]
+
+=== SQL - `CHECK DATABASE`
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-Check-Database.adoc" float=right]
+
+Executes an integrity check and in case of a repair of the database. This command analyzes the following things:
+
+* buckets: all the pages and records are scanned and checked if can be loaded (no physical corruption)
+* vertices: all the vertices are loaded and all the connected edges are checked. In case some edges point to records that have been
+ deleted they can be fixed automatically if the `FIX` option is enabled.
+* edges: scan all the edges and check the incoming and outgoing links are consistent in the relative vertices. If not, the edges can
+ be automatically removed if the `FIX` option is enabled.
+
+*Syntax*
+
+[source,sql]
+----
+CHECK DATABASE [ TYPE <type-name>[,]* ] [ BUCKET <bucket-name>[,]* ] [ FIX ] [ COMPRESS ]
+----
+
+* *`&lt;type-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific types
+* *`&lt;bucket-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific buckets
+* *`FIX`* Optional, if used auto fix the issue found with the check
+* *`COMPRESS`* Optional, if used compresses the database with the check  
+
+The command returns the integrity check report in one record with the fields:
+
+[cols="1,3",options="header"]
+|===
+| *Field* | *Description*
+| `avgPageUsed` | average space used in a page.
+                  This is a percentage value, where 100% means all the pages are full.
+                  If a record is too big, a page is split into multiple pages and multiple reads are necessary.
+                  Sometimes it helps to create buckets with larger pages to accommodate large records,
+                  see the <<Settings,`bucketDefaultPageSize`>> setting.
+| `warnings` | set of warning messages. 
+| `totalSurrogateRecords` | number of records that have been moved between pages.
+                            This happens when a record is updated and doesn't fit the original page,
+                            so a surrogate (placeholder) is set to point to the new page/position or it's a piece of a record stored on multiple pages. Internal, can be ignored.
+| `totalPlaceholderRecords` | see above. Internal, can be ignored. 
+| `pageSize` | internal, can be ignored.
+| `totalDeletedRecords` | number of records deleted in the database (allocated minus active).
+                          When a record is deleted, it's RID is not recycled!
+| `totalAllocatedRecords` | total number of records created in the database.
+                            A record can be of type document, vertex or edge.
+| `totalAllocatedDocuments` | see above, but only documents records.
+| `totalAllocatedVertices` | see above, but only vertex records.
+| `totalAllocatedEdges` | see above, but only edge records.
+| `totalActiveRecords` | total number of records that are "active" (not deleted).
+                         A record can be of type document, vertex or edge.
+| `totalActiveDocuments` | see above, but only vertex document.                       
+| `totalActiveVertices` | see above, but only vertex records.
+| `totalActiveEdges` | see above, but only edge records.
+| `totalMaxOffset` | internal, can be ignored.
+| `deletedRecordsAfterFix` | holds the list of RIDs deleted after a fix.
+| `corruptedRecords` | all the records not found in the database.
+                       This could happen with broken edges (edges pointing to deleted vertices).
+                       This should be zero; if not, it means there is a bug in the graph operations that doesn't keep operations 100% transactional. Please report this.
+| `totalPages` | total number of pages in the database.
+| `rebuiltIndexes` | list of indexes that have been rebuilt automatically if corrupted records were found.
+| `operation` | can be ignored, set by the console.
+| `invalidLinks` | similar to corrupted records; should be zero.
+| `totalErrors` | counter of errors encountered while checking the database.
+             It should be zero.
+| `autoFix` | counter of autofix operations executed by the check database under the hood when corrupted records have been encountered. 
+              Some operations, like broken edges, can be fixed and restored automatically.
+|===
+
+*Examples*
+
+* Execute the integrity check of the entire database without fixing any issue found.
+
+----
+ArcadeDB> CHECK DATABASE
+----
+
+* Execute the integrity check of the types 'Account' and 'Bill' without fixing any issue found.
+
+----
+ArcadeDB> CHECK DATABASE TYPE Account, Bill
+----
+
+* Execute the integrity check only on the bucket 'Account_Europe' without fixing any issue found.
+
+----
+ArcadeDB> CHECK DATABASE BUCKET Account_Europe
+----
+
+* Execute the integrity check of the entire database and auto fix any issues found.
+
+----
+ArcadeDB> CHECK DATABASE FIX
+----
