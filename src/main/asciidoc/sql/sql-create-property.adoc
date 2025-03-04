@@ -1,131 +1,105 @@
-[[sql-Create-Property]]
+[[sql-create-property]]
 [discrete]
 === SQL - `CREATE PROPERTY`
 
-image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-Create-Property.adoc" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-create-property.adoc" float=right]
 
-Creates a new property in the schema.
-It requires that the type for the property already exist on the database.
+Creates a property in the schema.
 
 *Syntax*
 
+[source,sql]
 ----
-CREATE PROPERTY 
-<type>.<property> [IF NOT EXISTS] <data-type> [OF <embd-type>]
-[<property-constraint>[,]*]
+CREATE PROPERTY <class>.<property> <type> [ <link-type> ]
+[ IF NOT EXISTS ]
+[ <property-constraint> ]
 ----
 
-* *`&lt;type&gt;`* Defines the type for the new property.
-* *`&lt;property&gt;`* Defines the logical name for the property.
-* *`&lt;data-type&gt;`* Defines the property data type. For supported types, see the table below.
-* *`&lt;embd-type&gt;`* Defines the property's embedded type (only for embedding property types `EMBEDDED`, `LIST`, `MAP`, as well as `LINK`).
-* *`&lt;property-constraint&gt;`* See <<sql-Alter-Property,`ALTER PROPERTY`>> `&lt;attribute-name&gt; * &lt;attribute-value&gt;`
-** `mandatory &lt;true|false&gt;` If true, the property must be present.
-Default is *false*
-** `notnull &lt;true|false&gt;` If true, the property, must be present and cannot be null.
-Default is *false*
-** `readonly &lt;true|false&gt;` If true, the property cannot be changed after the creation of the record.
-Default is *false*
-** `hidden &lt;true|false&gt;` If true, the property is not added to the result set when using * in projections such as in  `SELECT * FROM`; it is included when `SELECT FROM` is used or if the hidden property is part of the projection list .
-Default is *false*
-** `min &lt;number|string&gt;` Defines the minimum value for this property.
-For number types it is the minimum number as a value.
-For strings it represents the minimum number of characters.
-For dates is the minimum date (uses the database date format).
-For collections (lists, sets, maps) this attribute determines the minimally required number of elements.
-** `max &lt;number|string&gt;` Defines the maximum value for this property.
-For number types it is the maximum number as a value.
-For strings it represents the maximum number of characters.
-For dates is the maximum date (uses the database date format).
-For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
-** `regexp &lt;string&gt;` Defines the mask to validate the input as a Regular Expression
-** `default <any>` Defines default value if not present. Default is `null`.
-** `IF NOT EXISTS` If specified, create the property only if not exists.
-If a property with the same name already exists in the type, then no error is returned
+Where:
+ 
+* *`&lt;class&gt;`* Defines the class to which you want to add a property.
+* *`&lt;property&gt;`* Defines name you want to give to the property.
+* *`&lt;type&gt;`* Defines the property's data type. See below for supported types.
+* *`&lt;link-type&gt;`* Optional. Defines the contained type for container types, such as collection lists, maps and sets. If you create the property with a data type of LIST, SET or MAP, you can also define the linked type contained by the collection. For instance:
+** `LIST<STRING>` Defines a property as a list that contains strings.
+** `SET<LONG>` Defines a property as a set that contains long integers.
+** `MAP<STRING, INTEGER>` Defines a property as a map with string keys and integer values.
+* *`IF NOT EXISTS`* Optional. Property creation is not executed if already exists (instead of failing)
+* *`&lt;property-constraint&gt;`* Optional. Defines the specific property constraints, such as `MANDATORY` and/or `READONLY`:
 
-NOTE: When you create a property, ArcadeDB checks the data for property and type.
-In the event that persistent data contains incompatible values for the specified type, the property creation fails.
-It applies no other constraints on the persistent data.
+[source,sql]
+----
+[ MANDATORY <true|false> ]
+[ READONLY <true|false> ]
+[ DEFAULT <value> ]
+[ MIN <value> ]
+[ MAX <value> ]
+[ REGEXP <expression> ]
+----
 
-NOTE: When constraints are set, such as `mandatory`, `read-only`, etc., it's not possible to use the Gremlin syntax to add vertices and edges without incurring in a Validation exception.
-The issue is that Gremlin API sets the properties after the creation of the vertex and edge.
+*Supported Data Types*
 
-NOTE: Properties of the type `LINK` may have the value `NULL`, furthermore accessing a
-`LINK` property which is not set results also in a `NULL` value.
-
-TIP: A mandatory property generally cannot have a default value `NULL` (the default default value).
-     However, to force a default value `NULL` one can use `ifnull(NULL, NULL)` as explicit default value expression. 
+ArcadeDB supports the following data types for property values:
+ 
+* `BOOLEAN` Defines a property that can only take the values `true` or `false`.
+* `INTEGER` Defines a property that can only take as values integers. In Java, this is mapped to the `int` data type.
+* `SHORT` Defines a property that can only take as values short integers. In Java, this is mapped to the `short` data type. In JavaScript and some other languages, numbers are always `double` floating-point variables.
+* `LONG` Defines a property that can only take as values long integers. In Java, this is mapped to the `long` data type. In JavaScript and other languages, numbers are always `double` floating-point variables.
+* `FLOAT` Defines a property that can only take floating-point values. In Java, this is mapped to the `float` data type. In JavaScript and other languages, numbers are always `double` floating-point variables.
+* `DOUBLE` Defines a property that can only take floating-point values. In Java, this is mapped to the `double` data type.
+* `DATETIME` Defines a property that can only take date values. In Java, this is mapped to the `Date` data type.
+* `STRING` Defines a property that can only take string values. In Java, this is mapped to the `String` data type.
+* `BINARY` Defines a property that can only take binary values. In Java, this is mapped to the `byte[]` data type.
+* `EMBEDDED` Defines a property that can only take a document embedded in the document. Object types are string, maps, lists, and vectors (see below).
+* `VECTOR` Defines a vector of numbers. In Java, this is mapped to the 'VectorDetail' data type.
+* `EMBEDDED MAP` Defines a property that takes values of the embedded map type, that is, mapping of strings to values. In Java, this is mapped to the `Map<String, T>` data type, where `T` is any other data type.
+* `EMBEDDED LIST` Defines a property that takes values of the embedded list type, that is, a list of elements of a single data type. In Java, this is mapped to the `List<T>` data type, where `T` is any other data type.
+* `EMBEDDED SET` Defines a property that takes values of the embedded set type, that is, a set of elements of a single data type. In Java, this is mapped to the `Set<T>` data type, where `T` is any other data type.
+* `LINK` Defines a property that takes values as links to documents of a different class.
+* `LINK MAP` Defines a property that takes values of the link map type, that is, a mapping of strings to links to documents of a different class.
+* `LINK LIST` Defines a property that takes values of the link list type, that is, a list of links to documents of a different class.
+* `LINK SET` Defines a property that takes values of the link set type, that is, a set of links to documents of a different class. In Java, this is mapped to the `Set<T>` data type, where T is a link.
+* Any class type, including "V", "E" for Graphs.
 
 *Examples*
 
-* Create the property `name` of the string type in the type `User`:
+* Create a property using the default settings:
 
-----
+```java
 ArcadeDB> CREATE PROPERTY User.name STRING
-----
+```
 
-* Create a property called `tags` in the type `Profile` only allowing list members of type string:
+* Create a 'tags' property as a list of strings:
 
-----
-ArcadeDB> CREATE PROPERTY Profile.tags LIST OF STRING
-----
+```java
+ArcadeDB> CREATE PROPERTY Post.tags LIST<STRING>
+```
 
-* Create the property `friends`, as an embedded map:
+* Create an 'email' property for the 'Account' class with the 'MANDATORY' constraint set:
 
-----
-ArcadeDB> CREATE PROPERTY Profile.friends MAP
-----
+```java
+ArcadeDB> CREATE PROPERTY Account.email STRING MANDATORY true
+```
 
-* Create the property `address`, as an embedded document:
+* Create a complex property with multiple constraints:
 
-----
-ArcadeDB> CREATE PROPERTY Profile.address EMBEDDED
-----
+```java
+ArcadeDB> CREATE PROPERTY Account.id LONG MANDATORY true READONLY true DEFAULT "sequence('accounts').next()"
+```
 
-* Create the property `createdOn` of type date with additional constraints:
+* Create a property that must match a regular expression:
 
-----
-ArcadeDB> CREATE PROPERTY Transaction.createdOn DATE (mandatory true, notnull true, readonly true, min "2010-01-01")
-----
+```java
+ArcadeDB> CREATE PROPERTY Account.gender STRING REGEXP "[mf]"
+```
 
-* Create the property `secret` of type string with hidden constraint:
+* Create a new property on a vertex class:
 
-----
-ArcadeDB> CREATE PROPERTY Employee.secret STRING (hidden true, notnull true)
-----
-
-* Create the property `salary` only if it does not exist:
-
-----
-ArcadeDB> CREATE PROPERTY Employee.salary IF NOT EXISTS double
-----
-
-* Create the property `hiredAt` with the time of creation being the default value:
-
-----
-ArcadeDB> CREATE PROPERTY Employee.hiredAt DATETIME (readonly, default sysdate('YYYY-MM-DD HH:MM:SS'))
-----
+```java
+ArcadeDB> CREATE PROPERTY V.createDate DATETIME DEFAULT "sysdate()"
+```
 
 For more information, see:
 
-* <<sql-Alter-Property,`ALTER PROPERTY`>>
-* <<sql-Drop-Property,`DROP PROPERTY`>>
-
-[[Supported-Types]]
-*Supported Types*
-
-ArcadeDB supports the following data types for standard properties:
-
-[cols=5]
-|===
-| `BOOLEAN` | `BYTE` | `SHORT` | `INTEGER` | `LONG`
-| `STRING` | `LINK` | `BINARY` | `DATE` | `DATETIME`
-| `FLOAT` | `DOUBLE` | `DECIMAL` | |
-|===
-
-It supports the following data types for container properties:
-
-[cols=3]
-|===
-| `LIST` | `MAP` | `EMBEDDED`
-|===
+* <<sql-alter-property,`ALTER PROPERTY`>>
+* <<sql-drop-property,`DROP PROPERTY`>>

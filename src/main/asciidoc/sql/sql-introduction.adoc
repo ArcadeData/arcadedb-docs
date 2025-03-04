@@ -1,15 +1,16 @@
+[[sql-introduction]]
 [discrete]
 
 === Introduction
 
-image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-Introduction.adoc" float=right]
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-introduction.adoc" float=right]
 
 When it comes to query languages, https://en.wikipedia.org/wiki/SQL[SQL] is the most widely recognized standard. The majority of developers have experience and are
 comfortable with SQL. For this reason ArcadeDB uses SQL as its query language and adds some extensions to enable graph
 functionality. There are a few differences between the standard SQL syntax and that supported by ArcadeDB, but for the most part, it
 should feel very natural. The differences are covered in the <<ArcadeDB-SQL-Dialect,ArcadeDB SQL dialect>> section of this page.
 
-If you are looking for the most efficient way to traverse a graph, we suggest using <<sql-Match,MATCH>> instead.
+If you are looking for the most efficient way to traverse a graph, we suggest using <<sql-match,MATCH>> instead.
 
 Many SQL commands share the <<Filtering,WHERE condition>>. Keywords are case insensitive, but type names, property names and values
 are case sensitive. In the following examples keywords are in uppercase but this is not strictly required.
@@ -52,13 +53,13 @@ SELECT * FROM INDEX:myIndex WHERE key = 'Jay'
 
 *Extra resources*
 
-* <<sql-Syntax,Syntax>>
-* <<sql-Projections,Projections>>
+* <<sql-syntax,Syntax>>
+* <<sql-projections,Projections>>
 * <<Filtering,Where clause>>
 * <<_filtering-operators,Operators>>
-* <<sql-Pagination,Pagination>>
-* <<sql-Script,SQL Script>>
-* <<sql-Match,Match>> for traversing graphs
+* <<sql-pagination,Pagination>>
+* <<sql-script,SQL Script>>
+* <<sql-match,Match>> for traversing graphs
 
 [[ArcadeDB-SQL-Dialect]]
 *ArcadeDB SQL dialect*
@@ -85,7 +86,7 @@ alternatively, order a book such as:
 * https://www.amazon.com/SQL-Minutes-Sams-Teach-Yourself/dp/0135182794[SQL in 10 Minutes a Day]
 * or any of https://www.amazon.com/s/ref=nb_sb_noss/189-0251150-4407173?url=search-alias%3Daps&field-keywords=sql[these].
 
-For details on ArcadeDB's dialect, see <<sql-Syntax,ArcadeDB SQL Syntax>>.
+For details on ArcadeDB's dialect, see <<sql-syntax,ArcadeDB SQL Syntax>>.
 You can also download a https://github.com/ArcadeData/arcadedb/files/14324183/arcadedb-sql.pdf[SQL Command Cheat Sheet] (pdf).
 
 The simplest SQL query just returns a constant, and is given by:
@@ -116,7 +117,7 @@ SKIP number
 LIMIT number
 ----
 
-for further components or details, see the <<sql-Select,SELECT command>>.
+for further components or details, see the <<sql-select,SELECT command>>.
 As for classic SQL the execution order in ArcadeDB SQL is:
 
 1. `FROM`
@@ -148,138 +149,142 @@ In ArcadeDB, an equivalent operation would be:
 
 [source,sql]
 ----
-SELECT * FROM Employee WHERE city.name = 'Rome'
+SELECT *
+FROM Employee
+WHERE city.name = 'Rome'
 ----
 
-This is much more straight forward and powerful! If you use multiple JOINs, the ArcadeDB SQL equivalent will be an even larger
-benefit. Example 2: In SQL you might create a join such as:
+Another example:
 
 [source,sql]
 ----
-SELECT *
-FROM Employee A, City B, Country C,
+SELECT B.name, A.salary
+FROM Employee A, City B
 WHERE A.city = B.id
-  AND B.country = C.id
-  AND C.name = 'Italy'
+  AND B.country.name = 'Italy'
 ----
 
 In ArcadeDB, an equivalent operation would be:
 
 [source,sql]
 ----
-SELECT * FROM Employee WHERE city.country.name = 'Italy'
-----
-
-Furthermore, RIDs can be resolved by <<_nested-projections,nested projections>>.
-
-*Projections*
-
-In SQL, projections are mandatory and you can use the star character `*` to include all of the fields. With ArcadeDB this type of
-projection is optional. Example: In SQL to select all of the columns of Customer you would write:
-
-[source,sql]
-----
-SELECT * FROM Customer
-----
-
-In ArcadeDB, the `*` may be omitted:
-
-[source,sql]
-----
-SELECT FROM Customer
-----
-
-The result is similar, for details see <<_query-results_,Query Results>>.
-
-*System Types*
-
-To retrieve information about the schema, indexes and the database,
-there a three special types from which one can "select":
-
-* `schema:types`
-* `schema:buckets`
-* `schema:indexes`
-* `schema:database`
-
-these can be treated such as any other types, so projections and filters
-apply as for any other types.
-
-[source,sql]
-----
-SELECT FROM schema:types
-----
-
-*DISTINCT*
-
-You can use DISTINCT keyword exactly as in a relational database:
-
-[source,sql]
-----
-SELECT DISTINCT name FROM City
-----
-
-*HAVING*
-
-ArcadeDB does not support the `HAVING` keyword, but with a nested query it's easy to obtain the same result. Example in SQL:
-
-[source,sql]
-----
-SELECT city, sum(salary) AS salary
+SELECT city.name, salary
 FROM Employee
-GROUP BY city
-HAVING salary > 1000
+WHERE city.country.name = 'Italy'
 ----
 
-This groups all of the salaries by city and extracts the result of aggregates with the total salary greater than 1,000 dollars. In
-ArcadeDB the `HAVING` conditions go in a select statement in the predicate:
+*Projection*
+
+In SQL, projections are mandatory. In ArcadeDB this is not mandatory. When the projection in ArcadeDB is the character `*`, it
+represents the full record.
+In SQL, when a query is executed, the column names of the returned set depend on the projections.
+For instance:
+
+[source,sql]
+----
+SELECT first_name, last_name FROM Employee
+----
+
+results in a data set with two columns, the first is named "first_name" and the second is "last_name".
+
+In ArcadeDB, all column names correspond to property names on the record and projections only affect which columns will be returned.
+The above query would result in a dataset with two columns, "first_name" and "last_name".
+
+However, there is a SQL condition where the two systems do differ. When you use functions that do not affect the column name, SQL
+defines that function name as the column name. In ArcadeDB, since we're projecting from a record, the resulting name remains the
+property name.
+
+For instance, in SQL:
+
+[source,sql]
+----
+SELECT count(*) FROM Employee
+----
+
+would result in a data set with one column named "count(*)".
+
+The ArcadeDB equivalent is:
+
+[source,sql]
+----
+SELECT count(*) FROM Employee
+----
+
+resulting in a data set with one column name of "count". If you specify a name for a column in a projection using the AS keyword,
+both SQL and ArcadeDB would use the provided name.
+
+[NOTE]
+If you prefer having the function name as the column name, like standard SQL, use AS, like: 
+
+[source,sql]
+----
+SELECT count(*) as _count_ FROM Employee
+----
+
+*Commands*
+
+While the ArcadeDB SQL syntax is very similar to SQL-92, commands are different, except for "SELECT", "INSERT", and "UPDATE", plus "CREATE" and "DROP" for entities.
 
 [source,sql]
 ----
 SELECT
-FROM ( SELECT city, SUM(salary) AS salary FROM Employee GROUP BY city )
-WHERE salary > 1000
+INSERT
+UPDATE
 ----
 
-*Multiple targets*
+See also:
 
-ArcadeDB allows only one type (types are equivalent to tables in this discussion) as opposed to SQL, which allows for many tables
-as the target. If you want to select from 2 types, you have to execute 2 sub queries and join them with the `UNIONALL` function:
+* <<sql-select,SELECT>>
+* <<sql-insert,INSERT>>
+* <<sql-update,UPDATE>>
+
+For more commands, see the <<sql-command-reference-chart,diagram above>>.
+
+*Comments*
+
+Use `//` for single line comments:
 
 [source,sql]
 ----
-SELECT FROM E, V
+// This is a single line comment
 ----
 
-In ArcadeDB, you can accomplish this with a few variable definitions and by using the `expand` function to the union:
+Use `/* ... */` for multi-line comments.
 
 [source,sql]
 ----
-SELECT expand( $c ) LET $a = ( SELECT FROM E ), $b = ( SELECT FROM V ), $c = unionall( $a, $b )
+/* this is a
+   multiline comment */
 ----
 
-*`DISTINCT` vs `distinct()`*
+[[query-results]]
+== Query Results
 
-Query results without duplicates can be realized either using the keyword <<sql-Select,`DISTINCT`>> or the function <<_distinct,`distinct()`>>.
-The keyword `DISTINCT` is be used if the entire projection should be unique,
-while the `distinct` function returns unique elements only for its argument field.
+ArcadeDB can return query results in different formats:
 
-*`UNWIND` vs `expand()`*
+- Record Lists
+- Document collections
+- Vertices, edges or paths from graphs
 
-Collections fields can be spread into a set of results by either using the keyword <<sql-Select,`UNWIND`>> or the function <<_expand,`expand()`>>.
-Both produce similar results but via different semantics and constraints.
+*Records*
 
-*SQL Differences*
+In ArcadeDB SQL, a record is the smallest unit you can load and save. A record can be a:
 
-Following are some basic differences between ArcadeDB and PostgreSQL.
+- Document
+- Vertex 
+- Edge
 
-[%header,cols=2]
-|===
-| Postgres | ArcadeDB
-| `CREATE TABLE` | <<sql-Create-Type,`CREATE TYPE`>>
-| `ALTER TABLE` | <<sql-Alter-Type,`ALTER TYPE`>>
-| `ADD COLUMN` | <<sql-Create-Property,`CREATE PROPERTY`>>
-| `ALTER COLUMN`  | <<sql-Alter-Property,`ALTER PROPERTY`>>
-| `SELECT * FROM information_schema.tables` | `SELECT FROM schema:types`
-| `SELECT * FROM pg_indexes` | `SELECT FROM schema:indexes`
-| `SELECT * FROM pg_database` | `SELECT FROM schema:database`
-|===
+Every record has an associated Record ID which is also referred to as a RID.
+The syntax for a RID is:
+
+[source,sql]
+----
+#<bucket>:<position>
+----
+
+where:
+
+* **`&lt;bucket&gt;`** is the bucket number. A bucket is a place where ArcadeDB stores records.
+* **`&lt;position&gt;`** is the absolute position of the record inside the bucket.
+
+For example: `#12:3`.
