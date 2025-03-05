@@ -1,0 +1,45 @@
+[discrete]
+[[sql-pagination]]
+=== Pagination
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/sql/sql-pagination.adoc" float=right]
+
+ArcadeDB supports pagination natively. Pagination doesn't consume server side resources because no cursors are used. Only <<rid,Record ID's>> are used as pointers to the physical position in the bucket.
+
+There are 2 ways to achieve pagination:
+[discrete]
+
+==== Use the SKIP-LIMIT
+
+The first and simpler way to do pagination is to use the `SKIP`/`LIMIT` approach. This is the slower way because ArcadeDB repeats the query and just skips the first X records from the result.
+Syntax:
+
+[source,sql]
+----
+SELECT FROM <target> [WHERE ...] SKIP <records-to-skip> LIMIT <max-records>
+
+----
+
+Where:
+- *records-to-skip* is the number of records to skip before starting to collect them as the result set
+- *max-records* is the maximum number of records returned by the query
+[discrete]
+
+==== Use the RID-LIMIT
+
+This method is faster than the `SKIP`-`LIMIT` because ArcadeDB will begin the scan from the starting RID. ArcadeDB can seek the first record in about O(1) time. The downside is that it's more complex to use.
+
+The trick here is to execute the query multiple times setting the `LIMIT` as the page size and using the greater than `&gt;` operator against `@rid`. The *lower-rid* is the starting point to search, for example `#10:300`.
+
+Syntax:
+
+[source,sql]
+----
+SELECT FROM <target> WHERE @rid > <lower-rid> ... [LIMIT <max-records>]
+----
+
+Where:
+- *lower-rid* is the exclusive lower bound of the range as <<rid,RID>>
+- *max-records* is the maximum number of records returned by the query
+
+In this way, ArcadeDB will start to scan the bucket from the given position *lower-rid* + 1. After the first call, the *lower-rid* will be the rid of the last record returned by the previous call. To scan the cluster from the beginning, use `#-1:-1` as *lower-rid* .

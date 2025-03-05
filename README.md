@@ -17,3 +17,55 @@ mvn jetty:run
 ```
 
 then open the browser to http://localhost:8080
+
+## Documentation Conventions
+
+To maintain consistency across the documentation, please follow these naming conventions:
+
+### File Naming Conventions
+
+All documentation files should use lowercase naming with hyphens between words:
+
+- ✅ `lowercase-with-hyphens.adoc`
+- ❌ `CamelCase.adoc`
+- ❌ `UPPERCASE.adoc`
+- ❌ `snake_case.adoc`
+
+### Document ID Anchors
+
+Document anchors should also use lowercase with hyphens:
+
+```asciidoc
+[[anchor-id-example]]
+== Section Title
+```
+
+### Cross-References
+
+Cross-references should use the lowercase anchor IDs:
+
+```asciidoc
+See the <<anchor-id-example,related section>> for more information.
+```
+
+## Validation
+
+The documentation includes automated validation to ensure consistency and correctness.
+
+### Running the Validator
+
+Run the documentation validator locally:
+
+```shell
+python docs-validator.py
+```
+
+This validator checks:
+1. File naming conventions (lowercase with hyphens)
+2. Anchor naming conventions (lowercase with hyphens)
+3. Cross-reference validity (all references point to existing anchors)
+4. Orphaned pages (pages not referenced by other pages)
+
+### Continuous Integration
+
+The documentation validator runs automatically on GitHub when changes are pushed or pull requests are created. This ensures that documentation standards are maintained consistently.
