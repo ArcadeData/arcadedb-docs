@@ -1,4 +1,4 @@
-[[HTTP-API]]
+[[http-api]]
 === HTTP/JSON Protocol
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc" float=right]
@@ -8,17 +8,17 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 [cols="30,10,~",options="header"]
 |===
 | *Action*                                    | *Method* | *Endpoint*
-| <<#HTTP-CheckReady,Get server status>>      | GET    | `/api/v1/ready`
-| <<#HTTP-ServerInfo,Get server information>> | GET    | `/api/v1/server`
-| <<#HTTP-ServerCommand,Send server command>> | POST   | `/api/v1/server`
-| <<#HTTP-ListDatabases,List databases>>      | GET    | `/api/v1/databases`
-| <<#HTTP-DatabaseExists,Does database exist>>| GET    | `/api/v1/exists/{database}`
-| <<#HTTP-ExecuteQuery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
-| <<#HTTP-ExecuteQuery,Execute a query>>      | POST   | `/api/v1/query/{database}`
-| <<#HTTP-ExecuteCommand,Execute database command>>  | POST   | `/api/v1/command/{database}`
-| <<#HTTP-Begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
-| <<#HTTP-Commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
-| <<#HTTP-Rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
+| <<http-checkready,Get server status>>      | GET    | `/api/v1/ready`
+| <<http-serverinfo,Get server information>> | GET    | `/api/v1/server`
+| <<http-servercommand,Send server command>> | POST   | `/api/v1/server`
+| <<http-listdatabases,List databases>>      | GET    | `/api/v1/databases`
+| <<http-databaseexists,Does database exist>>| GET    | `/api/v1/exists/{database}`
+| <<http-executequery,Execute a query>>      | GET    | `/api/v1/query/{database}/{language}/{query}`
+| <<http-executequery,Execute a query>>      | POST   | `/api/v1/query/{database}`
+| <<http-executecommand,Execute database command>>  | POST   | `/api/v1/command/{database}`
+| <<http-begin,Begin a new transaction>>     | POST   | `/api/v1/begin/{database}`
+| <<http-commit,Commit a transaction>>       | POST   | `/api/v1/commit/{database}`
+| <<http-rollback,Rollback a transaction>>   | POST   | `/api/v1/rollback/{database}`
 |===
 
 *Overview Query & Command Parameters*
@@ -53,19 +53,19 @@ This is for example the case in the data argument (`-d`) of POST requests.
 ==== Server-Side Transactions
 
 ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
-A session is created with the <<HTTP-Begin,/begin>> request and returns a session id in the response header (example `arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`).
-Use the session id in the request header of further commands you want to execute in the same transaction and request <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
-After a period of inactivity (default is 30 seconds, see <<Settings,`server.httpTxExpireTimeout`>>), the server automatically rolls back and purges expired transactions.
+A session is created with the <<http-begin,/begin>> request and returns a session id in the response header (example `arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`).
+Use the session id in the request header of further commands you want to execute in the same transaction and request <<http-commit,/commit>> to commit the server side transaction or <<http-rollback,/rollback>> to rollback the changes.
+After a period of inactivity (default is 30 seconds, see <<settings-sql,`server.httpTxExpireTimeout`>>), the server automatically rolls back and purges expired transactions.
 
 [discrete]
 ==== Transaction Scripts
 
-In case <<SQL,SQL>> (`sql`) is supposed to be used as language for a transactions, the language variant <<SQL-Script,SQL Script>> (`sqlscript`) is also available.
+In case <<sql,SQL>> (`sql`) is supposed to be used as language for a transactions, the language variant <<sql-script,SQL Script>> (`sqlscript`) is also available.
 A `sqlscript` can consist of one or multiple SQL statements, which is collectively treated as a transaction.
 Hence, for such a batch of SQL statements, no `begin` and `commit` commands are necessary, since `begin` and `commit` implicitly enclose any `sqlscript` command.
 
 [discrete]
-[[WebSocket-Streaming]]
+[[websocket-streaming]]
 ==== Streaming Change Events
 
 IMPORTANT: This feature only works on the server where changes are executed.
@@ -127,9 +127,7 @@ Once subscribed, you will get JSON messages for any matching changes with the fo
 
 The server answers a HTTP request with a response.
 This response can have a body, which will always be in the JSON format.
-Generally, a successful response (HTTP status codes 2xx) contains a `result` field,
-while an erroneous request (HTTP status code 4xx) has an `error` field,
-and a server error (HTTP status code 5xx), in addition to the `error` field, provides a `detail` and an `exception` field.
+Generally, a successful response (HTTP status codes 2xx) contains a `result` field, while an erroneous request (HTTP status code 4xx) has an `error` field, and a server error (HTTP status code 5xx), in addition to the `error` field, provides a `detail` and an `exception` field.
 
 [discrete]
 ==== Tutorial
@@ -178,7 +176,7 @@ $ curl -X POST http://localhost:2480/api/v1/command/school \
 ==== Reference
 
 [discrete]
-[[HTTP-CheckReady]]
+[[http-checkready]]
 ===== Check if server is ready (GET)
 
 Returns a header-only (no content) status about if the ArcadeDB server is ready.
@@ -206,7 +204,7 @@ HTTP/1.1 204 OK
 ----
 
 [discrete]
-[[HTTP-ServerInfo]]
+[[http-serverinfo]]
 ===== Get server information (GET)
 
 Returns the current configuration.
@@ -240,7 +238,7 @@ Return:
 ----
 
 [discrete]
-[[HTTP-ServerCommand]]
+[[http-servercommand]]
 ===== Send server command (POST)
 
 Sends control commands to server.
@@ -258,11 +256,11 @@ The following commands are available:
 * `drop user <username>` deletes user `username`
 * `get server events [<filename>]` returns a list of server events, optionally a filename of the form `server-event-log-yyyymmdd-HHMMSS.INDEX.jsonl` (where `INDEX` is a integer, i.e. `0`) can be given to retrieve older event logs
 * `shutdown` kills the server gracefully.
-* `set server setting <key> <value>` sets the server setting with `key` to `value`, see the <<Setting-Table,list of server-level settings>>
-* `set database setting <dbname> <key> <value>` sets the database's <dbname> with `key` to `value`, see the <<Setting-Table,list of database-level settings>>
+* `set server setting <key> <value>` sets the server setting with `key` to `value`, see the <<setting-table,list of server-level settings>>
+* `set database setting <dbname> <key> <value>` sets the database's <dbname> with `key` to `value`, see the <<setting-table,list of database-level settings>>
 * `connect cluster <address>` connects this server to a cluster with `address`
 * `disconnect cluster` disconnects this server from a cluster
-* `align database <dbname>` aligns database `<dbname>`, see the associated <<_sql-align-database,SQL command>>
+* `align database <dbname>` aligns database `<dbname>`, see the associated <<sql-align-database,SQL command>>
 
 NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed.
 
@@ -528,7 +526,7 @@ Return:
 ----
 
 [discrete]
-[[HTTP-ListDatabases]]
+[[http-listdatabases]]
 ===== List Databases (GET)
 
 Returns a list of available databases for the requesting user.
@@ -556,7 +554,7 @@ Return:
 ----
 
 [discrete]
-[[HTTP-DatabaseExists]]
+[[http-databaseexists]]
 ===== Does database exist (GET)
 
 Returns boolean answering if database exists.
@@ -584,7 +582,7 @@ Return:
 ----
 
 [discrete]
-[[HTTP-ExecuteQuery]]
+[[http-executequery]]
 ===== Execute a query (GET|POST)
 
 This command allows executing idempotent commands, like `SELECT` and `MATCH`:
@@ -639,7 +637,8 @@ $ curl -X POST http://localhost:2480/api/v1/query/school \
 ----
 
 [discrete]
-[[HTTP-ExecuteCommand]]
+[[http-command]]
+[[http-executecommand]]
 ===== Execute database command (POST)
 
 Executes a non-idempotent command.
@@ -664,14 +663,15 @@ The payload, as a JSON, accepts the following parameters:
 
 - `language` is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
 - `command` the command to execute in encoded format
-- `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded. The completion of the command is noted in the log, yet no results of the command can be returned.
+- `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
+The completion of the command is noted in the log, yet no results of the command can be returned.
 - `limit` (optional) is the maximum number of results to return
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are introduced with a colon `:`.
 - `serializer` (optional) specify the serializer used for the result:
 ** `graph`: returns a graph separating vertices from edges
 ** `record`: returns everything as records
 ** `studio`: by default it's like record but with additional metadata for vertex records, such as the number of outgoing edges in `@out` property and total incoming edges in `@in` property.
-This serializer is used by <<Studio,Studio>>.
+This serializer is used by <<studio,Studio>>.
 
 Responses:
 
@@ -691,13 +691,13 @@ $ curl -X POST http://localhost:2480/api/v1/command/company \
 ----
 
 [discrete]
-[[HTTP-Begin]]
+[[http-begin]]
 ===== Begin a transaction (POST)
 
 Begins a transaction on the server managed as a session.
 The response header contains the session id.
 Set this id in the following requests to execute them in the same transaction scope.
-See also <<HTTP-Commit,/commit>> and <<HTTP-Rollback,/rollback>>.
+See also <<http-commit,/commit>> and <<http-rollback,/rollback>>.
 
 URL Syntax: `/api/v1/begin/{database}`
 
@@ -729,16 +729,16 @@ Returns the Session Id in the response header, example:
 
 `arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`
 
-Use the session id in the request header of further commands you want to execute in the same transaction and execute <<HTTP-Commit,/commit>> to commit the server side transaction or <<HTTP-Rollback,/rollback>> to rollback the changes.
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <<http-commit,/commit>> to commit the server side transaction or <<http-rollback,/rollback>> to rollback the changes.
 After a period of inactivity (default is 30 seconds), the server automatically rollback and purge expired transactions.
 
 [discrete]
-[[HTTP-Commit]]
+[[http-commit]]
 ===== Commit a transaction (POST)
 
 Commits a transaction on the server.
-Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
-See also <<HTTP-Begin,/begin>> and <<HTTP-Rollback,/rollback>>.
+Set the session id obtained with the <<http-begin,/begin>> command as a header of the request.
+See also <<http-begin,/begin>> and <<http-rollback,/rollback>>.
 
 URL Syntax: `/api/v1/commit/{database}`
 
@@ -746,7 +746,7 @@ Where:
 
 - `database` is the database name
 
-Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
+Set the session id returned from the <<http-begin,/begin>> command in the request header.
 If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
 
 Response:
@@ -765,12 +765,12 @@ $ curl -I -X POST http://localhost:2480/api/v1/commit/school \
 ----
 
 [discrete]
-[[HTTP-Rollback]]
+[[http-rollback]]
 ===== Rollback a transaction (POST)
 
 Rollbacks a transaction on the server.
-Set the session id obtained with the <<HTTP-Begin,/begin>> command as a header of the request.
-See also <<HTTP-Begin,/begin>> and <<HTTP-Commit,/commit>>.
+Set the session id obtained with the <<http-begin,/begin>> command as a header of the request.
+See also <<http-begin,/begin>> and <<http-commit,/commit>>.
 
 URL Syntax: `/api/v1/rollback/{database}`
 
@@ -778,7 +778,7 @@ Where:
 
 - `database` is the database name
 
-Set the session id returned from the <<HTTP-Begin,/begin>> command in the request header.
+Set the session id returned from the <<http-begin,/begin>> command in the request header.
 If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
 
 Response:
