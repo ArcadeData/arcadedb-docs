@@ -11,25 +11,25 @@ To obtain an instance of Database, use the class `<<databasefactory,DatabaseFact
 [cols=5]
 |===
 |<<async,async()>>
-|<<http-begin,begin()>>
+|<<begin,begin()>>
 |<<close,close()>>
-|<<http-commit,commit()>>
-|<<deleterecord-record,deleteRecord()>>
+|<<commit,commit()>>
+|<<deleterecord,deleteRecord()>>
 |<<drop,drop()>>
 |<<getschema-method,getSchema()>>
 |<<isopen,isOpen()>>
 |<<iterate-bucket,iterateBucket()>>
 |<<iterate-type,iterateType()>>
 |<<query-language-command-positionalparameters,query() positional parameters>>
-|<<query-language-command-parametermap,query() (parameter map)>>
-|<<command-language-command-positionalparameters,command() positional parameters>>
+|<<query-positionalparameters,query() (parameter map)>>
+|<<command-positionalparameters,command() positional parameters>>
 |<<command-language-command-parametermap,command() (parameter map)>>
 |<<lookupbykey-type-properties-keys,lookupByKey()>>
 |<<lookupbyrid-rid-loadcontent,lookupByRID()>>
 |<<newdocument-typename,newDocument()>>
 |<<newedgebykeys-sourcevertextype-sourcevertexkey-sourcevertexvalue-destinationvertextype-destinationvertexkey-destinationvertexvalue-createvertexifnotexist-edgetype-bidirectional-properties,newEdgeByKeys()>>
 |<<newvertex-typename,newVertex()>>
-|<<http-rollback,rollback()>>
+|<<rollback,rollback()>>
 |<<scan-bucket,scanBucket()>>
 |<<scan-type,scanType()>>
 |<<transaction-txblock,transaction() default>>
@@ -51,23 +51,23 @@ To obtain an instance of Database, use the class `<<databasefactory,DatabaseFact
 
 |<<transaction-retries,transaction() with retries>>
 |<<drop,drop()>>
-|<<query-language-command-parametermap,query() (parameter map)>>
+|<<query-positionalparameters,query() (parameter map)>>
 |<<newvertex-typename,newVertex()>>
-|<<command-language-command-positionalparameters,command() positional parameters>>
+|<<command-positionalparameters,command() positional parameters>>
 
-|<<http-begin,begin()>>
+|<<begin,begin()>>
 |<<isopen,isOpen()>>
 |<<lookupbykey-type-properties-keys,lookupByKey()>>
 |<<newedgebykeys-sourcevertextype-sourcevertexkey-sourcevertexvalue-destinationvertextype-destinationvertexkey-destinationvertexvalue-createvertexifnotexist-edgetype-bidirectional-properties,newEdgeByKeys()>>
 |<<command-language-command-parametermap,command() (parameter map)>>
 
-|<<http-commit,commit()>>
+|<<commit,commit()>>
 |
 |<<lookupbyrid-rid-loadcontent,lookupByRID()>>
-|<<deleterecord-record,deleteRecord()>>
+|<<deleterecord,deleteRecord()>>
 |<<getschema-method,getSchema()>>
 
-|<<http-rollback,rollback()>>
+|<<rollback,rollback()>>
 |
 |<<iterate-type,iterateType()>>
 |
@@ -98,101 +98,827 @@ To obtain an instance of Database, use the class `<<databasefactory,DatabaseFact
 [[async]]
 ====== async()
 
-[[transaction-retries]]
-
 It returns an instance of `<<databaseasyncexecutor,DatabaseAsyncExecutor>>` to execute asynchronous calls.
 
-[[iterate-type]]
-====== iterateType(type)
+Syntax:
 
-Iterates through all records of a specific type.
+[source,java]
+----
+DatabaseAsyncExecutor async()
+----
 
-[[iterate-bucket]]
-====== iterateBucket(bucket)
+Example:
 
-Iterates through all records in a specific bucket.
+Execute an asynchronous query:
 
-[[scan-type]]
-====== scanType(type)
+[source,java]
+----
+db.async().query("sql", "select from User", new AsyncResultsetCallback() {
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println( "Name = " + result.getProperty("name"));
+    return true;
+  }
 
-Scans all records of a specific type.
+  @Override
+  public void onError(Exception exception) {
+    System.err.println("Error on executing the query: " + exception );
+  }
+});
+----
 
-[[scan-bucket]]
-====== scanBucket(bucket)
+'''
+[[begin]]
+====== begin()
 
-Scans all records in a specific bucket.
+Starts a transaction on the current thread.
+Each thread can have only one active transaction.
+All the modification to the database become persistent only at pending changes in the transaction are made persistent only when the `<<commit,commit()>>` method is called.
+ArcadeDB supports ACID transactions.
+Before the commit, no other thread/client can see any of the changes contained in the current transaction.
+
+Syntax:
+
+```java
+begin()
+```
+
+Example:
+
+[source,java]
+----
+db.begin();  // <--- AT THIS POINT THE TRANSACTION IS STARTED AND ALL THE CHANGES ARE COLLECTED TILL THE COMMIT (SEE BELOW)
+try{
+  // YOUR CODE HERE
+  db.commit();
+} catch( Exception e ){
+  db.rollback();
+}
+----
+
+'''
 
 [[close]]
 ====== close()
 
-Closes the database, releasing all the acquired resources.
+Closes a database.
+This method should be called at the end of the application.
+By using Java7+ AutoClosed statement, the `close()` method is executed automatically at the end of the scope of the database variable.
 
-[[deleterecord-record]]
-====== deleteRecord(record)
+Syntax:
 
-Deletes a record from the database.
+[source,java]
+----
+void close()
+----
 
-[[query-language-command-positionalparameters]]
-====== query(language, command, positionalParameters)
+Example:
 
-Executes a query with positional parameters.
+[source,java]
+----
+Database db = new DatabaseFactory("/temp/mydb").open();
+try{
+  // YOUR CODE HERE
+} finally {
+  db.close();
+}
+----
 
-[[query-language-command-parametermap]]
-====== query(language, command, parameterMap)
+The suggested method is using Java7+ AutoClosed statement, to avoid the explicit `close()` calling:
 
-Executes a query with named parameters.
+[source,java]
+----
+try( Database db = new DatabaseFactory("/temp/mydb").open(); ) {
+  // YOUR CODE
+}
+----
 
-[[command-language-command-positionalparameters]]
-====== command(language, command, positionalParameters)
-
-Executes a command with positional parameters.
-
-[[command-language-command-parametermap]]
-====== command(language, command, parameterMap)
-
-Executes a command with named parameters.
+'''
 
 [[drop]]
 ====== drop()
 
-Drops the database, removing all its files.
+Drops a database.
+The database will be completely removed from the filesystem.
+
+Syntax:
+
+[source,java]
+----
+void drop()
+----
+
+Example:
+
+[source,java]
+----
+new DatabaseFactory("/temp/mydb").open().drop();
+----
+
+'''
 
 [[getschema-method]]
 ====== getSchema()
 
-Returns the database schema.
+Returns the Schema instance for the database.
+
+Syntax:
+
+[source,java]
+----
+Schema getSchema()
+----
+
+Example:
+
+[source,java]
+----
+db.getSchema().createVertexType("Song");
+----
+
+'''
 
 [[isopen]]
 ====== isOpen()
 
-Returns true if the database is currently open, otherwise false.
+Returns `true` if the database is open, otherwise `false`.
+
+Syntax:
+
+```java
+boolean isOpen()
+```
+
+Example:
+
+[source,java]
+----
+if( db.isOpen() ){
+  // YOUR CODE HERE
+}
+----
+
+'''
+
+[[query-language-command-positionalparameters]]
+====== query( language, command, positionalParameters )
+
+Executes a query, with optional positional parameters.
+This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database.
+The execution of any other commands will throw a `IllegalArgumentException` exception.
+
+Syntax:
+
+[source,java]
+----
+Resultset query( String language, String command, Object... positionalParameters )
+----
+
+Where:
+
+- `language`             is the language to use.
+Only "SQL" language is supported for now, but in the future multiple languages could be used
+- `command`              is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement
+- `positionalParameters` optional variable array of parameters to execute with the query
+
+It returns a `Resultset` object where the result can be iterated.
+
+Examples:
+
+Simple query:
+
+[source,java]
+----
+ResultSet resultset = db.query("sql", "select from V");
+while (resultset.hasNext()) {
+  Result record = resultset.next();
+  System.out.println( "Found record, name = " + record.getProperty("name"));
+}
+----
+
+Query passing positional parameters:
+
+[source,java]
+----
+ResultSet resultset = db.query("sql", "select from V where age > ? and city = ?", 18, "Melbourne");
+while (resultset.hasNext()) {
+  Result record = resultset.next();
+  System.out.println( "Found record, name = " + record.getProperty("name"));
+}
+----
+
+'''
+
+[[query-positionalparameters]]
+====== query( language, command, parameterMap )
+
+Executes a query taking a map for parameters.
+This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database.
+The execution of any other commands will throw a `IllegalArgumentException` exception.
+
+Syntax:
+
+[source,java]
+----
+Resultset query( String language, String command, Map<String,Object> parameterMap )
+----
+
+Where:
+
+- `language`     is the language to use.
+Only "SQL" language is supported for now, but in the future multiple languages could be used
+- `command`      is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `parameterMap` this map is used to extract the named parameters
+
+It returns a `Resultset` object where the result can be iterated.
+
+Examples:
+
+[source,java]
+----
+Map<String,Object> parameters = new HashMap<>();
+parameters.put("age", 18);
+parameters.put("city", "Melbourne");
+
+ResultSet resultset = db.query("sql", "select from V where age > :age and city = :city", parameters);
+while (resultset.hasNext()) {
+  Result record = resultset.next();
+  System.out.println( "Found record, name = " + record.getProperty("name"));
+}
+----
+
+'''
+[[command-positionalparameters]]
+====== command( language, command, positionalParameters )
+
+Executes a command that could change the database.
+This is the equivalent to `query()`, but allows the command to modify the database.
+Only "SQL" language is supported, but in the future multiple languages could be used.
+
+Syntax:
+
+[source,java]
+----
+Resultset command( String language, String command, Object... positionalParameters )
+----
+
+Where:
+
+- `language`             is the language to use.
+Only "SQL" is supported
+- `command`              is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
+- `positionalParameters` optional variable array of parameters to execute with the query
+
+It returns a `Resultset` object where the result can be iterated.
+
+Examples:
+
+Create a new record:
+
+[source,java]
+----
+db.command("sql", "insert into V set name = 'Jay', surname = 'Miner'");
+----
+
+Create a new record by passing position parameters:
+
+[source,java]
+----
+db.command("sql", "insert into V set name = ?, surname = ?", "Jay", "Miner");
+----
+
+'''
+
+[[command-language-command-parametermap]]
+====== command( language, command, parameterMap )
+
+Executes a command that could change the database.
+This is the equivalent to `query()`, but allows the command to modify the database.
+Only "SQL" language is supported, but in the future multiple languages could be used.
+
+Syntax:
+
+[source,java]
+----
+Resultset command( String language, String command, Map<String,Object> parameterMap )
+----
+
+Where:
+
+- `language`     is the language to use.
+Only "SQL" is supported
+- `command`      is the command to execute.
+If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
+- `parameterMap` this map is used to extract the named parameters
+
+It returns a `Resultset` object where the result can be iterated.
+
+Examples:
+
+Create a new record by passing a map of parameters:
+
+[source,java]
+----
+Map<String,Object> parameters = new HashMap<>();
+parameters.put("name", "Jay");
+parameters.put("surname", "Miner");
+
+db.command("sql", "insert into V set name = :name, surname = :surname", parameters);
+----
+
+'''
+
+[[commit]]
+====== commit()
+
+Commits the thread's active transaction.
+All the pending changes in the transaction are made persistent.
+A transaction must be begun by calling the `<<begin,begin()>>` method.
+Rolled back transactions cannot be committed.
+ArcadeDB supports ACID transactions.
+Before the commit, no other thread/client can see any of the changes contained in the current transaction.
+ArcadeDB uses a WAL (Write Ahead Log) as journal in case a crash happens at commit time.
+In this way, at the next restart, the database can be rollbacked at the previous state.
+If the commit operation succeed, the changes are immediately visible to the other threads/clients and further transactions of the current thread.
+
+Syntax:
+
+[source,java]
+----
+commit()
+----
+
+Example:
+
+[source,java]
+----
+db.begin();
+try{
+  // YOUR CODE HERE
+  db.commit();  // <--- COMMIT ALL THE CHANGES "ALL OR NOTHING" IN PERSISTENT WAY
+} catch( Exception e ){
+  db.rollback();
+}
+----
+
+'''
+
+[[deleterecord]]
+====== deleteRecord( record )
+
+Deleted a record.
+The record will be persistently deleted only at commit time.
+
+Syntax:
+
+[source,java]
+----
+void deleteRecord( Record record )
+----
+
+Examples:
+
+[source,java]
+----
+db.deleteRecord( customer );
+----
+
+'''
+
+[[iterate-bucket]]
+====== iterateBucket( bucketName )
+
+Iterates all the records contained in a bucket.
+To scan a type (with all its buckets), use the method <<iterate-type,iterateType()>> instead.
+The result are not accumulated in RAM, but tather this method returns an `Iterator<Record>` that fetches the records only when `.next()` is called.
+
+Syntax:
+
+[source,java]
+----
+Iterator<Record> iterateBucket( String bucketName )
+----
+
+Example:
+
+Aggregate the records by age.
+This is equivalent to a SQL query with a "group by age":
+
+[source,java]
+----
+Map<String, AtomicInteger> aggregate = new HashMap<>();
+
+Iterator<Record> result = db.iterateType("V", true );
+while( result.hasNext() ){
+  Record record = result.next();
+
+  String age = (String) record.get("age");
+  AtomicInteger counter = aggregate.get(age);
+  if (counter == null) {
+    counter = new AtomicInteger(1);
+    aggregate.put(age, counter);
+  } else
+    counter.incrementAndGet();
+}
+----
+
+Example:
+
+Prints all the records in the bucket "Customer" with age major or equals to 21.
+
+[source,java]
+----
+Iterator<Record> result = db.iterateBucket("Customer");
+while( result.hasNext() ){
+  Record record = result.next();
+
+  Integer age = (Integer) record.get("age");
+  if (age =! null && age >= 21 )
+    System.out.println("Found customer: " + record.get("name") );
+}
+----
+
+'''
+
+[[iterate-type]]
+====== iterateType( className, polymorphic )
+
+Iterates all the records contained in the buckets relative to a type.
+If `polymorphic` is `true`, then also the sub-types buckets are considered.
+To iterate one bucket only check out the <<iterate-bucket,iterateBucket()>> method.
+The result are not accumulated in RAM, but tather this method returns an `Iterator<Record>` that fetches the records only when `.next()` is called.
+
+Syntax:
+
+[source,java]
+----
+Iterator<Record> iterateType( String typeName, boolean polymorphic )
+----
+
+Example:
+
+Aggregate the records by age.
+This is equivalent to a SQL query with a "group by age":
+
+[source,java]
+----
+Map<String, AtomicInteger> aggregate = new HashMap<>();
+
+Iterator<Record> result = db.iterateType("V", true );
+while( result.hasNext() ){
+  Record record = result.next();
+
+  String age = (String) record.get("age");
+  AtomicInteger counter = aggregate.get(age);
+  if (counter == null) {
+    counter = new AtomicInteger(1);
+    aggregate.put(age, counter);
+  } else
+    counter.incrementAndGet();
+}
+----
+
+'''
 
 [[lookupbykey-type-properties-keys]]
-====== lookupByKey(type, properties, keys)
+====== lookupByKey( type, properties, keys )
 
-Looks up records by their keys.
+Look ups for one or more records (document, vertex or edge) that match one or more indexed keys.
+
+Syntax:
+
+[source,java]
+----
+Cursor<RID> lookupByKey( String type, String[] properties, Object[] keys )
+----
+
+Where:
+
+- `type`       type name
+- `properties` array of property names to match
+- `keys`       array of keys
+
+It returns a `Cursor<RID>` (like an iterator).
+
+Examples:
+
+Look up for an author with name "Jay" and surname "Miner".
+This requires an index on the type "Author", properties "name" and "surname".
+
+[source,java]
+----
+Cursor<RID> jayMiner = database.lookupByKey("Author", new String[] { "name", "surname" }, new Object[] { "Jay", "Miner" });
+while( jayMiner.hasNext() ){
+  System.out.println( "Found Jay! " + jayMiner.next().getProperty("name"));
+}
+----
+
+'''
 
 [[lookupbyrid-rid-loadcontent]]
-====== lookupByRID(rid, loadContent)
+====== lookupByRID( rid, loadContent )
 
-Looks up a record by its Record ID.
+Look ups for a record (document, vertex or edge) by its RID (Record Identifier).
+
+Syntax:
+
+[source,java]
+----
+Record lookupByRID( RID rid, boolean loadContent )
+----
+
+Where:
+
+- `rid`         is the record identifier
+- `loadContent` forces the load of the content too.
+If the content is not loaded will be lazy loaded at the first access.
+Use `true` if you are going to access to the record content for sure, otherwise, use `false`
+
+It returns a `Record` implementation (document, vertex or edge).
+
+Examples:
+
+Load the vertex by RID and its content:
+
+[source,java]
+----
+Vertex v = (Vertex) db.lookupByRID(new RID(db, "#3:47"));
+----
+
+'''
 
 [[newdocument-typename]]
-====== newDocument(typeName)
+====== newDocument( typeName )
 
-Creates a new document of the specified type.
+Creates a new document of a certain type.
+The type must be of type "document" and must be created beforehand.
+In order to be saved, the method `MutableDocument.save()` must be called.
 
-[[newedgebykeys-sourcevertextype-sourcevertexkey-sourcevertexvalue-destinationvertextype-destinationvertexkey-destinationvertexvalue-createvertexifnotexist-edgetype-bidirectional-properties]]
-====== newEdgeByKeys(sourceVertexType, sourceVertexKey, sourceVertexValue, destinationVertexType, destinationVertexKey, destinationVertexValue, createVertexIfNotExist, edgeType, bidirectional, properties)
+Syntax:
 
-Creates a new edge between two vertices identified by keys.
+[source,java]
+----
+MutableDocument newDocument( typeName )
+----
+
+Where:
+
+- `typeName`    type name
+
+It returns a `MutableDocument` instance.
+
+Examples:
+
+Create a new document of type "Customer":
+
+[source,java]
+----
+MutableDocument doc = db.newDocument("Customer");
+doc.set("name", "Jay");
+doc.set("surname", "Miner");
+doc.save();  // THE DOCUMENT IS SAVED IN THE DATABASE ONLY WHEN `.save()` IS CALLED
+----
+
+'''
 
 [[newvertex-typename]]
-====== newVertex(typeName)
+====== newVertex( typeName )
 
-Creates a new vertex of the specified type.
+Creates a new vertex of a certain type.
+The type must be of type "vertex" and must be created beforehand.
+In order to be saved, the method `MutableVertex.save()` must be called.
+
+Syntax:
+
+[source,java]
+----
+MutableVertex newVertex( typeName )
+----
+
+Where:
+
+- `typeName`    type name
+
+It returns a `MutableVertex` instance.
+
+Examples:
+
+Create a new document of type "Customer":
+
+[source,java]
+----
+MutableVertex v = db.newVertex("Customer");
+v.set("name", "Jay");
+v.set("surname", "Miner");
+v.save();
+----
+
+'''
+
+[[newedgebykeys-sourcevertextype-sourcevertexkey-sourcevertexvalue-destinationvertextype-destinationvertexkey-destinationvertexvalue-createvertexifnotexist-edgetype-bidirectional-properties]]
+====== newEdgeByKeys( sourceVertexType, sourceVertexKey, sourceVertexValue, destinationVertexType, destinationVertexKey, destinationVertexValue, createVertexIfNotExist, edgeType, bidirectional, properties )
+
+Creates a new edge between two vertices found by their keys.
+
+Syntax:
+
+[source,java]
+----
+Edge newEdgeByKeys( String sourceVertexType, String[] sourceVertexKey,
+                    Object[] sourceVertexValue,
+                    String destinationVertexType, String[] destinationVertexKey,
+                    Object[] destinationVertexValue,
+                    boolean createVertexIfNotExist, String edgeType, boolean bidirectional,
+                    Object... properties )
+----
+
+Where:
+
+- `sourceVertexType`       source vertex type name
+- `sourceVertexKey`        source vertex key properties
+- `sourceVertexValue`      source vertex key values
+- `destinationVertexType`  destination vertex type name
+- `destinationVertexKey`   destination vertex key properties
+- `destinationVertexValue` destination vertex key values
+- `createVertexIfNotExist` creates source and/or destination vertices if not exist
+- `edgeType`               edge type name
+- `bidirectional`          `true` if the edge must be bidirectional, otherwise `false`
+- `properties`             optional property array with pairs of name (as string) and value
+
+It returns a `MutableEdge` instance.
+
+Examples:
+
+Create a new document of type "Customer":
+
+[source,java]
+----
+Edge likes = db.newEdgeByKeys( "Account",
+                                new String[] {"id"}, new Object[] {322323},
+                               "Song",
+                                new String[] {"title"},
+                                new Object[] {"Chasing Cars"},
+                               false, "Likes", true);
+likes.save();
+----
+
+'''
+
+[[rollback]]
+====== rollback()
+
+Aborts the thread's active transaction by rolling back all the pending changes.
+Usually the transaction rollback is executed in case of errors.
+If an exception happens during the call `<<commit,commit()>>`, the transaction is roll backed automatically.
+Once rolled backed, the transaction cannot be committed anymore but it has to be re-started by calling the `<<begin,begin()>>` method.
+
+Syntax:
+
+[source,java]
+----
+rollback()
+----
+
+Example:
+
+[source,java]
+----
+db.begin();
+try{
+  // YOUR CODE HERE
+  db.commit();
+} catch( Exception e ){
+  db.rollback(); // <--- ROLLBACK IN CASE OF EXCEPTION
+}
+----
+
+'''
+
+[[scan-bucket]]
+====== scanBucket( bucketName, callback )
+
+Scans all the records contained in a buckets.
+For each record found, the callback is called passing the current record.
+To scan a type (with all its buckets), use the method <<scan-type,scanType()>> instead.
+The callback method must return `true` to continue the scan, otherwise `false`.
+Look also at the <<iterate-bucket,iterateBucket()>> method if you want to use an iterator approach instead of callback.
+
+Syntax:
+
+[source,java]
+----
+void scanBucket(String bucketName, RecordCallback callback);
+----
+
+Example:
+
+Prints all the records in the bucket "Customer" with age major or equals to 21.
+
+[source,java]
+----
+db.scanBucket("Customer", (record) -> {
+  Integer age = (Integer) record.get("age");
+  if (age =! null && age >= 21 )
+    System.out.println("Found customer: " + record.get("name") );
+  return true;
+});
+----
+
+'''
+
+[[scan-type]]
+====== scanType( className, polymorphic, callback )
+
+Scans all the records contained in all the buckets relative to a type.
+If `polymorphic` is `true`, then also the sub-types buckets are considered.
+For each record found, the callback is called passing the current record.
+To scan one bucket only check out the <<scan-bucket,scanBucket()>> method.
+The callback method must return `true` to continue the scan, otherwise `false`.
+Look also at the <<iterate-type,iterateType()>> method if you want to use an iterator approach instead of callback.
+
+Syntax:
+
+[source,java]
+----
+scanType( String className, boolean polymorphic, DocumentCallback callback )
+----
+
+Example:
+
+Aggregate the records by age.
+This is equivalent to a SQL query with a "group by age":
+
+[source,java]
+----
+Map<String, AtomicInteger> aggregate = new HashMap<>();
+
+db.scanType("V", true, (record) -> {
+  String age = (String) record.get("age");
+  AtomicInteger counter = aggregate.get(age);
+  if (counter == null) {
+    counter = new AtomicInteger(1);
+    aggregate.put(age, counter);
+  } else
+    counter.incrementAndGet();
+
+  return true;
+});
+----
+
+'''
 
 [[transaction-txblock]]
-====== transaction(txBlock)
+====== transaction( txBlock )
 
-Executes a transaction.
+This methods wraps a call to the method <<transaction-retries,transaction with retries>> by using the default retries specified in the database setting `arcadedb.mvccRetries`.
+
+'''
+
+[[transaction-retries]]
+====== transaction( txBlock, retries )
+
+Executes a transaction block as a callback or a clojure.
+Before calling the callback in `TransactionScope`, the transaction is begun and after the end of the callback, the transaction is committed.
+In case of any exceptions, the transaction is rolled back.
+In case a `NeedRetryException` exceptions is thrown, the transaction is repeated up to `retries` times
+
+Syntax:
+
+[source,java]
+----
+void transaction( TransactionScope txBlock )
+----
+
+Examples:
+
+Example by using Java8+ syntax:
+
+[source,java]
+----
+db.transaction( () -> {
+  final MutableVertex v = database.newVertex("Author");
+  v.set("name", "Jay");
+  v.set("surname", "Miner");
+  v.save();
+});
+----
+
+Example by using Java7 syntax:
+
+[source,java]
+----
+db.transaction( new Database.TransactionScope() {
+  @Override
+  public void execute(Database database) {
+    final MutableVertex v = database.newVertex("Author");
+    v.set("name", "Jay");
+    v.set("surname", "Miner");
+    v.save();
+  }
+});
+----
+
+`
