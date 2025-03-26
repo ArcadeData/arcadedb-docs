@@ -48,23 +48,64 @@ void query( String language, String command, AsyncResultsetCallback callback,
 
 Where:
 
-* **`language`** is the language used, which can be "sql", "sqlscript", "cypher", etc.
-* **`command`** is the command to execute
-* **`callback`** is the callback instance that will be invoked when the query is executed
-* **`positionalParameters`** Optional, variable number of parameters to bind to the query
+- `language`             is the language to use
+- `command`              is the command to execute If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
+- `positionalParameters` optional variable array of parameters to execute with the query
 
-Example:
+To iterate the result, use the callback.
+
+Examples:
+
+Simple query:
 
 ```java
-database.async().query(
-  "sql",
-  "select name from Person where surname = ? and age > ?",
-  resultset -> {
-    resultset.stream().
-      map(Result::getProperty).
-      forEach(System.out::println);
-  },
-  "Smith", 18);
+db.async().query("sql", "select from V", new AsyncResultsetCallback() {
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println( "Found record, name = " + result.getProperty("name"));
+    return true;
+  }
+
+  @Override
+  public void onError(Exception exception) {
+    System.err.println("Error on executing query: " + exception );
+  }
+});
+```
+
+Query passing positional parameters:
+
+```java
+db.async().query("sql", "select from V where age > ? and city = ?", new AsyncResultsetCallback(){
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println( "Found record, name = " + result.getProperty("name"));
+    return true;
+  }
+}, 18, "Melbourne");
+```
+
+When you have multiple independent queries that could be executed in parallel, you could use the asynchronous interface and a `CountDownLatch`. The following example
+executes 3 queries in parallel and wait for all of them to have finished.
+
+```java
+CountDownLatch counter = new CountDownLatch(3);
+
+final ResultSet[] resultSets = new ResultSet[3];
+database.async().query("sql", "select from X", resultset -> { resultSets[0] = resultset; counter.countDown(); });
+database.async().query("sql", "select from Y", resultset -> { resultSets[1] = resultset; counter.countDown(); });
+database.async().query("sql", "select from Z", resultset -> { resultSets[2] = resultset; counter.countDown(); });
+
+// WAIT INDEFINITELY
+counter.await();
+
+// OR YOU CAN SPECIFY A TIMEOUT, LIKE 10 SECONDS TOP
+// counter.await(10, TimeUnit.SECONDS);
 ```
 
 '''
@@ -88,23 +129,29 @@ void query( String language, String command, AsyncResultsetCallback callback,
 
 Where:
 
-* **`language`** is the language used, which can be "sql", "sqlscript", "cypher", etc.
-* **`command`** is the command to execute
-* **`callback`** is the callback instance that will be invoked when the query is executed
-* **`parameterMap`** Map string-value of named parameters
+- `language`     is the language to use
+- `command`      is the command to execute If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
+- `parameterMap` this map is used to extract the named parameters
 
-Example:
+To iterate the result, use the callback.
+
+Examples:
 
 ```java
-database.async().query(
-  "sql",
-  "select name from Person where surname = :surname and age > :age",
-  resultset -> {
-    resultset.stream().
-      map(Result::getProperty).
-      forEach(System.out::println);
-  },
-  Map.of("surname", "Smith", "age", 18));
+Map<String,Object> parameters = Map.of("age", 18, "city", "Melbourne");
+
+db.async().query("sql", "select from V where age > :age and city = :city", new AsyncResultsetCallback(){
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println( "Found record, name = " + result.getProperty("name"));
+    return true;
+  }
+}, parameters);
 ```
 
 '''
@@ -125,23 +172,48 @@ void command( String language, String command,
 ```
 
 Where:
-* **`language`** is the language used, which can be "sql", "sqlscript", "cypher", etc.
-* **`command`** is the command to execute
-* **`callback`** is the callback instance that will be invoked when the query is executed
-* **`positionalParameters`** Optional, variable number of parameters to bind to the query
 
-Example:
+- `language`             is the language to use
+- `command`              is the command to execute If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
+- `positionalParameters` optional variable array of parameters to execute with the query
+
+To iterate the result, use the callback.
+
+Examples:
+
+Create a new record:
 
 ```java
-database.async().command(
-  "sql",
-  "insert into Person(name, surname, age) values(?,?,?)",
-  resultset -> {
-    resultset.stream().
-      map(Result::getProperty).
-      forEach(System.out::println);
-  },
-  "Jay", "Miner", 12);
+db.async().command("sql", "insert into V set name = 'Jay', surname = 'Miner'", new AsyncResultsetCallback() {
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println("Created new record: " + result.toJSON() );
+    return true;
+  }
+
+  @Override
+  public void onError(Exception exception) {
+    System.err.println("Error on creating new record: " + exception );
+  }
+});
+```
+
+Create a new record by passing position parameters:
+
+```java
+db.async().command("sql", "insert into V set name = ? surname = ?", new AsyncResultsetCallback() {
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println("Created new record: " + result.toJSON() );
+    return true;
+  }
+}, "Jay", "Miner");
 ```
 
 '''
@@ -165,26 +237,39 @@ void command( String language, String command,
 ```
 
 Where:
-* **`language`** is the language used, which can be "sql", "sqlscript", "cypher", etc.
-* **`command`** is the command to execute
-* **`callback`** is the callback instance that will be invoked when the query is executed
-* **`parameterMap`** Optional map of parameters to bind to the statement
 
-Example:
+- `language`     is the language to use
+- `command`      is the command to execute If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
+If the language supports prepared statements (SQL does), you can specify parameters by name by using `:<arg-name>`
+- `callback`     optional, is the callback that will be used for the whole lifecycle of the result set:
+** `onStart()` executed when the query is parsed and the first result ready
+** `onNext()` executed foreach result in the result set Return `true` to continue browsing the result set, otherwise `false` to interrupt fetching the result set
+** `onComplete()` executed when the entire result set is browsed, or the `onNext()` returned false to interrupt the browsing
+** `onError()` in case of any exception while executing the query
+- `parameterMap` this map is used to extract the named parameters
+
+To iterate the result, use the callback.
+
+Examples:
+
+Create a new record by passing a map of parameters:
 
 ```java
-database.async().command(
-  "sql",
-  "insert into Person(name, surname, age) values(:name, :surname, :age)",
-  resultset -> {
-    resultset.stream().
-      map(Result::getProperty).
-      forEach(System.out::println);
-  },
-  Map.of("surname", "Smith", "age", 18, "name", "John"));
-```
+Map<String,Object> parameters = Map.of("name", "Jay", "surname", "Miner");
 
-'''
+db.async().command("sql", "insert into V set name = :name, surname = :surname", new AsyncResultsetCallback() {
+  @Override
+  public boolean onNext(Result result) {
+    System.out.println("Created new record: " + result.toJSON() );
+    return true;
+  }
+
+  @Override
+  public void onError(Exception exception) {
+    System.err.println("Error on creating new record: " + exception );
+  }
+}, parameters);
+```
 
 [[async-transaction]]
 [discrete]
@@ -204,87 +289,90 @@ database.async().transaction( database -> {
 
 [[asynccreate]]
 [discrete]
-====== createRecord( record, callback )
+====== createRecord(record, newRecordCallback [,errorCallback])
 
 Create a record in async way. Once the record is created in the database, the callback will be executed.
 This method returns immediately.
+The result can be managed in the NewRecordCallback callback and errors in ErrorCallback callback.
 
 Syntax:
 
 ```java
-void createRecord( Record record, AsyncDocumentCallback callback )
+void createRecord(final MutableDocument record, final NewRecordCallback newRecordCallback,
+                  final ErrorCallback errorCallback)
 ```
 
 Where:
-* **`record`** is the pojo to persist in the database
-* **`callback`** is the callback instance that will be invoked once the record has been created
 
-Example:
+- `record` is the mutable record to insert
+- `newRecordCallback` is the callback to handle the result after the record has been inserted
+- `errorCallback` (optional) is the callback to handle any error raised during insertion
+
+Example on inserting a vertex asynchronously.
 
 ```java
-MutableDocument doc = database.newDocument( "Client" );
-doc.set( "name", "Elon" );
-doc.set( "surname", "Musk" );
-doc.set( "status", "active" );
-
-database.async().createRecord( doc, document -> {
-  // DOCUMENT CREATED ASYNCHRONOUSLY
-  System.out.println( "Async creation completed, record=" + document.getIdentity() );
-});
+final MutableVertex vertex = database.newVertex("Customer").set("name", "Albert");
+database.async().createRecord(vertex,
+                              v -> { System.out.println("Record " + v.toJSON() + " created") });
 ```
 
 '''
 
 [[asyncupdate]]
 [discrete]
-====== updateRecord( record, callback )
+====== updateRecord(record, updateRecordCallback [,errorCallback])
 
 Updates a record in async way. Once the record is updated in the database, the callback will be executed.
 This method returns immediately.
+The result can be managed in the UpdatedRecordCallback callback and errors in ErrorCallback callback.
 
 Syntax:
 
 ```java
-void updateRecord( Record record, AsyncDocumentCallback callback )
+void updateRecord(final MutableDocument record, final UpdatedRecordCallback updateRecordCallback,
+                  final ErrorCallback errorCallback)
 ```
 
 Where:
-* **`record`** is the pojo to update in the database
-* **`callback`** is the callback instance that will be invoked once the record has been updated
 
-Example:
+- `record` is the mutable record to update
+- `updateRecordCallback` is the callback to handle the result after the record has been updated
+- `errorCallback` (optional) is the callback to handle any error raised during update]
+
+Example on inserting a vertex asynchronously.
 
 ```java
-database.async().update( document, document -> {
-  // DOCUMENT UPDATED ASYNCHRONOUSLY
-  System.out.println( "Async update completed, record=" + document.getIdentity() + " version=" + document.getVersion() );
-});
+database.async().updateRecord(vertex,
+                              v -> { System.out.println("Record " + v.toJSON() + " updated") });
 ```
 
 '''
 
 [[asyncdelete]]
 [discrete]
-====== deleteRecord( record, callback )
+====== deleteRecord(record, deleteRecordCallback [,errorCallback])
 
 Deletes a record in async way. Once the record is deleted from the database, the callback will be executed.
 This method returns immediately.
+The result can be managed in the DeletedRecordCallback callback and errors in ErrorCallback callback.
 
 Syntax:
 
 ```java
-void deleteRecord( Record record, AsyncResultCallback callback )
+void deleteRecord(final Record record, final DeletedRecordCallback deleteRecordCallback,
+                  final ErrorCallback errorCallback)
 ```
 
 Where:
-* **`record`** is the pojo to delete from the database
-* **`callback`** is the callback instance that will be invoked once the record has been deleted
 
-Example:
+- `record` is the record to delete
+- `updateRecordCallback` is the callback to handle the result after the record has been deleted
+- `errorCallback` (optional) is the callback to handle any error raised during deletion
+
+Example on inserting a vertex asynchronously.
 
 ```java
-database.async().deleteRecord( document, result -> {
-  // DOCUMENT DELETED ASYNCHRONOUSLY
-  System.out.println( "Async deletion completed, deleted=" + result.isDeleted() );
-});
+database.async().deleteRecord(vertex,
+                              v -> { System.out.println("Record " + v.toJSON() + " updated") });
 ```
+
