@@ -3,7 +3,9 @@
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/server/ha.adoc" float="right"]
 
-ArcadeDB supports a High Availability mode where multiple servers share the same database (replication).
+ArcadeDB supports a High Availability mode where multiple servers share the same database via replication.
+
+NOTE: All servers of a cluster serve the same databases.
 
 In order to start an ArcadeDB server with the support for replication, you need to:
 
@@ -13,7 +15,7 @@ To setup the server list, define the `arcadedb.ha.serverList` setting by separat
 The default port is `2424` if not specified.
 3. Define the local server name by setting the `arcadedb.server.name` configuration.
 Each node must have a unique name.
-If not specified, the default server name is "ArcadeDB_0"
+If not specified, the default server name is `ArcadeDB_0`.
 
 Example:
 
@@ -50,8 +52,6 @@ NOTE: The cluster name by default is "arcadedb", but you can have multiple clust
 To specify a custom name, set the configuration `arcadedb.ha.clusterName=<name>`.
 Example: `bin/server.sh -Darcadedb.ha.clusterName=projectB`
 
-NOTE: All servers of a cluster serve the same databases.
-
 ==== Architecture
 
 ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.
@@ -72,13 +72,13 @@ ArcadeDB has a Leader/Replica model by using RAFT consensus for election and rep
   +----------+          +----------+          +----------+
 ....
 
-Each server has its own Journal.
-The Journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes.
-All the write operations must be coordinated by the Leader node.
+Each server has its own journal.
+The journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes.
+All the write operations must be coordinated by the leader node.
 
-Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the Leader server.
+Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the leader server.
 
-.Read Request executed on a Replica
+.Read request executed on a replica
 [ditaa,ha-replica-read]
 ....
             +------------+
@@ -93,9 +93,9 @@ Any read operation, like a query, can be executed by any server in the cluster, 
             +------------+
 ....
 
-ArcadeDB doesn't mandate the clients to be connected directly to the leader to execute write operations, but will use the Replica server to forward the write request to the Leader server.
-Everything is transparent for the end user where both Leader and Replica servers can read and write, but internally only the read requests are executed on the connected server.
-All the write requests will be transparently forwarded to the Leader.
+ArcadeDB doesn't mandate the clients to be connected directly to the leader to execute write operations, but will use the replica server to forward the write request to the leader server.
+Everything is transparent for the end user where both leader and replica servers can read and write, but internally only the read requests are executed on the connected server.
+All the write requests will be transparently forwarded to the leader.
 
 Look at the picture below where the client `Client A` is connected to the replica server `ArcadeDB_1` where it executes a write request.
 
@@ -137,10 +137,10 @@ ArcadeDB manages the fail-over automatically in most of the cases.
 
 A server can become unreachable for many reasons:
 
-- The ArcadeDB Server process has been terminated
-- The physical or virtual server hosting the ArcadeDB Server process has been shut off or is rebooting
-- The physical or virtual server hosting the ArcadeDB Server process has network issues and can't reach one or more of the other servers
-- Network issues that prevent the ArcadeDB Server to communicate with the rest of the servers in the cluster
+- The ArcadeDB server process has been terminated
+- The physical or virtual server hosting the ArcadeDB server process has been shut off or is rebooting
+- The physical or virtual server hosting the ArcadeDB server process has network issues and can't reach one or more of the other servers
+- Network issues that prevent the ArcadeDB server to communicate with the rest of the servers in the cluster
 
 ==== Auto balancing clients
 
@@ -160,7 +160,7 @@ db.transaction( ()-> {
 });
 ----
 
-If you are inserting a lot of record in parallel (by using the Server, or just via API multi-thread), you could benefit by allocating the bucket per thread. Example to change the bucket selection strategy for the vertex type "User" via SQL:
+If you are inserting a lot of record in parallel (by using the server, or just via API multi-thread), you could benefit by allocating the bucket per thread. Example to change the bucket selection strategy for the vertex type "User" via SQL:
 
 [source,sql]
 ----
@@ -187,8 +187,8 @@ Example: 192.168.0.1:2424,192.168.0.2:2424. If not specified, auto-discovery is 
 |`+arcadedb.ha.k8sSuffix+`|When running inside Kubernetes use this suffix to reach the other servers.
 Example: `+arcadedb.default.svc.cluster.local+`|
 |`+arcadedb.ha.replicationQueueSize+`|Queue size for replicating messages between servers| 512
-|`+arcadedb.ha.replicationFileMaxSize+`|Maximum file size for replicating messages between servers"|1GB
+|`+arcadedb.ha.replicationFileMaxSize+`|Maximum file size for replicating messages between servers|1GB
 |`+arcadedb.ha.replicationChunkMaxSize+`|Maximum channel chunk size for replicating messages between servers|16777216
 |`+arcadedb.ha.replicationIncomingHost+`|TCP/IP host name used for incoming replication connections|localhost
-|`+arcadedb.ha.replicationIncomingPorts+`|TCP/IP port number used for incoming replication connections|2424-2433
+|`+arcadedb.ha.replicationIncomingPorts+`|TCP/IP port number (range) used for incoming replication connections|2424-2433
 |===
