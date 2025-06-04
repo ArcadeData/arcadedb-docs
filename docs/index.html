@@ -1330,7 +1330,7 @@ When you execute a query against a type, it automatically fetches from all the b
 When you create a new record, ArcadeDB selects the bucket to store it in using a <a href="#bucket-selection">configurable strategy</a>.</p>
 </div>
 <div class="paragraph">
-<p>As a default, ArcadeDB creates one bucket per type, but can be configured to for example to as many cores (processors) the host machine has, see <a href="#_database-2"><code>typeDefaultBuckets</code></a>.
+<p>As a default, ArcadeDB creates one bucket per type, but can be configured to for example to as many cores (processors) the host machine has, see <a href="#setting-database"><code>typeDefaultBuckets</code></a>.
 In this, CRUD operations can go full speed in parallel with zero contention between CPUs and/or cores.
 Having many buckets per type means having more files at file system level.
 Check if your operating system has any limitation with the number of files supported and opened at the same time (<code>ulimit</code> for Unix-like systems).</p>
@@ -5452,7 +5452,7 @@ By using the asynchronous API you let to ArcadeDB to use all the resources of yo
 <tbody>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">The Synchronous API executes the operation immediately, by the current thread, and returns when it&#8217;s finished. If you use a procedural approach, using the synchronous API is the easiest way to use ArcadeDB. In order to use all the resource of your machine, you might use multi-threading in your application.</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">The Asynchronous API schedules jobs to be executed as soon as possible by a pool of threads. ArcadeDB optimizes the usage of asynchronous threads pool to be equals to the number of cores found in the machine (you can modify it via API). Use Asynchronous API if the response of the operation can be managed in asynchronous way. Thanks to the asynchronous API, your application doesn&#8217;t need to be multi-threads to use all the available cores.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The Asynchronous API schedules jobs to be executed as soon as possible by a pool of threads. ArcadeDB optimizes the usage of asynchronous threads pool to be equals to the number of cores found in the machine (you can modify it via API). Use Asynchronous API if the response of the operation can be managed in asynchronous way. Thanks to the asynchronous API, your application doesn&#8217;t need to be multi-threads to use all the available cores. The asynchronous API is configurable via <a href="#setting-database">database settings</a>.</p></td>
 </tr>
 </tbody>
 </table>
@@ -10027,7 +10027,7 @@ The completion of the command is noted in the log, yet no results of the command
 <p><code>limit</code> (optional) is the maximum number of results to return</p>
 </li>
 <li>
-<p><code>params</code> (optional), is the map of parameters to pass to the query engine, where parameters are introduced with a colon <code>:</code>.</p>
+<p><code>params</code> (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon <code>:</code>.</p>
 </li>
 <li>
 <p><code>serializer</code> (optional) specify the serializer used for the result:</p>
@@ -10047,6 +10047,18 @@ This serializer is used by <a href="#studio">Studio</a>.</p>
 </div>
 </li>
 </ul>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+Asynchronous commands (using <code>"awaitResponse": false</code>) are queued, and their processing is configurable via <a href="#setting-database"><code>async*</code> database settings</a>.
+</td>
+</tr>
+</table>
 </div>
 <div class="paragraph">
 <p>Responses:</p>
@@ -24352,6 +24364,12 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <td class="tableblock halign-left valign-top"><p class="tableblock">PBKDF2WithHmacSHA256</p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>server.reloadEvery</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Time in milliseconds of checking if the server security files have been modified to be reloaded</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">5000</p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>server.securitySaltCacheSize</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Cache size of hashed salt passwords. The cache works as LRU. Use 0 to disable the cache</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
@@ -24385,7 +24403,7 @@ If you&#8217;re embedding a server in your Java application you can use these se
 </table>
 </div>
 <div class="sect4">
-<h5 id="_database_2">DATABASE</h5>
+<h5 id="setting-database">DATABASE</h5>
 <table class="tableblock frame-all grid-all stripes-even stretch">
 <colgroup>
 <col style="width: 20%;">
@@ -24415,6 +24433,12 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <td class="tableblock halign-left valign-top"><p class="tableblock">1024</p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>asyncBackPressure</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">When the asynchronous queue is full at a certain percentage, back pressure is applied</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">0</p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>asyncTxBatchSize</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum number of operations to commit in batch by async thread</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
@@ -24422,15 +24446,21 @@ If you&#8217;re embedding a server in your Java application you can use these se
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>asyncWorkerThreads</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Number of asynchronous worker threads. 0 (default) = available cores minus 1</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Number of asynchronous worker threads. By default it is cores minus 1, but at least 1</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">15</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">(machine dependent)</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>bucketDefaultPageSize</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Default page size in bytes for buckets. Default is 65536</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">65536</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>bucketWipeOutOnDelete</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Wipe out record content on delete. If enabled, assures deleted records cannot be analyzed by parsing the raw files and backups will be more compressed, but it also makes deletes a little bit slower</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Boolean</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">true</p></td>
 </tr>
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>command.timeout</code></p></td>
@@ -24493,82 +24523,88 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <td class="tableblock halign-left valign-top"><p class="tableblock">50</p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>gremlin.engine</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Gremlin engine to use. By default the <code>auto</code> setting uses the legacy <code>groovy</code> engine in case parameters are set, otherwise, the new native <code>java</code> is preferred. If you have compatibility issues with gremlin statements that use lambdas or in general, switch to the <code>groovy</code> one</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">auto</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>gremlin.timeout</code></p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Default timeout for gremlin commands (in ms)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">8000</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionMinPagesSchedule</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionMinPagesSchedule</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Minimum number of mutable pages for an index to be schedule for automatic compaction. 0 = disabled</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">10</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionRAM</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionRAM</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum amount of RAM to use for index compaction, in MB</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">300</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initialPageCacheSize</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initialPageCacheSize</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Initial number of entries for page cache</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">65535</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>maxPageRAM</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>maxPageRAM</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum amount of pages (in MB) to keep in RAM</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">4096</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pageFlushQueue</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pageFlushQueue</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Size of the asynchronous page flush queue</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">512</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>polyglotCommand.timeout</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>polyglotCommand.timeout</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Default timeout for polyglot commands (in ms)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">10000</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>queryMaxHeapElementsAllowedPerOp</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>queryMaxHeapElementsAllowedPerOp</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum number of elements (records) allowed in a single query for memory-intensive operations (eg. ORDER BY in heap). If exceeded, the query fails with an OCommandExecutionException. Negative number means no limit.This setting is intended as a safety measure against excessive resource consumption from a single query (eg. prevent OutOfMemory)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">500000</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>sqlStatementCache</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>sqlStatementCache</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum number of parsed statements to keep in cache</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">300</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetries</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetries</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Number of retries in case of MVCC exception</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">3</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetryDelay</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Maximum amount of milliseconds to compute a random number to wait for the next retry. This setting is helpful in case of high concurrency on the same pages (multi-thread insertion over the same bucket</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">100</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWAL</code></p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Uses the WAL</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Boolean</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">true</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWalFlush</code></p></td>
 </tr>
 <tr>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWalFlush</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Flushes the WAL on disk at commit time. It can be 0 = no flush, 1 = flush without metadata and 2 = full flush (fsync)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">0</p></td>
-</tr>
-<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>typeDefaultBuckets</code></p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Default number of buckets to create per type</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock">1</p></td>
 </tr>
 </tbody>
 </table>
@@ -26496,6 +26532,18 @@ The <strong>headless</strong> variants of JRE packages are compatible to ArcadeD
 </tr>
 </table>
 </div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+For now, a separate Java 17 branch and packages are maintained, see the <a href="https://github.com/ArcadeData/arcadedb?tab=readme-ov-file#java-versions">README</a>.
+</td>
+</tr>
+</table>
+</div>
 </div>
 <div class="sect2">
 <h3 id="community">11.10. Community</h3>
@@ -26708,7 +26756,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 25.5.1<br>
-Last updated 2025-05-31 21:16:29 UTC
+Last updated 2025-06-04 16:13:59 UTC
 </div>
 </div>
 </body>

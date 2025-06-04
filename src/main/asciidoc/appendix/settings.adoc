@@ -154,6 +154,7 @@ The following plugins are available for ArcadeDB Server:
 |`server.rootPasswordPath`|Path to file with password for root user to use at first startup of the server. Set this to avoid asking the password to the user|String|null
 |`server.rootPath`|Root path in the file system where the server is looking for files. By default is the current directory|String|null
 |`server.securityAlgorithm`|Default encryption algorithm used for passwords hashing|String|PBKDF2WithHmacSHA256
+|`server.reloadEvery`|Time in milliseconds of checking if the server security files have been modified to be reloaded|Integer|5000
 |`server.securitySaltCacheSize`|Cache size of hashed salt passwords. The cache works as LRU. Use 0 to disable the cache|Integer|64
 |`server.saltIterations`|Number of iterations to generate the salt or user password. Changing this setting does not affect stored passwords|Integer|65536
 |`server.eventBusQueueSize`|Size of the queue used as a buffer for unserviced database change events.|Integer|1000
@@ -161,6 +162,7 @@ The following plugins are available for ArcadeDB Server:
 |`serverMetrics.logging`|True to enable metrics logging|Boolean|true
 |===
 
+[[setting-database]]
 ===== DATABASE
 
 [%header,cols="20%,55%,10%,15%",stripes=even]
@@ -168,10 +170,12 @@ The following plugins are available for ArcadeDB Server:
 |Name|Description|Type|Default Value
 |`asyncOperationsQueueImpl`|Queue implementation to use between 'standard' and 'fast'. 'standard' consumes less CPU than the 'fast' implementation, but it could be slower with high loads|String|standard
 |`asyncOperationsQueueSize`|Size of the total asynchronous operation queues (it is divided by the number of parallel threads in the pool)|Integer|1024
+|`asyncBackPressure`|When the asynchronous queue is full at a certain percentage, back pressure is applied|Integer|0
 |`asyncTxBatchSize`|Maximum number of operations to commit in batch by async thread|Integer|10240
-|`asyncWorkerThreads`|Number of asynchronous worker threads. 0 (default) = available cores minus 1|Integer|15
+|`asyncWorkerThreads`|Number of asynchronous worker threads. By default it is cores minus 1, but at least 1|Integer|(machine dependent)
 |`bucketDefaultPageSize`|Default page size in bytes for buckets. Default is 65536|Integer|65536
 // |`arcadedb.bucketReuseSpaceMode`|Mode used to reuse space in pages. Use 'low' to have faster updates consuming more space on disk. Default is 'high'|String|high
+|`bucketWipeOutOnDelete`|Wipe out record content on delete. If enabled, assures deleted records cannot be analyzed by parsing the raw files and backups will be more compressed, but it also makes deletes a little bit slower|Boolean|true
 |`command.timeout`|Default timeout for commands (in ms)|Long|0
 |`command.warningsEvery`|Reduce warnings in commands to print in console only every X occurrences. Use 0 to disable warnings with commands|Integer|100
 |`commitLockTimeout`|Timeout in ms to lock resources during commit|Long|5000
@@ -182,6 +186,7 @@ The following plugins are available for ArcadeDB Server:
 |`dateTimeImplementation`|Default datetime implementation to use on deserialization. By default java.util.Date is used, but the following are supported: java.util.Calendar, java.time.LocalDateTime, java.time.ZonedDateTime|Class|class java.util.Date
 |`flushOnlyAtClose`|Never flushes pages on disk until the database closing|Boolean|false
 |`freePageRAM`|Percentage (0-100) of memory to free when Page RAM is full|Integer|50
+|`gremlin.engine`|Gremlin engine to use. By default the `auto` setting uses the legacy `groovy` engine in case parameters are set, otherwise, the new native `java` is preferred. If you have compatibility issues with gremlin statements that use lambdas or in general, switch to the `groovy` one|auto
 |`gremlin.timeout`|Default timeout for gremlin commands (in ms)|Long|8000
 |`indexCompactionMinPagesSchedule`|Minimum number of mutable pages for an index to be schedule for automatic compaction. 0 = disabled|Integer|10
 |`indexCompactionRAM`|Maximum amount of RAM to use for index compaction, in MB|Long|300
@@ -192,6 +197,7 @@ The following plugins are available for ArcadeDB Server:
 |`queryMaxHeapElementsAllowedPerOp`|Maximum number of elements (records) allowed in a single query for memory-intensive operations (eg. ORDER BY in heap). If exceeded, the query fails with an OCommandExecutionException. Negative number means no limit.This setting is intended as a safety measure against excessive resource consumption from a single query (eg. prevent OutOfMemory)|Long|500000
 |`sqlStatementCache`|Maximum number of parsed statements to keep in cache|Integer|300
 |`txRetries`|Number of retries in case of MVCC exception|Integer|3
+|`txRetryDelay`|Maximum amount of milliseconds to compute a random number to wait for the next retry. This setting is helpful in case of high concurrency on the same pages (multi-thread insertion over the same bucket|Integer|100
 |`txWAL`|Uses the WAL|Boolean|true
 |`txWalFlush`|Flushes the WAL on disk at commit time. It can be 0 = no flush, 1 = flush without metadata and 2 = full flush (fsync)|Integer|0
 |`typeDefaultBuckets`|Default number of buckets to create per type|Integer|1
