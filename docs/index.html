@@ -2642,7 +2642,7 @@ For details about the response format see the <a href="https://prometheus.io/doc
 </div>
 </div>
 <div class="sect3">
-<h4 id="_ram_configuration">4.2.2. RAM Configuration</h4>
+<h4 id="ram-config">4.2.2. RAM Configuration</h4>
 <div class="paragraph">
 <p>The ArcadeDB server, by default, uses a dynamic allocation for the used RAM. Sometimes you want to limit this to a specific amount. You can define the environment variable <code>ARCADEDB_OPTS_MEMORY</code> to tune the JVM settings for the usage of the RAM.</p>
 </div>
@@ -9982,7 +9982,7 @@ Even though a <code>POST</code> method is used, the query in <code>command</code
 </div>
 <h5 id="http-executecommand" class="discrete">Execute database command (POST)</h5>
 <div class="paragraph">
-<p>Executes a non-idempotent command.</p>
+<p>Executes a non-idempotent command (as an implicit transaction).</p>
 </div>
 <div class="paragraph">
 <p>URL Syntax: <code>/api/v1/command/{database}</code></p>
@@ -10028,6 +10028,9 @@ The completion of the command is noted in the log, yet no results of the command
 </li>
 <li>
 <p><code>params</code> (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon <code>:</code>.</p>
+</li>
+<li>
+<p><code>retries</code> (optional), is the number of times the command (transaction) is retried.</p>
 </li>
 <li>
 <p><code>serializer</code> (optional) specify the serializer used for the result:</p>
@@ -13180,7 +13183,15 @@ By default, ArcadeDB uses the plain string representation of the projection as a
 In some cases you can be interested in the expanded object instead of the RID.</p>
 </div>
 <div class="paragraph">
-<p>Let&#8217;s clarify this with an example. This is our dataset:</p>
+<p>Here is an example to remove the <code>@rid</code> and <code>@type</code> properties from all properties, but not the properties itself:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-sql" data-lang="sql">SELECT *:{!@rid,!@type} FROM doc</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s clarify this with another example. This is our dataset:</p>
 </div>
 <table class="tableblock frame-all grid-all stretch">
 <colgroup>
@@ -24457,6 +24468,12 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <td class="tableblock halign-left valign-top"><p class="tableblock">65536</p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>arcadedb.bucketReuseSpaceMode</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Mode used to reuse space in pages. Use 'low' to have faster updates consuming more space on disk, <code>medium</code> for balance. Default is 'high'</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">String</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">high</p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>bucketWipeOutOnDelete</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Wipe out record content on delete. If enabled, assures deleted records cannot be analyzed by parsing the raw files and backups will be more compressed, but it also makes deletes a little bit slower</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Boolean</p></td>
@@ -24525,86 +24542,98 @@ If you&#8217;re embedding a server in your Java application you can use these se
 <tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>gremlin.engine</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Gremlin engine to use. By default the <code>auto</code> setting uses the legacy <code>groovy</code> engine in case parameters are set, otherwise, the new native <code>java</code> is preferred. If you have compatibility issues with gremlin statements that use lambdas or in general, switch to the <code>groovy</code> one</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">String</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">auto</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>gremlin.timeout</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>gremlin.timeout</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Default timeout for gremlin commands (in ms)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">8000</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionMinPagesSchedule</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionMinPagesSchedule</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Minimum number of mutable pages for an index to be schedule for automatic compaction. 0 = disabled</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">10</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionRAM</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>indexCompactionRAM</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum amount of RAM to use for index compaction, in MB</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">300</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initialPageCacheSize</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initialPageCacheSize</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Initial number of entries for page cache</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">65535</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>maxPageRAM</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>maxPageRAM</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum amount of pages (in MB) to keep in RAM</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">4096</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pageFlushQueue</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pageFlushQueue</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Size of the asynchronous page flush queue</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">512</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>polyglotCommand.timeout</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>polyglotCommand.timeout</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Default timeout for polyglot commands (in ms)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">10000</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>queryMaxHeapElementsAllowedPerOp</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>queryMaxHeapElementsAllowedPerOp</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum number of elements (records) allowed in a single query for memory-intensive operations (eg. ORDER BY in heap). If exceeded, the query fails with an OCommandExecutionException. Negative number means no limit.This setting is intended as a safety measure against excessive resource consumption from a single query (eg. prevent OutOfMemory)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Long</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">500000</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>sqlStatementCache</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>sqlStatementCache</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum number of parsed statements to keep in cache</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">300</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetries</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetries</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Number of retries in case of MVCC exception</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">3</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetryDelay</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txRetryDelay</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Maximum amount of milliseconds to compute a random number to wait for the next retry. This setting is helpful in case of high concurrency on the same pages (multi-thread insertion over the same bucket</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">100</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWAL</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWAL</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Uses the WAL</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Boolean</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">true</p></td>
-<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWalFlush</code></p></td>
 </tr>
 <tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWalFiles</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Number of concurrent files to use for tx log. 0 (default) = available cores</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">(machine dependent)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>txWalFlush</code></p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Flushes the WAL on disk at commit time. It can be 0 = no flush, 1 = flush without metadata and 2 = full flush (fsync)</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
 <td class="tableblock halign-left valign-top"><p class="tableblock">0</p></td>
+</tr>
+<tr>
 <td class="tableblock halign-left valign-top"><p class="tableblock"><code>typeDefaultBuckets</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Default number of buckets to create per type</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Integer</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">1</p></td>
 </tr>
 </tbody>
 </table>
@@ -25128,6 +25157,9 @@ Examples of valid identifiers are</p>
 </li>
 <li>
 <p><code>@cat</code>: type category</p>
+</li>
+<li>
+<p><code>@props</code>: property types</p>
 </li>
 <li>
 <p><code>@in</code>: incoming edges</p>
@@ -26499,7 +26531,7 @@ For this reason a periodic compaction is needed to keep values ordered together 
 </li>
 </ul>
 </div>
-<div id="ram-config" class="paragraph">
+<div class="paragraph">
 <p>see also <a href="#ram-config">RAM Configuration</a>.</p>
 </div>
 <h4 id="_java" class="discrete">Java</h4>
@@ -26756,7 +26788,7 @@ window.cookieconsent.initialise({
 <div id="footer">
 <div id="footer-text">
 Version 25.5.1<br>
-Last updated 2025-06-04 16:13:59 UTC
+Last updated 2025-06-23 06:49:49 UTC
 </div>
 </div>
 </body>
