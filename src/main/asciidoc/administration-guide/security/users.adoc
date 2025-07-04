@@ -1,0 +1,95 @@
+[[users]]
+=== Users
+
+Users are stored in the file `config/server-users.jsonl` file.
+The JSONL format means one json per line.
+When the server starts always checks if there are any users configured.
+If the user file is empty, the `root` user is created with a password the user must enter in the console where the server is starting.
+Example:
+
+```shell
++--------------------------------------------------------------------+
+|                WARNING: FIRST RUN CONFIGURATION                    |
++--------------------------------------------------------------------+
+| This is the first time the server is running. Please type a        |
+| password of your choice for the 'root' user or leave it blank      |
+| to auto-generate it.                                               |
+|                                                                    |
+| To avoid this message set the environment variable or JVM          |
+| setting `arcadedb.server.rootPassword` to the root password to use.|
++--------------------------------------------------------------------+
+
+Root password [BLANK=auto generate it]: ***********
+Please type the root password for confirmation (copy and paste will not work): ***********
+```
+
+Example of `config/server-users.jsonl` file:
+
+```json
+{"name":"root","password":"PBKDF2WithHmacSHA256$65536$hcv0joKV/o/q+KOVmcwNUqhEq1w2/j8OVnEkkVjzkeg=$2q2u4rjUlJjgoKBX9sG0rV0bOh6aHo+RhHsOkXneGkM=","databases":{"*":["admin"]}}
+```
+
+In the users file the following information are stored per user:
+
+- Name, mandatory
+- Password.
+It is always saved hashed by using the algorithm `PBKDF2` with a configurable salt (default = 32).
+The password is mandatory for all the users, but root.
+In the case root has no password, then ArcadeDB server asks to insert a password at startup (see above).
+- Databases, as the map database name and set of groups for that database. "\*" is a special wildcard and means any.
+The configuration `"databases":{"*":["admin"]}` means use the "admin" group for any database.
+
+[ditaa,admin-user]
+....
+                           +-----------------+ Any Database
+ +-------------+           | +-------------+ |
+ |    root     |------------>|    admin    | |
+ |             |           | |             | |
+ |   (User)    |  belongsTo| |   (Group)   | |
+ +-------------+           | +-------------+ |
+                           +-----------------+
+....
+
+ArcadeDB allows each user to belong to zero or multiple groups.
+If no groups are defined, the default setting for the group `*` are used.
+
+The following configuration defines "Jay" user to belong to "BlogWriters" in "Blog" database and "Editors" in the "Library" database:
+
+```json
+{
+  "databases": {
+    "Blog": ["BlogWriters"],
+    "Library": ["Editors"]
+  }
+}
+```
+
+[ditaa,jay-user]
+....
+
+                           +--------------------+ Blog Database
+ +-------------+           |   +-------------+  |
+ |    Jay      |-------------->| BlogWriters |  |
+ |             |           |   |             |  |
+ |   (User)    | belongsTo |   |   (Group)   |  |
+ +-------------+           |   +-------------+  |
+        |                  +--------------------+
+        |
+        |                  +--------------------+ Library Database
+        |                  |   +-------------+  |
+        |  belongsTo       |   |   Editors   |  |
+        +--------------------->|             |  |
+                           |   |   (Group)   |  |
+                           |   +-------------+  |
+                           +--------------------+
+
+....
+
+The declaration above implicitly assigns Jay to the default group for any other database configured.
+The default configuration for the default group is no access, where the user cannot read or write in the database.
+
+[discrete]
+==== Via Console
+
+NOTE: Alternatively, users can be created via the console, see `Create User` <<console,Console Command>> and <<http-servercommand,Server Command>>.
+
