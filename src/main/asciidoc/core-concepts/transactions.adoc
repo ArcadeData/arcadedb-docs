@@ -1,0 +1,166 @@
+[[transactions]]
+=== Transactions
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/concepts/transactions.adoc" float=right]
+
+A transaction comprises a unit of work performed within a database management system (or similar system) against a database, and treated in a coherent and reliable way independent of other transactions.
+Transactions in a database environment have two main purposes:
+
+- to provide reliable units of work that allow correct recovery from failures and keep a database consistent even in cases of system failure, when execution stops (completely or partially) and many operations upon a database remain uncompleted, with unclear status 
+- to provide isolation between programs accessing a database concurrently.
+If this isolation is not provided, the program's outcome are possibly erroneous.
+
+A database transaction, by definition, must be <<atomicity,atomic>>, <<consistency,consistent>>, <<isolation,isolated>> and <<durability,durable>>.
+Database practitioners often refer to these properties of database transactions using the acronym <<acid-properties,ACID>>).
+- http://en.wikipedia.org/wiki/Database_transaction[Wikipedia]
+
+ArcadeDB is an <<acid-properties,ACID>> compliant DBMS.
+
+NOTE: ArcadeDB keeps the transaction in the host's RAM, so the transaction size is affected by the available RAM (Heap memory) on JVM.
+For transactions involving many records, consider to split it in multiple transactions.
+
+[[acid-properties]]
+[discrete]
+==== ACID Properties
+
+[[atomicity]]
+[discrete]
+==== Atomicity
+
+"Atomicity requires that each transaction is 'all or nothing': if one part of the transaction fails, the entire transaction fails, and the database state is left unchanged.
+An atomic system must guarantee atomicity in each and every situation, including power failures, errors, and crashes.
+To the outside world, a committed transaction appears (by its effects on the database) to be indivisible ("atomic"), and an aborted transaction does not happen." - https://en.wikipedia.org/wiki/ACID#Atomicity[Wikipedia]
+
+[[consistency]]
+[discrete]
+==== Consistency
+
+"The consistency property ensures that any transaction will bring the database from one valid state to another.
+Any data written to the database must be valid according to all defined rules, including but not limited to constraints, cascades, triggers, and any combination thereof.
+This does not guarantee correctness of the transaction in all ways the application programmer might have wanted (that is the responsibility of application-level code) but merely that any programming errors do not violate any defined rules." - http://en.wikipedia.org/wiki/ACID#Consistency_(Correctness)[Wikipedia]
+
+ArcadeDB uses the http://en.wikipedia.org/wiki/Multiversion_concurrency_control[MVCC] to assure consistency by versioning the page where the record are stored.
+
+Look at this example:
+
+[%header,cols=4]
+|===
+|Sequence| Client/Thread 1 | Client/Thread 2 | Version of page containing record X
+|1| Begin of Transaction |  |
+|2| read(x)  |  | 10
+|3|  | Begin of Transaction |
+|4|  | read(x) | 10
+|5|  |  write(x) | 10
+|6|  |  commit | 10 -> 11
+|7| write(x)  |  | 10
+|8| commit |  | 10 -> 11 = Error, in database x already is at 11
+|===
+
+[[isolation]]
+[discrete]
+==== Isolation
+
+"The isolation property ensures that the concurrent execution of transactions results in a system state that would be obtained if transactions were executed serially, i.e. one after the other.
+Providing isolation is the main goal of concurrency control.
+Depending on concurrency control method, the effects of an incomplete transaction might not even be visible to another transaction." - https://en.wikipedia.org/wiki/ACID#Isolation[Wikipedia]
+
+The SQL standard defines the following phenomena which are prohibited at various levels are:
+
+- **Dirty Read**: a transaction reads data written by a concurrent uncommitted transaction. This is never possible with ArcadeDB.
+- **Non Repeatable Read**: a transaction re-reads data it has previously read and finds that data has been modified by another transaction (that committed since the initial read).
+- **Phantom Read**: a transaction re-executes a query returning a set of rows that satisfy a search condition and finds that the set of rows satisfying the condition has changed due to another recently-committed transaction. This happens also when records are deleted or inserted during the transaction and they could become visible during the transaction.
+
+The SQL standard transaction isolation levels are described in the table below:
+
+[%header,cols=4]
+|===
+|Isolation Level|	Dirty Read	|Non repeatable Read	|Phantom Read
+|`READ_COMMITTED` (default)|	Not possible	|Possible	|Possible
+|`REPEATABLE_READ`|	Not possible	|Not possible | Possible
+|===
+
+The SQL `SERIALIZABLE` level is not supported by ArcadeDB.
+
+Using `remote` access all the commands are executed on the server, so out of transaction scope.
+Look below for more information.
+
+Look at these examples:
+
+[%header,cols=3]
+|===
+|Sequence| Client/Thread 1 | Client/Thread 2
+|1| Begin of Transaction |
+|2| read(x) |
+|3|  | Begin of Transaction
+|4|  | read(x)
+|5|  |  write(x)
+|6|  |  commit
+|7| read(x)  |
+|8| commit |
+|===
+
+At operation 7 the client 1 continues to read the same version of x read in operation 2.
+
+[%header,cols=3]
+|===
+|Sequence| Client/Thread 1 | Client/Thread 2
+|1| Begin of Transaction |
+|2| read(x) |
+|3|  | Begin of Transaction
+|4|  | read(y)
+|5|  |  write(y)
+|6|  |  commit
+|7| read(y)   |
+|8| commit  |
+|===
+
+At operation 7 the client 1 reads the version of y which was written at operation 6 by client 2. This is because it never reads y before.
+
+[[durability]]
+[discrete]
+==== Durability
+
+"Durability means that once a transaction has been committed, it will remain so, even in the event of power loss, crashes, or errors.
+In a relational database, for instance, once a group of SQL statements execute, the results need to be stored permanently (even if the database crashes immediately thereafter).
+To defend against power loss, transactions (or their effects) must be recorded in a non-volatile memory." - https://en.wikipedia.org/wiki/ACID#Durability[Wikipedia]
+
+[discrete]
+===== Fail-over
+
+An ArcadeDB instance can fail for several reasons:
+
+- HW problems, such as loss of power or disk error 
+- SW problems, such as a operating system crash
+- Application problems, such as a bug that crashes your application that is connected to the ArcadeDB engine.
+
+You can use the ArcadeDB engine directly in the same process of your application.
+This gives superior performance due to the lack of inter-process communication.
+In this case, should your application crash (for any reason), the ArcadeDB engine also crashes.
+
+If you're connected to an ArcadeDB server remotely, and if your application crashes but the engine continues to work, any pending transaction owned by the client will be rolled back.
+
+[discrete]
+===== Auto-recovery
+
+At start-up the ArcadeDB engine checks to if it is restarting from a crash.
+In this case, the auto-recovery phase starts which rolls back all pending transactions.
+
+ArcadeDB has different levels of durability based on storage type, configuration and settings.
+
+[discrete]
+==== Optimistic Transaction
+
+This mode uses the well known Multi Version Control System http://en.wikipedia.org/wiki/Multiversion_concurrency_control[MVCC] by allowing multiple reads and writes on the same records.
+The integrity check is made on commit.
+If the record has been saved by another transaction in the interim, then an `ConcurrentModificationException` will be thrown.
+The application can choose either to repeat the transaction or abort it.
+
+NOTE: ArcadeDB keeps the whole transaction in the host's RAM, so the transaction size is affected by the available RAM (Heap) memory on JVM.
+For transactions involving many records, consider to split it in multiple transactions.
+
+[discrete]
+==== Nested transactions and propagation
+
+ArcadeDB does support nested transaction.
+If a `begin()` is called after a transaction is already begun, then the new transaction is the current one until commit or rollback.
+When this nested transaction is completed, the previous transaction becomes the current transaction again.
+

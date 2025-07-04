@@ -1,0 +1,134 @@
+[[java-api-remote]]
+=== Java API (Remote)
+
+ArcadeDB comes with a convenient Java library to work with a remote database.
+
+[[remote-server]]
+==== RemoteServer Class
+The RemoteServer class is used to manage remote server connections and databases.
+
+[[remote-database]]
+==== RemoteDatabase Class
+The RemoteDatabase class is used to work with a remote database instance. 
+
+Add the following dependencies in your Maven pom.xml file under the tag `<dependencies>`:
+
+[source,xml, subs="+attributes"]
+----
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-engine</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-network</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+----
+
+==== 10-Minute Tutorial
+
+===== Connect to a remote database
+There are 2 main classes that handle the connection to the remote database by translating the Java API into http-calls:
+
+- `<<remote-server,RemoteServer>>`, to create new database on a remote server
+- `<<remote-database,RemoteDatabase>>`, to work with a remote database instance
+
+We start by creating a RemoteServer:
+
+[source,java]
+----
+RemoteServer server = new RemoteServer("localhost", 2480, "root", "playwithdata");
+----
+
+Next, let's create a RemoteDatabase instance pointing to the database "mydb" on ArcadeDB Server located on "localhost", port 5432. User and passwords are respectively "root" and "playwithdata":
+
+[source,java]
+----
+RemoteDatabase database = new RemoteDatabase("localhost", 2480, "mydb", "root", "playwithdata");
+----
+
+NOTE: The `RemoteDatabase` is not thread-safe. It holds a backend session. If a thread closes a transaction, it also closes the session, so that any request performed by a concurrent thread using the same RemoteDatabase instance leads to unexpected behavior. To avoid concurrency problems you should not hold RemoteDatabase instances as fields on the heap, but rather create a new instance in method scope as a variable on the stack.
+
+The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the `RemoteDatabase` make sure that the database exists, or, if it doesn't, create it:
+
+[source,java]
+----
+if (!server.exists("mydb"))
+    server.create();
+----
+
+For a list of all databases hosted by the server use:
+
+[source,java]
+----
+List<String> databases = server.databases();
+assert(databases.contains("mydb"));
+----
+
+Now that we have the database created we may create the schema (but we may also work without):
+
+[source,java]
+----
+String schema =
+"""
+    create vertex type Customer if not exists;
+    create property Customer.name if not exists string;
+    create property Customer.surname if not exists string;
+    create index if not exists on Customer (name, surname) unique;
+""";
+database.command("sqlscript", schema);
+----
+
+As language we have used `sqlscript`, which has the advantage that all the statements in the script are executed within one single transaction. Of course you can also send these requests line by line with `sql` as language. If you go line by line it is important to enclose the requests in a common transaction:
+
+
+[source,java]
+----
+database.begin();
+database.command("sql", "create vertex type Customer if not exists");
+database.command("sql", "create property Customer.name if not exists string");
+database.command("sql", "create property Customer.surname if not exists string");
+database.command("sql", "create index if not exists on Customer (name, surname) unique");
+database.commit();
+----
+
+Or:
+
+[source, java]
+----
+database.transaction(() -> {
+    ...
+});
+----
+
+The `transaction` method encloses the lambda function with a `begin` - `commit`, or a `rollback` in case of any exception.
+
+Now that the schema is in place, we will insert some data:
+
+[source, java]
+----
+database.command("sql", "insert into Customer(name, surname) values(?, ?)", "Jay", "Miner");
+database.command("sql",
+        "update Customer set lastcall = :lastcall where name = :name and surname = :surname",
+        Map.of("lastcall", Date.from(Instant.now()), "name", "Jay", "surname", "Miner"));
+----
+
+The first command creates a new vertex of type 'Customer'. The second command updates this vertex by adding a new value for the property 'lastcall'. The first command uses unnamed parameters where the values are mapped by their order in the parameter list. Whereas the second command uses named parameters, which are mapped by the parameter names.
+
+We can now query some customer data from our database:
+
+[source, java]
+----
+ResultSet resultSet = database.query("sql", "select from Customer where name = :name",
+        Map.of("name", "Jay"));
+Map<String, Object> customer = resultSet.stream().findFirst().map(Result::toMap).orElse(Map.of());
+----
+
+The query returns a `ResultSet`, which holds an arry of objects of type `Result`, which can be read as Map:
+
+[source,javascript]
+----
+{name=Jay, @cat=d, @rid=#1:0, lastcall=1675961747290, surname=Miner, @type=Customer}
+----
