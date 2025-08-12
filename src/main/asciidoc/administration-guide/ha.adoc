@@ -57,19 +57,43 @@ Example: `bin/server.sh -Darcadedb.ha.clusterName=projectB`
 ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.
 
 .Cluster of Servers
-[plantuml,ha-architecture]
+[d2,ha-architecture]
 ....
- +------------+        +------------+        +------------+
- | ArcadeDB_1 |<-------| ArcadeDB_0 |------->| ArcadeDB_2 |
- |  Replica   |        |   Leader   |        |  Replica   |
- +------------+        +------------+        +------------+
-       |                     |                     |
-       |                     |                     |
-       V                     V                     V
-  +----------+          +----------+          +----------+
-  |  Journal |          |  Journal |          |  Journal |
-  |      {d} |          |      {d} |          |      {d} |
-  +----------+          +----------+          +----------+
+ArcadeDB_1: {
+  shape: rectangle
+  label: "ArcadeDB_1\nReplica"
+}
+
+ArcadeDB_0: {
+  shape: rectangle
+  label: "ArcadeDB_0\nLeader"
+}
+
+ArcadeDB_2: {
+  shape: rectangle
+  label: "ArcadeDB_2\nReplica"
+}
+
+Journal_1: {
+  shape: rectangle
+  label: "Journal\n{d}"
+}
+
+Journal_0: {
+  shape: rectangle
+  label: "Journal\n{d}"
+}
+
+Journal_2: {
+  shape: rectangle
+  label: "Journal\n{d}"
+}
+
+ArcadeDB_0 -> ArcadeDB_1
+ArcadeDB_0 -> ArcadeDB_2
+ArcadeDB_1 -> Journal_1
+ArcadeDB_0 -> Journal_0
+ArcadeDB_2 -> Journal_2
 ....
 
 Each server has its own journal.
@@ -79,18 +103,20 @@ All the write operations must be coordinated by the leader node.
 Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the leader server.
 
 .Read request executed on a replica
-[plantuml,ha-replica-read]
+[d2,ha-replica-read]
 ....
-            +------------+
-            |  Client A  |
-            +-----+------+
-               ^  |
-(2) send result|  | (1) read request
- to the client |  V
-            +------------+
-            | ArcadeDB_1 |
-            |  Replica   |
-            +------------+
+ClientA: {
+  shape: rectangle
+  label: "Client A"
+}
+
+ArcadeDB_1_Replica: {
+  shape: rectangle
+  label: "ArcadeDB_1\nReplica"
+}
+
+ClientA -> ArcadeDB_1_Replica: {label: "(1) read request"}
+ArcadeDB_1_Replica -> ClientA: {label: "(2) send result\nto the client"}
 ....
 
 ArcadeDB doesn't mandate the clients to be connected directly to the leader to execute write operations, but will use the replica server to forward the write request to the leader server.
@@ -100,23 +126,27 @@ All the write requests will be transparently forwarded to the leader.
 Look at the picture below where the client `Client A` is connected to the replica server `ArcadeDB_1` where it executes a write request.
 
 .Write Request executed on a Replica
-[plantuml,ha-replica-forward]
+[d2,ha-replica-forward]
 ....
-            +------------+
-            |  Client A  |
-            +-----+------+
-               ^  |
-(6) send result|  | (1) write request
- to the client |  V
-            +------------+              +------------+
-            | ArcadeDB_1 |------------->| ArcadeDB_0 | (3) execute write request
-            |  Replica   | (2) forward  |   Leader   | (4) replicate to all the servers
-            +------------+              +------------+  (including ArcadeDB_1)
-                  ^                           |
-                  |                           |
-                  +---------------------------+
-                   (5) Send result back to the
-                      requesting server
+ClientA_Forward: {
+  shape: rectangle
+  label: "Client A"
+}
+
+ArcadeDB_1_Forward: {
+  shape: rectangle
+  label: "ArcadeDB_1\nReplica"
+}
+
+ArcadeDB_0_Leader: {
+  shape: rectangle
+  label: "ArcadeDB_0\nLeader"
+}
+
+ClientA_Forward -> ArcadeDB_1_Forward: {label: "(1) write request"}
+ArcadeDB_1_Forward -> ArcadeDB_0_Leader: {label: "(2) forward"}
+ArcadeDB_0_Leader -> ArcadeDB_1_Forward: {label: "(3) execute write request\n(4) replicate to all servers\n(including ArcadeDB_1)"}
+ArcadeDB_1_Forward -> ClientA_Forward: {label: "(5) Send result back to the\nrequesting server\n(6) send result to the client"}
 ....
 
 ==== Auto fail-over
