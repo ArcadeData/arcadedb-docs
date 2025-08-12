@@ -77,12 +77,9 @@ For this reason, you don't need to create a field to serve as the primary key as
 
 Retrieving a record by <<rid,RID>> is of complexity O(1).
 This is possible as the RID itself encodes both, the file a record is stored in, and the position inside it.
-In an RID, i.e. `#12:1000000`, the bucket identifier (here `#12`) specifies the record's associated file,
-while the record position (here `1000000`) describes the position inside the file.
+In an RID, i.e. `#12:1000000`, the bucket identifier (here `#12`) specifies the record's associated file, while the record position (here `1000000`) describes the position inside the file.
 Bucket files are organized in pages (with default size `64KB`) with a maximum number records per page (by default `2048`).
-To determine the byte position of a record in a bucket file,
-the rounded down quotient of record position and maximum records per page yields the page (here `⌊1000000 / 2048⌋`),
-and the remainder gives the position on the page (here `⌊1000000 % 2048⌋`).
+To determine the byte position of a record in a bucket file, the rounded down quotient of record position and maximum records per page yields the page (here `⌊1000000 / 2048⌋`), and the remainder gives the position on the page (here `⌊1000000 % 2048⌋`).
 In pseudo-code this computation is given by:
 
 [source,java]
@@ -122,12 +119,13 @@ Each bucket is one file at file system level.
 It is comparable to the "collection" in Document databases, the "table" in Relational databases and the "cluster" in OrientDB.
 You can have up to 2,147,483,648 buckets in a database.
 
-A bucket can only be part of one type. This means two types can not share the same bucket.
+A bucket can only be part of one type.
+This means two types can not share the same bucket.
 Also, <<inheritance,sub-types>> have their separate buckets from their super-types.
 
 When you create a new type, the <<sql-create-type,`CREATE TYPE`>> statement automatically creates the physical buckets (files) that serve as the default location in which to store data for that type.
 ArcadeDB forms the bucket names by using the type name + underscore + a sequential number starting from 0. For example, the first bucket for the type `Beer` will be `Beer_0` and the correspondent file in the file system will be `Beer_0.31.65536.bucket`.
-By default ArcadeDB creates one bucket per type. 
+By default ArcadeDB creates one bucket per type.
 For massive inserts, performance can be improved by creating additional buckets and hence taking advantage of parallelism, i.e. by creating one bucket for each CPU core on the server.
 
 [discrete]
@@ -241,16 +239,25 @@ It can manage relationships in a schema-full or schema-less scenario.
 ==== Graph Connections
 
 As a graph database, spanning edges between vertices is one way to express a connections between records.
-This is the graph model's natural way of relationsships and traversable by the SQL, Gremlin, and Cypher query languages. Internally, ArcadeDB deposes a direct (referenced) relationship for edge-wise connected vertices to ensure fast graph traversals.
+This is the graph model's natural way of relationsships and traversable by the SQL, Gremlin, and Cypher query languages.
+Internally, ArcadeDB deposes a direct (referenced) relationship for edge-wise connected vertices to ensure fast graph traversals.
 
 Example
 
 .Graph Connection
 [plantuml,graph-connection]
 ....
-    Vertex A -------------> Edge X -------------> Vertex B
-  TYPE Customer          TYPE isBilled          TYPE Invoice
-    RID #5꞉23               RID #16꞉9             RID #10꞉2
+@startuml
+skinparam backgroundColor transparent
+skinparam defaultTextAlignment center
+
+rectangle "Vertex A\nTYPE Customer\nRID #5:23" as A
+rectangle "Edge X\nTYPE isBilled\nRID #16:9" as X  
+rectangle "Vertex B\nTYPE Invoice\nRID #10:2" as B
+
+A --> X
+X --> B
+@enduml
 ....
 
 In ArcadeDB's SQL, edges are created via the <<sql-create-edge,`CREATE EDGE`>> command.
@@ -259,21 +266,27 @@ In ArcadeDB's SQL, edges are created via the <<sql-create-edge,`CREATE EDGE`>> c
 ==== Referenced Relationships
 
 In Relational databases, tables are linked through `JOIN` commands, which can prove costly on computing resources.
-ArcadeDB manages relationships natively without computing a `JOIN` but storing a direct `LINK` to the target object of the relationship. This boosts the load speed for the entire graph of connected objects, such as in graph and object database systems.
+ArcadeDB manages relationships natively without computing a `JOIN` but storing a direct `LINK` to the target object of the relationship.
+This boosts the load speed for the entire graph of connected objects, such as in graph and object database systems.
 
 Example
 
 .Referenced Relationship
 [plantuml,referenced-relationship]
 ....
-    Record A -------------> Record B
-  TYPE Customer           TYPE Invoice
-    RID #5꞉23               RID #10꞉2
+@startuml
+skinparam backgroundColor transparent
+skinparam defaultTextAlignment center
+
+rectangle "Record A\nTYPE Customer\nRID #5:23" as A
+rectangle "Record B\nTYPE Invoice\nRID #10:2" as B
+
+A --> B
+@enduml
 ....
 
 Note, that referenced relationships differ from edges:
-references are properties connecting any record while edges are types connecting vertices,
-and particularly, graph traversal is only applicable to edges.
+references are properties connecting any record while edges are types connecting vertices, and particularly, graph traversal is only applicable to edges.
 
 [discrete]
 ==== Embedded Relationships
@@ -346,12 +359,10 @@ As a native graph database, ArcadeDB supports index free adjacency.
 This means constant graph traversal complexity of O(1), independent of the graph expanse (database size).
 
 To traverse a graph structure, one needs to follow references stored by the current record.
-These references are always stored as RIDs, and are not only pointers to incoming and outgoing edges,
-but also to connected vertices.
+These references are always stored as RIDs, and are not only pointers to incoming and outgoing edges, but also to connected vertices.
 Internally, references are managed by a https://en.wikipedia.org/wiki/Stack_(abstract_data_type)[stack]
 (also known as LIFO), which allows to get the latest insertion first.
-As not only edges, but also connected vertices are stored, neighboring nodes can be reached
-directly, particularly without going via the connecting edge.
+As not only edges, but also connected vertices are stored, neighboring nodes can be reached directly, particularly without going via the connecting edge.
 This is useful if edges are used purely to connect vertices and do not carry i.e. properties themselves.
 
 === Database
