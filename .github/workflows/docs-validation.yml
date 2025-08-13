@@ -28,16 +28,38 @@ jobs:
         run: |
           python -m pip install --upgrade pip
 
+      - name: Setup Graphviz
+        uses: ts-graphviz/setup-graphviz@b1de5da23ed0a6d14e0aeee8ed52fdd87af2363c # v2.0.2
+
+      - name: Install D2
+        run: |
+          curl -fsSL https://d2lang.com/install.sh | sh -s --
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # Verify D2 installation
+          export PATH="$HOME/.local/bin:$PATH"
+          d2 --version
+
+      - name: Set up Java
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
       - name: Run documentation validator
         run: |
           python docs-validator.py
+
+      - name: Test documentation build (verify diagrams work)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          mvn generate-resources
           
-      - name: Validate broken links in HTML output (if PR builds documentation)
-        if: github.event_name == 'pull_request'
+      - name: Validate HTML output
         run: |
           if [ -d "target/generated-docs" ]; then
-            python -m pip install html5validator
-            html5validator --root target/generated-docs --also-check-css --show-warnings
+            python -m pip install --break-system-packages html5validator
+            html5validator --root target/generated-docs --skip-non-html --show-warnings
           else
-            echo "No generated HTML docs found, skipping HTML validation"
+            echo "No generated docs found"
+            exit 1
           fi

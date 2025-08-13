@@ -1,0 +1,800 @@
+[[http-json-protocol]]
+=== HTTP/JSON Protocol
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/http.adoc" float=right]
+
+*Overview Endpoints*
+
+[cols="30,10,~",options="header"]
+|===
+| *Action*                                         | *Method* | *Endpoint*
+| <<http-checkready,Get server status>>            | GET    | `/api/v1/ready`
+| <<http-serverinfo,Get server information>>       | GET    | `/api/v1/server`
+| <<http-servercommand,Send server command>>       | POST   | `/api/v1/server`
+| <<http-listdatabases,List databases>>            | GET    | `/api/v1/databases`
+| <<http-databaseexists,Does database exist>>      | GET    | `/api/v1/exists/{database}`
+| <<http-executequery,Execute a query>>            | GET    | `/api/v1/query/{database}/{language}/{query}`
+| <<http-executequery,Execute a query>>            | POST   | `/api/v1/query/{database}`
+| <<http-executecommand,Execute database command>> | POST   | `/api/v1/command/{database}`
+| <<http-begin,Begin a new transaction>>           | POST   | `/api/v1/begin/{database}`
+| <<http-commit,Commit a transaction>>             | POST   | `/api/v1/commit/{database}`
+| <<http-rollback,Rollback a transaction>>         | POST   | `/api/v1/rollback/{database}`
+|===
+
+*Overview Query & Command Parameters*
+
+[cols="2,1,~",options="header"]
+|===
+| *Parameters*  | *Type*   | *Values*
+| language      | Required | "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo", and others
+| command       | Required | encoded command string
+| awaitResponse | Optional | set synchronous (true, default) or asynchronous (false) command
+| limit         | Optional | maximum number of results
+| params        | Optional | map of parameters
+| serializer    | Optional | "graph", "record", "studio"
+|===
+
+[discrete]
+==== Introduction
+
+The ArcadeDB Server is accessible from the remote through the HTTP/JSON protocol.
+The protocol is very simple.
+For this reason, you don't need a driver, because every modern programming language provides an easy way to execute HTTP requests and parse JSON.
+
+For the examples in this chapter we're going to use https://curl.se/[`curl`].
+Every request must be authenticated by passing user and password as HTTP basic authentication (in HTTP Headers).
+In the examples below we're going to always use "root" user with password "arcadedb-password".
+
+NOTE: Under Windows (Powershell) single and double quotes inside a single or double quoted string need to be replaced with their Unicode entity representations `\u0022` (double quote) and
+`\u0027` (single quote).
+This is for example the case in the data argument (`-d`) of POST requests.
+
+[discrete]
+==== Server-Side Transactions
+
+ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
+A session is created with the <<http-begin,/begin>> request and returns a session id in the response header (example `arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`).
+Use the session id in the request header of further commands you want to execute in the same transaction and request <<http-commit,/commit>> to commit the server side transaction or <<http-rollback,/rollback>> to rollback the changes.
+After a period of inactivity (default is 30 seconds, see <<settings-sql,`server.httpTxExpireTimeout`>>), the server automatically rolls back and purges expired transactions.
+
+[discrete]
+==== Transaction Scripts
+
+In case <<sql,SQL>> (`sql`) is supposed to be used as language for a transactions, the language variant <<sql-script,SQL Script>> (`sqlscript`) is also available.
+A `sqlscript` can consist of one or multiple SQL statements, which is collectively treated as a transaction.
+Hence, for such a batch of SQL statements, no `begin` and `commit` commands are necessary, since `begin` and `commit` implicitly enclose any `sqlscript` command.
+
+[discrete]
+[[websocket-streaming]]
+==== Streaming Change Events
+
+IMPORTANT: This feature only works on the server where changes are executed.
+In a replicated environment, the changes executed on other servers would not fire events on all the servers in the cluster, but only on the local server.
+The cluster support is coming soon.
+
+The Java API supports real-time change notifications, which the HTTP API implements via a websocket.
+You can opt into notifications for all changes that occur on a database, or filter by the operation (i.e. create, update, delete) or underlying entity type.
+
+To connect, point your favorite WebSocket client to the `ws://SERVER:PORT/ws` endpoint.
+You will need to authenticate with HTTP Basic, which for some clients (like most browsers) is only possible via the URI, like this: `ws://USERNAME:PASSWORD@SERVER:PORT/ws`.
+Others will require that you set the Authorization header directly.
+Check the documentation for your client of choice for details.
+
+To subscribe/unsubscribe to change events, send JSON messages using the following structure:
+
+[cols="10h,10h,~",options="header"]
+|===
+|Property|Required|Description
+|action|Required| `subscribe` or `unsubscribe`.
+|database|Required| The database name.
+|type|Optional| The entity type to filter by.
+|changeTypes|Optional| Array of change types you'd like to receive. Must be `create`, `update`, or `delete`.
+|===
+
+Example: to subscribe to all changes (create, update, delete) for the type `Movie` in the database `movies`, use:
+
+[source,json]
+----
+{"action": "subscribe", "database": "movies", "type": "Movie"}
+----
+
+If instead, you only want updates, send:
+
+[source,json]
+----
+{"action": "subscribe", "database": "movies", "type": "Movie", "changeTypes": ["update"]}
+----
+
+If you want every change on the database (use with caution!):
+
+[source,json]
+----
+{"action": "subscribe", "database": "movies"}
+----
+
+Once subscribed, you will get JSON messages for any matching changes with the following properties:
+
+[cols="10h,~",options="header"]
+|===
+|Property|Description
+|database| The source database.
+|changeType| create, update or delete.
+|record| The full record that generated the change event.
+|===
+
+[discrete]
+==== Responses
+
+The server answers a HTTP request with a response.
+This response can have a body, which will always be in the JSON format.
+Generally, a successful response (HTTP status codes 2xx) contains a `result` field, while an erroneous request (HTTP status code 4xx) has an `error` field, and a server error (HTTP status code 5xx), in addition to the `error` field, provides a `detail` and an `exception` field.
+
+[discrete]
+==== Tutorial
+
+Let's first create an empty database "school" on the server:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "create database school"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Now let's create the type "Class":
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{"language": "sql", "command": "create document type Class"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+We could insert our first Class by using SQL:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{"language": "sql", "command": "insert into Class set name = '\''English'\'', location =  '\''3rd floor'\''"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Or better, using parameters with SQL:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{"language": "sql", "command": "insert into Class set name = :name, location = :location", "params": {"name": "English", "location": "3rd floor"}}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+[discrete]
+==== Reference
+
+[discrete]
+[[http-checkready]]
+===== Check if server is ready (GET)
+
+Returns a header-only (no content) status about if the ArcadeDB server is ready.
+
+URL Syntax: `/api/v1/ready`
+
+This endpoint accepts (GET) requests without authentication, and is useful for remote monitoring of server readiness.
+
+Response:
+
+* https://httpstatuses.io/204[`204`] OK
+
+Example:
+
+[source,shell]
+----
+$ curl -I -X GET "http://localhost:2480/api/v1/ready"
+----
+
+Return:
+
+[source,shell]
+----
+HTTP/1.1 204 OK
+----
+
+[discrete]
+[[http-serverinfo]]
+===== Get server information (GET)
+
+Returns the current configuration.
+
+URL Syntax: `/api/v1/server`
+
+The following `mode` query parameter values are available:
+
+* `basic` returns minimal server information.
+* `default` returns full server configuration (default value when no parameter is given).
+* `cluster` returns cluster layout.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+
+Example:
+
+[source,shell]
+----
+$ curl -X GET "http://localhost:2480/api/v1/server?mode=basic" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json,subs="+attributes"]
+----
+{"user": "root", "version": "{revnumber}", "serverName": "ArcadeDB_0"}
+----
+
+[discrete]
+[[http-servercommand]]
+===== Send server command (POST)
+
+Sends control commands to server.
+
+URL Syntax: `/api/v1/server`
+
+The following commands are available:
+
+* `list databases` returns the list of databases installed in the server
+* `create database <dbname>` creates database with name `dbname`
+* `drop database <dbname>` deletes database with name `dbname`
+* `open database <dbname>` opens database with name `dbname`
+* `close database <dbname>` closes database with name `dbname`
+* `create user { "name": "<username>", "password": "<password>", "databases": { "<dbname>": "admin", "<dbname>": "admin" } }` creates user credentials `username` and `password` and admin access to databases `dbname`.
+* `drop user <username>` deletes user `username`
+* `get server events [<filename>]` returns a list of server events, optionally a filename of the form `server-event-log-yyyymmdd-HHMMSS.INDEX.jsonl` (where `INDEX` is a integer, i.e. `0`) can be given to retrieve older event logs
+* `shutdown` kills the server gracefully.
+* `set server setting <key> <value>` sets the server setting with `key` to `value`, see the <<setting-table,list of server-level settings>>
+* `set database setting <dbname> <key> <value>` sets the database's <dbname> with `key` to `value`, see the <<setting-table,list of database-level settings>>
+* `connect cluster <address>` connects this server to a cluster with `address`
+* `disconnect cluster` disconnects this server from a cluster
+* `align database <dbname>` aligns database `<dbname>`, see the associated <<sql-align-database,SQL command>>
+
+NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] invalid command
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/400[`500`] invalid JSON request body
+
+Examples:
+
+[discrete]
+====== List databases
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "list databases"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": ["school", "mydatabase"]}
+----
+
+[discrete]
+====== Create database
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "create database mydatabase"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Drop database
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "drop database mydatabase"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Open database
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "open database mydatabase"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Close database
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "close database mydatabase"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Create user
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "create user {\"name\": \"myuser\", \"password\": \"mypassword\", \"databases\": {\"mydatabase\": \"admin\"}}"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Drop user
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "drop user myuser"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Shutdown server
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "shutdown"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Get server events
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "get server events"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": [{"time": "2023-06-18 15:37:40.378", "type": "INFO", "component": "Server", "message": "ArcadeDB Server started in \u0027development\u0027 mode (CPUs\u003d8 MAXRAM\u003d4,00GB)"}]}
+----
+
+[discrete]
+====== Set server setting
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "set server setting arcadedb.server.name player0"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Set database setting
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "set database setting mydb arcadedb.flushOnlyAtClose true"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Connect cluster
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "connect cluster 192.168.0.1"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Disconnect cluster
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "disconnect cluster"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Align database
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "align database mydb"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+[[http-listdatabases]]
+===== List Databases (GET)
+
+Returns a list of available databases for the requesting user.
+
+URL Syntax: `/api/v1/databases`
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+
+Example:
+
+[source,shell]
+----
+$ curl -X GET http://localhost:2480/api/v1/databases \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json,subs="+attributes"]
+----
+{"result": ["school", "mydatabase"]}
+----
+
+[discrete]
+[[http-databaseexists]]
+===== Does database exist (GET)
+
+Returns boolean answering if database exists.
+
+URL Syntax: `/api/v1/exists/{database}`
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] no database passed
+
+Example:
+
+[source,shell]
+----
+$ curl -X GET http://localhost:2480/api/v1/exists/school \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json,subs="+attributes"]
+----
+{"result": true}
+----
+
+[discrete]
+[[http-executequery]]
+===== Execute a query (GET|POST)
+
+This command allows executing idempotent commands, like `SELECT` and `MATCH`:
+
+URL Syntax GET: `/api/v1/query/{database}/{language}/{command}`
+
+URL Syntax POST: `/api/v1/query/{database}`
+
+Where:
+
+- `database` is the database name
+- `language` is the query language used.
+is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
+- `command` the command to execute in encoded format
+- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`.
+
+When using the `GET` variant the query needs to be URL encoded.
+
+NOTE: Due to security reasons (encoded) slashes `/` (`%2F`) which are used for divisions or block comments, cannot be used in queries via the GET method with the `query/` endpoint.
+
+NOTE: Question marks (`?`) cause the server to stop reading the query string when sent via GET.
+To use question marks (inside strings) one can use `format('%c',63)`; in this case make sure to replace all percent symbols (`%`) in the format string with `%%`.
+
+These restrictions do not apply to the `POST` variant, where the `language` and `command`
+are send in the body.
+
+NOTE: Even though a `POST` method is used, the query in `command` has to be idempotent.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] invalid language, invalid query
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/400[`500`] database does not exist, cannot execute query
+
+Example:
+
+[source,shell]
+----
+$ curl -X GET http://localhost:2480/api/v1/query/school/sql/select%20from%20Class \
+       --user root:arcadedb-password
+----
+
+The `query` endpoint may also be used via the POST method, which has no character restrictions such as `/` or `?`:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/query/school \
+       -d '{"language": "sql", "command": "select from Class"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+[discrete]
+[[http-command]]
+[[http-executecommand]]
+===== Execute database command (POST)
+
+Executes a non-idempotent command (as an implicit transaction).
+
+URL Syntax: `/api/v1/command/{database}`
+
+Where:
+
+- `database` is the database name
+
+Example to create the new document type "Class":
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{"language": "sql", "command": "create document type Class"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+The payload, as a JSON, accepts the following parameters:
+
+- `language` is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
+- `command` the command to execute in encoded format
+- `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
+The completion of the command is noted in the log, yet no results of the command can be returned.
+- `limit` (optional) is the maximum number of results to return
+- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`.
+- `retries` (optional), is the number of times the command (transaction) is retried.
+- `serializer` (optional) specify the serializer used for the result:
+** `graph`: returns a graph separating vertices from edges
+** `record`: returns everything as records
+** `studio`: by default it's like record but with additional metadata for vertex records, such as the number of outgoing edges in `@out` property and total incoming edges in `@in` property.
+This serializer is used by <<studio,Studio>>.
+
+NOTE: Asynchronous commands (using `"awaitResponse": false`) are queued, and their processing is configurable via <<setting-database,`async*` database settings>>.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/200[`202`] Accepted
+* https://httpstatuses.io/400[`400`] invalid language, invalid command
+* https://httpstatuses.io/403[`403`] invalid credentials
+
+Example of insertion of a new Client by using parameters:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/company \
+       -d '{"language": "sql", "command": "create vertex Client set firstName = :firstName, lastName =  :lastName", params: {"firstName": "Jay", "lastName": "Miner"}}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+[discrete]
+[[http-begin]]
+===== Begin a transaction (POST)
+
+Begins a transaction on the server managed as a session.
+The response header contains the session id.
+Set this id in the following requests to execute them in the same transaction scope.
+See also <<http-commit,/commit>> and <<http-rollback,/rollback>>.
+
+URL Syntax: `/api/v1/begin/{database}`
+
+Where:
+
+- `database` is the database name
+
+The payload, optional as a JSON, accepts the following parameters:
+
+- `isolationLevel` is the isolation level for the current transaction, either `READ_COMMITTED` (default) or `REPEATABLE_READ`.
+
+Responses:
+
+* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/401[`400`] invalid value
+* https://httpstatuses.io/401[`401`] transaction already started
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/500[`500`] invalid database, invalid JSON, invalid body
+
+Example:
+
+[source,shell]
+----
+$ curl -I -X POST http://localhost:2480/api/v1/begin/school \
+       --user root:arcadedb-password
+----
+
+Returns the Session Id in the response header, example:
+
+`arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4`
+
+Use the session id in the request header of further commands you want to execute in the same transaction and execute <<http-commit,/commit>> to commit the server side transaction or <<http-rollback,/rollback>> to rollback the changes.
+After a period of inactivity (default is 30 seconds), the server automatically rollback and purge expired transactions.
+
+[discrete]
+[[http-commit]]
+===== Commit a transaction (POST)
+
+Commits a transaction on the server.
+Set the session id obtained with the <<http-begin,/begin>> command as a header of the request.
+See also <<http-begin,/begin>> and <<http-rollback,/rollback>>.
+
+URL Syntax: `/api/v1/commit/{database}`
+
+Where:
+
+- `database` is the database name
+
+Set the session id returned from the <<http-begin,/begin>> command in the request header.
+If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
+
+Response:
+
+* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
+
+Example:
+
+[source,shell]
+----
+$ curl -I -X POST http://localhost:2480/api/v1/commit/school \
+       -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4" \
+       --user root:arcadedb-password
+----
+
+[discrete]
+[[http-rollback]]
+===== Rollback a transaction (POST)
+
+Rollbacks a transaction on the server.
+Set the session id obtained with the <<http-begin,/begin>> command as a header of the request.
+See also <<http-begin,/begin>> and <<http-commit,/commit>>.
+
+URL Syntax: `/api/v1/rollback/{database}`
+
+Where:
+
+- `database` is the database name
+
+Set the session id returned from the <<http-begin,/begin>> command in the request header.
+If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
+
+Response:
+
+* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
+
+Example:
+
+[source,shell]
+----
+$ curl -I -X POST http://localhost:2480/api/v1/rollback/school \
+       -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4" \
+       --user root:arcadedb-password
+----

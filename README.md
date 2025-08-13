@@ -8,6 +8,11 @@ Generate html and pdf documentation:
 mvn generate-resources
 ```
 
+> **Tip:** You can build the documentation without installing Maven locally by using Docker:
+> ```sh
+> docker run --rm -v "$PWD":/docs -w /docs maven:3.8.8 mvn generate-resources
+> ```
+
 Documentation is generated under `target/generated-docs` folder
 
 Serve documentation on local http server:
@@ -15,6 +20,14 @@ Serve documentation on local http server:
 ```shell
 mvn jetty:run
 ```
+
+> **Tip:** You can also serve the documentation using Docker without installing Maven:
+>
+> ```sh
+> docker run --rm -it -p 8080:8080 -v "$PWD":/docs -w /docs maven:3.8.8 mvn jetty:run
+> ```
+>
+> Then open your browser to [http://localhost:8080](http://localhost:8080)
 
 then open the browser to http://localhost:8080
 

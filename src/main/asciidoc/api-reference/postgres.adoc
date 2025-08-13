@@ -1,0 +1,140 @@
+[[postgres-driver]]
+=== Postgres Protocol Plugin
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/postgres.adoc" float=right]
+
+ArcadeDB Server supports a subset of the https://postgres.com[Postgres] wire protocol, such as connection and queries.
+
+If you're using ArcadeDB as <<embedded-server,embedded>>, please add the dependency to the `arcadedb-postgresw` library.
+If you're using Maven include this dependency in your `pom.xml` file.
+
+[source,xml, subs="+attributes"]
+----
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-postgresw</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+----
+
+To start the Postgres plugin, enlist it in the <<settings-sql,`server.plugins`>> settings.
+To specify multiple plugins, use the comma `,` as separator.
+Example:
+
+[source,shell]
+----
+~/arcadedb $ bin/server.sh -Darcadedb.server.plugins="Postgres:com.arcadedb.postgres.PostgresProtocolPlugin"
+----
+
+If you're using MS Windows OS, replace `server.sh` with `server.bat`.
+
+NOTE: In case of an incompatibility, restart the server with the additional option `-Darcadedb.postgres.debug=true`, repeat the connection attempt, and add the debug output to the issue report.
+
+In case you're running ArcadeDB with Docker, use `-e` to pass settings and open the Postgres default port `5432`:
+
+[source,shell]
+----
+docker run --rm -p 2480:2480 -p 2424:2424 -p 5432:5432 \
+       --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata \
+          -Darcadedb.server.plugins=Postgres:com.arcadedb.postgres.PostgresProtocolPlugin " \
+          arcadedata/arcadedb:latest
+----
+
+The Server output will contain this line:
+
+[source,shell]
+----
+2021-07-08 19:05:06.081 INFO  [ArcadeDBServer] <ArcadeDB_0> - Postgres Protocol plugin started
+----
+
+Once you have enabled the Postgres Protocol, you can interact with ArcadeDB server by using any Postgres drivers.
+The driver sends the queries to the ArcadeDB server without parsing or checking the syntax.
+For this reason, even if ArcadeDB SQL is different from Postgres SQL, you're still able to execute any ArcadeDB SQL command through the Postgres driver.
+Check out the following list with the official drivers for the most popular programming languages:
+
+- https://www.postgresql.org/docs/current/libpq.html[C]
+- https://www.npgsql.org/[C#]
+- http://pqxx.org/development/libpqxx/[C++]
+- https://github.com/lib/pq[Go]
+- https://github.com/brianc/node-postgres[Javascript - Node.js]
+- https://www.php.net/manual/en/book.pgsql.php[PHP]
+- https://www.psycopg.org/docs/[Python]
+- https://cran.r-project.org/web/packages/RPostgreSQL/index.html[R]
+- https://github.com/ged/ruby-pg[Ruby]
+- https://github.com/sfackler/rust-postgres[Rust]
+
+For the complete list, please check https://wiki.postgresql.org/wiki/List_of_drivers[Postgres website].
+
+==== Other query languages
+
+By default the Postgres driver interprets all the commands as <<sql,SQL>>.
+To use another supported language, like <<open-cypher,Cypher>>, <<gremlin-api,Gremlin>>, <<graphql,GraphQL>> or <<mongodb-query-language,MongoDB>>, prefix the command with the language to use between curly brackets.
+
+Example to execute a query by using GraphQL:
+
+[source,graphql]
+----
+{graphql}{ bookById(id: "book-1"){ id name authors { firstName, lastName } }
+----
+
+Example to use Cypher:
+
+[source,cypher]
+----
+{cypher}MATCH (m:Movie)<-[a:ACTED_IN]-(p:Person) WHERE id(m) = '#1:0' RETURN *
+----
+
+Example of using Gremlin:
+
+[source,cypher]
+----
+{gremlin}g.V()
+----
+
+==== Current limitations
+
+The documentation about Postgres wire protocol is not exhaustive to build a bullet proof protocol.
+In particular the state machine.
+For this reason this plugin was created by reading the available documentation online (official and not official) and looking into Postgres drivers or implementations.
+
+NOTE: Particularly, ArcadeDB does only support "simple" query mode and does not support SSL!
+
+==== Transactions
+
+Enabling auto commit to false is not 100% supported.
+With JDBC, leave the default settings or set:
+
+[source,java]
+----
+conn.setAutoCommit(true);
+----
+
+==== Postgres Tools Known to Work
+
+NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.
+Those tables are not present in ArcadeDB, so it may return errors at startup.
+See tested <<compatible-tools,compatible tools>> below.
+If the tool that you use to work with Postgres is not compatible with ArcadeDB, please https://github.com/ArcadeData/arcadedb/issues[open an issue].
+
+===== PostgreSQL Client psql
+
+Postgres's `psql` tool works out of the box, just like with an actual Postgres server.
+To install this Postgres client, see https://www.ibm.com/cloud/blog/postgresql-tips-installing-the-postgresql-client[here].
+
+Connect from a terminal or console like this:
+```shell
+psql -h localhost -p 5432 -d mydatabase -U root 
+```
+After authenticating, you can run SQL queries as normal. 
+One can also submit the password via the environment:
+```shell
+PGPASSWORD=password psql -h localhost -p 5432 -d mydatabase -U root
+```
+or use the `postgres` protocol address:
+```shell
+psql postgres://username:password@host:port/database
+```
+In case the password contains special characters (like `/`, `\`, `@`, `?`, `!`, `&`),
+it needs to be URL encoded (also known as "percent encoding").
+
+Note, that in the `psql` console queries or commands need to be terminated with a semi-colon `;` to be submitted.
