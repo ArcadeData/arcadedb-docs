@@ -1,0 +1,166 @@
+[[gremlin-api]]
+=== Gremlin
+
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api/gremlin.adoc" float=right]
+
+ArcadeDB supports Gremlin 3.7.x as query engine and in the <<gremlin-server,Gremlin Server>>.
+You can execute a gremlin query from pretty much everywhere.
+
+If you're using ArcadeDB as <<embedded-server,embedded>>, please add the dependency to the `arcadedb-gremlin` library.
+If you're using Maven include this dependency in your `pom.xml` file.
+
+[source,xml, subs="+attributes"]
+----
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-gremlin</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+----
+
+[discrete]
+==== Gremlin from Java API
+
+In order to execute a Gremlin query, you need to include the relevant jars, i.e. the `apache-tinkerpop-gremlin-server` libraries, plus `gremlin-groovy`, plus `opencypher-util-9.0`, in your class path.
+To execute a Gremlin query, use "gremlin" as first parameter in the query method.
+Example:
+
+[source,java]
+----
+ResultSet result = database.query("gremlin", "g.V().has('name','Michelle').has('lastName','Besso').out('IsFriendOf')");
+----
+
+If you're application is mostly based on Gremlin, the best way is to use the ArcadeGraph class as an entrypoint. Example:
+
+```java
+try (final ArcadeGraph graph = ArcadeGraph.open("./databases/graph")) {
+  Vertex michelleFriend = graph.traversal().V().has("name","Michelle").has("lastName","Besso").out("IsFriendOf").next();
+}
+```
+
+You can also work with a remote ArcadeDB Server:
+
+```java
+try( RemoteDatabase database = new RemoteDatabase("127.0.0.1", 2480, "graph", "root", "playwithdata") ){
+  try (final ArcadeGraph graph = ArcadeGraph.open(database)) {
+    Vertex michelleFriend = graph.traversal().V().has("name","Michelle").has("lastName","Besso").out("IsFriendOf").next();
+  }
+}
+```
+
+Since a `RemoteDatabase` instance cannot be shared between threads, if your application is multi-threads, you can use the `ArcadeGraphFactory` to acquire `ArcadeGraph` instances from a pool. Example:
+
+```java
+try (ArcadeGraphFactory pool = ArcadeGraphFactory.withRemote("127.0.0.1", 2480, "mydb", "root", "playwithdata")) {
+  try( ArcadeGraph graph = pool.get() ){
+    // DO SOMETHING WITH ARCADE GRAPH
+  }
+}
+```
+
+NOTE: Remember to call `ArcadeGraph.close()` to release the `ArcadeGraph` instance back into the pool. `ArcadeGraph` implements `Closable`, so you can just use it in a `try` block like in the example above.
+
+[discrete]
+==== Gremlin through Postgres Driver
+
+You can execute a Gremlin query against ArcadeDB server by using the <<postgres-driver,Postgres driver>> and prefixing the query with `{gremlin}`.
+Example:
+
+[source,Gremlin]
+----
+"{gremlin} g.V().has('name','Michelle').has('lastName','Besso').out('IsFriendOf')"
+----
+
+ArcadeDB server will execute the query `g.V().has('name','Michelle').has('lastName','Besso').out('IsFriendOf')` using the Gremlin query language.
+
+[discrete]
+==== Gremlin through HTTP/JSON
+
+You can execute a Gremlin query against ArcadeDB server by using <<http-api,HTTP/JSON>> API.
+Example of executing an idempotent query with HTTP GET command:
+
+[source,shell]
+----
+curl "http://localhost:2480/query/graph/gremlin/g.V().has('name','Michelle').has('lastName','Besso').out('IsFriendOf')"
+----
+
+Example of executing a non-idempotent query (updates the database):
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/command/graph" -d "{'language': 'gremlin', 'command': 'g.V().has(\"name\",\"Michelle\").has(\"lastName\",\"Besso\").out(\"IsFriendOf\")'}"
+----
+
+[discrete]
+[[gremlin-server]]
+==== Use the Gremlin Server
+
+Apache TinkerPop Gremlin provides a standalone server to allow remote access with a Gremlin client.
+In order to use the Gremlin Server with ArcadeDB, you have to enable it from ArcadeDB's server plugin system:
+
+[source,shell]
+----
+~/arcadedb $ bin/server.sh -Darcadedb.server.plugins="GremlinServer:com.arcadedb.server.gremlin.GremlinServerPlugin"
+----
+
+If you're using MS Windows OS, replace `bin/server.sh` with `bin\server.bat`.
+
+At startup, the Gremlin Server plugin looks for the file `config/gremlin-server.yaml` under ArcadeDB path.
+If the file is present, the Gremlin Server will be configured with the settings contained in the YAML file, otherwise the default configuration will be used.
+
+You can also override single configuration settings by using <<settings-sql,ArcadeDB's settings>> and prefixing the configuration key with `gremlin.`.
+All the configuration settings with such a prefix will be passed to the Gremlin Server plugin.
+
+By default, the database "graph" will be available through the Gremlin Server.
+You can edit the database name or add more databases under the Gremlin Server by editing the file `config/gremlin-server.groovy`
+
+NOTE: If you're importing a database, use "graph" as the name of the database to be available through the <<gremlin-server,Gremlin Server>>
+
+
+Start the Gremlin Server with `OpenBeer` as imported database with name `graph`, so it can be used through the Gremlin Server.
+
+[source,shell]
+----
+docker run -d --name arcadeDB -p 2424:2424 -p 2480:2480 -p 8182:8182 \
+       --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata \
+          -Darcadedb.server.defaultDatabases=Imported[root]{import:https://github.com/ArcadeData/arcadedb-datasets/raw/main/orientdb/OpenBeer.gz} \
+          -Darcadedb.server.plugins=GremlinServer:com.arcadedb.server.gremlin.GremlinServerPlugin " \
+          arcadedata/arcadedb:latest
+----
+
+NOTE: In case you're running ArcadeDB with Docker, open the port `8182` and use `-e` to pass the settings
+
+To connect to a remote GremlinServer use this:
+
+```java
+var cluster = Cluster.build()
+            .port(8182)
+            .addContactPoint("localhost")
+            .credentials("root", "password")
+            .create();
+var connection = DriverRemoteConnection.using(cluster);
+var g = new GraphTraversalSource(connection);
+```
+
+[discrete]
+==== Known Limitations with the Gremlin Implementation
+
+- ArcadeDB automatically handles the conversion between compatible types, such as strings and numbers when possible. Gremlin does not. So if you define a schema with the ArcadeDB API and then you use Gremlin for a traversal, ensure you’re using the same type you defined in the schema. For example, if you define a property "id" to be a string, and then you’re executing traversal by using integers for the ids, the result could be unpredictable.
+- ArcadeDB's Gremlin implementation always tries to optimize the Gremlin traversal by using ArcadeDB's internal query. While this is easy with simple traversal using `.has()` and `.hasLabel()`, it is unable to optimize more complex traversal with `select()` and `where()`. Instead of executing an optimized query, it could result in a full scan of the type, leaving to Gremlin the filtering. While the result of the traversal is still correct, the performance would be heavily impacted. Please consider using ArcadeDB's SQL or Native Select for the best performance with complex traversals.
+
+
+For more information about Gremlin:
+
+- http://tinkerpop.apache.org/gremlin.html[Introduction to Gremlin]
+- http://tinkerpop.apache.org/docs/current/tutorials/getting-started/[Getting Started with Gremlin]
+- http://tinkerpop.apache.org/docs/current/tutorials/the-gremlin-console/[The Gremlin Console]
+- http://tinkerpop.apache.org/docs/current/recipes/[Gremlin Recipes]
+- https://tinkerpop.apache.org/docs/3.6.4/reference/#gremlin-java[Java Gremlin Documentation]
+- https://kelvinlawrence.net/book/PracticalGremlin.html[PRACTICAL GREMLIN: An Apache TinkerPop Tutorial]
+
+==== Recommended Tools with Gremlin
+
+If you're using Gremlin with ArcadeDB, check out https://gdotv.com/[G.V()] graphic tool. It is compatible with ArcadeDB and provides a powerful visual debugger, advanced graph analytics, and much more.
+
+image:https://gdotvbinaries.blob.core.windows.net/images/debugging-queries-short.webp[link="https://gdotv.com/" float=right]
+
