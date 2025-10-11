@@ -65,40 +65,27 @@ You should see the first 100 beers in the database and all their connections.
 image::../images/openbeer-demo-graph.png[alt="Demo Database Graph",align="center"]
 
 [discrete]
-[[dockertuning]]
-==== Persistence and Data Storage
+==== Persistence
 
-By default, ArcadeDB data in Docker containers is stored in `/home/arcadedb/databases` within the container and is not persistent across container restarts. To make your data persistent, you need to mount external storage to this directory.
+By default, data created in a Docker container is lost when the container stops. To preserve your ArcadeDB databases beyond the container's lifecycle, you need to configure persistent storage by mounting volumes.
 
-There are multiple approaches to achieve persistence, and the practical choice depends on your application requirements and environment:
+===== Understanding ArcadeDB's Database Directory
 
-===== Docker Storage Options
+ArcadeDB stores its databases in the `/home/arcadedb/databases` directory by default. This is the path you need to mount to persist your data. You can customize this location using the `-Darcadedb.server.databaseDirectory` setting if needed.
 
-Docker provides two main options for persistent storage:
+===== Docker Volumes vs. Bind Mounts
 
-1. **https://docs.docker.com/storage/volumes/[Docker volumes]** - Docker-managed storage sections on the host filesystem. This is the recommended approach for most use cases where the host stores the data.
+Docker offers two approaches for persistent storage:
 
-2. **https://docs.docker.com/storage/bind-mounts/[Bind mounts]** - User-managed host filesystem directories. Use this when the target volume is mounted from network storage or requires specific host paths.
+1. **https://docs.docker.com/storage/volumes/[Docker volumes]** - Docker-managed storage sections on the host filesystem. Docker handles the storage location, permissions, and lifecycle. This is the recommended approach for most use cases as it's more portable and easier to manage.
+
+2. **https://docs.docker.com/storage/bind-mounts/[Bind mounts]** - Direct mapping to a specific path on your host machine. This gives you full control over the exact location of your data files and allows direct access to them from the host. Useful when you need to inspect, backup, or manipulate the database files directly.
 
 See the https://docs.docker.com/storage/[Docker storage documentation] for detailed setup instructions.
 
-===== ArcadeDB Storage Strategies
+===== Persisting the Database Directory
 
-Choose the appropriate strategy based on your performance and backup requirements:
-
-1. **Full Database Persistence** - Store the entire database on external storage.
-+
-All database read/write operations occur on the mounted volume. This may impact performance but ensures complete data persistence. Use `-Darcadedb.server.databaseDirectory=/mydatabases` to specify a custom database directory if needed.
-
-2. **Backup-Only Persistence** - Store only backups on external storage.
-+
-Database operations use container storage for better performance, but regular backups are stored persistently. Use `-Darcadedb.server.backupDirectory=/mybackup` to specify the backup directory and ensure regular <<sql-backup-database,`BACKUP DATABASE`>> operations.
-
-NOTE: The optimal strategy depends on your infrastructure. "Local storage" performance characteristics vary between bare metal, virtual machines, and container orchestration platforms.
-
-===== Basic Persistence Example
-
-Mount a host directory to the default database directory:
+The default path `/home/arcadedb/databases` contains all your database files. Mount this directory to make your data persistent. Here's an example using a bind mount:
 
 [source,shell,subs="attributes+"]
 ----
@@ -107,6 +94,41 @@ $ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
     --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata" \
     --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
+
+Replace `/path/on/host/databases` with your desired directory path. All database read and write operations will occur on this mounted volume.
+
+TIP: If you prefer using Docker volumes instead of bind mounts, replace `-v /path/on/host/databases:/home/arcadedb/databases` with `-v arcadedb-data:/home/arcadedb/databases` where `arcadedb-data` is your chosen volume name.
+
+===== Alternative: Custom Database Directory
+
+If you need to change where ArcadeDB stores databases, use the `-Darcadedb.server.databaseDirectory` setting and mount your volume to match the new path:
+
+[source,shell,subs="attributes+"]
+----
+$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
+    -v /path/on/host/databases:/mydatabases \
+    --env JAVA_OPTS="-Darcadedb.server.databaseDirectory=/mydatabases \
+                     -Darcadedb.server.rootPassword=playwithdata" \
+    --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
+----
+
+This example changes the database directory to `/mydatabases` and mounts the volume to that location.
+
+===== Alternative: Backup-Only Persistence
+
+For better performance, you can keep databases in container storage and only persist backups. All database operations occur in fast container storage, but you must perform regular backups:
+
+[source,shell,subs="attributes+"]
+----
+$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
+    -v /path/on/host/backups:/home/arcadedb/backups \
+    --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata" \
+    --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
+----
+
+The default backup directory is `/home/arcadedb/backups`. You can customize it with `-Darcadedb.server.backupDirectory=/mybackup`. Remember to execute regular <<sql-backup-database,`BACKUP DATABASE`>> operations.
+
+NOTE: The optimal strategy depends on your infrastructure. "Local storage" performance characteristics vary between bare metal, virtual machines, and container orchestration platforms.
 
 ===== Comprehensive Persistence Example
 
