@@ -44,3 +44,60 @@ if (database.getSchema().existsIndex(indexName)) {
 
 The callback in the `addAll()` method is useful when you have a graph/tree connected to the vertices created by the index. For example, if you are indexing a book, probably you calculate a vector of embeddings per statement, and then you group the statements in paragraphs.
 
+===== Creating LSMVectorIndex
+
+LSMVectorIndex provides an alternative persistent vector indexing approach based on ArcadeDB's LSM Tree architecture. You can create an LSMVectorIndex using the Java API with the following configuration:
+
+[source,java]
+----
+// Create or get schema
+final Schema schema = database.getSchema();
+if (!schema.existsType("Document")) {
+  schema.createVertexType("Document");
+}
+
+// Create vector property
+if (!schema.existsProperty("Document", "embedding")) {
+  schema.createProperty("Document", "embedding", Type.ARRAY_OF_FLOATS);
+}
+
+// Create LSMVectorIndex
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(database, "Document", new String[]{"embedding"})
+    .withDimensions(768)                           // Vector dimensions
+    .withSimilarity(VectorSimilarityFunction.COSINE)  // Similarity metric (COSINE, DOT_PRODUCT, EUCLIDEAN)
+    .withMaxConnections(16)                        // Max connections per node (default: 16)
+    .withBeamWidth(100)                            // Beam width for search (default: 100)
+    .withIdProperty("id");                         // ID property name (default: "id")
+
+final LSMVectorIndex index = builder.create();
+----
+
+Once the LSMVectorIndex is created, you can add vectors:
+
+[source,java]
+----
+final LSMVectorIndex index = (LSMVectorIndex) database.getSchema().getIndexByName("Document[embedding]");
+
+// Add vectors to the index
+index.addAll(vectors, (vertex, item, total) -> {
+  // Callback for handling vertex creation if needed
+});
+----
+
+You can also configure the index from metadata JSON:
+
+[source,java]
+----
+final JSONObject metadata = new JSONObject()
+    .put("dimensions", 768)
+    .put("similarity", "COSINE")
+    .put("maxConnections", 16)
+    .put("beamWidth", 100)
+    .put("idPropertyName", "id");
+
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(database, "Document", new String[]{"embedding"})
+    .fromMetadata(metadata);
+
+final LSMVectorIndex index = builder.create();
+----
+
