@@ -97,75 +97,88 @@ https://github.com/ArcadeData/arcadedb/discussions/1180[Coming Soon].
 [[vector-model]]
 ==== Vector Model
 
-This model uses the https://arxiv.org/abs/1603.09320[hierarchical navigable small world] (HNSW) algorithm
-to index the multi-dimensional vector data. Practically,
-an extended version of the https://github.com/jelmerk/hnswlib[hnswlib] is used.
-Since the HNSW algorithm is based on a graph,
-the vectors are stored as compressed arrays inside ArcadeDB's vertex type,
-and the proximities are represented by actual edges.
+ArcadeDB provides a high-performance vector indexing solution using the LSMVectorIndex, which is built on the https://github.com/jelmerk/jvector[JVector 4.0.0 library]. This implements the https://arxiv.org/abs/1603.09320[hierarchical navigable small world] (HNSW) algorithm for efficient approximate nearest neighbor (ANN) search on multi-dimensional vector data.
 
-The vector indexing process is configurable, i.e. the <<similarity,distance function>>,
-the number of nearest neighbors during construction (`efConstruction`) or search (`ef`),
-as well as others can be set, see <<additional-settings,Additional Settings>>.
+The LSMVectorIndex combines the HNSW algorithm with ArcadeDB's LSM Tree architecture, providing:
 
-===== Java Example
-
-```java
-HnswVectorIndexRAM<String, float[], Word, Float> hnswIndex = HnswVectorIndexRAM.newBuilder(300, DistanceFunctions.FLOAT_INNER_PRODUCT, words.size())
-          .withM(16).withEf(200).withEfConstruction(200).build();
-```
-
-```java
-persistentIndex = hnswIndex.createPersistentIndex(database)//
-.withVertexType("Word").withEdgeType("Proximity").withVectorPropertyName("vector").withIdProperty("name").create();
-
-persistentIndex.save();
-```
-
-```java
-persistentIndex = (HnswVectorIndex) database.getSchema().getIndexByName("Word[name,vector]");
-```
-
-```java
-List<SearchResult<Vertex, Float>> approximateResults = persistentIndex.findNeighbors(input, k);
-```
+- **Persistent Storage**: Vector indexes are stored on disk with automatic page management and compaction
+- **Transaction Support**: Full ACID compliance with automatic persistence on transaction commit
+- **Multiple Similarity Functions**: Supports COSINE (default), DOT_PRODUCT, EUCLIDEAN, and others
+- **SQL Integration**: Create and query vector indexes using SQL commands
+- **Automatic Compaction**: Efficiently reclaims disk space through automatic compaction of immutable pages
+- **High Performance**: LSM Tree benefits for write efficiency and space optimization at scale
 
 ===== SQL Example
 
+Create a vector index and query it:
+
 ```sql
-import database https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.en.300.vec.gz
-  with distanceFunction = 'cosine', m = 16, ef = 128, efConstruction = 128;
+-- Create vertex type and property
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.content STRING;
+CREATE PROPERTY Document.embedding ARRAY OF FLOATS;
+
+-- Create vector index with 384 dimensions using COSINE similarity
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE'
+};
+
+-- Query for similar documents
+SELECT content FROM Document
+WHERE vectorNeighbors('embedding', $queryVector, 10) > 0.8
+ORDER BY vectorNeighbors('embedding', $queryVector, 10) DESC
+LIMIT 5;
 ```
 
-In this case the default vertex type used for storing vectors is `Node`.
+===== Java Example
 
-```sql
-SELECT vectorNeighbors('Node[name,vector]','king',3);
+Create and query a vector index programmatically:
+
+```java
+import com.arcadedb.index.lsm.LSMVectorIndex;
+import com.arcadedb.index.lsm.LSMVectorIndexBuilder;
+import com.arcadedb.index.vector.VectorSimilarityFunction;
+
+// Create index programmatically
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .withDimensions(384)
+    .withSimilarity(VectorSimilarityFunction.COSINE)
+    .withMaxConnections(16)
+    .withBeamWidth(100);
+
+final LSMVectorIndex index = builder.create();
+
+// Query the index using SQL
+final ResultSet resultSet = database.query("sql",
+    "SELECT FROM Document " +
+    "WHERE vectorNeighbors('embedding', ?, 10) > 0.8 " +
+    "LIMIT 5",
+    queryVector);
 ```
 
 [[additional-settings]]
-===== Additional Settings
+===== Configuration Parameters
 
-When working with vector indexes, the following parameters can be configured:
+When creating LSMVectorIndex instances, the following parameters can be configured:
 
-- `distanceFunction`: The distance function to use for similarity calculation. See the table below.
-- `m`: The maximum number of connections per layer in the graph (default: 16)
-- `ef`: Number of nearest neighbors to return during search (default: 10)
-- `efConstruction`: Number of nearest neighbors to consider during index construction (default: 200)
-- `randomSeed`: Random seed for reproducible construction (default: 42)
+- `dimensions`: The dimensionality of the vectors (must match your embedding model output)
+- `similarity`: The distance function for similarity calculation (COSINE, DOT_PRODUCT, EUCLIDEAN, etc.)
+- `maxConnections`: Maximum number of connections per layer in the HNSW graph (default: 16, increase for better recall)
+- `beamWidth`: Beam width for approximate nearest neighbor search (default: 100, increase for more accurate results)
 
 [[similarity]]
-===== Distance Functions (Similarity Measures)
+===== Supported Similarity Functions
 
 [%header,cols=3]
 |===
 | Measure | Name | Type
-| `cosine` | https://en.wikipedia.org/wiki/Cosine_similarity[Cosine Similarity] | L~2~
-| `innerproduct` | https://en.wikipedia.org/wiki/Dot_product[Inner Product] | L~2~
-| `euclidean` | https://en.wikipedia.org/wiki/Euclidean_distance[Euclidean Distance] | L~2~
-| `correlation` | https://en.wikipedia.org/wiki/Correlation[Correlation Distance] | L~2~
-| `manhattan` | https://en.wikipedia.org/wiki/Taxicab_geometry[Manhattan Distance] | L~1~
-| `canberra` | https://en.wikipedia.org/wiki/Canberra_distance[Canberra Distance] | L~1~
-| `chebyshev` | https://en.wikipedia.org/wiki/Chebyshev_distance[Chebyshev Distance] | L~∞~
-| `braycurtis` | https://en.wikipedia.org/wiki/Bray%E2%80%93Curtis_dissimilarity[Bray-Curtis Similarity] | /
+| `COSINE` | https://en.wikipedia.org/wiki/Cosine_similarity[Cosine Similarity] | L~2~
+| `DOT_PRODUCT` | https://en.wikipedia.org/wiki/Dot_product[Inner Product] | L~2~
+| `EUCLIDEAN` | https://en.wikipedia.org/wiki/Euclidean_distance[Euclidean Distance] | L~2~
 |===
+
+For more information on vector embeddings, see the <<java-vectors,Vector Embeddings>> section.
