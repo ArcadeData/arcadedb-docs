@@ -40,7 +40,7 @@ def fix_cross_refs_in_file(file_path):
         if re.search(anchor_pattern, content) and not re.search(rf'\[\[{good_ref}\]\]', content):
             content = re.sub(anchor_pattern, f'[[{bad_ref}]]\n[[{good_ref}]]', content)
             changed = True
-    
+
     # Fix cross-references <<badref,text>> -> <<good-ref,text>>
     for bad_ref, good_ref in REFERENCE_MAPPING.items():
         # Find cross-references
@@ -62,11 +62,11 @@ def main():
     """Find and fix cross-references in all AsciiDoc files."""
     base_dir = Path(__file__).parent
     asciidoc_dir = base_dir / "src" / "main" / "asciidoc"
-    
+
     # Get all .adoc files
     adoc_files = list(asciidoc_dir.glob("**/*.adoc"))
     print(f"Found {len(adoc_files)} AsciiDoc files")
-    
+
     # Process each file
     fixed_count = 0
     for file_path in adoc_files:
@@ -75,7 +75,7 @@ def main():
             fixed_count += 1
         except Exception as e:
             print(f"Error processing {file_path}: {e}")
-    
+
     print(f"Processed {fixed_count} files")
 
 
