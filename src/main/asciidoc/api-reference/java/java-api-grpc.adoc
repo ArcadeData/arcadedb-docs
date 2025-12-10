@@ -1,0 +1,629 @@
+[[java-api-grpc]]
+=== Java API (gRPC)
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api-reference/java/java-api-grpc.adoc" float=right]
+
+ArcadeDB provides a high-performance gRPC-based Java library for remote database communication. gRPC (gRPC Remote Procedure Call) is a modern, open-source, high-performance RPC framework that can efficiently connect services in and across data centers.
+
+==== Why Use gRPC for ArcadeDB?
+
+gRPC offers several advantages over traditional HTTP-based communication:
+
+* **High Performance**: gRPC uses HTTP/2 for transport, providing lower latency and higher throughput compared to traditional HTTP/1.1
+* **Efficient Binary Protocol**: Uses Protocol Buffers for serialization, resulting in smaller message sizes and faster parsing
+* **Streaming Support**: Built-in support for bidirectional streaming, ideal for real-time applications
+* **Language Agnostic**: While this guide focuses on Java, gRPC supports multiple programming languages with consistent APIs
+* **Low Latency**: Optimized for scenarios requiring minimal latency and maximum throughput
+* **Connection Multiplexing**: Multiple requests can be sent over a single TCP connection
+
+gRPC is particularly well-suited for:
+
+* Real-time applications requiring fast data access
+* Microservices architectures
+* High-throughput data processing
+* Mobile applications with limited bandwidth
+* Services requiring bidirectional streaming
+
+[[remote-grpc-server]]
+==== RemoteGrpcServer Class
+
+The `RemoteGrpcServer` class manages connections to the gRPC server and provides server-level operations such as creating databases, listing available databases, and managing server resources.
+
+Key features:
+
+* Establishes and maintains the connection to the ArcadeDB gRPC server
+* Handles authentication and security
+* Provides methods for database lifecycle management
+* Supports connection pooling and resource management
+
+[[remote-grpc-database]]
+==== RemoteGrpcDatabase Class
+
+The `RemoteGrpcDatabase` class is used to work with a specific remote database instance via gRPC. It provides methods for executing queries, commands, and transactions with optimal performance characteristics.
+
+Key features:
+
+* Execute SQL queries and commands
+* Support for parameterized queries (both named and positional)
+* Transaction management (begin, commit, rollback)
+* Schema manipulation
+* Data manipulation (insert, update, delete)
+* High-performance data retrieval
+
+==== Maven Dependencies
+
+Add the following dependency in your Maven pom.xml file under the tag `<dependencies>`:
+
+[source,xml, subs="+attributes"]
+----
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-grpc-client</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+----
+
+NOTE: The gRPC client dependency includes all necessary Protocol Buffer definitions and gRPC runtime libraries. No additional dependencies are required.
+
+==== 10-Minute Tutorial
+
+This tutorial will guide you through the essential operations using ArcadeDB's gRPC API, from establishing a connection to executing various types of database operations.
+
+===== Connect to a gRPC Server
+
+To begin working with ArcadeDB via gRPC, you need to establish a connection to the server. The gRPC API provides two main classes:
+
+- `<<remote-grpc-server,RemoteGrpcServer>>`, to manage server connections and create databases
+- `<<remote-grpc-database,RemoteGrpcDatabase>>`, to work with a specific remote database instance
+
+The gRPC server listens on port 50051 by default (different from the HTTP port 2480).
+
+===== Create a RemoteGrpcServer Instance
+
+First, create a `RemoteGrpcServer` instance to connect to your ArcadeDB server:
+
+[source,java]
+----
+RemoteGrpcServer server = new RemoteGrpcServer(
+    "localhost",           // Server hostname
+    50051,                 // gRPC port (default: 50051)
+    "root",                // Username
+    "password",            // Password
+    true,                  // Use TLS/SSL (false for development)
+    List.of()              // Additional channel credentials (if needed)
+);
+----
+
+The constructor parameters are:
+
+* `hostname`: The server hostname or IP address
+* `port`: The gRPC port (typically 50051)
+* `username`: Database user credentials
+* `password`: User password
+* `useTls`: Whether to use TLS/SSL encryption
+* `channelCredentials`: Optional additional credentials for advanced security configurations
+
+Before creating or accessing a database, you can check if it exists:
+
+[source,java]
+----
+if (!server.exists("mydb")) {
+    server.create("mydb");
+    System.out.println("Database 'mydb' created successfully");
+}
+----
+
+You can also list all available databases on the server:
+
+[source,java]
+----
+List<String> databases = server.databases();
+System.out.println("Available databases: " + databases);
+----
+
+===== Create a RemoteGrpcDatabase Instance
+
+Once the server connection is established and the database exists, create a `RemoteGrpcDatabase` instance to interact with a specific database:
+
+[source,java]
+----
+RemoteGrpcDatabase database = new RemoteGrpcDatabase(
+    server,                // RemoteGrpcServer instance
+    "localhost",           // Server hostname
+    50051,                 // gRPC port
+    2480,                  // HTTP port (for fallback operations)
+    "mydb",                // Database name
+    "root",                // Username
+    "password"             // Password
+);
+----
+
+IMPORTANT: Like `RemoteDatabase`, the `RemoteGrpcDatabase` class is not thread-safe. Each thread should create its own instance. Avoid sharing `RemoteGrpcDatabase` instances across threads to prevent unexpected behavior.
+
+Best practice for thread safety:
+
+[source,java]
+----
+// Create database instance in method scope, not as a field
+public void performDatabaseOperation() {
+    RemoteGrpcDatabase database = new RemoteGrpcDatabase(
+        server, "localhost", 50051, 2480, "mydb", "root", "password"
+    );
+
+    try {
+        // Perform operations
+        ResultSet results = database.query("sql", "SELECT * FROM MyType");
+        // Process results...
+    } finally {
+        // Resources are automatically managed
+    }
+}
+----
+
+===== Create Schema with SQL Commands
+
+With the database connection established, you can create your schema. The gRPC API supports both single SQL statements and SQL scripts:
+
+[source,java]
+----
+// Using sqlscript for multiple statements in one transaction
+String schema = """
+    CREATE VERTEX TYPE Article IF NOT EXISTS;
+    CREATE PROPERTY Article.id IF NOT EXISTS INTEGER;
+    CREATE PROPERTY Article.title IF NOT EXISTS STRING;
+    CREATE PROPERTY Article.content IF NOT EXISTS STRING;
+    CREATE PROPERTY Article.published IF NOT EXISTS DATETIME;
+    CREATE PROPERTY Article.author IF NOT EXISTS STRING;
+    CREATE INDEX IF NOT EXISTS ON Article(id) UNIQUE;
+    """;
+
+database.command("sqlscript", schema);
+System.out.println("Schema created successfully");
+----
+
+The `sqlscript` language is recommended for schema creation because:
+
+* All statements execute within a single transaction
+* Improved performance due to reduced network round-trips
+* Atomic operations - either all succeed or all fail
+
+Alternatively, you can execute statements individually:
+
+[source,java]
+----
+database.begin();
+try {
+    database.command("sql", "CREATE VERTEX TYPE Article IF NOT EXISTS");
+    database.command("sql", "CREATE PROPERTY Article.id IF NOT EXISTS INTEGER");
+    database.command("sql", "CREATE PROPERTY Article.title IF NOT EXISTS STRING");
+    database.command("sql", "CREATE INDEX IF NOT EXISTS ON Article(id) UNIQUE");
+    database.commit();
+    System.out.println("Schema created successfully");
+} catch (Exception e) {
+    database.rollback();
+    System.err.println("Schema creation failed: " + e.getMessage());
+}
+----
+
+===== Execute Queries
+
+The gRPC API provides optimized query execution with support for both simple and parameterized queries:
+
+[source,java]
+----
+// Simple query
+ResultSet resultSet = database.query("sql", "SELECT * FROM Article");
+
+// Process results
+while (resultSet.hasNext()) {
+    Result result = resultSet.next();
+    System.out.println("Article: " + result.toMap());
+}
+----
+
+Using parameterized queries (recommended for security and performance):
+
+[source,java]
+----
+// Named parameters
+ResultSet resultSet = database.query(
+    "sql",
+    "SELECT * FROM Article WHERE author = :author AND published > :date",
+    Map.of(
+        "author", "John Doe",
+        "date", LocalDateTime.now().minusDays(30)
+    )
+);
+
+// Positional parameters
+ResultSet resultSet2 = database.query(
+    "sql",
+    "SELECT * FROM Article WHERE id = ? AND published = ?",
+    1,
+    LocalDateTime.now()
+);
+----
+
+Working with query results:
+
+[source,java]
+----
+// Convert results to a list of maps
+List<Map<String, Object>> articles = database.query("sql", "SELECT * FROM Article")
+    .stream()
+    .map(Result::toMap)
+    .collect(Collectors.toList());
+
+// Find first result
+Optional<Map<String, Object>> firstArticle = database.query(
+        "sql",
+        "SELECT * FROM Article WHERE id = :id",
+        Map.of("id", 1)
+    )
+    .stream()
+    .findFirst()
+    .map(Result::toMap);
+
+if (firstArticle.isPresent()) {
+    System.out.println("Found article: " + firstArticle.get());
+}
+----
+
+===== Update Data
+
+Updating existing records is straightforward with the gRPC API:
+
+[source,java]
+----
+// Simple update with positional parameters
+database.command(
+    "sql",
+    "UPDATE Article SET title = ? WHERE id = ?",
+    "Updated Article Title",
+    3
+);
+
+// Update with named parameters
+database.command(
+    "sql",
+    "UPDATE Article SET title = :title, content = :content WHERE id = :id",
+    Map.of(
+        "title", "Understanding gRPC in ArcadeDB",
+        "content", "gRPC provides high-performance communication...",
+        "id", 3
+    )
+);
+
+// Update with complex expressions
+database.command(
+    "sql",
+    "UPDATE Article SET published = :now, views = views + 1 WHERE id = :id",
+    Map.of(
+        "now", LocalDateTime.now(),
+        "id", 3
+    )
+);
+----
+
+Batch updates using transactions:
+
+[source,java]
+----
+database.transaction(() -> {
+    List<Integer> articleIds = List.of(1, 2, 3, 4, 5);
+
+    for (Integer id : articleIds) {
+        database.command(
+            "sql",
+            "UPDATE Article SET views = views + 1 WHERE id = ?",
+            id
+        );
+    }
+
+    System.out.println("Updated " + articleIds.size() + " articles");
+});
+----
+
+===== Insert Data
+
+The gRPC API supports multiple approaches for inserting data:
+
+[source,java]
+----
+// Traditional INSERT with values
+database.command(
+    "sql",
+    "INSERT INTO Article (id, title, author, published) VALUES (?, ?, ?, ?)",
+    1,
+    "Getting Started with ArcadeDB",
+    "Jane Smith",
+    LocalDateTime.now()
+);
+
+// INSERT with named parameters
+database.command(
+    "sql",
+    "INSERT INTO Article (id, title, author, published) VALUES (:id, :title, :author, :published)",
+    Map.of(
+        "id", 2,
+        "title", "Advanced Query Techniques",
+        "author", "John Doe",
+        "published", LocalDateTime.now()
+    )
+);
+----
+
+Using JSON content for complex documents:
+
+[source,java]
+----
+// INSERT with JSON CONTENT
+String jsonContent = """
+    {
+        "id": 3,
+        "title": "gRPC Performance Guide",
+        "content": "Learn how to optimize your gRPC implementations...",
+        "author": "Alice Johnson",
+        "published": "2024-03-15T10:30:00",
+        "tags": ["performance", "gRPC", "optimization"],
+        "metadata": {
+            "category": "Tutorial",
+            "difficulty": "Intermediate"
+        }
+    }
+    """;
+
+database.command("sqlscript", "INSERT INTO Article CONTENT " + jsonContent);
+----
+
+Bulk insert operations:
+
+[source,java]
+----
+database.transaction(() -> {
+    List<Map<String, Object>> articles = List.of(
+        Map.of("id", 10, "title", "Article 10", "author", "Author A"),
+        Map.of("id", 11, "title", "Article 11", "author", "Author B"),
+        Map.of("id", 12, "title", "Article 12", "author", "Author C")
+    );
+
+    for (Map<String, Object> article : articles) {
+        database.command(
+            "sql",
+            "INSERT INTO Article (id, title, author) VALUES (:id, :title, :author)",
+            article
+        );
+    }
+
+    System.out.println("Inserted " + articles.size() + " articles");
+});
+----
+
+===== Create Vertices with RETURN Clause
+
+When creating vertices, you often need to retrieve the created record's RID (Record ID) or other properties. The RETURN clause makes this efficient:
+
+[source,java]
+----
+// Create vertex and return the new record
+ResultSet result = database.command(
+    "sql",
+    "CREATE VERTEX Article SET id = ?, title = ?, author = ? RETURN @this",
+    100,
+    "Real-time Data Processing",
+    "Bob Wilson"
+);
+
+// Get the created vertex
+if (result.hasNext()) {
+    Result vertex = result.next();
+    String rid = vertex.getIdentity().toString();
+    System.out.println("Created vertex with RID: " + rid);
+    System.out.println("Vertex data: " + vertex.toMap());
+}
+----
+
+Return specific properties:
+
+[source,java]
+----
+// Return only the RID
+ResultSet result = database.command(
+    "sql",
+    "CREATE VERTEX Article SET id = :id, title = :title RETURN @rid",
+    Map.of(
+        "id", 101,
+        "title", "Graph Traversal Patterns"
+    )
+);
+
+if (result.hasNext()) {
+    Result vertex = result.next();
+    System.out.println("New vertex RID: " + vertex.getProperty("@rid"));
+}
+
+// Return multiple properties
+ResultSet result2 = database.command(
+    "sql",
+    "CREATE VERTEX Article SET id = :id, title = :title, published = :now " +
+    "RETURN @rid, id, title",
+    Map.of(
+        "id", 102,
+        "title", "Distributed Database Architecture",
+        "now", LocalDateTime.now()
+    )
+);
+----
+
+Creating edges between vertices:
+
+[source,java]
+----
+// Create vertices
+ResultSet author = database.command(
+    "sql",
+    "CREATE VERTEX Author SET name = ? RETURN @rid",
+    "Emily Davis"
+);
+String authorRid = author.next().getProperty("@rid").toString();
+
+ResultSet article = database.command(
+    "sql",
+    "CREATE VERTEX Article SET title = ? RETURN @rid",
+    "Mastering Graph Databases"
+);
+String articleRid = article.next().getProperty("@rid").toString();
+
+// Create edge connecting them
+database.command(
+    "sql",
+    "CREATE EDGE Authored FROM ? TO ?",
+    authorRid,
+    articleRid
+);
+
+System.out.println("Created relationship between author and article");
+----
+
+==== Transaction Management
+
+The gRPC API provides comprehensive transaction support for ensuring data consistency:
+
+[source,java]
+----
+// Explicit transaction control
+database.begin();
+try {
+    database.command("sql", "CREATE VERTEX Article SET id = 200");
+    database.command("sql", "CREATE VERTEX Article SET id = 201");
+    database.commit();
+    System.out.println("Transaction committed successfully");
+} catch (Exception e) {
+    database.rollback();
+    System.err.println("Transaction rolled back due to error: " + e.getMessage());
+}
+
+// Using transaction lambda (recommended)
+database.transaction(() -> {
+    database.command("sql", "CREATE VERTEX Article SET id = 300");
+    database.command("sql", "CREATE VERTEX Article SET id = 301");
+    // Automatically commits if no exception, rolls back on exception
+});
+----
+
+==== Error Handling
+
+Proper error handling is essential for robust applications:
+
+[source,java]
+----
+try {
+    RemoteGrpcDatabase database = new RemoteGrpcDatabase(
+        server, "localhost", 50051, 2480, "mydb", "root", "password"
+    );
+
+    ResultSet results = database.query("sql", "SELECT * FROM Article");
+    // Process results...
+
+} catch (SecurityException e) {
+    System.err.println("Authentication failed: " + e.getMessage());
+} catch (DatabaseOperationException e) {
+    System.err.println("Database operation failed: " + e.getMessage());
+} catch (Exception e) {
+    System.err.println("Unexpected error: " + e.getMessage());
+    e.printStackTrace();
+}
+----
+
+==== Performance Tips
+
+To get the best performance from the gRPC API:
+
+1. **Use Connection Pooling**: Create a single `RemoteGrpcServer` instance and reuse it across your application
+2. **Batch Operations**: Group multiple operations in transactions to reduce network round-trips
+3. **Parameterized Queries**: Always use parameterized queries for better performance and security
+4. **Use sqlscript**: For multiple statements, use `sqlscript` to execute them in a single transaction
+5. **Close Resources**: Ensure proper cleanup of database instances, especially in multi-threaded environments
+6. **Stream Results**: For large result sets, process results as you iterate rather than loading everything into memory
+7. **Enable TLS in Production**: Use TLS/SSL in production for security without significant performance impact
+
+==== Complete Example
+
+Here's a complete example demonstrating the gRPC API usage:
+
+[source,java]
+----
+import com.arcadedb.remote.grpc.RemoteGrpcServer;
+import com.arcadedb.remote.grpc.RemoteGrpcDatabase;
+import com.arcadedb.query.sql.executor.Result;
+import com.arcadedb.query.sql.executor.ResultSet;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+public class ArcadeDBGrpcExample {
+    public static void main(String[] args) {
+        // Connect to gRPC server
+        RemoteGrpcServer server = new RemoteGrpcServer(
+            "localhost", 50051, "root", "password", false, List.of()
+        );
+
+        // Create database if it doesn't exist
+        if (!server.exists("mydb")) {
+            server.create("mydb");
+        }
+
+        // Create database instance
+        RemoteGrpcDatabase database = new RemoteGrpcDatabase(
+            server, "localhost", 50051, 2480, "mydb", "root", "password"
+        );
+
+        // Create schema
+        String schema = """
+            CREATE VERTEX TYPE Article IF NOT EXISTS;
+            CREATE PROPERTY Article.id IF NOT EXISTS INTEGER;
+            CREATE PROPERTY Article.title IF NOT EXISTS STRING;
+            CREATE PROPERTY Article.author IF NOT EXISTS STRING;
+            CREATE INDEX IF NOT EXISTS ON Article(id) UNIQUE;
+            """;
+        database.command("sqlscript", schema);
+
+        // Insert data
+        database.transaction(() -> {
+            database.command(
+                "sql",
+                "INSERT INTO Article (id, title, author, published) " +
+                "VALUES (:id, :title, :author, :published)",
+                Map.of(
+                    "id", 1,
+                    "title", "Introduction to gRPC",
+                    "author", "Jane Doe",
+                    "published", LocalDateTime.now()
+                )
+            );
+        });
+
+        // Query data
+        ResultSet results = database.query(
+            "sql",
+            "SELECT * FROM Article WHERE author = :author",
+            Map.of("author", "Jane Doe")
+        );
+
+        // Process results
+        results.stream()
+            .map(Result::toMap)
+            .forEach(article ->
+                System.out.println("Article: " + article.get("title"))
+            );
+
+        System.out.println("gRPC API example completed successfully");
+    }
+}
+----
+
+==== See Also
+
+* <<java-api-remote,Java API (Remote)>> - HTTP-based remote API
+* <<java-api-local,Java API (Local)>> - Embedded database API
+* <<java-reference,Java API Reference>> - Complete API documentation
