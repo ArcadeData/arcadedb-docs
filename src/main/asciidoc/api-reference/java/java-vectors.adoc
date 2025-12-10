@@ -1,56 +1,181 @@
 [[java-vectors]]
-==== Using Vector Embeddings from Java API
+==== Working with Vector Embeddings
 
-Using the Embedded Java API is the fastest way to insert vector embeddings into the database. At the beginning it's much faster to pass through the `HnswVectorIndexRAM` implementation and then generate the persistent index after loaded.
+ArcadeDB provides robust support for vector embeddings through the LSMVectorIndex, a persistent vector index built on ArcadeDB's LSM Tree architecture and powered by the JVector 4.0.0 library. LSMVectorIndex offers efficient storage, retrieval, and similarity search for vector embeddings with full transaction support and automatic persistence.
 
-Schema types are created automatically, but you could create them in advance if you want special settings, like a specific number of buckets, or a custom page size.
+===== Key Features
 
-Example of inserting embeddings in RAM first, and then create the persistent HNSW index.
+The LSMVectorIndex implementation provides:
+
+- *Persistent Storage*: Vector indexes are stored on disk with automatic page management and compaction
+- *Transaction Support*: Full ACID compliance with automatic persistence on transaction commit
+- *Multiple Similarity Functions*: Supports COSINE (default), DOT_PRODUCT, and EUCLIDEAN distance metrics
+- *SQL Integration*: Create and query vector indexes using SQL commands
+- *Automatic Compaction*: Efficiently reclaims disk space through automatic compaction of immutable pages
+- *High Performance*: Leverages LSM Tree benefits for write efficiency and space optimization at scale
+- *Configurable Parameters*: Tune maxConnections and beamWidth for optimal ANN search performance
+- *JVector Library*: Built on JVector 4.0.0 for state-of-the-art vector search capabilities
+
+===== Creating Vector Indexes with SQL
+
+The simplest way to create a vector index is through SQL. This approach is recommended for most use cases as it provides a declarative syntax and automatic schema management.
+
+====== Basic Vector Index Creation
+
+Create a basic LSMVectorIndex for similarity search:
+
+[source,sql]
+----
+-- Create vertex type and property
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.embedding ARRAY OF FLOATS;
+
+-- Create vector index with 384 dimensions using COSINE similarity
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE'
+};
+----
+
+====== Configuring Similarity Functions
+
+Choose the appropriate similarity function for your use case:
+
+*COSINE Similarity* (default) - Best for normalized vectors, commonly used with text embeddings:
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE'
+};
+----
+
+*DOT_PRODUCT* - Efficient for normalized vectors, faster than cosine:
+
+[source,sql]
+----
+CREATE INDEX ON Image (featureVector) LSM_VECTOR METADATA {
+  dimensions: 512,
+  similarity: 'DOT_PRODUCT'
+};
+----
+
+*EUCLIDEAN* - Measures absolute distance, useful for spatial data:
+
+[source,sql]
+----
+CREATE INDEX ON Product (attributes) LSM_VECTOR METADATA {
+  dimensions: 256,
+  similarity: 'EUCLIDEAN'
+};
+----
+
+====== Performance Tuning Parameters
+
+For large-scale deployments, tune performance parameters:
+
+[source,sql]
+----
+CREATE INDEX ON VectorVertex (embedding) LSM_VECTOR METADATA {
+  dimensions: 1024,
+  similarity: 'COSINE',
+  maxConnections: 32,    -- Higher values improve recall but increase memory usage
+  beamWidth: 200         -- Higher values improve search accuracy but reduce speed
+};
+----
+
+*Parameter Guidelines:*
+
+- `dimensions`: Must match your embedding model's output dimension
+- `similarity`: Choose based on your embedding model and use case
+- `maxConnections`: Default is 16. Increase to 32-48 for better recall in large datasets
+- `beamWidth`: Default is 100. Increase to 200-400 for more accurate searches
+
+===== Querying Vector Indexes with SQL
+
+Use the `vectorNeighbors()` function to perform similarity searches:
+
+====== Basic Similarity Search
+
+Find the 10 most similar documents to a query vector:
+
+[source,sql]
+----
+SELECT FROM Document
+WHERE vectorNeighbors('embedding', [0.1, 0.2, 0.3, ...], 10) > 0.8;
+----
+
+The `vectorNeighbors()` function returns similarity scores, allowing you to filter results by minimum similarity threshold.
+
+====== Combining with Other Filters
+
+Combine vector search with traditional SQL filters:
+
+[source,sql]
+----
+-- Find similar documents from a specific source
+SELECT FROM Document
+WHERE source = 'wikipedia'
+  AND vectorNeighbors('embedding', [0.1, 0.2, 0.3, ...], 10) > 0.8
+ORDER BY vectorNeighbors('embedding', [0.1, 0.2, 0.3, ...], 10) DESC
+LIMIT 5;
+----
+
+====== Multi-Modal Vector Search
+
+Create and query multiple vector indexes for multi-modal data:
+
+[source,sql]
+----
+-- Create multi-modal schema
+CREATE VERTEX TYPE MultiModalRecord;
+CREATE PROPERTY MultiModalRecord.imageEmbedding ARRAY OF FLOATS;
+CREATE PROPERTY MultiModalRecord.textEmbedding ARRAY OF FLOATS;
+
+-- Create separate indexes
+CREATE INDEX ON MultiModalRecord (imageEmbedding) LSM_VECTOR METADATA {
+  dimensions: 512,
+  similarity: 'COSINE'
+};
+
+CREATE INDEX ON MultiModalRecord (textEmbedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE'
+};
+
+-- Query both modalities
+SELECT FROM MultiModalRecord
+WHERE vectorNeighbors('imageEmbedding', [0.1, 0.2, ...], 5) > 0.8
+   OR vectorNeighbors('textEmbedding', [0.2, 0.3, ...], 5) > 0.8;
+----
+
+====== Retrieving Neighbor Details
+
+Get detailed information about nearest neighbors:
+
+[source,sql]
+----
+-- Returns array of objects with distance and keys
+SELECT vectorNeighbors('Document[embedding]', [0.1, 0.2, 0.3, ...], 10) AS neighbors;
+----
+
+===== Using the Java API
+
+For programmatic control and embedded applications, use the Java API to create and manage vector indexes.
+
+====== Creating LSMVectorIndex Programmatically
 
 [source,java]
 ----
-if (!database.getSchema().existsIndex(indexName)) {
-  // FIRST TIME: USE OPTIMIZED RAM BASED HNSW INDEX AS FIRST STEP
-  final HnswVectorIndexRAM<Object, float[], Item<Object, float[]>, Float> hnswIndex = HnswVectorIndexRAM.newBuilder(
-          embeddingService.getDimensions(), distanceFunction, 100_000).withM(m).withEf(ef).withEfConstruction(efConstruction)
-      .build();
+import com.arcadedb.database.Database;
+import com.arcadedb.schema.Schema;
+import com.arcadedb.schema.Type;
+import com.arcadedb.index.lsm.LSMVectorIndex;
+import com.arcadedb.index.lsm.LSMVectorIndexBuilder;
+import com.arcadedb.index.vector.VectorSimilarityFunction;
 
-  hnswIndex.addAll((Collection<Item<Object, float[]>>) embeddings, Runtime.getRuntime().availableProcessors(), null;
-
-  // CREATE UNIQUE TYPE ASSOCIATED TO THE LIBRARY
-  final String statementTypeName = getStatementTypeName(vertexLibrary);
-
-  hnswIndex.createPersistentIndex(database)//
-      .withVertexType(STATEMENT_TYPE_NAME).withEdgeType(PROXIMITY_TYPE_NAME)//
-      .withVectorProperty(VECTOR_PROPERTY_NAME, Type.ARRAY_OF_FLOATS)//
-      .withIdProperty(TEXT_PROPERTY_NAME)//
-      .withDeletedProperty(DELETED_PROPERTY_NAME)//
-      .create();
-}
-----
-
-Once the persistent index is created, you can just add new entries into the HNSW index:
-
-[source,java]
-----
-if (database.getSchema().existsIndex(indexName)) {
-  final HnswVectorIndex index = (HnswVectorIndex) database.getSchema().getIndexByName(indexName);
-
-  index.addAll(embeddings, (statement, item, total) -> {
-    // YOUR CALLBACK TO MANAGE CASCADING OPERATIONS WHEN VERTICES ARE CREATED AND INDEXED, IF ANY
-  });
-}
-----
-
-The callback in the `addAll()` method is useful when you have a graph/tree connected to the vertices created by the index. For example, if you are indexing a book, probably you calculate a vector of embeddings per statement, and then you group the statements in paragraphs.
-
-===== Creating LSMVectorIndex
-
-LSMVectorIndex provides an alternative persistent vector indexing approach based on ArcadeDB's LSM Tree architecture. You can create an LSMVectorIndex using the Java API with the following configuration:
-
-[source,java]
-----
-// Create or get schema
+// Get or create schema
 final Schema schema = database.getSchema();
 if (!schema.existsType("Document")) {
   schema.createVertexType("Document");
@@ -61,33 +186,50 @@ if (!schema.existsProperty("Document", "embedding")) {
   schema.createProperty("Document", "embedding", Type.ARRAY_OF_FLOATS);
 }
 
-// Create LSMVectorIndex
-final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(database, "Document", new String[]{"embedding"})
-    .withDimensions(768)                           // Vector dimensions
-    .withSimilarity(VectorSimilarityFunction.COSINE)  // Similarity metric (COSINE, DOT_PRODUCT, EUCLIDEAN)
-    .withMaxConnections(16)                        // Max connections per node (default: 16)
-    .withBeamWidth(100)                            // Beam width for search (default: 100)
-    .withIdProperty("id");                         // ID property name (default: "id")
+// Create LSMVectorIndex with builder pattern
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .withDimensions(768)
+    .withSimilarity(VectorSimilarityFunction.COSINE)
+    .withMaxConnections(16)
+    .withBeamWidth(100)
+    .withIdProperty("id");
 
 final LSMVectorIndex index = builder.create();
 ----
 
-Once the LSMVectorIndex is created, you can add vectors:
+====== Adding Vectors to the Index
 
 [source,java]
 ----
-final LSMVectorIndex index = (LSMVectorIndex) database.getSchema().getIndexByName("Document[embedding]");
+// Get existing index
+final LSMVectorIndex index = (LSMVectorIndex) database.getSchema()
+    .getIndexByName("Document[embedding]");
 
-// Add vectors to the index
-index.addAll(vectors, (vertex, item, total) -> {
-  // Callback for handling vertex creation if needed
+// Add vectors with callback
+index.addAll(embeddings, (vertex, item, total) -> {
+  // Optional callback for handling vertex creation
+  // Useful for cascading operations like creating relationships
+  if (vertex != null) {
+    // Create relationships, update metadata, etc.
+    System.out.println("Indexed vertex " + vertex.getIdentity() +
+                      " (" + item + "/" + total + ")");
+  }
 });
 ----
 
-You can also configure the index from metadata JSON:
+The callback in the `addAll()` method is useful when you have a graph structure connected to the indexed vertices. For example, when indexing a book, you might calculate embeddings per statement and then create relationships between statements and paragraphs.
+
+====== Configuring from JSON Metadata
+
+Load configuration from JSON metadata:
 
 [source,java]
 ----
+import com.arcadedb.utility.JSONObject;
+
 final JSONObject metadata = new JSONObject()
     .put("dimensions", 768)
     .put("similarity", "COSINE")
@@ -95,8 +237,190 @@ final JSONObject metadata = new JSONObject()
     .put("beamWidth", 100)
     .put("idPropertyName", "id");
 
-final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(database, "Document", new String[]{"embedding"})
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
     .fromMetadata(metadata);
 
 final LSMVectorIndex index = builder.create();
 ----
+
+====== Querying Vectors from Java
+
+[source,java]
+----
+import com.arcadedb.query.sql.executor.ResultSet;
+
+// Perform similarity search using SQL
+final ResultSet resultSet = database.query("sql",
+    "SELECT FROM Document " +
+    "WHERE vectorNeighbors('embedding', ?, 10) > 0.8 " +
+    "LIMIT 5",
+    queryVector);
+
+while (resultSet.hasNext()) {
+  final Result result = resultSet.next();
+  System.out.println("Similar document: " + result.toJSON());
+}
+----
+
+====== Transaction Support
+
+LSMVectorIndex fully supports transactions with automatic persistence:
+
+[source,java]
+----
+database.transaction(() -> {
+  // Create vertices with embeddings
+  final MutableVertex vertex = database.newVertex("Document");
+  vertex.set("content", "Sample text");
+  vertex.set("embedding", embeddingVector);
+  vertex.save();
+
+  // Index is automatically updated on transaction commit
+});
+----
+
+===== Migration from HnswVectorIndexRAM
+
+If you're migrating from the older HnswVectorIndexRAM approach, note the following differences:
+
+[cols="1,1,1", options="header"]
+|===
+|Feature |HnswVectorIndexRAM |LSMVectorIndex
+
+|Persistence
+|Requires explicit conversion
+|Automatic with transactions
+
+|SQL Support
+|Limited
+|Full SQL CREATE INDEX and queries
+
+|Transaction Support
+|Manual management
+|Automatic ACID compliance
+
+|Compaction
+|Manual
+|Automatic
+
+|Recommended For
+|Bulk loading scenarios
+|All production use cases
+|===
+
+====== Legacy Bulk Loading Pattern
+
+For backwards compatibility, the HnswVectorIndexRAM bulk loading pattern is still available for initial large-scale imports:
+
+[source,java]
+----
+import com.arcadedb.index.vector.HnswVectorIndexRAM;
+
+// For bulk loading only - use LSMVectorIndex for production
+if (!database.getSchema().existsIndex(indexName)) {
+  // Step 1: Load into RAM-based index
+  final HnswVectorIndexRAM<Object, float[], Item<Object, float[]>, Float> hnswIndex =
+      HnswVectorIndexRAM.newBuilder(dimensions, distanceFunction, 100_000)
+          .withM(m)
+          .withEf(ef)
+          .withEfConstruction(efConstruction)
+          .build();
+
+  hnswIndex.addAll((Collection<Item<Object, float[]>>) embeddings,
+                   Runtime.getRuntime().availableProcessors(), null);
+
+  // Step 2: Create persistent index
+  hnswIndex.createPersistentIndex(database)
+      .withVertexType("Document")
+      .withEdgeType("Proximity")
+      .withVectorProperty("embedding", Type.ARRAY_OF_FLOATS)
+      .withIdProperty("id")
+      .create();
+}
+----
+
+NOTE: For most use cases, directly creating an LSMVectorIndex via SQL or the Java API is simpler and provides better transaction support. The HnswVectorIndexRAM approach is only recommended for specific bulk loading scenarios with millions of vectors.
+
+===== Best Practices
+
+1. *Choose the Right Similarity Function*: Use COSINE for normalized embeddings (most common), DOT_PRODUCT for performance with normalized vectors, or EUCLIDEAN for spatial data.
+
+2. *Normalize Your Vectors*: For COSINE and DOT_PRODUCT similarity, ensure vectors are normalized to unit length for best results.
+
+3. *Tune Performance Parameters*: Start with defaults (maxConnections=16, beamWidth=100) and increase for better recall if needed.
+
+4. *Use Transactions*: Always insert vectors within transactions for data consistency and automatic index updates.
+
+5. *Batch Insertions*: For large datasets, batch your insertions in reasonably-sized transactions (1000-10000 records) for optimal performance.
+
+6. *Monitor Index Size*: Vector indexes can be large. Monitor disk usage and consider the dimensions parameter carefully.
+
+7. *SQL for Simplicity*: Prefer SQL for index creation and queries unless you need programmatic control.
+
+===== Common Use Cases
+
+====== Semantic Document Search
+
+[source,sql]
+----
+-- Create index for document embeddings
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.content STRING;
+CREATE PROPERTY Document.embedding ARRAY OF FLOATS;
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE'
+};
+
+-- Query for similar documents
+SELECT content FROM Document
+WHERE vectorNeighbors('embedding', $queryEmbedding, 10) > 0.75
+ORDER BY vectorNeighbors('embedding', $queryEmbedding, 10) DESC;
+----
+
+====== Image Similarity Search
+
+[source,sql]
+----
+-- Create index for image feature vectors
+CREATE VERTEX TYPE Image;
+CREATE PROPERTY Image.url STRING;
+CREATE PROPERTY Image.features ARRAY OF FLOATS;
+CREATE INDEX ON Image (features) LSM_VECTOR METADATA {
+  dimensions: 512,
+  similarity: 'COSINE'
+};
+
+-- Find similar images
+SELECT url FROM Image
+WHERE vectorNeighbors('features', $imageFeatures, 5) > 0.8;
+----
+
+====== Recommendation System
+
+[source,sql]
+----
+-- Create index for user/item embeddings
+CREATE VERTEX TYPE Product;
+CREATE PROPERTY Product.embedding ARRAY OF FLOATS;
+CREATE INDEX ON Product (embedding) LSM_VECTOR METADATA {
+  dimensions: 128,
+  similarity: 'COSINE'
+};
+
+-- Find similar products for recommendations
+SELECT * FROM Product
+WHERE category = $category
+  AND vectorNeighbors('embedding', $userPreferenceVector, 20) > 0.7
+ORDER BY vectorNeighbors('embedding', $userPreferenceVector, 20) DESC
+LIMIT 10;
+----
+
+For more information, see:
+
+* <<indexes, Indexes>>
+* <<sql-create-index, CREATE INDEX>>
+* <<vector-neighbors, vectorNeighbors()>>
