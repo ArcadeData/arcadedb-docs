@@ -88,7 +88,7 @@ RemoteGrpcServer server = new RemoteGrpcServer(
     50051,                 // gRPC port (default: 50051)
     "root",                // Username
     "password",            // Password
-    true,                  // Use TLS/SSL (false for development)
+    false,                 // Use TLS/SSL (false for development)
     List.of()              // Additional channel credentials (if needed)
 );
 ----
@@ -145,16 +145,12 @@ Best practice for thread safety:
 ----
 // Create database instance in method scope, not as a field
 public void performDatabaseOperation() {
-    RemoteGrpcDatabase database = new RemoteGrpcDatabase(
+    try (RemoteGrpcDatabase database = new RemoteGrpcDatabase(
         server, "localhost", 50051, 2480, "mydb", "root", "password"
-    );
-
-    try {
+    )) {
         // Perform operations
         ResultSet results = database.query("sql", "SELECT * FROM MyType");
         // Process results...
-    } finally {
-        // Resources are automatically managed
     }
 }
 ----
@@ -372,7 +368,7 @@ String jsonContent = """
     }
     """;
 
-database.command("sqlscript", "INSERT INTO Article CONTENT " + jsonContent);
+database.command("sql", "INSERT INTO Article CONTENT " + jsonContent);
 ----
 
 Bulk insert operations:
@@ -464,24 +460,34 @@ ResultSet author = database.command(
     "CREATE VERTEX Author SET name = ? RETURN @rid",
     "Emily Davis"
 );
-String authorRid = author.next().getProperty("@rid").toString();
 
-ResultSet article = database.command(
-    "sql",
-    "CREATE VERTEX Article SET title = ? RETURN @rid",
-    "Mastering Graph Databases"
-);
-String articleRid = article.next().getProperty("@rid").toString();
+if (author.hasNext()) {
+    String authorRid = author.next().getProperty("@rid").toString();
 
-// Create edge connecting them
-database.command(
-    "sql",
-    "CREATE EDGE Authored FROM ? TO ?",
-    authorRid,
-    articleRid
-);
+    ResultSet article = database.command(
+        "sql",
+        "CREATE VERTEX Article SET title = ? RETURN @rid",
+        "Mastering Graph Databases"
+    );
 
-System.out.println("Created relationship between author and article");
+    if (article.hasNext()) {
+        String articleRid = article.next().getProperty("@rid").toString();
+
+        // Create edge connecting them
+        database.command(
+            "sql",
+            "CREATE EDGE Authored FROM ? TO ?",
+            authorRid,
+            articleRid
+        );
+
+        System.out.println("Created relationship between author and article");
+    } else {
+        System.err.println("Failed to create article, no RID returned.");
+    }
+} else {
+    System.err.println("Failed to create author, no RID returned.");
+}
 ----
 
 ==== Transaction Management
@@ -564,60 +570,59 @@ import java.util.Map;
 public class ArcadeDBGrpcExample {
     public static void main(String[] args) {
         // Connect to gRPC server
-        RemoteGrpcServer server = new RemoteGrpcServer(
+        try (RemoteGrpcServer server = new RemoteGrpcServer(
             "localhost", 50051, "root", "password", false, List.of()
-        );
+        )) {
+            // Create database if it doesn't exist
+            if (!server.exists("mydb")) {
+                server.create("mydb");
+            }
 
-        // Create database if it doesn't exist
-        if (!server.exists("mydb")) {
-            server.create("mydb");
+            // Create database instance
+            try (RemoteGrpcDatabase database = new RemoteGrpcDatabase(
+                server, "localhost", 50051, 2480, "mydb", "root", "password"
+            )) {
+                // Create schema
+                String schema = """
+                    CREATE VERTEX TYPE Article IF NOT EXISTS;
+                    CREATE PROPERTY Article.id IF NOT EXISTS INTEGER;
+                    CREATE PROPERTY Article.title IF NOT EXISTS STRING;
+                    CREATE PROPERTY Article.author IF NOT EXISTS STRING;
+                    CREATE INDEX IF NOT EXISTS ON Article(id) UNIQUE;
+                    """;
+                database.command("sqlscript", schema);
+
+                // Insert data
+                database.transaction(() -> {
+                    database.command(
+                        "sql",
+                        "INSERT INTO Article (id, title, author, published) VALUES (:id, :title, :author, :published)",
+                        Map.of(
+                            "id", 1,
+                            "title", "Introduction to gRPC",
+                            "author", "Jane Doe",
+                            "published", LocalDateTime.now()
+                        )
+                    );
+                });
+
+                // Query data
+                ResultSet results = database.query(
+                    "sql",
+                    "SELECT * FROM Article WHERE author = :author",
+                    Map.of("author", "Jane Doe")
+                );
+
+                // Process results
+                results.stream()
+                    .map(Result::toMap)
+                    .forEach(article ->
+                        System.out.println("Article: " + article.get("title"))
+                    );
+
+                System.out.println("gRPC API example completed successfully");
+            }
         }
-
-        // Create database instance
-        RemoteGrpcDatabase database = new RemoteGrpcDatabase(
-            server, "localhost", 50051, 2480, "mydb", "root", "password"
-        );
-
-        // Create schema
-        String schema = """
-            CREATE VERTEX TYPE Article IF NOT EXISTS;
-            CREATE PROPERTY Article.id IF NOT EXISTS INTEGER;
-            CREATE PROPERTY Article.title IF NOT EXISTS STRING;
-            CREATE PROPERTY Article.author IF NOT EXISTS STRING;
-            CREATE INDEX IF NOT EXISTS ON Article(id) UNIQUE;
-            """;
-        database.command("sqlscript", schema);
-
-        // Insert data
-        database.transaction(() -> {
-            database.command(
-                "sql",
-                "INSERT INTO Article (id, title, author, published) " +
-                "VALUES (:id, :title, :author, :published)",
-                Map.of(
-                    "id", 1,
-                    "title", "Introduction to gRPC",
-                    "author", "Jane Doe",
-                    "published", LocalDateTime.now()
-                )
-            );
-        });
-
-        // Query data
-        ResultSet results = database.query(
-            "sql",
-            "SELECT * FROM Article WHERE author = :author",
-            Map.of("author", "Jane Doe")
-        );
-
-        // Process results
-        results.stream()
-            .map(Result::toMap)
-            .forEach(article ->
-                System.out.println("Article: " + article.get("title"))
-            );
-
-        System.out.println("gRPC API example completed successfully");
     }
 }
 ----
