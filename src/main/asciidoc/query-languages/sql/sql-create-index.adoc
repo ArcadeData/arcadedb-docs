@@ -251,6 +251,28 @@ ArcadeDB> CREATE PROPERTY Word.vector ARRAY OF FLOATS
 ArcadeDB> CREATE INDEX ON Word (vector) LSM_VECTOR METADATA {dimensions: 100, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
 ----
 
+* Create an LSMVectorIndex with INT8 quantization for 4x memory savings:
+
+----
+ArcadeDB> CREATE VERTEX TYPE LargeCorpus
+ArcadeDB> CREATE PROPERTY LargeCorpus.embedding ARRAY OF FLOATS
+ArcadeDB> CREATE INDEX ON LargeCorpus (embedding) LSM_VECTOR METADATA {dimensions: 1536, similarity: 'COSINE', quantization: 'INT8'}
+----
+
+The index will automatically quantize vectors on insert and dequantize on retrieval, reducing memory usage by 75% with minimal accuracy loss (<2%).
+
+* Create an LSMVectorIndex with BINARY quantization for extreme compression (32x memory savings):
+
+----
+ArcadeDB> CREATE VERTEX TYPE MassiveDataset
+ArcadeDB> CREATE PROPERTY MassiveDataset.embedding ARRAY OF FLOATS
+ArcadeDB> CREATE INDEX ON MassiveDataset (embedding) LSM_VECTOR METADATA {dimensions: 1536, similarity: 'COSINE', quantization: 'BINARY'}
+----
+
+Binary quantization compresses each dimension to 1 bit, achieving 97% memory reduction. Suitable for approximate search with reranking.
+
+NOTE: Quantization types: `NONE` (default, no compression), `INT8` (4x compression, <2% accuracy loss), `BINARY` (32x compression, approximate search). Quantization is transparent - vectors are stored compressed but queries work the same way.
+
 For more information, see:
 
 * <<sql-drop-index, `DROP INDEX`>>
