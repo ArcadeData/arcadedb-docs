@@ -1544,8 +1544,8 @@ Result: `32.0`
 [[vector-cosine-similarity]]
 ====== vectorCosineSimilarity()
 
-Returns cosine similarity between two vectors in the range [0, 1].
-0 means orthogonal, 1 means identical direction.
+Returns cosine similarity between two vectors in the range [-1, 1].
+1 means identical direction, 0 means perpendicular, and -1 means opposite direction.
 Recommended for normalized vector comparison.
 
 Syntax: `vectorCosineSimilarity(<vector1>, <vector2>)`
@@ -1683,71 +1683,71 @@ SELECT vectorScale(vectorAdd(v1, v2), 0.5) as average FROM Vectors
 
 [discrete]
 [[vector-avg]]
-====== VECTOR_AVG()
+====== vectorAvg()
 
 Aggregate function that calculates element-wise mean of vectors across multiple records.
 Returns the centroid of a vector set.
 
-Syntax: `VECTOR_AVG(<vector_column>)`
+Syntax: `vectorAvg(<vector_column>)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT category, VECTOR_AVG(embedding) as centroid FROM Document GROUP BY category
+SELECT category, vectorAvg(embedding) as centroid FROM Document GROUP BY category
 ----
 
 '''
 
 [discrete]
 [[vector-sum]]
-====== VECTOR_SUM()
+====== vectorSum()
 
 Aggregate function that calculates element-wise sum of vectors across multiple records.
 
-Syntax: `VECTOR_SUM(<vector_column>)`
+Syntax: `vectorSum(<vector_column>)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT VECTOR_SUM(embedding) as total_vector FROM Document WHERE active = true
+SELECT vectorSum(embedding) as total_vector FROM Document WHERE active = true
 ----
 
 '''
 
 [discrete]
 [[vector-min]]
-====== VECTOR_MIN()
+====== vectorMin()
 
 Aggregate function that calculates element-wise minimum across vectors.
 Returns the vector with smallest value at each dimension.
 
-Syntax: `VECTOR_MIN(<vector_column>)`
+Syntax: `vectorMin(<vector_column>)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT VECTOR_MIN(embedding) as min_bounds FROM Document WHERE category = 'science'
+SELECT vectorMin(embedding) as min_bounds FROM Document WHERE category = 'science'
 ----
 
 '''
 
 [discrete]
 [[vector-max]]
-====== VECTOR_MAX()
+====== vectorMax()
 
 Aggregate function that calculates element-wise maximum across vectors.
 Returns the vector with largest value at each dimension.
 
-Syntax: `VECTOR_MAX(<vector_column>)`
+Syntax: `vectorMax(<vector_column>)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT VECTOR_MAX(embedding) as max_bounds FROM Document WHERE category = 'science'
+SELECT vectorMax(embedding) as max_bounds FROM Document WHERE category = 'science'
 ----
 
 '''
@@ -1839,6 +1839,26 @@ SELECT vectorScoreTransform(0.5, 'SIGMOID') as sigmoid_score
 
 Result: `0.622...(logistic curve)`
 
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'LINEAR') as linear_score
+----
+
+Result: `0.5` (identity linear scaling)
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'LOG') as log_score
+----
+
+Result: `~-0.6931` (natural log: `ln(0.5)`; ensure input \(>0\) for LOG)
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'EXP') as exp_score
+----
+
+Result: `~1.6487` (exponential: `e^{0.5}`)
 '''
 
 [discrete]
@@ -1846,95 +1866,95 @@ Result: `0.622...(logistic curve)`
 
 [discrete]
 [[sparse-vector-create]]
-====== sparseVectorCreate()
+====== vectorSparseCreate()
 
 Creates a sparse vector from indices and values arrays.
 Efficient representation for high-dimensional vectors with few non-zero elements.
 
-Syntax: `sparseVectorCreate(<indices>, <values>, [<dimensions>])`
+Syntax: `vectorSparseCreate(<indices>, <values>, [<dimensions>])`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT sparseVectorCreate([0, 3, 5], [1.0, 2.5, 0.3], 768) as sparse_embedding
+SELECT vectorSparseCreate([0, 3, 5], [1.0, 2.5, 0.3], 768) as sparse_embedding
 ----
 
 '''
 
 [discrete]
 [[sparse-vector-dot]]
-====== sparseVectorDot()
+====== vectorSparseDot()
 
 Calculates dot product of two sparse vectors efficiently.
 Only computes non-zero elements, skipping zeros.
 
-Syntax: `sparseVectorDot(<sparse_vector1>, <sparse_vector2>)`
+Syntax: `vectorSparseDot(<sparse_vector1>, <sparse_vector2>)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT sparseVectorDot(doc1.sparse_embedding, query.sparse_embedding) as similarity
+SELECT vectorSparseDot(doc1.sparse_embedding, query.sparse_embedding) as similarity
 ----
 
 '''
 
 [discrete]
 [[sparse-vector-to-dense]]
-====== sparseVectorToDense()
+====== vectorSparseToDense()
 
 Expands a sparse vector to dense representation.
 
-Syntax: `sparseVectorToDense(<sparse_vector>, <dimensions>)`
+Syntax: `vectorSparseToDense(<sparse_vector>, <dimensions>)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT sparseVectorToDense(sparse_embedding, 768) as dense_embedding FROM Document
+SELECT vectorSparseToDense(sparse_embedding, 768) as dense_embedding FROM Document
 ----
 
 '''
 
 [discrete]
 [[dense-vector-to-sparse]]
-====== denseVectorToSparse()
+====== vectorDenseToSparse()
 
 Compresses a dense vector to sparse representation by filtering near-zero elements.
 
-Syntax: `denseVectorToSparse(<vector>, [<threshold>])`
+Syntax: `vectorDenseToSparse(<vector>, [<threshold>])`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT denseVectorToSparse(embedding, 0.001) as sparse_embedding FROM Document
+SELECT vectorDenseToSparse(embedding, 0.001) as sparse_embedding FROM Document
 ----
 
 '''
 
 [discrete]
 [[multi-vector-score]]
-====== multiVectorScore()
+====== vectorMultiScore()
 
 Combines multiple scores using fusion methods: MAX, AVG, MIN, or WEIGHTED.
 Used for multi-vector search results (e.g., ColBERT).
 
-Syntax: `multiVectorScore(<scores_array>, <method>, [<weights>])`
+Syntax: `vectorMultiScore(<scores_array>, <method>, [<weights>])`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT multiVectorScore([0.9, 0.8, 0.85], 'MAX') as best_score
+SELECT vectorMultiScore([0.9, 0.8, 0.85], 'MAX') as best_score
 ----
 
 Result: `0.9`
 
 [source,sql]
 ----
-SELECT multiVectorScore([0.9, 0.8, 0.85], 'WEIGHTED', [0.5, 0.3, 0.2]) as weighted_score
+SELECT vectorMultiScore([0.9, 0.8, 0.85], 'WEIGHTED', [0.5, 0.3, 0.2]) as weighted_score
 ----
 
 Result: `0.87`
@@ -2179,7 +2199,7 @@ Syntax: `vectorHasNaN(<vector>)`
 
 [source,sql]
 ----
-SELECT vectorHasNaN([1.0, 2.0, null]) as has_nan
+SELECT vectorHasNaN([1.0, 2.0]) as has_nan
 ----
 
 '''
