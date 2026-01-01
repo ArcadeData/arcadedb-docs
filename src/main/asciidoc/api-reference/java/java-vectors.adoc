@@ -160,6 +160,206 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 
 This configuration reduces memory usage while maintaining acceptable recall
 
+===== Memory and Performance Tuning
+
+ArcadeDB provides three global configuration settings to control memory consumption and performance of LSM Vector indexes. These settings can be configured globally via database settings or per-index through metadata.
+
+====== Configuration Parameters
+
+*Location Cache Size* (`locationCacheSize`)
+
+Controls the maximum number of vector location metadata entries cached in memory. Each entry uses approximately 56 bytes.
+
+- *Default*: `-1` (unlimited, backward compatible)
+- *Per-index metadata*: `"locationCacheSize": 100000`
+- *Global setting*: `arcadedb.vectorIndex.locationCacheSize`
+- *Recommended*: 100,000 for datasets with 1M+ vectors (~5.6 MB RAM)
+
+*Graph Build Cache Size* (`graphBuildCacheSize`)
+
+Controls the maximum number of vectors cached during HNSW graph construction. RAM usage = `cacheSize × (dimensions × 4 + 64)` bytes.
+
+- *Default*: `10000` (bounded cache)
+- *Per-index metadata*: `"graphBuildCacheSize": 5000`
+- *Global setting*: `arcadedb.vectorIndex.graphBuildCacheSize`
+- *Recommended*: 10,000 for 768-dim vectors (~30 MB RAM), scale based on dimensionality
+
+*Mutations Before Rebuild* (`mutationsBeforeRebuild`)
+
+Number of mutations (inserts/updates/deletes) before rebuilding the HNSW graph index. Higher values reduce rebuild cost but may return slightly stale results.
+
+- *Default*: `100` (balanced)
+- *Per-index metadata*: `"mutationsBeforeRebuild": 200`
+- *Global setting*: `arcadedb.vectorIndex.mutationsBeforeRebuild`
+- *Recommended*: 50-200 for read-heavy workloads, 200-500 for write-heavy workloads
+
+====== Memory Tuning Examples
+
+*Maximum Memory Efficiency* (Edge deployments, resource-constrained environments):
+
+[source,sql]
+----
+-- Configure globally for all vector indexes
+ALTER DATABASE SETTING arcadedb.vectorIndex.locationCacheSize = 50000;
+ALTER DATABASE SETTING arcadedb.vectorIndex.graphBuildCacheSize = 5000;
+
+-- Or configure per-index
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 8,
+  "beamWidth": 100,
+  "locationCacheSize": 50000,        -- Limit location cache: ~2.8 MB
+  "graphBuildCacheSize": 5000,       -- Limit graph building: ~15 MB peak
+  "mutationsBeforeRebuild": 150      -- Moderate rebuild frequency
+};
+----
+
+*Memory Impact*: For 1M vectors with 768 dimensions:
+- Location cache: 50K entries = ~2.8 MB (vs ~56 MB unlimited)
+- Graph build cache: 5K vectors = ~15 MB (vs ~3 GB unlimited)
+- *Total savings: ~98.5% memory reduction during graph building*
+
+*Balanced Configuration* (Production workloads with moderate scale):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 16,
+  "beamWidth": 100,
+  "locationCacheSize": 100000,       -- Balance memory vs performance
+  "graphBuildCacheSize": 10000,      -- Default (30 MB for 768-dim)
+  "mutationsBeforeRebuild": 100      -- Standard rebuild frequency
+};
+----
+
+*Memory Impact*: For 1M vectors with 768 dimensions:
+- Location cache: 100K entries = ~5.6 MB (90% reduction)
+- Graph build cache: 10K vectors = ~30 MB (99% reduction)
+
+*Maximum Performance* (Unlimited memory, prioritize speed):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 32,
+  "beamWidth": 200,
+  "locationCacheSize": -1,           -- Unlimited cache (no eviction)
+  "graphBuildCacheSize": 50000,      -- Large cache: ~150 MB for 768-dim
+  "mutationsBeforeRebuild": 50       -- Frequent rebuilds for freshness
+};
+----
+
+*Performance Impact*: Best query performance with highest memory usage.
+
+====== Performance Tuning Examples
+
+*Write-Heavy Workload* (High ingestion rate, acceptable search latency):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 12,
+  "beamWidth": 80,
+  "locationCacheSize": 100000,
+  "graphBuildCacheSize": 10000,
+  "mutationsBeforeRebuild": 300      -- Reduce rebuild frequency for write throughput
+};
+----
+
+*Read-Heavy Workload* (Search-intensive, prioritize freshness):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 24,
+  "beamWidth": 150,
+  "locationCacheSize": 200000,       -- Larger cache for hot vectors
+  "graphBuildCacheSize": 10000,
+  "mutationsBeforeRebuild": 50       -- Frequent rebuilds for fresh results
+};
+----
+
+====== Global Configuration via SQL
+
+Set global defaults for all vector indexes in the database:
+
+[source,sql]
+----
+-- Configure global defaults
+ALTER DATABASE SETTING arcadedb.vectorIndex.locationCacheSize = 100000;
+ALTER DATABASE SETTING arcadedb.vectorIndex.graphBuildCacheSize = 10000;
+ALTER DATABASE SETTING arcadedb.vectorIndex.mutationsBeforeRebuild = 100;
+
+-- View current settings
+SELECT FROM information_schema.settings
+WHERE name LIKE 'arcadedb.vectorIndex.%';
+----
+
+Per-index metadata settings override global defaults. Use global settings to establish baseline memory limits across all indexes, then tune individual indexes as needed.
+
+====== Memory Consumption Reference
+
+For 1 million vectors with 768 dimensions:
+
+[cols="2,1,1,1", options="header"]
+|===
+|Configuration |Location Cache |Graph Build Cache |Total Peak Memory
+
+|Unlimited (legacy)
+|~56 MB
+|~3 GB
+|~3.06 GB
+
+|Recommended (100K/10K)
+|~5.6 MB
+|~30 MB
+|~35.6 MB
+
+|Memory Constrained (50K/5K)
+|~2.8 MB
+|~15 MB
+|~17.8 MB
+
+|Savings vs Unlimited
+|90-95%
+|99%
+|98.8%
+|===
+
+*Formula for Graph Build Cache*:
+----
+RAM (MB) = cacheSize × (dimensions × 4 + 64) / 1024 / 1024
+----
+
+*Example*:
+- 10,000 vectors × 768 dimensions = 10,000 × (768 × 4 + 64) / 1024 / 1024 ≈ 30 MB
+- 10,000 vectors × 1536 dimensions = 10,000 × (1536 × 4 + 64) / 1024 / 1024 ≈ 59 MB
+
+====== Best Practices for Tuning
+
+1. *Start with Defaults*: Default settings (locationCacheSize=-1, graphBuildCacheSize=10000, mutationsBeforeRebuild=100) work well for most use cases under 100K vectors.
+
+2. *Monitor Memory Usage*: For large-scale deployments (1M+ vectors), set explicit limits to prevent unbounded growth.
+
+3. *Scale Graph Build Cache with Dimensions*: Higher dimensionality requires proportionally more memory during graph building.
+
+4. *Balance Rebuild Frequency*: Lower `mutationsBeforeRebuild` provides fresher search results but increases CPU cost. Higher values improve write throughput at the cost of search staleness.
+
+5. *Per-Index Tuning*: Use global settings as baseline, then override for specific indexes based on workload characteristics.
+
+6. *Cache Hit Monitoring*: If queries become noticeably slower after setting `locationCacheSize` limits, increase the cache size or use `-1` (unlimited) for that index.
+
+7. *Write vs Read Trade-offs*: Write-heavy workloads benefit from higher `mutationsBeforeRebuild` (200-500), while read-heavy workloads benefit from lower values (50-100).
+
 ===== Querying Vector Indexes with SQL
 
 Use the `vectorNeighbors()` function to perform similarity searches:
