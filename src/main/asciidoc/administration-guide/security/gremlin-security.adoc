@@ -1,0 +1,130 @@
+[[gremlin-security]]
+=== Gremlin Security
+image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/administration-guide/security/gremlin-security.adoc" float=right]
+
+ArcadeDB provides two Gremlin execution engines with different security profiles.
+
+[IMPORTANT]
+====
+*CRITICAL SECURITY NOTICE*: The Groovy Gremlin engine is **NOT SECURE** and should **NOT be used in production environments** or with untrusted users. Despite security restrictions, it remains vulnerable to remote code execution (RCE) attacks. Always use the Java engine (default) for production deployments.
+====
+
+==== Execution Engines
+
+*Java Engine (Default - Secure)*
+
+The native Java engine parses Gremlin queries using a restricted grammar and generates bytecode. This engine:
+
+- Only accepts valid Gremlin traversal syntax
+- Cannot execute arbitrary Java code
+- Blocks `Runtime.getRuntime().exec()` and similar attacks
+- **Recommended for ALL deployments**
+- **Required for production and security-critical environments**
+
+*Groovy Engine (Legacy - INSECURE)*
+
+[WARNING]
+====
+*SECURITY VULNERABILITY*: The Groovy engine is vulnerable to Remote Code Execution (RCE) attacks. Authenticated users can execute arbitrary operating system commands. **DO NOT USE IN PRODUCTION.**
+====
+
+The Groovy engine provides dynamic scripting capabilities but has critical security limitations:
+
+- Supports Groovy-specific syntax and dynamic features
+- **Cannot be adequately secured** - `SecureASTCustomizer` has known bypasses
+- Vulnerable to: `Runtime.exec()`, `ProcessBuilder`, file system access, reflection
+- **Only use for development/testing in fully trusted environments**
+- Will display a security warning at startup
+
+==== Configuration
+
+Set the engine via database configuration:
+
+[source,sql]
+----
+-- Secure (default)
+ALTER DATABASE SETTING arcadedb.gremlin.engine = 'java';
+
+-- Legacy with security restrictions (use only if needed)
+ALTER DATABASE SETTING arcadedb.gremlin.engine = 'groovy';
+
+-- Auto-detect (not recommended for production)
+ALTER DATABASE SETTING arcadedb.gremlin.engine = 'auto';
+----
+
+Or via JVM startup parameters:
+
+[source,shell]
+----
+# Set to Java engine (secure)
+java -Darcadedb.gremlin.engine=java ...
+
+# Set to Groovy engine (use only if needed)
+java -Darcadedb.gremlin.engine=groovy ...
+----
+
+==== Security Best Practices
+
+1. *Use Java Engine*: **ALWAYS** use `'java'` engine in production - this is non-negotiable for security
+2. *Never Use Groovy in Production*: The Groovy engine is vulnerable to RCE and cannot be secured
+3. *Least Privilege*: Grant Gremlin query permissions only to fully trusted administrators
+4. *Input Validation*: Never accept Gremlin queries from untrusted sources
+5. *Audit Logging*: Monitor all Gremlin query execution for suspicious patterns
+6. *Network Isolation*: Run ArcadeDB in isolated network segments
+7. *Authentication Required*: Always require authentication for Gremlin access
+
+==== Security Limitations (Groovy Engine)
+
+[CAUTION]
+====
+Despite attempts to restrict dangerous operations, the Groovy engine remains vulnerable to:
+
+- *Process execution*: `Runtime.exec()`, `ProcessBuilder` - **NOT BLOCKED**
+- *File system access*: `File`, `FileInputStream`, `Files`, `Paths` - **NOT BLOCKED**
+- *Reflection*: `Method`, `Field`, `Constructor`, `Class.forName()` - **NOT BLOCKED**
+- *Class loading*: `ClassLoader`, `GroovyClassLoader` - **NOT BLOCKED**
+- *Network operations*: `URL`, `URLConnection`, `Socket` - **NOT BLOCKED**
+- *System operations*: `System.exit()`, `System.load()` - **NOT BLOCKED**
+
+The `SecureASTCustomizer` has inherent limitations that prevent effective sandboxing of Groovy scripts.
+====
+
+==== Migration from Groovy to Java Engine
+
+If you are currently using the Groovy engine and want to migrate to the more secure Java engine:
+
+1. *Test your queries*: Run your existing Gremlin queries with the Java engine to verify compatibility
+2. *Update configuration*: Change the `arcadedb.gremlin.engine` setting to `'java'`
+3. *Refactor if needed*: If you have Groovy-specific syntax, refactor to standard Gremlin traversal syntax
+4. *Verify results*: Ensure query results are consistent between engines
+
+Most standard Gremlin queries work identically on both engines. The Java engine is faster and more secure.
+
+==== Security Considerations
+
+[WARNING]
+====
+*CRITICAL: Remote Code Execution Vulnerability*
+
+The Groovy engine has a **CRITICAL SECURITY VULNERABILITY** that allows Remote Code Execution (RCE):
+
+- **Vulnerability**: Authenticated users can execute arbitrary operating system commands
+- **Impact**: Complete server compromise - attackers can read files, execute processes, access network
+- **Mitigation**: The `SecureASTCustomizer` security restrictions are **INSUFFICIENT** and can be bypassed
+- **Recommendation**: **NEVER use Groovy engine in production or with untrusted users**
+
+Example of vulnerable code that executes successfully:
+```groovy
+Runtime.getRuntime().exec("touch /tmp/owned")
+new File("/etc/passwd").text
+```
+
+The Java engine (default) is **NOT vulnerable** to these attacks.
+====
+
+[NOTE]
+====
+*Default Engine Change*: As of ArcadeDB version 25.1.0, the default Gremlin engine has been changed from `'auto'` to `'java'` for security reasons. This change is a **critical security fix** that protects users from RCE attacks.
+
+If you explicitly enable the Groovy engine (`arcadedb.gremlin.engine=groovy`), you will receive a **security warning** at startup, and your system will be vulnerable to RCE attacks.
+====
