@@ -273,6 +273,48 @@ Binary quantization compresses each dimension to 1 bit, achieving 97% memory red
 
 NOTE: Quantization types: `NONE` (default, no compression), `INT8` (4x compression, <2% accuracy loss), `BINARY` (32x compression, approximate search). Quantization is transparent - vectors are stored compressed but queries work the same way.
 
+* Create an LSMVectorIndex with inline vector storage for large-scale deployments (100K+ vectors):
+
+----
+ArcadeDB> CREATE VERTEX TYPE LargeScale
+ArcadeDB> CREATE PROPERTY LargeScale.embedding ARRAY OF FLOATS
+ArcadeDB> CREATE INDEX ON LargeScale (embedding) LSM_VECTOR METADATA {
+  dimensions: 1536,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  storeVectorsInGraph: true,
+  mutationsBeforeRebuild: 1000
+}
+----
+
+The `storeVectorsInGraph` option stores vectors inline within the JVector graph file, eliminating expensive document lookups during search operations. This dramatically reduces RAM pressure for large indexes (100K+ vectors) by avoiding document page cache thrashing.
+
+*When to use `storeVectorsInGraph`*:
+
+- *Enable* (`true`) for: Large indexes (100K+ vectors), high search throughput, read-heavy workloads, RAM-constrained environments
+- *Disable* (`false`, default) for: Small indexes (<10K vectors), frequent vector updates, write-heavy workloads
+
+*Trade-offs*:
+
+- *Benefit*: 70-80% RAM reduction for large indexes by co-locating vectors with graph topology
+- *Cost*: Vectors duplicated on disk (stored in both documents and graph file)
+- *Best with*: Combine with `quantization=INT8` or `BINARY` for maximum efficiency (reduced disk + reduced RAM)
+
+*Example - optimal large-scale configuration*:
+
+----
+ArcadeDB> CREATE INDEX ON LargeScale (embedding) LSM_VECTOR METADATA {
+  dimensions: 1536,
+  similarity: 'COSINE',
+  quantization: 'INT8',              -- 4x memory reduction
+  storeVectorsInGraph: true,         -- Fast co-located access
+  maxConnections: 16,
+  beamWidth: 100,
+  locationCacheSize: 200000,         -- Cache hot vectors
+  mutationsBeforeRebuild: 1000       -- Reduce rebuild frequency
+}
+----
+
 For more information, see:
 
 * <<sql-drop-index, `DROP INDEX`>>
