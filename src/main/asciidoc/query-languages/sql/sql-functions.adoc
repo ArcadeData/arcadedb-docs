@@ -1419,25 +1419,692 @@ Syntax: `variance(&lt;field&gt;)`
 SELECT variance(salary) FROM Account
 ----
 
+
 '''
 
 [discrete]
-[[vector-neighbors]]
-===== vectorNeighbors()
+[[vector-add]]
+===== vectorAdd()
 
-Returns an array with the `num` most similar vectors from `index` (as string) to the `key`.
-The items in the returned array hold objects with their distance and keys.
+Returns vector of element-wise sums of argument vectors, which are expected to be of the same size.
 
-NOTE: This function requires a vector index, see <<sql-create-index,CREATE INDEX>>.
-
-Syntax: `vectorNeighbors(&lt;index&gt;, &lt;key&gt;, &lt;num&gt;)`
+Syntax: `vector(&lt;vector|field&gt;, &lt;vector|field&gt;)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT vectorNeighbors('Word[name, vector]', 'Life', 10)
+SELECT vectorAdd([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
 ----
+
+
+'''
+
+[discrete]
+[[vector-approx-distance]]
+===== vectorApproxDistance()
+
+Computes approxmate distance between quantized vectors without intermediate full dequantization.
+Two modes are supported:
+
+* `'INT8'` faster than floats, preserves ranking order
+* `'BINARY'` very fast (count differing bits), reduces operations eight-fold, returns normalized https://en.wikipedia.org/wiki/Hamming_distance[Hamming distance]
+
+Syntax: `vector(&lt;vector|field&gt;, &lt;vector|field&gt; [, &lt;string&gt;])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorApproxDistance(vectorQuantizeInt8([1.0, 2.0, 3.0]), vectorQuantizeInt8([1.0, 3.0, 3.0]),'INT8')
+----
+
+
+'''
+
+[discrete]
+[[vector-avg]]
+===== vectorAvg()
+
+Aggregate function computing element-wise arithmetic average of vectors.
+
+Syntax: `vectorAvg(&lt;field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorAvg(myvector) FROM doc
+----
+
+
+'''
+
+[discrete]
+[[vector-clip]]
+===== vectorClip()
+
+Forces every vector element to the range between min and max arguments, where min less or equal to max is assumed.
+Elements exceeding this ranged are set to min or max respectively
+
+Syntax: `vectorClip(&lt;vector|field&gt;, &lt;scalar&gt;,  &lt;scalar&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorClip([1.0, 5.0, 10.0], 2.0, 8.0)
+----
+
+
+'''
+
+[discrete]
+[[vector-cosine-similarity]]
+===== vectorCosineSimilarity()
+
+Computes the https://en.wikipedia.org/wiki/Cosine_similarity[cosine similarity] between two vectors.
+Returns a value between -1 and 1, where 1 means same proportional, 0 means orthogonal, and -1 means opposite vectors.
+
+Syntax: `vector(&lt;vector|field&gt;, &lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorCosineSimilarity([1.0, 2.0, 3.0], [2.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-dense-to-sparse]]
+===== vectorDenseToSparse()
+
+converts a dense to a sparse vector representation, whereas a sparse element is determined by the optional threshold argument which is exact zero (0.0) by default.
+
+Syntax: `vectorDenseToSparse(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDenseToSparse([0.5, 0.0, 0.1], 0.2)
+----
+
+
+'''
+
+[discrete]
+[[vector-dequantize-int8]]
+===== vectorDequantizeInt8()
+
+Dequantized byte array to float vector using min-max scaling, recovering original vector only approximately.
+
+Syntax: `vectorDequantizeInt8(&lt;vector|field&gt;, &lt;scalar&gt;, &lt;scalar&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDequantizeInt8(vectorQuantizeInt8([1.0, 2.0, 3.0]), 1.0, 3.0)
+----
+
+
+'''
+
+[discrete]
+[[vector-dimension]]
+===== vectorDimension()
+
+Returns the dimension of argument vector, being the length of its underlying array.
+
+Syntax: `vectorDimension(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDimension([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-dot-product]]
+===== vectorDotProduct()
+
+Computes standard https://en.wikipedia.org/wiki/Dot_product[dot product (inner product)] between two argument vectors.
+
+Syntax: `vectorDotProduct(&lt;vector|field&gt;, &lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDotProduct([1.0, 0.0, 1.0], [0.0, 1.0, 1.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-has-inf]]
+===== vectorHasInf()
+
+Returns true if one or more elements in argument vector are positive or negative infinity.
+
+Syntax: `vectorHasInf(&lt;vector|field&gt;)`
+
+[source,sql]
+----
+SELECT vectorHasInf([1.0, 10e400, 2.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-has-nan]]
+===== vectorHasNaN()
+
+Returns true if one or more elements in argument vector are https://en.wikipedia.org/wiki/NaN[NaN (not-a-number)], a special value in IEEE floating point numbers.
+
+Syntax: `vectorHasNaN(&lt;vector|field&gt;)`
+
+
+'''
+
+[discrete]
+[[vector-hybrid-score]]
+===== vectorHybridScore()
+
+Computes weighted average of two numbers with argument weight alpha.
+
+Syntax: `vectorHybridScore(&lt;scalar&gt;, &lt;scalar&gt;, &lt;scalar&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorHybridScore(1.0, 2.0, 0.5)
+----
+
+
+'''
+
+[discrete]
+[[vector-is-normalized]]
+===== vectorIsNormalized()
+
+Checks if the argument vector is normalized, meaning if its length (L2 norm) is one, up to an optional threshold argument, which is taken as `0.001` by default.
+
+Syntax: `vectorIsNormalized(&lt;vector|field&gt; [, &lt;tolerance&gt;])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorIsNormalized([1.0, 0.0, 1.0], 1.0)
+----
+
+
+'''
+
+[discrete]
+[[vector-l1-norm]]
+===== vectorL1Norm()
+
+Computes https://en.wikipedia.org/wiki/Lp_space[L1 norm (Manhattan norm)] of argument `vector`.
+
+Syntax: `vectorL1Norm(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorL1Norm([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-l2-distance]]
+===== vectorL2Distance()
+
+Computes the https://en.wikipedia.org/wiki/Euclidean_distance[L2 distance (Euclidean distance)] between two argument vectors.
+
+Syntax: `vectorL2Distance(&lt;vector|field&gt;, &lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorL2Distance([1.0, 2.0, 3.0], [2.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-linf-norm]]
+===== vectorLInfNorm()
+
+Computes https://en.wikipedia.org/wiki/Lp_space[L∞-norm (Maximum norm)] of argument vector.
+
+Syntax: `vectorLInfNorm(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorLInfNorm([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-magnitude]]
+===== vectorMagnitude()
+
+Computes https://en.wikipedia.org/wiki/Euclidean_space#Euclidean_norm[L2 norm (Euclidean norm)] of argument vector.
+
+Syntax: `vectorMagnitude(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMagnitude([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-max]]
+===== vectorMax()
+
+Aggregate function computing element-wise maximum of vectors.
+
+Syntax: `vectorMax(&lt;field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMax(myvector) FROM doc
+----
+
+
+'''
+
+[discrete]
+[[vector-min]]
+===== vectorMin()
+
+Aggregate function computing element-wise minimum of vectors.
+
+Syntax: `vectorMin(&lt;field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMin(myvector) FROM doc
+----
+
+
+'''
+
+[discrete]
+[[vector-multi-score]]
+===== vectorMultiScore()
+
+Combines multiple scores form different vectors using a fusion method.
+The scores are assumed to be represented in a vector, the fusion method is selected by a string.
+The weights vector is only required for the weighted average method and expected to be of the same size as the score vector.
+Available fusion methods:
+
+* `MAX` maximum score (https://github.com/stanford-futuredata/ColBERT[ColBERT style])
+* `AVG` arithmetic average of scores
+* `MIN` minimum score
+* `WEIGHTED` weighted average
+
+Syntax: `vectorMultiScore(&lt;vector&gt;, &lt;string&gt; [, &lt;vector&gt;])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMultiScore([0.9, 0.7, 0.8], 'MAX')
+----
+
+
+'''
+
+[discrete]
+[[vector-neighbours]]
+===== vectorNeighbours()
+
+Returns integer argument number of vectors to an argument vector or key ident from an argument vector index.
+
+Syntax: `vectorNeighbours(&lt;string&gt;, &lt;vector|string&gt;, &lt;integer&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorNeighbours('doc[myvector]', 'database', 5)
+----
+
+
+'''
+
+[discrete]
+[[vector-normalize]]
+===== vectorNormalize()
+
+Normalizes vector to unit length (1.0), in the L2 norm.
+
+Syntax: `vectorNormalize(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorNormalize([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-normalize-scores]]
+===== vectorNormalizeScores()
+
+Normalizes a vector to unit range ([0, 1]) using min-max normalization.
+
+Syntax: `vectorNormalizeScores(&lt;vector&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorNormalizeScores([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-quantize-int8]]
+===== vectorQuantizeInt8()
+
+Quantize argument vector to byte elements (8 bit per dimension) using min-max scaling.
+
+Syntax: `vectorQuantizeInt8(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorQuantizeInt8([0.1, 0.5, 0.9])
+----
+
+
+'''
+
+[discrete]
+[[vector-quantize-binary]]
+===== vectorQuantizeBinary()
+
+Quantize argument vector to binary elements (1 bit per dimension) using median threshold.
+
+Syntax: `vectorQuantizeBinary(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorQuantizeBinary([0.1, 0.5, 0.9])
+----
+
+
+'''
+
+[discrete]
+[[vector-rrf-score]]
+===== vectorRRFScore()
+
+Compute https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a[reciprocal rank fusion (RRF)] for combining multiple ranks.
+The last argument k is the center rank with a default value of `60`.
+
+Syntax: `vectorRRFScore(&lt;scalar&gt;, &lt;scalar&gt;, ... [, &lt;scalar&gt;])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorRRFScore(1.0, 2.0, 4.0, 60)
+----
+
+
+'''
+
+[discrete]
+[[vector-scale]]
+===== vectorScale()
+
+Scales argument vector element-wise by argument scalar.
+
+Syntax: `vectorScale(&lt;vector|field&gt;, &lt;scalar|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorScale([1.0, 2.0, 3.0], 4.0)
+----
+
+
+'''
+
+[discrete]
+[[vector-score-transform]]
+===== vectorScoreTransform()
+
+Transform score to ehsape score distribution.
+Supported transformations:
+
+* `'LINEAR'` no transformation
+* `'SIGMOID'` S-shaped curve, see https://en.wikipedia.org/wiki/Logistic_function[Logistic function]
+* `'LOG'` natural logarithm
+* `'EXP'` exponential function
+
+Syntax: `vectorScoreTransform(&lt;scalar&gt;, &lt;string&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'SIGMOID')
+----
+
+
+'''
+
+[discrete]
+[[vector-sparse-create]]
+===== vectorSparseCreate()
+
+Create sparse vector from indices and value arrays.
+By default the dimension is inferred form the index array.
+Optionally, the dimension can be set via the dimension argument.
+
+Syntax: `vectorSparseCreate(&lt;vector|field&gt;, &lt;vector|field&gt; [, &lt;integer&gt;])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparseCreate([0, 2, 5], [0.5, 0.3, 0.8], 7)
+----
+
+
+'''
+
+[discrete]
+[[vector-sparse-dot]]
+===== vectorSparseDot()
+
+Computes https://en.wikipedia.org/wiki/Dot_product[dot product (inner product)] between two sparse vectors.
+
+Syntax: `vectorSparseDot(&lt;sparsevector&gt;, &lt;sparsevector&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparseDot(vectorDenseToSparse([1.0, 2.0, 3.0]), vectorDenseToSparse([1.0, 1.0, 1.0]))
+----
+
+
+'''
+
+[discrete]
+[[vector-sparse-to-dense]]
+===== vectorSparseToDense()
+
+Converts a sparse vector to dense vector representation.
+
+Syntax: `vectorSparseToDense(&lt;sparsevector&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparseToDense(vectorSparseCreate([0, 2], [0.5, 0.3]))
+----
+
+
+'''
+
+[discrete]
+[[vector-sparsity]]
+===== vectorSparsity()
+
+Returns the fraction of elements an argument vector with absolute values below an argument threshold.
+
+Syntax: `vectorSparsity(&lt;vector&gt;, &lt;scalar&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparsity([0.01, 0.1, 0.05, 0.02], 0.06)
+----
+
+
+'''
+
+[discrete]
+[[vector-std-dev]]
+===== vectorStdDev()
+
+Computes the standard deviation (square-root of variance) of an argument vector.
+
+Syntax: `vectorStdDev(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorStdDev([1.0, 2.0, 3.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-subtract]]
+===== vectorSubtract()
+
+Returns vector of element-wise differences of argument vectors, which are expected to be of the same size.
+
+Syntax: `vectorSubtract(&lt;vector|field&gt;, &lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSubtract([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
+----
+
+
+'''
+
+[discrete]
+[[vector-sum]]
+===== vectorSum()
+
+Aggregate function computing element-wise sum of vectors.
+
+Syntax: `vectorSum(&lt;field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSum(myvector) FROM doc
+----
+
+
+'''
+
+[discrete]
+[[vector-to-string]]
+===== vectorToString()
+
+Convert argument vector to string representation in various formats:
+
+* `'COMPACT'` Single line, i.e. `"[1.0, 2.0, 3.0]"` (default)
+* `'PRETTY'` Multi-line with formatting
+* `'PYTHON'` Python list format
+* `'MATLAB'` Matlab format
+
+Syntax: `vectorToString(&lt;vector|field&gt; [, &lt;string&gt;])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorToString([0.5, 0.25, 0.75])
+----
+
+
+'''
+
+[discrete]
+[[vector-variance]]
+===== vectorVariance()
+
+Computes the variance (average spread) of an argument vector.
+
+Syntax: `vectorVariance(&lt;vector|field&gt;)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorVariance([1.0, 2.0, 3.0])
+----
+
+
 
 '''
 
