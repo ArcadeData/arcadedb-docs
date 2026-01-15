@@ -1791,15 +1791,40 @@ SELECT vectorMultiScore([0.9, 0.7, 0.8], 'MAX')
 [[vector-neighbours]]
 ===== vectorNeighbours()
 
-Returns integer argument number of vectors to an argument vector or key ident from an argument vector index.
+Returns the k nearest neighbors from a vector index. When an index is defined on a parent type with inheritance, you can search across all types (using the parent type name) or filter to a specific child type (using the child type name).
 
-Syntax: `vectorNeighbours(&lt;string&gt;, &lt;vector|string&gt;, &lt;integer&gt;)`
+Syntax: `vectorNeighbours(&lt;index-spec&gt;, &lt;vector|key&gt;, &lt;k&gt;)`
+
+Where:
+
+* `&lt;index-spec&gt;` - Index specification in the format `'TypeName[propertyName]'`. Use the parent type to search all records, or a child type to search only that type's records.
+* `&lt;vector|key&gt;` - Query vector (array of floats) or a key identifier to look up the vector.
+* `&lt;k&gt;` - Number of nearest neighbors to return.
 
 *Examples*
 
+Basic usage:
 [source,sql]
 ----
-SELECT vectorNeighbours('doc[myvector]', 'database', 5)
+SELECT vectorNeighbours('Document[embedding]', [0.1, 0.2, 0.3], 5)
+----
+
+*Type-Specific Search with Inheritance*
+
+When a vector index is created on a parent type, sub-indexes are automatically created for child types. You can search within a specific child type by specifying the child type name:
+
+[source,sql]
+----
+-- Schema: EMBEDDING (parent) with children EMBEDDING_IMAGE, EMBEDDING_DOCUMENT
+-- Index created on: EMBEDDING.vector
+
+-- Search ONLY in EMBEDDING_IMAGE records
+SELECT vectorNeighbours('EMBEDDING_IMAGE[vector]', $queryVector, 10) AS neighbors
+FROM EMBEDDING_IMAGE LIMIT 1
+
+-- Search across ALL types (parent + all children)
+SELECT vectorNeighbours('EMBEDDING[vector]', $queryVector, 10) AS neighbors
+FROM EMBEDDING LIMIT 1
 ----
 
 

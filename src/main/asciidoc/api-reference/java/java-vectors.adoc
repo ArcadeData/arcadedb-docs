@@ -1036,6 +1036,56 @@ SELECT vectorNeighbors('Document[embedding]', $queryVector, 10) AS neighbors;
 
 *Note*: When using `vectorNeighbors()` in a `SELECT` clause to retrieve neighbor details, pass the full index name (e.g., `'Document[embedding]'`) as the first argument. In `WHERE` clauses, use the property name (e.g., `'embedding'`) instead.
 
+====== Type-Specific Search with Inheritance
+
+When a vector index is created on a parent type, ArcadeDB automatically creates sub-indexes for each bucket, including buckets of child types. This enables powerful filtering capabilities:
+
+*Use Case: Multi-Modal Embeddings*
+
+Imagine a system storing embeddings for different content types (images, documents, audio) that all extend a common parent type:
+
+[source,sql]
+----
+-- Create parent type with vector index
+CREATE VERTEX TYPE Embedding;
+CREATE PROPERTY Embedding.vector ARRAY_OF_FLOATS;
+CREATE INDEX ON Embedding (vector) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE'
+};
+
+-- Create specialized child types
+CREATE VERTEX TYPE ImageEmbedding EXTENDS Embedding;
+CREATE VERTEX TYPE DocumentEmbedding EXTENDS Embedding;
+CREATE VERTEX TYPE AudioEmbedding EXTENDS Embedding;
+----
+
+*Class-Specific Search*: Find the top 50 closest IMAGE embeddings only:
+
+[source,sql]
+----
+SELECT vectorNeighbors('ImageEmbedding[vector]', $queryVector, 50) AS neighbors
+FROM ImageEmbedding LIMIT 1;
+----
+
+All results will be of type `ImageEmbedding` - records from `DocumentEmbedding` and `AudioEmbedding` are excluded.
+
+*Cross-Class Search*: Find the top 50 closest embeddings across ALL types:
+
+[source,sql]
+----
+SELECT vectorNeighbors('Embedding[vector]', $queryVector, 50) AS neighbors
+FROM Embedding LIMIT 1;
+----
+
+Results may include records from any child type (`ImageEmbedding`, `DocumentEmbedding`, `AudioEmbedding`) based on similarity.
+
+This approach is efficient because:
+
+* Only one index is created and maintained (on the parent type)
+* Child type searches use the same underlying index, filtering by bucket
+* No need to create separate indexes for each child type
+
 ===== Using the Java API
 
 For programmatic control and embedded applications, use the Java API to create and manage vector indexes.
