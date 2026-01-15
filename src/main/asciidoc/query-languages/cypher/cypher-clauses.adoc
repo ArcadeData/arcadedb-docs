@@ -1,0 +1,567 @@
+[[cypher-match]]
+[discrete]
+==== MATCH
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/cypher/cypher-clauses.adoc" float=right]
+
+The `MATCH` clause is used to search for patterns in the graph. It is the primary read operation in Cypher.
+
+*Syntax:*
+
+[source,cypher]
+----
+MATCH pattern [, pattern ...]
+[WHERE condition]
+----
+
+*Pattern Syntax:*
+
+* `(variable)` - Match any node
+* `(variable:Label)` - Match nodes with specific label
+* `(variable:Label {prop: value})` - Match nodes with properties
+* `(a)-[r]->(b)` - Match directed relationship
+* `(a)-[r]-(b)` - Match relationship in either direction
+* `(a)-[r:TYPE]->(b)` - Match relationship with specific type
+* `(a)-[r:TYPE1|TYPE2]->(b)` - Match relationship with multiple types
+* `(a)-[*min..max]->(b)` - Match variable-length path
+
+*Examples:*
+
+[source,cypher]
+----
+// Match all Person nodes
+MATCH (p:Person)
+RETURN p
+
+// Match with property filter
+MATCH (p:Person {name: 'Alice', age: 30})
+RETURN p
+
+// Match relationships
+MATCH (p:Person)-[r:KNOWS]->(friend:Person)
+RETURN p.name, friend.name
+
+// Match with relationship properties
+MATCH (p:Person)-[r:WORKS_AT {since: 2020}]->(c:Company)
+RETURN p.name, c.name
+
+// Variable-length paths
+MATCH (a:Person)-[:KNOWS*1..3]->(b:Person)
+WHERE a.name = 'Alice'
+RETURN b.name
+
+// Named paths
+MATCH path = (a:Person)-[:KNOWS*]->(b:Person)
+WHERE a.name = 'Alice'
+RETURN path
+
+// Comma-separated patterns (Cartesian product)
+MATCH (a:Person), (b:Company)
+RETURN a.name, b.name
+
+// Multiple MATCH clauses
+MATCH (a:Person {name: 'Alice'})
+MATCH (b:Person {name: 'Bob'})
+RETURN a, b
+----
+
+---
+
+[[cypher-optional-match]]
+[discrete]
+==== OPTIONAL MATCH
+
+`OPTIONAL MATCH` works like `MATCH`, but returns NULL values for missing parts of the pattern instead of filtering out rows. It behaves like a LEFT OUTER JOIN in SQL.
+
+*Syntax:*
+
+[source,cypher]
+----
+MATCH pattern
+OPTIONAL MATCH optional_pattern
+[WHERE condition]
+RETURN ...
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Find all people and their optional movies
+MATCH (p:Person)
+OPTIONAL MATCH (p)-[r:ACTED_IN]->(m:Movie)
+RETURN p.name, m.title
+
+// With WHERE clause scoped to OPTIONAL MATCH
+MATCH (p:Person)
+OPTIONAL MATCH (p)-[:KNOWS]->(friend:Person)
+WHERE friend.age > 30
+RETURN p.name, friend.name
+----
+
+NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
+
+---
+
+[[cypher-where]]
+[discrete]
+==== WHERE
+
+The `WHERE` clause filters results based on conditions.
+
+*Syntax:*
+
+[source,cypher]
+----
+WHERE condition
+----
+
+*Operators:*
+
+[%header,cols="2,3,3"]
+|===
+| Type | Operators | Example
+| Comparison | `=`, `<>`, `<`, `>`, `<=`, `>=` | `WHERE n.age >= 25`
+| Logical | `AND`, `OR`, `NOT` | `WHERE n.age > 25 AND n.city = 'NYC'`
+| Null check | `IS NULL`, `IS NOT NULL` | `WHERE n.email IS NOT NULL`
+| List | `IN` | `WHERE n.name IN ['Alice', 'Bob']`
+| String | `STARTS WITH`, `ENDS WITH`, `CONTAINS` | `WHERE n.name STARTS WITH 'A'`
+| Regex | `=~` | `WHERE n.email =~ '.*@gmail.com'`
+|===
+
+*Examples:*
+
+[source,cypher]
+----
+// Simple comparison
+MATCH (p:Person)
+WHERE p.age > 30
+RETURN p.name
+
+// Multiple conditions
+MATCH (p:Person)
+WHERE p.age >= 25 AND p.age <= 40 AND p.city = 'NYC'
+RETURN p
+
+// NULL checks
+MATCH (p:Person)
+WHERE p.email IS NOT NULL
+RETURN p.name, p.email
+
+// IN operator
+MATCH (p:Person)
+WHERE p.name IN ['Alice', 'Bob', 'Charlie']
+RETURN p
+
+// String matching
+MATCH (p:Person)
+WHERE p.name STARTS WITH 'A'
+RETURN p
+
+// Regular expression
+MATCH (p:Person)
+WHERE p.email =~ '.*@example.com'
+RETURN p
+
+// Parenthesized expressions
+MATCH (p:Person)
+WHERE (p.age < 25 OR p.age > 60) AND p.status = 'active'
+RETURN p
+
+// Pattern predicates
+MATCH (p:Person)
+WHERE (p)-[:KNOWS]->()
+RETURN p.name AS hasConnections
+----
+
+---
+
+[[cypher-return]]
+[discrete]
+==== RETURN
+
+The `RETURN` clause specifies what to include in the query result.
+
+*Syntax:*
+
+[source,cypher]
+----
+RETURN expression [AS alias] [, expression [AS alias] ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Return nodes
+MATCH (p:Person)
+RETURN p
+
+// Return properties
+MATCH (p:Person)
+RETURN p.name, p.age
+
+// Return with aliases
+MATCH (p:Person)
+RETURN p.name AS personName, p.age AS personAge
+
+// Return all: *
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+RETURN *
+
+// Return expressions
+MATCH (p:Person)
+RETURN p.name, toUpper(p.city) AS upperCity
+
+// Aggregations
+MATCH (p:Person)
+RETURN count(p) AS total, avg(p.age) AS avgAge
+
+// Standalone expressions (no MATCH)
+RETURN abs(-42), sqrt(16), range(1, 5)
+----
+
+---
+
+[[cypher-create]]
+[discrete]
+==== CREATE
+
+The `CREATE` clause creates new nodes and relationships.
+
+*Syntax:*
+
+[source,cypher]
+----
+CREATE pattern [, pattern ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Create a node
+CREATE (p:Person {name: 'Alice', age: 30})
+
+// Create multiple nodes
+CREATE (a:Person {name: 'Bob'}), (b:Person {name: 'Charlie'})
+
+// Create a relationship between new nodes
+CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+
+// Create a relationship with properties
+CREATE (a:Person {name: 'Alice'})-[:WORKS_AT {since: 2020}]->(c:Company {name: 'ArcadeDB'})
+
+// Create relationship between existing nodes
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CREATE (a)-[:KNOWS {since: 2024}]->(b)
+
+// Create chained paths
+CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})-[:KNOWS]->(c:Person {name: 'C'})
+----
+
+---
+
+[[cypher-merge]]
+[discrete]
+==== MERGE
+
+The `MERGE` clause creates nodes or relationships if they don't exist, or matches them if they do (upsert operation).
+
+*Syntax:*
+
+[source,cypher]
+----
+MERGE pattern
+[ON CREATE SET property = value [, property = value ...]]
+[ON MATCH SET property = value [, property = value ...]]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Find or create a node
+MERGE (p:Person {name: 'Alice'})
+
+// With ON CREATE action
+MERGE (p:Person {name: 'Bob'})
+ON CREATE SET p.created = true, p.timestamp = timestamp()
+
+// With ON MATCH action
+MERGE (p:Person {name: 'Alice'})
+ON MATCH SET p.lastSeen = timestamp(), p.visits = p.visits + 1
+
+// Both ON CREATE and ON MATCH
+MERGE (p:Person {name: 'Charlie'})
+ON CREATE SET p.created = true, p.count = 1
+ON MATCH SET p.count = p.count + 1, p.updated = true
+
+// Merge relationship between existing nodes
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+MERGE (a)-[r:KNOWS]->(b)
+ON CREATE SET r.since = 2024
+ON MATCH SET r.lastContact = timestamp()
+----
+
+---
+
+[[cypher-set]]
+[discrete]
+==== SET
+
+The `SET` clause updates properties on nodes and relationships.
+
+*Syntax:*
+
+[source,cypher]
+----
+SET property = value [, property = value ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Update a single property
+MATCH (p:Person {name: 'Alice'})
+SET p.age = 31
+
+// Update multiple properties
+MATCH (p:Person {name: 'Alice'})
+SET p.age = 31, p.city = 'Boston', p.updated = true
+
+// Update relationship property
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+WHERE a.name = 'Alice' AND b.name = 'Bob'
+SET r.strength = 10
+----
+
+---
+
+[[cypher-delete]]
+[discrete]
+==== DELETE
+
+The `DELETE` clause removes nodes and relationships from the graph.
+
+*Syntax:*
+
+[source,cypher]
+----
+DELETE variable [, variable ...]
+DETACH DELETE variable [, variable ...]
+----
+
+NOTE: A node cannot be deleted if it has relationships. Use `DETACH DELETE` to delete a node and all its relationships.
+
+*Examples:*
+
+[source,cypher]
+----
+// Delete a relationship
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+WHERE a.name = 'Alice' AND b.name = 'Bob'
+DELETE r
+
+// Delete a node (must have no relationships)
+MATCH (p:Person {name: 'TestNode'})
+DELETE p
+
+// Delete node with all its relationships
+MATCH (p:Person {name: 'Alice'})
+DETACH DELETE p
+
+// Delete multiple elements
+MATCH (a:Person)-[r:TEMP]->(b:Person)
+DELETE a, r, b
+----
+
+---
+
+[[cypher-with]]
+[discrete]
+==== WITH
+
+The `WITH` clause allows query chaining by passing results from one part of a query to another. It can project, filter, aggregate, and paginate intermediate results.
+
+*Syntax:*
+
+[source,cypher]
+----
+WITH expression [AS alias] [, expression [AS alias] ...]
+[WHERE condition]
+[ORDER BY expression [ASC|DESC]]
+[SKIP n]
+[LIMIT n]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Basic projection
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+RETURN name, age ORDER BY name
+
+// Filter after projection
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+WHERE age > 30
+RETURN name
+
+// Aggregation with WITH
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH m.title AS movie, count(p) AS actorCount
+WHERE actorCount > 2
+RETURN movie, actorCount
+
+// WITH DISTINCT
+MATCH (p:Person)
+WITH DISTINCT p.city AS city
+RETURN city ORDER BY city
+
+// Pagination with WITH
+MATCH (p:Person)
+WITH p.name AS name
+ORDER BY name
+SKIP 5
+LIMIT 10
+RETURN name
+
+// Multiple WITH clauses
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+WHERE age > 25
+WITH name, age
+WHERE age < 50
+RETURN name ORDER BY name
+
+// WITH * (pass all variables)
+MATCH (p:Person)
+WITH *
+WHERE p.age > 30
+RETURN p.name
+----
+
+---
+
+[[cypher-unwind]]
+[discrete]
+==== UNWIND
+
+The `UNWIND` clause expands a list into individual rows.
+
+*Syntax:*
+
+[source,cypher]
+----
+UNWIND list AS variable
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Unwind a literal list
+UNWIND [1, 2, 3] AS x
+RETURN x
+
+// Unwind with range
+UNWIND range(1, 10) AS num
+RETURN num
+
+// Unwind property array
+MATCH (p:Person {name: 'Alice'})
+UNWIND p.hobbies AS hobby
+RETURN p.name, hobby
+
+// Create from list
+UNWIND ['Alice', 'Bob', 'Charlie'] AS name
+CREATE (p:Person {name: name})
+
+// Nested unwind
+UNWIND [[1, 2], [3, 4]] AS inner
+UNWIND inner AS num
+RETURN num
+
+// Combine with MATCH
+MATCH (p:Person)
+UNWIND p.skills AS skill
+RETURN p.name, skill
+----
+
+---
+
+[[cypher-order-by]]
+[discrete]
+==== ORDER BY
+
+The `ORDER BY` clause sorts the results.
+
+*Syntax:*
+
+[source,cypher]
+----
+ORDER BY expression [ASC|DESC] [, expression [ASC|DESC] ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Ascending order (default)
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+
+// Descending order
+MATCH (p:Person)
+RETURN p.name, p.age
+ORDER BY p.age DESC
+
+// Multiple sort keys
+MATCH (p:Person)
+RETURN p.name, p.age, p.city
+ORDER BY p.city ASC, p.age DESC, p.name ASC
+----
+
+---
+
+[[cypher-skip-limit]]
+[discrete]
+==== SKIP and LIMIT
+
+`SKIP` skips a number of results, and `LIMIT` restricts the maximum number of results returned. Used together for pagination.
+
+*Syntax:*
+
+[source,cypher]
+----
+SKIP number
+LIMIT number
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Limit results
+MATCH (p:Person)
+RETURN p.name
+LIMIT 10
+
+// Skip results
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+SKIP 20
+
+// Pagination (page 3, 10 items per page)
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+SKIP 20
+LIMIT 10
+----
+

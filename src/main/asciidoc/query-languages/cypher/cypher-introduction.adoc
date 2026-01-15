@@ -1,0 +1,166 @@
+[[cypher-introduction]]
+=== Introduction
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/cypher/cypher-introduction.adoc" float=right]
+
+ArcadeDB provides native support for the https://opencypher.org/[Cypher] query language through a new, high-performance implementation built from the ground up.
+This native OpenCypher module uses an ANTLR4-based parser with the official Cypher 2.5 grammar, providing excellent compatibility and performance.
+
+[WARNING]
+====
+**Deprecation Notice: Legacy Cypher Implementation**
+
+ArcadeDB includes two Cypher implementations:
+
+* **`opencypher`** (NEW) - Native implementation with direct execution. This is the recommended query language for new projects.
+* **`cypher`** (DEPRECATED) - Legacy implementation based on https://github.com/opencypher/cypher-for-gremlin[Cypher for Gremlin]. This will be removed in a future release.
+
+The legacy `cypher` query language translates Cypher queries to Gremlin, which results in slower performance (up to 20x slower for complex queries) and limited feature support.
+We strongly recommend migrating to `opencypher` for all new and existing projects.
+
+**To migrate**: Simply change your query language from `cypher` to `opencypher`. The syntax is identical for supported features.
+====
+
+[discrete]
+==== Key Features
+
+The native OpenCypher implementation provides:
+
+* **High Performance**: Direct execution without Gremlin translation, comparable to native SQL
+* **Full Read/Write Support**: MATCH, CREATE, MERGE, SET, DELETE with automatic transaction handling
+* **Advanced Pattern Matching**: Variable-length paths, OPTIONAL MATCH, multiple MATCH clauses
+* **Rich Function Library**: 23+ native Cypher functions plus bridge to 100+ ArcadeDB SQL functions
+* **Cost-Based Optimizer**: Intelligent query planning with index selection and join ordering
+* **100% Test Coverage**: Comprehensive test suite with 295 passing tests
+
+[discrete]
+==== Using OpenCypher
+
+To execute OpenCypher queries, use `opencypher` as the query language identifier.
+
+**From Java API:**
+
+[source,java]
+----
+ResultSet result = database.query("opencypher",
+    "MATCH (p:Person) WHERE p.age >= $minAge RETURN p.name, p.age ORDER BY p.age",
+    "minAge", 25);
+----
+
+**Through PostgreSQL Driver:**
+
+Prefix your query with `{opencypher}`:
+
+[source,sql]
+----
+"{opencypher} MATCH (p:Person) WHERE p.age >= 25 RETURN p.name, p.age ORDER BY p.age"
+----
+
+**Through HTTP/JSON API (GET - idempotent queries):**
+
+[source,shell]
+----
+curl "http://localhost:2480/query/graph/opencypher/MATCH%20(p:Person)%20RETURN%20p"
+----
+
+**Through HTTP/JSON API (POST - updates):**
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/command/graph" \
+  -d "{'language': 'opencypher', 'command': 'CREATE (p:Person {name: \"Alice\", age: 30})'}"
+----
+
+[discrete]
+==== Using Record IDs (RIDs)
+
+You can use ArcadeDB's <<rid,RecordIDs (RID)>> in Cypher queries to start from a specific vertex.
+RIDs in Cypher are always strings, so they must be contained between single or double quotes.
+
+[source,cypher]
+----
+MATCH (m:Movie)<-[a:ACTED_IN]-(p:Person) WHERE id(m) = '#1:0' RETURN *
+----
+
+[discrete]
+==== Parameters
+
+OpenCypher supports parameterized queries using the `$paramName` syntax:
+
+[source,cypher]
+----
+MATCH (p:Person) WHERE p.age >= $minAge AND p.city = $city RETURN p
+----
+
+Parameters are passed as key-value pairs after the query string:
+
+[source,java]
+----
+ResultSet result = database.query("opencypher",
+    "MATCH (p:Person) WHERE p.age >= $minAge RETURN p",
+    "minAge", 25);
+----
+
+[discrete]
+==== Automatic Transaction Handling
+
+All write operations (CREATE, SET, DELETE, MERGE) automatically handle transactions:
+
+* If no transaction is active, the operation creates, executes, and commits its own transaction
+* If a transaction is already active, the operation reuses it without committing
+* Proper rollback on errors for self-managed transactions
+
+[source,java]
+----
+// Automatic transaction - commits automatically
+database.command("opencypher", "CREATE (n:Person {name: 'Alice'})");
+
+// Manual transaction - you control commit/rollback
+database.transaction(() -> {
+    database.command("opencypher", "CREATE (a:Person {name: 'Alice'})");
+    database.command("opencypher", "CREATE (b:Person {name: 'Bob'})");
+    database.command("opencypher", "MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}) CREATE (a)-[:KNOWS]->(b)");
+    // Commits when lambda completes successfully
+});
+----
+
+[discrete]
+==== Performance Considerations
+
+The native OpenCypher implementation includes a cost-based query optimizer that:
+
+* Automatically selects optimal indexes for node lookups
+* Uses range index scans for inequality predicates (`>`, `<`, `>=`, `<=`)
+* Optimizes join order based on cardinality estimation
+* Detects bounded patterns for efficient relationship traversal
+
+For best performance:
+
+* Create indexes on frequently queried properties
+* Use labeled nodes in MATCH patterns for faster type filtering
+* Prefer specific property constraints over full scans
+* Use parameters for queries executed multiple times (enables query plan caching)
+
+[discrete]
+==== Comparison with Legacy Cypher
+
+[%header,cols="3,2,2"]
+|===
+| Feature | `opencypher` (NEW) | `cypher` (DEPRECATED)
+| Execution | Native, direct | Gremlin translation
+| Performance | Fast (comparable to SQL) | Slow (up to 20x slower)
+| Write Operations | Full support | Limited support
+| OPTIONAL MATCH | Supported | Partial support
+| Variable-length Paths | Supported | Limited
+| Aggregations | Full support | Limited
+| Functions | 100+ functions | Limited
+| Transaction Handling | Automatic | Manual
+| Active Development | Yes | No (abandoned upstream)
+|===
+
+[discrete]
+==== Resources
+
+* https://opencypher.org/[OpenCypher Specification]
+* https://neo4j.com/docs/cypher-manual/current/[Neo4j Cypher Manual] (reference)
+* https://learnxinyminutes.com/docs/cypher/[Learn Cypher in Y Minutes]
+

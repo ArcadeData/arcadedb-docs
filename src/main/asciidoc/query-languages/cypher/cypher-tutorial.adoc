@@ -1,0 +1,627 @@
+[[cypher-tutorial]]
+=== Cypher Tutorial
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/cypher/cypher-tutorial.adoc" float=right]
+
+This tutorial introduces you to Cypher, a declarative graph query language.
+By the end of this tutorial, you'll be able to create, query, and manipulate graph data in ArcadeDB using Cypher.
+
+[discrete]
+==== What is Cypher?
+
+Cypher is a pattern-matching query language designed specifically for graphs.
+It uses ASCII-art syntax to represent graph patterns, making queries intuitive and readable.
+For example, `(a)-[:KNOWS]->(b)` visually represents a KNOWS relationship from node `a` to node `b`.
+
+[discrete]
+==== Setting Up
+
+Before running Cypher queries, ensure you have:
+
+1. ArcadeDB server running
+2. A database created (we'll use `tutorial` in examples)
+
+Create vertex types for our tutorial:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Person
+CREATE VERTEX TYPE Movie
+CREATE VERTEX TYPE Company
+CREATE EDGE TYPE ACTED_IN
+CREATE EDGE TYPE DIRECTED
+CREATE EDGE TYPE WORKS_AT
+CREATE EDGE TYPE KNOWS
+----
+
+[discrete]
+==== Part 1: Creating Data
+
+[discrete]
+===== Creating Nodes
+
+Use the `CREATE` clause to add nodes (vertices) to your graph.
+
+**Create a single node:**
+
+[source,cypher]
+----
+CREATE (p:Person {name: 'Alice', age: 30, city: 'New York'})
+----
+
+This creates a node with:
+
+* Label `Person` (the type)
+* Properties: `name`, `age`, and `city`
+
+**Create multiple nodes:**
+
+[source,cypher]
+----
+CREATE (a:Person {name: 'Bob', age: 35}),
+       (b:Person {name: 'Charlie', age: 28}),
+       (c:Person {name: 'Diana', age: 32})
+----
+
+[discrete]
+===== Creating Relationships
+
+Relationships (edges) connect nodes. Create them with the arrow syntax.
+
+**Create a relationship between new nodes:**
+
+[source,cypher]
+----
+CREATE (a:Person {name: 'Eve'})-[:KNOWS {since: 2020}]->(b:Person {name: 'Frank'})
+----
+
+**Create a relationship between existing nodes:**
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CREATE (a)-[:KNOWS {since: 2019}]->(b)
+----
+
+[discrete]
+===== Sample Dataset
+
+Let's create a sample movie database:
+
+[source,cypher]
+----
+// Create people
+CREATE (keanu:Person {name: 'Keanu Reeves', born: 1964})
+CREATE (carrie:Person {name: 'Carrie-Anne Moss', born: 1967})
+CREATE (laurence:Person {name: 'Laurence Fishburne', born: 1961})
+CREATE (lana:Person {name: 'Lana Wachowski', born: 1965})
+CREATE (lilly:Person {name: 'Lilly Wachowski', born: 1967})
+
+// Create movies
+CREATE (matrix:Movie {title: 'The Matrix', released: 1999})
+CREATE (reloaded:Movie {title: 'The Matrix Reloaded', released: 2003})
+
+// Create relationships
+MATCH (keanu:Person {name: 'Keanu Reeves'}), (matrix:Movie {title: 'The Matrix'})
+CREATE (keanu)-[:ACTED_IN {role: 'Neo'}]->(matrix)
+
+MATCH (carrie:Person {name: 'Carrie-Anne Moss'}), (matrix:Movie {title: 'The Matrix'})
+CREATE (carrie)-[:ACTED_IN {role: 'Trinity'}]->(matrix)
+
+MATCH (laurence:Person {name: 'Laurence Fishburne'}), (matrix:Movie {title: 'The Matrix'})
+CREATE (laurence)-[:ACTED_IN {role: 'Morpheus'}]->(matrix)
+
+MATCH (lana:Person {name: 'Lana Wachowski'}), (matrix:Movie {title: 'The Matrix'})
+CREATE (lana)-[:DIRECTED]->(matrix)
+
+MATCH (lilly:Person {name: 'Lilly Wachowski'}), (matrix:Movie {title: 'The Matrix'})
+CREATE (lilly)-[:DIRECTED]->(matrix)
+----
+
+[discrete]
+==== Part 2: Reading Data
+
+[discrete]
+===== Basic MATCH Queries
+
+The `MATCH` clause finds patterns in your graph.
+
+**Find all nodes of a type:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p
+----
+
+**Find nodes with specific properties:**
+
+[source,cypher]
+----
+MATCH (p:Person {name: 'Alice'})
+RETURN p
+----
+
+**Return specific properties:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p.name, p.age
+----
+
+[discrete]
+===== Filtering with WHERE
+
+Use `WHERE` for complex conditions:
+
+[source,cypher]
+----
+MATCH (p:Person)
+WHERE p.age > 30
+RETURN p.name, p.age
+----
+
+**Multiple conditions:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+WHERE p.age >= 25 AND p.age <= 35 AND p.city IS NOT NULL
+RETURN p.name, p.age, p.city
+----
+
+**String matching:**
+
+[source,cypher]
+----
+// Names starting with 'A'
+MATCH (p:Person) WHERE p.name STARTS WITH 'A' RETURN p.name
+
+// Names containing 'an'
+MATCH (p:Person) WHERE p.name CONTAINS 'an' RETURN p.name
+
+// Email pattern matching
+MATCH (p:Person) WHERE p.email =~ '.*@gmail.com' RETURN p.name, p.email
+----
+
+**IN operator:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+WHERE p.name IN ['Alice', 'Bob', 'Charlie']
+RETURN p
+----
+
+[discrete]
+===== Traversing Relationships
+
+Find connected nodes by specifying relationship patterns:
+
+**Find direct connections:**
+
+[source,cypher]
+----
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN p.name, m.title
+----
+
+**Find connections with relationship properties:**
+
+[source,cypher]
+----
+MATCH (p:Person)-[r:ACTED_IN]->(m:Movie)
+RETURN p.name, r.role, m.title
+----
+
+**Find bidirectional connections (either direction):**
+
+[source,cypher]
+----
+MATCH (p:Person)-[:KNOWS]-(other:Person)
+RETURN p.name, other.name
+----
+
+**Multi-hop traversals:**
+
+[source,cypher]
+----
+MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person)
+WHERE a.name = 'Alice'
+RETURN a.name, b.name, c.name
+----
+
+[discrete]
+===== Variable-Length Paths
+
+Find paths of varying lengths:
+
+[source,cypher]
+----
+// Find all people within 1 to 3 hops
+MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(b:Person)
+RETURN b.name
+----
+
+**Named paths:**
+
+[source,cypher]
+----
+MATCH p = (a:Person)-[:KNOWS*1..3]->(b:Person)
+WHERE a.name = 'Alice'
+RETURN p
+----
+
+[discrete]
+===== OPTIONAL MATCH
+
+Like a LEFT OUTER JOIN - returns NULL for missing matches:
+
+[source,cypher]
+----
+MATCH (p:Person)
+OPTIONAL MATCH (p)-[:ACTED_IN]->(m:Movie)
+RETURN p.name, m.title
+----
+
+This returns all people, with `m.title` as NULL for those who haven't acted in any movie.
+
+[discrete]
+===== Sorting and Pagination
+
+**ORDER BY:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p.name, p.age
+ORDER BY p.age DESC
+----
+
+**Multiple sort keys:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p.name, p.age
+ORDER BY p.age DESC, p.name ASC
+----
+
+**SKIP and LIMIT:**
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+SKIP 10
+LIMIT 5
+----
+
+[discrete]
+==== Part 3: Aggregations
+
+[discrete]
+===== Basic Aggregations
+
+[source,cypher]
+----
+// Count all people
+MATCH (p:Person)
+RETURN count(p) AS totalPeople
+
+// Count, sum, average
+MATCH (p:Person)
+RETURN count(p) AS total, sum(p.age) AS totalAge, avg(p.age) AS averageAge
+
+// Min and max
+MATCH (p:Person)
+RETURN min(p.age) AS youngest, max(p.age) AS oldest
+----
+
+[discrete]
+===== Grouping (Implicit GROUP BY)
+
+Cypher automatically groups by non-aggregated expressions:
+
+[source,cypher]
+----
+// Count people by city
+MATCH (p:Person)
+RETURN p.city, count(p) AS residents
+ORDER BY residents DESC
+----
+
+**Multiple grouping keys:**
+
+[source,cypher]
+----
+MATCH (p:Person)-[:WORKS_AT]->(c:Company)
+RETURN c.name, p.department, count(p) AS employees
+ORDER BY c.name, employees DESC
+----
+
+[discrete]
+===== COLLECT
+
+Collect values into a list:
+
+[source,cypher]
+----
+// Collect all names
+MATCH (p:Person)
+RETURN collect(p.name) AS allNames
+
+// Group and collect
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN m.title, collect(p.name) AS actors
+----
+
+[discrete]
+==== Part 4: Data Modification
+
+[discrete]
+===== Updating with SET
+
+[source,cypher]
+----
+// Update a single property
+MATCH (p:Person {name: 'Alice'})
+SET p.age = 31
+
+// Update multiple properties
+MATCH (p:Person {name: 'Alice'})
+SET p.age = 31, p.city = 'Boston'
+----
+
+[discrete]
+===== MERGE (Upsert)
+
+MERGE finds or creates a pattern:
+
+[source,cypher]
+----
+// Create if not exists
+MERGE (p:Person {name: 'Grace'})
+
+// With ON CREATE and ON MATCH actions
+MERGE (p:Person {name: 'Grace'})
+ON CREATE SET p.created = true, p.visits = 1
+ON MATCH SET p.visits = p.visits + 1
+----
+
+**MERGE relationships:**
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+MERGE (a)-[r:KNOWS]->(b)
+ON CREATE SET r.since = 2024
+ON MATCH SET r.lastContact = 2024
+----
+
+[discrete]
+===== DELETE
+
+**Delete a relationship:**
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+DELETE r
+----
+
+**Delete a node (must have no relationships):**
+
+[source,cypher]
+----
+MATCH (p:Person {name: 'TestPerson'})
+DELETE p
+----
+
+**DETACH DELETE (delete node and its relationships):**
+
+[source,cypher]
+----
+MATCH (p:Person {name: 'TestPerson'})
+DETACH DELETE p
+----
+
+[discrete]
+==== Part 5: Advanced Queries
+
+[discrete]
+===== WITH Clause
+
+Use `WITH` to chain query parts:
+
+[source,cypher]
+----
+// Filter and project before continuing
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+WHERE age > 30
+RETURN name ORDER BY name
+----
+
+**Aggregation with WITH:**
+
+[source,cypher]
+----
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH m.title AS movie, count(p) AS actorCount
+WHERE actorCount > 2
+RETURN movie, actorCount
+----
+
+[discrete]
+===== UNWIND
+
+Expand a list into rows:
+
+[source,cypher]
+----
+// Unwind a literal list
+UNWIND [1, 2, 3] AS x
+RETURN x
+
+// Unwind a property array
+MATCH (p:Person {name: 'Alice'})
+UNWIND p.hobbies AS hobby
+RETURN p.name, hobby
+
+// Create multiple nodes from a list
+UNWIND ['Alice', 'Bob', 'Charlie'] AS name
+CREATE (p:Person {name: name})
+----
+
+[discrete]
+===== Pattern Predicates
+
+Check if patterns exist:
+
+[source,cypher]
+----
+// Find people who know someone
+MATCH (p:Person)
+WHERE (p)-[:KNOWS]->()
+RETURN p.name
+
+// Find people who don't know anyone
+MATCH (p:Person)
+WHERE NOT (p)-[:KNOWS]->()
+RETURN p.name
+
+// Find people who know a specific person
+MATCH (a:Person {name: 'Alice'}), (p:Person)
+WHERE (p)-[:KNOWS]->(a)
+RETURN p.name AS knowsAlice
+----
+
+[discrete]
+===== CASE Expressions
+
+Conditional logic in queries:
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p.name,
+       CASE
+         WHEN p.age < 18 THEN 'minor'
+         WHEN p.age < 65 THEN 'adult'
+         ELSE 'senior'
+       END AS ageGroup
+----
+
+[discrete]
+==== Part 6: Using Functions
+
+[discrete]
+===== String Functions
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN toUpper(p.name) AS upperName,
+       toLower(p.name) AS lowerName,
+       substring(p.name, 0, 3) AS initials
+----
+
+[discrete]
+===== Math Functions
+
+[source,cypher]
+----
+MATCH (p:Person)
+RETURN p.name,
+       abs(p.balance) AS absBalance,
+       round(p.salary / 1000.0) AS salaryK
+----
+
+[discrete]
+===== List Functions
+
+[source,cypher]
+----
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH p.name AS actor, collect(m.title) AS movies
+RETURN actor,
+       size(movies) AS movieCount,
+       head(movies) AS firstMovie,
+       last(movies) AS lastMovie
+----
+
+[discrete]
+===== Node/Relationship Functions
+
+[source,cypher]
+----
+MATCH (p:Person)-[r:ACTED_IN]->(m:Movie)
+RETURN id(p) AS personId,
+       labels(p) AS personLabels,
+       type(r) AS relationshipType,
+       keys(m) AS movieProperties
+----
+
+[discrete]
+==== Part 7: Best Practices
+
+**1. Use Labels**
+
+Always specify labels in MATCH patterns for better performance:
+
+[source,cypher]
+----
+// Good - uses index on Person
+MATCH (p:Person {name: 'Alice'}) RETURN p
+
+// Avoid - scans all nodes
+MATCH (n {name: 'Alice'}) RETURN n
+----
+
+**2. Create Indexes**
+
+Create indexes on frequently queried properties:
+
+[source,sql]
+----
+CREATE INDEX ON Person (name)
+CREATE INDEX ON Movie (title)
+----
+
+**3. Use Parameters**
+
+For repeated queries, use parameters instead of string concatenation:
+
+[source,cypher]
+----
+MATCH (p:Person)
+WHERE p.name = $name AND p.age >= $minAge
+RETURN p
+----
+
+**4. Limit Results**
+
+Use LIMIT for exploratory queries:
+
+[source,cypher]
+----
+MATCH (p:Person)-[:KNOWS*1..5]->(other)
+RETURN p.name, other.name
+LIMIT 100
+----
+
+**5. Use WITH for Complex Queries**
+
+Break complex queries into steps with WITH:
+
+[source,cypher]
+----
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH p, count(m) AS movieCount
+WHERE movieCount > 5
+MATCH (p)-[:DIRECTED]->(d:Movie)
+RETURN p.name, movieCount, collect(d.title) AS directed
+----
+

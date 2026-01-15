@@ -1,92 +1,98 @@
-[[open-cypher]]
-=== Cypher
+[[open-cypher-legacy]]
+=== Cypher (Legacy)
 
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/cypher.adoc" float=right]
 
-ArcadeDB partially supports Open Cypher as query engine.
-It uses link:https://github.com/opencypher/cypher-for-gremlin[Cypher for Gremlin] under-the-hood which has stopped being supported a few years ago.
-There are a lot of things that work and a lot of nuances which don't.
+[IMPORTANT]
+====
+**This page documents the legacy Cypher implementation.**
 
-ArcadeDB also doesn't support Neo4j's BOLT protocol.
-This means you can't use a Neo4J driver with ArcadeDB server.
+ArcadeDB now includes a new native OpenCypher implementation that provides better performance and more features.
+Please see the <<cypher,Cypher documentation>> for the recommended approach.
 
-To use Cypher queries you can do directly from the <<java-api-local,Java API>>, by using <<http-json-api,HTTP/JSON Api>> or the <<postgres-driver,Postgres driver>>.
+**Quick Migration Guide:**
 
-NOTE: Consider that Cypher queries are translated into Gremlin.
-As much as ArcadeDB's Gremlin implementation is optimized, queries run slower than using native SQL or Java API.
-Based on some internal benchmarks, ArcadeDB's native SQL (<<sql-select,SELECT>> or <<sql-match,MATCH>>) is much faster than Cypher (even 2,000% faster!).
-The difference is larger with complex queries that work on many records.
-A simple Cypher MATCH with a lookup with a simple condition will be closer to native SQL performance, but a scan or huge traversal will be much slower with Cypher, because of the underlying usage of Gremlin is not optimized for extreme performance.
+* Change query language from `cypher` to `opencypher`
+* All other syntax remains the same
+====
 
-Some of the known limitations on using Cypher with ArcadeDB:
-- limited support for large arrays: https://github.com/ArcadeData/arcadedb/issues/1792
-- Unwind edge creation slow: https://github.com/ArcadeData/arcadedb/issues/1713
-- Auto type conversion using MERGE with indexes: https://github.com/ArcadeData/arcadedb/issues/1301
-- Cypher timestamp() not supported: https://github.com/ArcadeData/arcadedb/issues/409
+[WARNING]
+====
+**Deprecation Notice**
+
+The legacy `cypher` query language (based on Cypher-for-Gremlin) is deprecated and will be removed in a future release.
+
+**Reasons to migrate to `opencypher`:**
+
+* Up to 20x better performance
+* Full write operation support (CREATE, MERGE, SET, DELETE)
+* Automatic transaction handling
+* More complete Cypher language coverage
+* Active development and support
+====
 
 [discrete]
-==== Cypher from Java API
+==== About the Legacy Implementation
 
-In order to execute a Cypher query, you need to include the relevant jars in your class path.
-To execute a Cypher query, use "cypher" as first parameter in the query method.
-Example:
+The legacy Cypher implementation uses link:https://github.com/opencypher/cypher-for-gremlin[Cypher for Gremlin] under-the-hood, which translates Cypher queries to Gremlin for execution.
+This project has stopped being maintained and has several limitations.
+
+ArcadeDB does not support Neo4j's BOLT protocol.
+This means you cannot use a Neo4j driver with ArcadeDB server.
+
+[discrete]
+==== Known Limitations (Legacy Implementation)
+
+* Performance is significantly slower than native SQL or the new OpenCypher implementation
+* Limited support for large arrays: https://github.com/ArcadeData/arcadedb/issues/1792
+* Slow UNWIND edge creation: https://github.com/ArcadeData/arcadedb/issues/1713
+* Auto type conversion issues with MERGE and indexes: https://github.com/ArcadeData/arcadedb/issues/1301
+* Cypher timestamp() not supported: https://github.com/ArcadeData/arcadedb/issues/409
+* Type conversion differences between ArcadeDB and Cypher
+
+[discrete]
+==== Legacy Usage Examples
+
+If you must use the legacy implementation, use `cypher` as the language identifier:
+
+**From Java API:**
 
 [source,java]
 ----
 ResultSet result = database.query("cypher", "MATCH (p:Person) WHERE p.age >= $p1 RETURN p.name, p.age ORDER BY p.age", "p1", 25);
 ----
 
-You can use ArcadeDB's <<rid,RecordIDs (RID)>> in a cypher query to start from a specific vertex.
-RIDs in Cypher are always strings, therefore they must always be contained between single or double quotes.
-Example of returning the graph connected to the vertex with RID `#1:0`:
-
-[source,cypher]
-----
-MATCH (m:Movie)<-[a:ACTED_IN]-(p:Person) WHERE id(m) = '#1:0' RETURN *
-----
-
-[discrete]
-==== Cypher through Postgres Driver
-
-You can execute a Cypher query against ArcadeDB server by using the <<postgres-driver,Postgres driver>> and prefixing the query with `{cypher}`.
-Example:
+**Through PostgreSQL Driver:**
 
 [source,cypher]
 ----
 "{cypher} MATCH (p:Person) WHERE p.age >= 25 RETURN p.name, p.age ORDER BY p.age"
 ----
 
-ArcadeDB server will execute the query `MATCH (p:Person) WHERE p.age >= 25 RETURN p.name, p.age ORDER BY p.age` using the Cypher query language.
-
-[discrete]
-==== Cypher through HTTP/JSON
-
-You can execute a Cypher query against ArcadeDB server by using <<http-json-api,HTTP/JSON API>>.
-Example of executing an idempotent query with HTTP GET command:
+**Through HTTP/JSON API:**
 
 [source,shell]
 ----
 curl "http://localhost:2480/query/graph/cypher/MATCH (p:Person) WHERE p.age >= 25 RETURN p.name, p.age ORDER BY p.age"
 ----
 
-Example of executing a non-idempotent query (updates the database):
-
-[source,shell]
-----
-curl -X POST "http://localhost:2480/command/graph" -d "{'language': 'cypher', 'command': 'MATCH (p:Person) WHERE p.age >= 25 RETURN p.name, p.age ORDER BY p.age'}"
-----
-
----
-
 [discrete]
-==== Known Limitations with the Cypher Implementation
+==== Migration Path
 
-- ArcadeDB automatically handles the conversion between compatible types, such as strings and numbers when possible. Cypher does not. So if you define a schema with the ArcadeDB API and then you use Cypher for a traversal, ensure you’re using the same type you defined in the schema. For example, if you define a property "id" to be a string, and then you’re executing traversal by using integers for the ids, the result could be unpredictable.
-- ArcadeDB's Cypher implementation is based on the https://github.com/opencypher/cypher-for-gremlin[Cypher For Gremlin] Open Source transpiler. This project is not actively maintained by Open Cypher anymore, so issues in the transpiler are hard to fix. Please bear this in mind if you're moving a large project in Cypher into ArcadeDB. The best way to address such issues is to rewrite the faulty cypher query into ArcadeDB <<sql-select,SELECT>> or <<sql-match,MATCH>> statement.
+To migrate from `cypher` to `opencypher`:
 
+1. Replace `cypher` with `opencypher` in your query language identifier
+2. Test your queries - syntax is compatible for supported features
+3. Review the <<cypher-compatibility,compatibility matrix>> for any unsupported features
 
-For more information about Cypher:
+[source,java]
+----
+// Before (legacy)
+ResultSet result = database.query("cypher", "MATCH (p:Person) RETURN p");
 
-- https://opencypher.org/[Open Cypher]
-- https://neo4j.com/docs/cypher-manual/current/[The Neo4j Cypher Manual]
-- https://learnxinyminutes.com/docs/cypher/[Learn Cypher in Y Minutes]
+// After (recommended)
+ResultSet result = database.query("opencypher", "MATCH (p:Person) RETURN p");
+----
+
+For detailed documentation on the new implementation, see <<cypher,Cypher>>.
+
