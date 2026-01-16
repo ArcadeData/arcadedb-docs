@@ -16,6 +16,7 @@ This section describes the expressions and functions available in ArcadeDB's Ope
 | Boolean | `true`, `false` | `RETURN true`
 | Null | `null` | `RETURN null`
 | List | `[1, 2, 3]` | `RETURN [1, 'a', true]`
+| Map | `{key: value}` | `RETURN {name: 'Alice', age: 30}`
 |===
 
 [discrete]
@@ -58,6 +59,148 @@ RETURN p.name,
          WHEN 'I' THEN 'Inactive'
          ELSE 'Unknown'
        END AS statusName
+----
+
+[discrete]
+==== Arithmetic Expressions
+
+Perform arithmetic operations on numeric values.
+
+[%header,cols="2,2,3"]
+|===
+| Operator | Description | Example
+| `+` | Addition | `RETURN 5 + 3` (returns 8)
+| `-` | Subtraction | `RETURN 10 - 4` (returns 6)
+| `*` | Multiplication | `RETURN 6 * 7` (returns 42)
+| `/` | Division | `RETURN 15 / 3` (returns 5.0)
+| `%` | Modulo | `RETURN 17 % 5` (returns 2)
+| `^` | Power | `RETURN 2 ^ 8` (returns 256.0)
+|===
+
+*Examples with properties:*
+
+[source,cypher]
+----
+// Double a person's age
+MATCH (p:Person)
+RETURN p.name, p.age * 2 AS doubleAge
+
+// Calculate monthly salary
+MATCH (p:Person)
+RETURN p.name, p.salary / 12 AS monthlySalary
+
+// Complex expression
+MATCH (p:Person)
+RETURN p.name, (p.age * 2) + 10 AS result
+----
+
+NOTE: The `+` operator also works for string concatenation: `RETURN 'Hello' + ' ' + 'World'` returns `'Hello World'`.
+
+[discrete]
+==== Map Literals
+
+Create inline map (object) structures.
+
+*Syntax:* `{key1: value1, key2: value2, ...}`
+
+[source,cypher]
+----
+// Simple map literal
+RETURN {name: 'Alice', age: 30}
+
+// Empty map
+RETURN {}
+
+// Map with expressions
+MATCH (p:Person)
+WHERE p.name = 'Alice'
+RETURN {
+  personName: p.name,
+  doubled: p.age * 2,
+  nextYearAge: p.age + 1
+} AS info
+----
+
+[discrete]
+==== List Comprehensions
+
+Transform and filter lists using comprehension syntax.
+
+*Syntax:* `[variable IN list WHERE condition | expression]`
+
+* `variable` - iteration variable
+* `list` - source list or range
+* `WHERE condition` - optional filter (elements that don't match are excluded)
+* `| expression` - optional mapping expression (transforms each element)
+
+*Basic transformation:*
+
+[source,cypher]
+----
+// Double each number
+RETURN [x IN [1, 2, 3] | x * 2]
+// Returns [2, 4, 6]
+
+// Square numbers using range
+RETURN [x IN range(1, 5) | x * x]
+// Returns [1, 4, 9, 16, 25]
+----
+
+*With filter:*
+
+[source,cypher]
+----
+// Filter and transform
+RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2 | x * 10]
+// Returns [30, 40, 50]
+
+// Filter only (no transformation)
+RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 3]
+// Returns [4, 5]
+----
+
+[discrete]
+==== Map Projections
+
+Extract specific properties from nodes or maps into a new map structure.
+
+*Syntax:* `variable{.property1, .property2, key: expression, .*}`
+
+* `.property` - include this property from the source
+* `key: expression` - add a computed value with the given key
+* `.*` - include all properties from the source
+
+*Property selection:*
+
+[source,cypher]
+----
+// Select specific properties
+MATCH (p:Person)
+WHERE p.name = 'Alice'
+RETURN p{.name, .age} AS person
+// Returns {name: 'Alice', age: 30}
+----
+
+*With computed values:*
+
+[source,cypher]
+----
+// Add computed properties
+MATCH (p:Person)
+WHERE p.name = 'Alice'
+RETURN p{.name, doubleAge: p.age * 2} AS person
+// Returns {name: 'Alice', doubleAge: 60}
+----
+
+*All properties:*
+
+[source,cypher]
+----
+// Include all properties
+MATCH (p:Person)
+WHERE p.name = 'Alice'
+RETURN p{.*} AS person
+// Returns {name: 'Alice', age: 30, salary: 50000}
 ----
 
 ---
