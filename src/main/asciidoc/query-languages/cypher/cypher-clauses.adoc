@@ -632,3 +632,201 @@ Reason: Query pattern not yet supported by optimizer
 Execution will use step-by-step interpretation
 ----
 
+---
+
+[[cypher-profile]]
+[discrete]
+==== PROFILE
+
+The `PROFILE` clause executes the query and returns performance metrics along with the actual results. Unlike `EXPLAIN` which only shows the plan, `PROFILE` runs the query and provides real execution statistics.
+
+*Syntax:*
+
+[source,cypher]
+----
+PROFILE query
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Profile a simple query
+PROFILE MATCH (p:Person) RETURN p.name
+
+// Profile a relationship traversal
+PROFILE MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' RETURN b.name
+
+// Profile a query with aggregation
+PROFILE MATCH (p:Person) RETURN p.city, count(p) AS count
+----
+
+*Output:*
+
+The PROFILE output includes:
+
+* Execution time in milliseconds
+* Number of rows returned
+* Query execution plan details (when using optimizer)
+
+[source,text]
+----
+OpenCypher Query Profile
+=========================
+
+Execution Time: 15 ms
+Rows Returned: 42
+
+Physical Plan:
+NodeTypeScan (Person)
+  └── Estimated Rows: 50
+
+Actual Results Follow...
+----
+
+NOTE: The profile information is returned as the first row in the result set, followed by the actual query results.
+
+---
+
+[[cypher-union]]
+[discrete]
+==== UNION and UNION ALL
+
+The `UNION` clause combines the results of two or more queries into a single result set. `UNION` removes duplicate rows, while `UNION ALL` keeps all rows including duplicates.
+
+*Syntax:*
+
+[source,cypher]
+----
+query1
+UNION [ALL]
+query2
+[UNION [ALL]
+query3 ...]
+----
+
+IMPORTANT: All queries in a UNION must return the same column names.
+
+*Examples:*
+
+[source,cypher]
+----
+// UNION - removes duplicate results
+MATCH (p:Person) RETURN p.name AS name
+UNION
+MATCH (c:Company) RETURN c.name AS name
+
+// UNION ALL - keeps all results including duplicates
+MATCH (p:Person) RETURN p.name AS name
+UNION ALL
+MATCH (c:Company) RETURN c.name AS name
+
+// Multiple UNIONs
+MATCH (p:Person) RETURN p.name AS name
+UNION
+MATCH (c:Company) RETURN c.name AS name
+UNION
+MATCH (l:Location) RETURN l.name AS name
+
+// UNION with WHERE clauses
+MATCH (p:Person) WHERE p.age > 30 RETURN p.name AS name, 'person' AS type
+UNION ALL
+MATCH (c:Company) WHERE c.employees > 100 RETURN c.name AS name, 'company' AS type
+----
+
+*Behavior:*
+
+* `UNION` removes duplicate rows from the combined result (like `SELECT DISTINCT` in SQL)
+* `UNION ALL` preserves all rows, including duplicates (more efficient when duplicates are acceptable)
+* Results are returned in the order they are produced by each query
+
+---
+
+[[cypher-call]]
+[discrete]
+==== CALL
+
+The `CALL` clause invokes procedures and functions. This includes built-in database procedures as well as custom functions defined via SQL's `DEFINE FUNCTION`.
+
+*Syntax:*
+
+[source,cypher]
+----
+CALL procedureName([arguments])
+[YIELD field [AS alias] [, field [AS alias] ...]]
+[WHERE condition]
+----
+
+*Built-in Procedures:*
+
+[%header,cols="2,3"]
+|===
+| Procedure | Description
+| `db.labels()` | Returns all vertex type names (labels)
+| `db.relationshipTypes()` | Returns all edge type names
+| `db.propertyKeys()` | Returns all property keys defined in the schema
+| `db.schema()` | Returns schema visualization data
+| `db.schema.visualization()` | Returns schema visualization data (alias)
+|===
+
+*Examples:*
+
+[source,cypher]
+----
+// List all vertex types (labels)
+CALL db.labels()
+
+// List all relationship types
+CALL db.relationshipTypes()
+
+// List all property keys
+CALL db.propertyKeys()
+
+// Get schema information
+CALL db.schema()
+----
+
+*Calling Custom Functions:*
+
+Custom functions defined via SQL's `DEFINE FUNCTION` statement can be called using the `CALL` clause with their namespace.
+
+[source,sql]
+----
+// First, define a custom function in SQL
+DEFINE FUNCTION math.add "SELECT :a + :b AS result" PARAMETERS [a,b] LANGUAGE sql
+----
+
+[source,cypher]
+----
+// Then call it from Cypher
+CALL math.add(3, 5)
+// Returns: {value: 8}
+
+// Call with different parameter types
+CALL my.greet('World')
+// Returns: {value: 'Hello, World!'}
+----
+
+*Using YIELD:*
+
+The `YIELD` clause filters and renames the columns returned by a procedure:
+
+[source,cypher]
+----
+// Get only the label column
+CALL db.labels() YIELD label
+
+// Rename the output column
+CALL db.labels() YIELD label AS vertexType
+
+// Filter results with WHERE
+CALL db.labels() YIELD label
+WHERE label STARTS WITH 'P'
+RETURN label
+
+// Yield all columns
+CALL db.propertyKeys() YIELD *
+----
+
+NOTE: When calling custom SQL functions, the result is wrapped in a `value` property. Built-in procedures like `db.labels()` return results with specific property names like `label`, `relationshipType`, or `propertyKey`.
+
