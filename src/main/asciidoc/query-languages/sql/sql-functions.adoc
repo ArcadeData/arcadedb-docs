@@ -566,6 +566,8 @@ SELECT if( (name = 'John'), "My name is John", "My name is not John") FROM Perso
 [[case-expression]]
 ===== CASE Expression
 
+NOTE: Available from version *26.2.1*
+
 The `CASE` expression provides conditional logic similar to if-then-else statements in programming languages.
 It supports two forms: **searched CASE** and **simple CASE**.
 
@@ -601,11 +603,13 @@ END
 * If no conditions match and an `ELSE` clause is provided, the `ELSE` result is returned
 * If no conditions match and there is no `ELSE` clause, `null` is returned
 * Multiple `WHEN` clauses can be specified
-* Can be used in `SELECT` projections, `LET` clauses, and expressions
+* Can be used in `SELECT` projections, `WHERE` clauses, `MATCH` statements, `LET` clauses, and expressions
+* Supports nested `CASE` expressions for complex conditional logic
+* `NULL` values in conditions follow SQL three-valued logic (NULL comparisons return NULL, which is treated as false)
 
 *Examples*
 
-Searched CASE with conditions:
+Searched CASE with conditions in SELECT:
 
 [source,sql]
 ----
@@ -646,6 +650,48 @@ SELECT
 FROM Student
 ----
 
+CASE in WHERE clause for filtering:
+
+[source,sql]
+----
+SELECT name, age
+FROM Person
+WHERE CASE
+  WHEN age IS NULL THEN false
+  WHEN age < 18 THEN 'minor'
+  ELSE 'adult'
+END = 'adult'
+----
+
+CASE in MATCH WHERE clause (enum-to-string conversion with pattern matching):
+
+[source,sql]
+----
+MATCH {type: Product, as: prod,
+  where: ((CASE
+    WHEN color = 1 THEN 'red'
+    WHEN color = 2 THEN 'blue'
+    WHEN color = 3 THEN 'green'
+  END) ILIKE '%ed%')}
+RETURN prod.name
+----
+
+This is particularly useful for converting enum values (stored as integers) to human-readable strings that can be filtered with wildcards.
+
+CASE in MATCH RETURN clause:
+
+[source,sql]
+----
+MATCH {type: Person, as: p, where: (age IS NOT NULL)}
+RETURN p.name,
+  CASE
+    WHEN p.age < 18 THEN 'minor'
+    WHEN p.age < 65 THEN 'adult'
+    ELSE 'senior'
+  END as category
+ORDER BY p.name
+----
+
 Nested CASE expressions:
 
 [source,sql]
@@ -674,6 +720,20 @@ LET $category = CASE
   WHEN price < 100 THEN 'Standard'
   ELSE 'Premium'
 END
+----
+
+CASE with NULL handling:
+
+[source,sql]
+----
+SELECT
+  name,
+  CASE
+    WHEN age IS NULL THEN 'Unknown'
+    WHEN age < 18 THEN 'Minor'
+    ELSE 'Adult'
+  END as status
+FROM Person
 ----
 
 '''
