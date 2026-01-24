@@ -1,0 +1,150 @@
+[[sql-create-trigger]]
+[discrete]
+==== SQL - `CREATE TRIGGER`
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/sql/sql-create-trigger.adoc" float=right]
+
+NOTE: Available from version 26.2.1
+
+Creates a new database trigger that automatically executes SQL statements, JavaScript code, or Java classes in response to record events.
+
+Triggers enable you to implement business logic, data validation, audit trails, and automated workflows directly in your database.
+
+*Syntax*
+
+[source,sql]
+----
+CREATE TRIGGER [IF NOT EXISTS] <trigger-name>
+  (BEFORE|AFTER) (CREATE|READ|UPDATE|DELETE)
+  ON [TYPE] <type-name>
+  EXECUTE (SQL|JAVASCRIPT|JAVA) '<code-or-class-name>'
+----
+
+* *`IF NOT EXISTS`* Optional: skip creation if trigger already exists (instead of failing with an error)
+* *`<trigger-name>`* Unique name for the trigger
+* *`BEFORE|AFTER`* When to execute the trigger:
+** `BEFORE` - Execute before the event occurs
+** `AFTER` - Execute after the event occurs
+* *`CREATE|READ|UPDATE|DELETE`* Which database event to respond to:
+** `CREATE` - When a new record is created
+** `READ` - When a record is read from the database
+** `UPDATE` - When a record is modified
+** `DELETE` - When a record is deleted
+* *`<type-name>`* The document, vertex, or edge type to monitor
+* *`SQL|JAVASCRIPT|JAVA`* The language/type of the trigger action:
+** `SQL` - Execute SQL statements
+** `JAVASCRIPT` - Execute JavaScript code using GraalVM
+** `JAVA` - Execute a Java class implementing the JavaTrigger interface
+* *`<code-or-class-name>`* The SQL statement, JavaScript code, or fully qualified Java class name to execute
+
+*Context Variables*
+
+Triggers have access to the following context variables:
+
+* *SQL Triggers*:
+** `$record` or `record` - The current record being operated on
+* *JavaScript Triggers*:
+** `record` or `$record` - The current record being operated on
+** `oldRecord` or `$oldRecord` - The original record (for UPDATE operations only)
+** `database` - The database instance
+* *Java Triggers*:
+** Parameters passed to the `execute()` method
+
+*Return Values*
+
+* *SQL Triggers*: If the SELECT statement returns no results, the trigger fails and the operation is aborted
+* *JavaScript Triggers*: Return `false` to abort the operation (BEFORE triggers only), or throw an exception
+* *Java Triggers*: Return `false` to abort the operation (BEFORE triggers only), or throw an exception
+
+*Examples*
+
+* Create an audit log that tracks all user creations:
+
+[source,sql]
+----
+CREATE DOCUMENT TYPE AuditLog;
+
+CREATE TRIGGER user_audit AFTER CREATE ON TYPE User
+EXECUTE SQL 'INSERT INTO AuditLog SET action = "user_created",
+             userName = $record.name,
+             timestamp = sysdate()';
+----
+
+* Validate email format before creating users using JavaScript:
+
+[source,sql]
+----
+CREATE TRIGGER validate_email BEFORE CREATE ON TYPE User
+EXECUTE JAVASCRIPT 'if (!record.email || !record.email.includes("@")) {
+  throw new Error("Invalid email address");
+}';
+----
+
+* Automatically set timestamps using JavaScript:
+
+[source,sql]
+----
+CREATE TRIGGER user_defaults BEFORE CREATE ON TYPE User
+EXECUTE JAVASCRIPT '
+  record.createdAt = new Date();
+  if (!record.username && record.email) {
+    record.username = record.email.split("@")[0];
+  }
+';
+----
+
+* Ensure product prices are positive using SQL validation:
+
+[source,sql]
+----
+CREATE TRIGGER validate_price BEFORE CREATE ON TYPE Product
+EXECUTE SQL 'SELECT FROM Product WHERE @this = $record AND price > 0';
+----
+
+* Update related records when parent changes:
+
+[source,sql]
+----
+CREATE TRIGGER customer_email_update AFTER UPDATE ON TYPE Customer
+EXECUTE SQL 'UPDATE Order SET customerEmail = $record.email
+             WHERE customerId = $record.@rid';
+----
+
+* Use a Java class for maximum performance (class must be in the classpath):
+
+[source,sql]
+----
+CREATE TRIGGER validate_email BEFORE CREATE ON TYPE User
+EXECUTE JAVA 'com.example.triggers.EmailValidationTrigger';
+----
+
+*Java Trigger Example*
+
+To create a Java trigger, implement the `com.arcadedb.schema.trigger.JavaTrigger` interface:
+
+[source,java]
+----
+package com.example.triggers;
+
+import com.arcadedb.database.Database;
+import com.arcadedb.database.Document;
+import com.arcadedb.database.Record;
+import com.arcadedb.schema.trigger.JavaTrigger;
+
+public class EmailValidationTrigger implements JavaTrigger {
+
+  @Override
+  public boolean execute(Database database, Record record, Record oldRecord) throws Exception {
+    if (record instanceof Document) {
+      Document doc = (Document) record;
+      String email = doc.getString("email");
+
+      if (email == null || !email.contains("@")) {
+        throw new IllegalArgumentException("Invalid email address");
+      }
+    }
+    return true;  // Continue with the operation
+  }
+}
+----
+
+For more information and advanced examples, see <<sql-triggers,Triggers>>.
