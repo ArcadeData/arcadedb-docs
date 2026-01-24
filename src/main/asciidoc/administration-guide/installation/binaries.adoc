@@ -73,3 +73,133 @@ arcadedb-server
 ----
 
 You should use these instead of `bin\console.bat` and `bin\server.bat` mentioned above.
+
+[[custom-package-builder]]
+==== Custom Package Builder
+
+The ArcadeDB Modular Distribution Builder (`arcadedb-builder.sh`) allows you to create custom ArcadeDB packages containing only the modules you need. This results in smaller distributions, reduced dependencies, and simplified deployments.
+
+===== Prerequisites
+
+The builder requires the following tools:
+
+* `curl` or `wget` - for downloading files
+* `tar` - for extracting and creating archives
+* `unzip` and `zip` - for creating zip archives
+* `sha256sum` or `shasum` - for checksum verification
+* `docker` (optional) - for Docker image generation
+
+===== Quick Start
+
+**Run directly with curl (one-liner):**
+[source,bash]
+----
+curl -fsSL https://github.com/ArcadeData/arcadedb/releases/download/{revnumber}/arcadedb-builder.sh | bash -s -- --version={revnumber} --modules=gremlin,studio
+----
+
+**Download and run interactively:**
+[source,bash]
+----
+curl -fsSLO https://github.com/ArcadeData/arcadedb/releases/download/{revnumber}/arcadedb-builder.sh
+chmod +x arcadedb-builder.sh
+./arcadedb-builder.sh
+----
+
+**Preview without building (dry run):**
+[source,bash]
+----
+./arcadedb-builder.sh --version={revnumber} --modules=gremlin,studio --dry-run
+----
+
+===== Available Modules
+
+[discrete]
+====== Core Modules (always included)
+
+* `engine` - Database engine
+* `server` - HTTP/REST API, clustering
+* `network` - Network communication
+
+[discrete]
+====== Optional Modules
+
+[%header,cols="2,4"]
+|===
+| Module | Description
+| `console` | Interactive database console
+| `studio` | Web-based administration interface
+| `gremlin` | Apache Tinkerpop Gremlin support
+| `postgresw` | PostgreSQL wire protocol compatibility
+| `mongodbw` | MongoDB wire protocol compatibility
+| `redisw` | Redis wire protocol compatibility
+| `grpcw` | gRPC wire protocol support
+| `graphql` | GraphQL API support
+| `metrics` | Prometheus metrics integration
+|===
+
+===== Usage Examples
+
+**Minimal build (PostgreSQL protocol only):**
+[source,bash]
+----
+./arcadedb-builder.sh --version={revnumber} --modules=postgresw
+----
+
+**Development build:**
+[source,bash]
+----
+./arcadedb-builder.sh \
+  --version={revnumber} \
+  --modules=console,gremlin,studio \
+  --output-name=arcadedb-dev
+----
+
+**Production build (no Studio):**
+[source,bash]
+----
+./arcadedb-builder.sh \
+  --version={revnumber} \
+  --modules=postgresw,metrics \
+  --output-name=arcadedb-prod
+----
+
+**CI/CD build:**
+[source,bash]
+----
+./arcadedb-builder.sh \
+  --version={revnumber} \
+  --modules=gremlin,studio \
+  --quiet \
+  --skip-docker \
+  --output-dir=/tmp/builds
+----
+
+===== Command-Line Options
+
+[%header,cols="3,5"]
+|===
+| Option | Description
+| `--version=VERSION` | ArcadeDB version to build (required for non-interactive mode)
+| `--modules=MODULES` | Comma-separated list of modules
+| `--output-name=NAME` | Custom name for distribution
+| `--output-dir=DIR` | Output directory (default: current directory)
+| `--local-repo[=PATH]` | Use local Maven repository or custom JAR directory
+| `--local-base=FILE` | Use local base distribution file
+| `--docker-tag=TAG` | Build Docker image with specified tag
+| `--skip-docker` | Skip Docker image build
+| `--dockerfile-only` | Only generate Dockerfile, don't build image
+| `--dry-run` | Show what would be done without executing
+| `-v, --verbose` | Enable verbose output
+| `-q, --quiet` | Suppress non-error output
+| `-h, --help` | Show help message
+|===
+
+===== Output Files
+
+The builder creates:
+
+* `{output-name}.zip` - Zip archive
+* `{output-name}.tar.gz` - Compressed tarball
+* Docker image with tag `{docker-tag}` (if not skipped)
+
+For more detailed documentation, see the https://github.com/ArcadeData/arcadedb/blob/main/package/README-BUILDER.md[Builder README] and https://github.com/ArcadeData/arcadedb/blob/main/docs/modular-builder-guide.md[Modular Builder Guide].
