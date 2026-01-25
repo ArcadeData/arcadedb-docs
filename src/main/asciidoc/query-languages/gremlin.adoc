@@ -121,36 +121,167 @@ If the file is present, the Gremlin Server will be configured with the settings 
 You can also override single configuration settings by using <<settings-sql,ArcadeDB's settings>> and prefixing the configuration key with `gremlin.`.
 All the configuration settings with such a prefix will be passed to the Gremlin Server plugin.
 
-By default, the database "graph" will be available through the Gremlin Server.
-You can edit the database name or add more databases under the Gremlin Server by editing the file `config/gremlin-server.groovy`
+[[gremlin-multi-database]]
+[discrete]
+===== Multi-Database Support (v26.2.1+)
 
-NOTE: If you're importing a database, use "graph" as the name of the database to be available through the <<gremlin-server,Gremlin Server>>
+Starting from version 26.2.1, ArcadeDB's Gremlin Server includes `ArcadeGraphManager`, a custom implementation of TinkerPop's `GraphManager` interface that provides *dynamic, on-demand registration* of databases as Gremlin graphs.
 
+*Key Features:*
 
-Start the Gremlin Server with `OpenBeer` as imported database with name `graph`, so it can be used through the Gremlin Server.
+* *Automatic Registration*: When a Gremlin client requests a graph/traversal source by database name, `ArcadeGraphManager` automatically registers it if the database exists in ArcadeDB Server
+* *Multi-Database Access*: Access any database on the server through Gremlin without static configuration
+* *The `g` Alias*: The standard `g` alias automatically maps to the default database ("graph" if it exists, otherwise the first available database)
+
+*How It Works:*
+
+Instead of static graph configuration in YAML files, databases are registered dynamically when first accessed. Each database name becomes a valid traversal source alias:
+
+[source,java]
+----
+// Connect to a specific database using its name as the alias
+var cluster = Cluster.build()
+    .port(8182)
+    .addContactPoint("localhost")
+    .credentials("root", "password")
+    .create();
+
+// Access database "mydb" - registered automatically on first access
+var g = traversal().withRemote(DriverRemoteConnection.using(cluster, "mydb"));
+
+// Or use the standard "g" alias for the default database
+var gDefault = traversal().withRemote(DriverRemoteConnection.using(cluster, "g"));
+----
+
+*Script-Based Queries:*
+
+For script-based Gremlin queries (e.g., via `client.submit()`), the `g` variable is automatically bound to the default database:
+
+[source,java]
+----
+Client client = cluster.connect();
+// The "g" variable is automatically available
+ResultSet results = client.submit("g.V().hasLabel('Person').count()");
+----
+
+*Benefits:*
+
+* No need to manually configure graphs in `gremlin-server.yaml` or `gremlin-server.groovy`
+* Supports ArcadeDB's multi-tenant architecture where a single server hosts multiple databases
+* Each database is isolated and accessed independently through its name
+* Reduces configuration complexity for deployments with many databases
+
+NOTE: Legacy static configuration via `gremlin-server.yaml` graphs section is no longer required. All databases are available automatically
+
+[[gremlin-migration-26-2-1]]
+[discrete]
+===== Migration Guide (v26.2.1)
+
+If you are upgrading from a version prior to 26.2.1, here are the key changes to be aware of:
+
+*What Changed:*
+
+1. *Graph Registration*: Graphs are now registered dynamically by `ArcadeGraphManager` instead of statically in configuration files
+2. *Configuration Files*: The `graphs:` section in `gremlin-server.yaml` is no longer required
+3. *The `graph` Binding*: The internal `graph` variable is now managed by `ArcadeGraphManager` to properly support TinkerPop sessions and transactions
+
+*Backward Compatibility:*
+
+* Existing Gremlin queries continue to work without modification
+* The `g` alias still works and maps to the default database
+* Script-based queries using `g` are fully supported
+* Bytecode-based queries work with any database name as the alias
+
+*Configuration Migration:*
+
+If you had custom `gremlin-server.yaml` configuration:
+
+[source,yaml]
+----
+# OLD configuration (no longer needed)
+graphs:
+  graph: conf/arcadedb.properties
+----
+
+This static configuration is now optional. `ArcadeGraphManager` will automatically register any database when it is first accessed. You can safely remove the `graphs:` section.
+
+*Custom gremlin-server.groovy:*
+
+If you customized `gremlin-server.groovy`, ensure you are NOT overwriting the `graph` binding:
+
+[source,groovy]
+----
+// CORRECT: Only define the traversal source 'g'
+globals << [g : traversal().withEmbedded(graph)]
+
+// WRONG: Do NOT overwrite 'graph' - this breaks session support
+// globals << [graph : traversal().withEmbedded(graph)]  // DON'T DO THIS
+----
+
+The `graph` variable must remain a `Graph` object (not a `GraphTraversalSource`) for TinkerPop's `SessionOpProcessor` to work correctly with transactions.
+
+*Accessing Multiple Databases:*
+
+To access a specific database, use the database name as the traversal source alias:
+
+[source,java]
+----
+// Before v26.2.1 - required manual configuration
+// Now - just use the database name directly
+var g = traversal().withRemote(DriverRemoteConnection.using(cluster, "customers"));
+var g2 = traversal().withRemote(DriverRemoteConnection.using(cluster, "products"));
+----
+
+*Transactions via Remote Driver:*
+
+Gremlin transactions now work correctly via the remote driver:
+
+[source,java]
+----
+GraphTraversalSource g = traversal().withRemote(
+    DriverRemoteConnection.using(cluster, "mydb"));
+
+Transaction tx = g.tx();
+GraphTraversalSource gtx = tx.begin();
+try {
+    gtx.addV("Person").property("name", "Alice").iterate();
+    tx.commit();
+} catch (Exception e) {
+    tx.rollback();
+}
+----
+
+*Docker Example:*
+
+Start the Gremlin Server with the `OpenBeer` dataset imported as a database named `openbeer`:
 
 [source,shell]
 ----
 docker run -d --name arcadeDB -p 2424:2424 -p 2480:2480 -p 8182:8182 \
        --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata \
-          -Darcadedb.server.defaultDatabases=Imported[root]{import:https://github.com/ArcadeData/arcadedb-datasets/raw/main/orientdb/OpenBeer.gz} \
+          -Darcadedb.server.defaultDatabases=openbeer[root]{import:https://github.com/ArcadeData/arcadedb-datasets/raw/main/orientdb/OpenBeer.gz} \
           -Darcadedb.server.plugins=GremlinServer:com.arcadedb.server.gremlin.GremlinServerPlugin " \
           arcadedata/arcadedb:latest
 ----
 
-NOTE: In case you're running ArcadeDB with Docker, open the port `8182` and use `-e` to pass the settings
+NOTE: When running ArcadeDB with Docker, expose port `8182` for Gremlin Server and use `-e` to pass JVM settings.
 
-To connect to a remote GremlinServer use this:
+*Connecting to the Gremlin Server:*
 
-```java
+[source,java]
+----
 var cluster = Cluster.build()
-            .port(8182)
-            .addContactPoint("localhost")
-            .credentials("root", "password")
-            .create();
-var connection = DriverRemoteConnection.using(cluster);
-var g = new GraphTraversalSource(connection);
-```
+    .port(8182)
+    .addContactPoint("localhost")
+    .credentials("root", "password")
+    .create();
+
+// Connect using the database name as the alias
+var g = traversal().withRemote(DriverRemoteConnection.using(cluster, "openbeer"));
+
+// Or use "g" for the default database
+var gDefault = traversal().withRemote(DriverRemoteConnection.using(cluster, "g"));
+----
 
 [discrete]
 ==== Known Limitations with the Gremlin Implementation
