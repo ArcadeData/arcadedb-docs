@@ -205,3 +205,161 @@ This is because JSON doesn't maintain the order of properties, but only of array
 To change the host where the Redis protocol is listening, set the setting `arcadedb.redis.host`.
 By default, is `0.0.0.0` which means listen to all the configured network interfaces.
 To change the default port (6379) set `arcadedb.redis.port`.
+
+[[redis-http-api]]
+==== Redis via HTTP API
+
+In addition to the native Redis wire protocol, ArcadeDB also supports Redis commands as a query language via the HTTP API.
+This allows you to execute Redis commands through the standard ArcadeDB HTTP <<HTTP-Command,`/command`>> endpoint by specifying `language=redis`.
+
+This is useful when:
+
+- You want to use Redis commands without a Redis client library
+- You need to integrate Redis operations into existing HTTP-based workflows
+- You want to combine Redis commands with other ArcadeDB query languages in the same application
+
+[discrete]
+===== Basic Usage
+
+To execute Redis commands via HTTP, send a POST request to the `/command` endpoint with `language` set to `redis`:
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "PING"}'
+----
+
+Response:
+
+[source,json]
+----
+{"result": [{"value": "PONG"}]}
+----
+
+[discrete]
+===== Supported Commands
+
+All transient and persistent commands documented above are available via the HTTP API.
+
+**Examples of transient commands:**
+
+[source,shell]
+----
+# SET a value
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "SET mykey myvalue"}'
+
+# GET a value
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "GET mykey"}'
+
+# INCREMENT a counter
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "INCR counter"}'
+----
+
+**Examples of persistent commands:**
+
+[source,shell]
+----
+# Store a document
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "HSET Account {\"id\":1,\"name\":\"John\",\"age\":30}"}'
+
+# Retrieve by index
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "HGET Account[id] 1"}'
+----
+
+[discrete]
+===== Batch Commands
+
+You can execute multiple commands in a single request by separating them with newlines.
+Each command is executed sequentially and an array of results is returned.
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "SET key1 value1\nSET key2 value2\nGET key1\nGET key2"}'
+----
+
+Response:
+
+[source,json]
+----
+{"result": [{"value": ["OK", "OK", "value1", "value2"]}]}
+----
+
+Comments are supported within batch commands using `#` or `//` prefixes:
+
+[source,redis]
+----
+# This is a comment
+SET key1 value1
+// This is also a comment
+SET key2 value2
+----
+
+[discrete]
+===== Transactions with MULTI/EXEC
+
+Redis transactions are supported using the standard `MULTI` and `EXEC` commands.
+Commands between `MULTI` and `EXEC` are queued and executed atomically.
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "MULTI\nSET tx1 value1\nSET tx2 value2\nINCR counter\nEXEC"}'
+----
+
+Response (array of results from each command in the transaction):
+
+[source,json]
+----
+{"result": [{"value": ["OK", "OK", 1]}]}
+----
+
+The `DISCARD` command can be used to abort a transaction:
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "MULTI\nSET discarded value\nDISCARD"}'
+----
+
+[discrete]
+===== Programmatic Access
+
+You can also use Redis commands directly from Java code via the query engine:
+
+[source,java]
+----
+try (ResultSet rs = database.query("redis", "PING")) {
+    Result result = rs.next();
+    String value = result.getProperty("value"); // Returns "PONG"
+}
+
+// SET and GET
+database.command("redis", "SET mykey myvalue");
+try (ResultSet rs = database.query("redis", "GET mykey")) {
+    String value = rs.next().getProperty("value"); // Returns "myvalue"
+}
+----
