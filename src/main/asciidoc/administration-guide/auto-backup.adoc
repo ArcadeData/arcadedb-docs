@@ -1,0 +1,376 @@
+[[auto-backup]]
+=== Automatic Backup Scheduler
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/administration-guide/auto-backup.adoc" float=right]
+
+ArcadeDB provides an automatic backup scheduler that runs as a server plugin.
+This feature allows you to configure scheduled backups for all databases with flexible scheduling options, tiered retention policies, and high availability cluster support.
+
+The auto-backup scheduler is activated when a `backup.json` configuration file exists in the server's `config` directory.
+
+==== Features
+
+* **Frequency-based scheduling** - Run backups every N minutes
+* **CRON-based scheduling** - Use CRON expressions for precise scheduling (e.g., daily at 2 AM)
+* **Time windows** - Restrict backups to specific time periods (e.g., off-peak hours)
+* **Tiered retention** - Keep hourly, daily, weekly, monthly, and yearly backups
+* **Per-database configuration** - Override defaults for specific databases
+* **HA cluster awareness** - Configure which node runs backups in a cluster
+* **Studio integration** - Configure and monitor backups through the web UI
+
+==== Configuration File
+
+Create a file named `backup.json` in the `config` directory of your ArcadeDB installation.
+The server will automatically detect this file on startup and enable the auto-backup scheduler.
+
+.Example backup.json
+[source,json]
+----
+{
+  "version": 1,
+  "enabled": true,
+  "backupDirectory": "./backups",
+  "defaults": {
+    "enabled": true,
+    "runOnServer": "$leader",
+    "schedule": {
+      "type": "frequency",
+      "frequencyMinutes": 60,
+      "timeWindow": {
+        "start": "02:00",
+        "end": "06:00"
+      }
+    },
+    "retention": {
+      "maxFiles": 10,
+      "tiered": {
+        "hourly": 24,
+        "daily": 7,
+        "weekly": 4,
+        "monthly": 12,
+        "yearly": 3
+      }
+    }
+  },
+  "databases": {
+    "production": {
+      "schedule": {
+        "type": "cron",
+        "expression": "0 0 2 * * ?"
+      },
+      "retention": {
+        "maxFiles": 20
+      }
+    },
+    "analytics": {
+      "enabled": false
+    }
+  }
+}
+----
+
+==== Configuration Options
+
+===== Global Settings
+
+[cols="2,1,4"]
+|===
+| Setting | Default | Description
+
+| `version`
+| `1`
+| Configuration file version (for future compatibility)
+
+| `enabled`
+| `true`
+| Enable or disable the auto-backup scheduler globally
+
+| `backupDirectory`
+| `./backups`
+| Directory where backups are stored (must be a relative path within server root)
+|===
+
+IMPORTANT: The `backupDirectory` must be a relative path and cannot contain `..` for security reasons.
+Absolute paths are rejected to prevent writing outside the server directory.
+
+===== Default Settings
+
+The `defaults` section defines settings applied to all databases unless overridden.
+
+[cols="2,1,4"]
+|===
+| Setting | Default | Description
+
+| `defaults.enabled`
+| `true`
+| Enable backups for databases by default
+
+| `defaults.runOnServer`
+| `$leader`
+| Which server runs backups (see <<auto-backup-ha,HA Cluster Support>>)
+|===
+
+===== Schedule Settings
+
+[cols="2,1,4"]
+|===
+| Setting | Default | Description
+
+| `schedule.type`
+| `frequency`
+| Schedule type: `frequency` or `cron`
+
+| `schedule.frequencyMinutes`
+| `60`
+| Minutes between backups (when type is `frequency`)
+
+| `schedule.expression`
+| -
+| CRON expression (when type is `cron`)
+
+| `schedule.timeWindow.start`
+| -
+| Time window start (HH:mm format, e.g., "02:00")
+
+| `schedule.timeWindow.end`
+| -
+| Time window end (HH:mm format, e.g., "06:00")
+|===
+
+===== Retention Settings
+
+[cols="2,1,4"]
+|===
+| Setting | Default | Description
+
+| `retention.maxFiles`
+| `10`
+| Maximum backup files to keep per database
+
+| `retention.tiered.hourly`
+| `24`
+| Number of hourly backups to retain
+
+| `retention.tiered.daily`
+| `7`
+| Number of daily backups to retain
+
+| `retention.tiered.weekly`
+| `4`
+| Number of weekly backups to retain
+
+| `retention.tiered.monthly`
+| `12`
+| Number of monthly backups to retain
+
+| `retention.tiered.yearly`
+| `3`
+| Number of yearly backups to retain
+|===
+
+When tiered retention is configured, the scheduler keeps the most recent backup for each time bucket.
+For example, with `hourly: 24`, it keeps one backup per hour for the last 24 hours.
+
+===== Per-Database Overrides
+
+The `databases` section allows overriding any default setting for specific databases.
+Only specify the settings you want to override; unspecified settings inherit from defaults.
+
+[source,json]
+----
+{
+  "databases": {
+    "critical-db": {
+      "schedule": {
+        "type": "cron",
+        "expression": "0 0 * * * ?"
+      },
+      "retention": {
+        "maxFiles": 48,
+        "tiered": {
+          "hourly": 48,
+          "daily": 14
+        }
+      }
+    },
+    "dev-db": {
+      "enabled": false
+    }
+  }
+}
+----
+
+==== CRON Expressions
+
+The auto-backup scheduler supports 6-field CRON expressions:
+
+----
+┌───────────── second (0 - 59)
+│ ┌───────────── minute (0 - 59)
+│ │ ┌───────────── hour (0 - 23)
+│ │ │ ┌───────────── day of month (1 - 31)
+│ │ │ │ ┌───────────── month (1 - 12)
+│ │ │ │ │ ┌───────────── day of week (0 - 6, Sunday = 0)
+│ │ │ │ │ │
+* * * * * *
+----
+
+.Common CRON Examples
+[cols="2,3"]
+|===
+| Expression | Description
+
+| `0 0 2 * * ?`
+| Every day at 2:00 AM
+
+| `0 0 */6 * * ?`
+| Every 6 hours
+
+| `0 30 1 * * 0`
+| Every Sunday at 1:30 AM
+
+| `0 0 3 1 * ?`
+| First day of every month at 3:00 AM
+
+| `0 0 0 * * 1-5`
+| Every weekday at midnight
+|===
+
+Supported special characters:
+
+* `*` - matches all values
+* `?` - no specific value (use for day-of-week or day-of-month)
+* `-` - range (e.g., `1-5` for Monday through Friday)
+* `/` - step (e.g., `*/15` for every 15 units)
+
+[[auto-backup-ha]]
+==== HA Cluster Support
+
+In a high availability cluster, you can control which server performs backups using the `runOnServer` setting:
+
+[cols="1,3"]
+|===
+| Value | Description
+
+| `$leader`
+| Only the current leader node runs backups (default, recommended)
+
+| `*`
+| All nodes run backups independently
+
+| `node-name`
+| Only the specified node runs backups (e.g., `"ArcadeDB_Replica1"`)
+|===
+
+Using `$leader` is recommended because:
+
+* Ensures exactly one backup is created per schedule
+* Automatically fails over if the leader changes
+* Avoids duplicate backups across the cluster
+
+.Example: Replica-based backup
+[source,json]
+----
+{
+  "defaults": {
+    "runOnServer": "ArcadeDB_Replica1"
+  },
+  "databases": {
+    "analytics": {
+      "runOnServer": "ArcadeDB_Replica2"
+    }
+  }
+}
+----
+
+==== Backup Directory Structure
+
+Backups are organized by database name:
+
+----
+backups/
+├── database1/
+│   ├── database1-backup-20250115-020000.zip
+│   ├── database1-backup-20250116-020000.zip
+│   └── database1-backup-20250117-020000.zip
+└── database2/
+    ├── database2-backup-20250115-020000.zip
+    └── database2-backup-20250116-020000.zip
+----
+
+The backup filename format is: `<database>-backup-<YYYYMMDD>-<HHMMSS>.zip`
+
+==== Monitoring
+
+The auto-backup scheduler logs its activity:
+
+----
+INFO  [AutoBackupSchedulerPlugin] Auto-backup scheduler started. Backup directory: ./backups
+INFO  [AutoBackupSchedulerPlugin] Scheduled automatic backup for database 'production'
+INFO  [BackupScheduler] Starting scheduled backup for database 'production'
+INFO  [BackupScheduler] Backup completed: production-backup-20250115-020000.zip (15.2 MB)
+INFO  [BackupRetentionManager] Retained 10 backups, deleted 2 for database 'production'
+----
+
+Backup events are also recorded in the Server Event Log, accessible from the Studio Server panel.
+
+==== Studio Integration
+
+The auto-backup scheduler can be configured and monitored through the ArcadeDB Studio web interface.
+See <<studio-backup,Studio Backup Panel>> for details.
+
+image::../images/studio-server-backup.png[Studio Server Backup Panel]
+
+From the Studio, you can:
+
+* View and modify the backup configuration
+* Trigger immediate backups for any database
+* View the list of available backups per database
+* Monitor backup statistics and disk usage
+
+==== Triggering Manual Backups
+
+You can trigger an immediate backup through the Studio UI or via the HTTP API:
+
+.HTTP API
+[source,shell]
+----
+curl -X POST "http://localhost:2480/api/v1/server" \
+  -u root:password \
+  -H "Content-Type: application/json" \
+  -d '{"command": "trigger backup myDatabase"}'
+----
+
+.SQL Command
+[source,sql]
+----
+BACKUP DATABASE
+----
+
+==== Troubleshooting
+
+===== Backup scheduler not starting
+
+Verify that:
+
+1. The `backup.json` file exists in the `config` directory
+2. The JSON syntax is valid
+3. The `enabled` field is set to `true`
+4. Check the server log for error messages
+
+===== Backups not being created
+
+Check:
+
+1. The backup directory exists and is writable
+2. The `timeWindow` settings (backups only run within the window)
+3. In HA mode, verify `runOnServer` matches the current server
+4. Sufficient disk space is available
+
+===== Permission denied errors
+
+The backup directory must be:
+
+* A relative path (e.g., `./backups`, not `/backups`)
+* Within the server's root directory
+* Writable by the server process
+
