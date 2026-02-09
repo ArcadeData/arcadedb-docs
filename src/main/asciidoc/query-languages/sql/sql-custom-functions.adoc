@@ -1,74 +1,226 @@
-[[custom-functions]]
-=== Custom Functions
+[[user-functions]]
+=== User Functions
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/sql/sql-custom-functions.adoc" float=right]
 
-The SQL engine can be extended with custom functions written with a scripting language or via Java.
+ArcadeDB can be extended with user-defined functions written in SQL, JavaScript, OpenCypher, or Java. Functions defined in any language are callable from ALL query languages (SQL, Cypher, Gremlin, GraphQL, MongoDB).
 
 [discrete]
+==== Overview
 
-==== Database's function
+User functions provide a powerful way to encapsulate business logic and reuse it across different query languages:
 
-Look at the <<database-url,Database Interface>> page.
+* **SQL Functions**: Use SQL queries as function bodies
+* **JavaScript Functions**: Use JavaScript for complex calculations
+* **OpenCypher Functions**: Use Cypher queries for graph operations
+* **Java Functions**: Use Java for maximum performance
 
+[TIP]
+====
+**Universal Function Registry**
+
+Functions are stored in a global registry and are accessible from any query language:
+
+[source,sql]
+----
+// Define once in SQL
+DEFINE FUNCTION math.sum "SELECT :a + :b" PARAMETERS [a,b] LANGUAGE sql
+
+// Call from SQL
+SELECT `math.sum`(3, 5) AS result
+
+// Call from Cypher
+RETURN math.sum(3, 5) AS result
+
+// Call from Gremlin, GraphQL, MongoDB queries...
+----
+====
 
 [discrete]
+==== Database's Functions
 
-==== Custom Functions in SQL
+Look at the <<database-url,Database Interface>> page for built-in database functions.
 
-Custom functions can be defined via SQL using the following command:
+[discrete]
+==== Defining User Functions
+
+User functions can be defined via SQL using the following command:
 
 [source,sql]
 ----
 DEFINE FUNCTION <library>.<name> "<body>" [PARAMETERS [<parameter>,*]] LANGUAGE <language>
 ----
 
-* `<library>` A name space to group functions.
-* `<name>` The function's name.
-* `<body>` The function's body encapsuled in a string in the chosen language's syntax.
-* `[<parameter>,*]` A list of parameter identifiers used in the function body. For functions without parameters omit the `PARAMETERS []` block instead of supplying an empty array.
-* `<language>` Either `js` (Javascript) or `sql`.
+* `<library>` - A namespace to group related functions
+* `<name>` - The function's name
+* `<body>` - The function's body as a string in the chosen language's syntax
+* `[<parameter>,*]` - A list of parameter identifiers used in the function body. Omit the `PARAMETERS []` block for functions without parameters
+* `<language>` - One of: `sql`, `js` (JavaScript), `opencypher` (or `cypher`), or Java class name
 
-NOTE: To invoke a custom function, the function identifier (`library.function`) must be enclosed with back ticks.
+[discrete]
+===== SQL Language Functions
 
-NOTE: The return value in a custom SQL function is determined by the projection named `'result'`.
+SQL functions execute SQL queries and return the result of the first row's projection.
+
+NOTE: The return value in a SQL function is determined by the projection named `'result'` or the first column if only one column is returned.
 
 *Examples*
 
 [source,sql]
 ----
-DEFINE FUNCTION my.fma 'return a + b * c' PARAMETERS [a,b,c] LANGUAGE js;
-SELECT `my.fma`(1,2,3);
+// Simple arithmetic function
+DEFINE FUNCTION math.add "SELECT :a + :b AS result" PARAMETERS [a,b] LANGUAGE sql;
+SELECT `math.add`(10, 5) AS sum;  // Returns 15
+
+// Function returning a string
+DEFINE FUNCTION the.answer 'SELECT "forty-two" AS result' LANGUAGE sql;
+SELECT `the.answer`();  // Returns "forty-two"
+
+// Function with no parameters
+DEFINE FUNCTION utils.currentYear 'SELECT date_format(sysdate(), "yyyy") AS result' LANGUAGE sql;
+SELECT `utils.currentYear`();
 ----
+
+[discrete]
+===== JavaScript Language Functions
+
+JavaScript functions use GraalVM's JavaScript engine for complex calculations and data transformations.
+
+*Examples*
 
 [source,sql]
 ----
-DEFINE FUNCTION the.answer 'SELECT "forty-two" AS result' LANGUAGE sql;
-SELECT `the.answer`();
+// Fused multiply-add function
+DEFINE FUNCTION my.fma 'return a + b * c' PARAMETERS [a,b,c] LANGUAGE js;
+SELECT `my.fma`(1, 2, 3);  // Returns 7
+
+// String manipulation
+DEFINE FUNCTION text.greet 'return "Hello, " + name + "!"' PARAMETERS [name] LANGUAGE js;
+SELECT `text.greet`('World');  // Returns "Hello, World!"
+
+// Complex JSON processing
+DEFINE FUNCTION json.extract 'return JSON.parse(data).users.length' PARAMETERS [data] LANGUAGE js;
+SELECT `json.extract`('{"users":[1,2,3]}');  // Returns 3
 ----
 
-'''
+[discrete]
+===== OpenCypher Language Functions
 
-A custom function can be deleted via SQL using the following command:
+OpenCypher functions execute Cypher queries, perfect for graph traversals and pattern matching.
 
+NOTE: You can use either `opencypher` or `cypher` as the language identifier (they are aliases).
+
+*Examples*
+
+[source,sql]
+----
+// Simple calculation using Cypher
+DEFINE FUNCTION cypher.double "RETURN $x * 2" PARAMETERS [x] LANGUAGE opencypher;
+SELECT `cypher.double`(5);  // Returns 10
+
+// Graph query function
+DEFINE FUNCTION graph.countNeighbors
+  "MATCH (n) WHERE id(n) = $nodeId MATCH (n)-[]->() RETURN count(*) AS cnt"
+  PARAMETERS [nodeId] LANGUAGE cypher;
+
+// Use in SQL query
+SELECT `graph.countNeighbors`('#1:0') AS neighbors;
+
+// Use in Cypher query
+MATCH (n:Person) RETURN n.name, graph.countNeighbors(id(n)) AS friendCount;
+
+// Complex graph pattern function
+DEFINE FUNCTION graph.findCommonFriends
+  "MATCH (a)-[:KNOWS]->(common)<-[:KNOWS]-(b)
+   WHERE id(a) = $id1 AND id(b) = $id2
+   RETURN count(DISTINCT common) AS cnt"
+  PARAMETERS [id1, id2] LANGUAGE opencypher;
+----
+
+[discrete]
+===== Calling User Functions
+
+Functions can be called from any supported query language:
+
+[cols="2,3,3"]
+|===
+| Language | Syntax | Example
+
+| SQL
+| ```library.function`(args)```
+| `SELECT ```math.sum`(3, 5)``
+
+| Cypher
+| `library.function(args)`
+| `RETURN math.sum(3, 5)`
+
+| Cypher CALL
+| `CALL library.function(args) YIELD result`
+| `CALL math.sum(3, 5) YIELD result RETURN result`
+
+| Gremlin
+| Standard function call
+| Access via SQL bridge
+
+| GraphQL
+| In query fields
+| Access via SQL bridge
+|===
+
+[discrete]
+===== Cross-Language Function Calls
+
+One of ArcadeDB's unique features is the ability to define a function in one language and call it from any other:
+
+[source,sql]
+----
+// Define in SQL
+DEFINE FUNCTION sql.concat "SELECT :a || :b" PARAMETERS [a,b] LANGUAGE sql;
+
+// Define in JavaScript
+DEFINE FUNCTION js.power "return Math.pow(x, y)" PARAMETERS [x,y] LANGUAGE js;
+
+// Define in Cypher
+DEFINE FUNCTION cypher.shortestPath
+  "MATCH path=shortestPath((a)-[*]-(b))
+   WHERE id(a)=$from AND id(b)=$to
+   RETURN length(path)"
+  PARAMETERS [from, to] LANGUAGE opencypher;
+
+// Call all from Cypher
+RETURN sql.concat('Hello', ' World') AS greeting,
+       js.power(2, 10) AS power,
+       cypher.shortestPath('#1:0', '#1:100') AS pathLen;
+
+// Call all from SQL
+SELECT `sql.concat`('foo', 'bar') AS str,
+       `js.power`(3, 3) AS cube,
+       `cypher.shortestPath`('#1:0', '#1:100') AS dist;
+----
+
+[discrete]
+===== Deleting User Functions
+
+A user function can be deleted via SQL using the following command:
+
+[source,sql]
 ----
 DELETE FUNCTION <library>.<name>
 ----
-
-* `<library>` A name space to group functions.
-* `<name>` The function's name.
 
 *Example*
 
 [source,sql]
 ----
-DELETE FUNCTION extra.tsum
+DELETE FUNCTION extra.tsum;
+DELETE FUNCTION math.obsolete;
 ----
 
 [discrete]
+==== User Functions in Java
 
-==== Custom Functions in Java
+Java functions provide maximum performance and access to the full Java ecosystem.
 
-Before to use them in your queries you need to register:
+Before using them in queries, you need to register them:
 
 [source,java]
 ----
@@ -103,9 +255,51 @@ SQLEngine.getInstance().registerFunction("bigger",
 });
 ----
 
-Now you can execute it:
+Now you can execute it from any query language:
 
 [source,java]
 ----
-Resultset result = database.command("sql", "SELECT FROM Account WHERE bigger( salary, 10 ) > 10");
+// From SQL
+ResultSet result = database.command("sql", "SELECT FROM Account WHERE bigger(salary, 10) > 10");
+
+// From Cypher
+ResultSet result = database.query("opencypher", "MATCH (a:Account) WHERE bigger(a.salary, 10) > 10 RETURN a");
 ----
+
+[discrete]
+==== Best Practices
+
+1. **Choose the Right Language**:
+   - Use SQL for data transformations and aggregations
+   - Use JavaScript for complex business logic and calculations
+   - Use OpenCypher for graph traversals and pattern matching
+   - Use Java for maximum performance
+
+2. **Namespace Organization**: Group related functions under the same library namespace
+   [source,sql]
+   ----
+   DEFINE FUNCTION math.sum ...
+   DEFINE FUNCTION math.avg ...
+   DEFINE FUNCTION utils.formatDate ...
+   DEFINE FUNCTION graph.shortestPath ...
+   ----
+
+3. **Function Naming**: Use descriptive names that indicate what the function does
+
+4. **Performance Considerations**:
+   - User functions are evaluated for each row/result
+   - For heavy operations, consider caching or materialized views
+   - Java functions provide the best performance
+
+5. **Error Handling**: Functions should handle null inputs gracefully
+
+[discrete]
+==== Advantages Over Neo4j
+
+Unlike Neo4j which only supports Java-based user-defined procedures requiring compilation and deployment:
+
+✅ **Dynamic Definition**: Define functions at runtime without restart +
+✅ **4 Languages**: SQL, JavaScript, OpenCypher, and Java +
+✅ **Universal Access**: Call from any query language +
+✅ **No Compilation**: Interpreted languages work immediately +
+✅ **Easy Management**: Simple SQL commands to define/delete functions
