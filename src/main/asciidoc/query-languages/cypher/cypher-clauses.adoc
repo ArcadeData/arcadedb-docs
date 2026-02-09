@@ -216,6 +216,18 @@ RETURN p.name, toUpper(p.city) AS upperCity
 MATCH (p:Person)
 RETURN count(p) AS total, avg(p.age) AS avgAge
 
+// RETURN DISTINCT - removes duplicate rows
+MATCH (p:Person)
+RETURN DISTINCT p.city AS city
+
+// DISTINCT with multiple columns
+UNWIND [1, 2, 2, 3, 3, 3] AS n
+RETURN DISTINCT n
+
+// Aggregations with DISTINCT
+UNWIND [1, 1, 2, 3] AS n
+RETURN count(DISTINCT n) AS uniqueCount, sum(DISTINCT n) AS uniqueSum
+
 // Standalone expressions (no MATCH)
 RETURN abs(-42), sqrt(16), range(1, 5)
 ----
@@ -841,4 +853,99 @@ CALL db.propertyKeys() YIELD *
 ----
 
 NOTE: When calling custom SQL functions, the result is wrapped in a `value` property. Built-in procedures like `db.labels()` return results with specific property names like `label`, `relationshipType`, or `propertyKey`.
+
+*Subqueries (CALL { ... }):*
+
+Cypher supports subqueries using the `CALL { ... }` syntax. Subqueries are enclosed in curly braces and can import variables from the outer scope using `WITH`.
+
+[source,cypher]
+----
+// Basic subquery with imported variable
+UNWIND [1, 2, 3] AS x
+CALL {
+  WITH x
+  RETURN x * 10 AS y
+}
+RETURN x, y
+
+// Subquery with MATCH
+MATCH (n:Item)
+CALL {
+  WITH n
+  RETURN n.value * 2 AS doubled
+}
+RETURN n.name, doubled
+
+// Multiple imported variables
+UNWIND [1, 2] AS a
+UNWIND [10, 20] AS b
+CALL {
+  WITH a, b
+  RETURN a + b AS sum
+}
+RETURN a, b, sum
+----
+
+Subqueries allow you to isolate complex query logic, perform computations on imported variables, and return results back to the outer query.
+
+---
+
+[[cypher-foreach]]
+[discrete]
+==== FOREACH
+
+The `FOREACH` clause iterates over a list and executes write operations (CREATE, SET, DELETE, MERGE) for each element. Unlike other clauses, FOREACH does not modify the result set - it passes through the input rows unchanged.
+
+*Syntax:*
+
+[source,cypher]
+----
+FOREACH (variable IN list |
+  update_clause [update_clause ...]
+)
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Create multiple nodes from a list
+FOREACH (name IN ['Alice', 'Bob', 'Charlie'] |
+  CREATE (:Person {name: name})
+)
+
+// Create relationships in a loop
+CREATE (root:Root {name: 'Main'})
+FOREACH (i IN [1, 2, 3] |
+  CREATE (root)-[:HAS_ITEM]->(:Item {id: i})
+)
+
+// Use with MATCH context
+MATCH (p:Person)
+FOREACH (tag IN ['developer', 'tester'] |
+  CREATE (p)-[:HAS_TAG]->(:Tag {value: tag})
+)
+
+// Update properties with SET
+MATCH (item:Item)
+WITH collect(item) AS items
+FOREACH (item IN items |
+  SET item.status = 'processed', item.timestamp = timestamp()
+)
+
+// FOREACH passes through input rows
+CREATE (root:Root {name: 'test'})
+FOREACH (i IN [1, 2] |
+  CREATE (:Child {id: i})
+)
+RETURN root.name AS name
+// Returns: {name: 'test'}
+----
+
+*Important Notes:*
+
+* FOREACH can only contain write operations (CREATE, SET, DELETE, MERGE)
+* FOREACH does not modify the result set - it passes input rows through unchanged
+* Variables defined inside FOREACH are not visible outside the clause
+* FOREACH is useful for batch operations and creating multiple elements from lists
 

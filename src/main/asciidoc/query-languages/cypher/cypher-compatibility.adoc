@@ -67,7 +67,7 @@ The 85 skipped scenarios (2.2%) represent either architectural design choices or
 | OPTIONAL MATCH | ✅ | LEFT OUTER JOIN semantics
 | WHERE | ✅ | All comparison and logical operators
 | RETURN | ✅ | Variables, properties, aliases, expressions
-| RETURN DISTINCT | ❌ | Not yet implemented
+| RETURN DISTINCT | ✅ | Removes duplicate rows from results
 | ORDER BY | ✅ | ASC/DESC, multiple fields
 | SKIP | ✅ | Pagination support
 | LIMIT | ✅ | Result limiting
@@ -83,7 +83,8 @@ The 85 skipped scenarios (2.2%) represent either architectural design choices or
 | UNION | ✅ | Combine results with deduplication
 | UNION ALL | ✅ | Combine results keeping duplicates
 | CALL | ✅ | Built-in procedures + custom functions
-| FOREACH | ❌ | Not implemented
+| CALL { ... } | ✅ | Subqueries with variable scoping
+| FOREACH | ✅ | Iterate over lists in write operations
 | EXPLAIN | ✅ | Query plan visualization
 | PROFILE | ✅ | Execute with profiling metrics
 |===
@@ -145,6 +146,9 @@ The 85 skipped scenarios (2.2%) represent either architectural design choices or
 | min(expr) | ✅ | Minimum value
 | max(expr) | ✅ | Maximum value
 | collect(expr) | ✅ | Collect values into list
+| collect(DISTINCT expr) | ✅ | Collect only unique values into list
+| count(DISTINCT expr) | ✅ | Count only unique values
+| sum(DISTINCT expr) | ✅ | Sum only unique values
 | percentileCont() | ⚠️ | Available via SQL bridge
 | stDev() | ⚠️ | Available via SQL bridge
 |===
@@ -195,7 +199,10 @@ NOTE: Implicit GROUP BY is fully supported. Non-aggregated expressions in RETURN
 | last(list) | ✅ | `RETURN last([1,2,3])` (returns 3)
 | range(start, end) | ✅ | `RETURN range(1, 10)`
 | reverse(list) | ✅ | `RETURN reverse([1,2,3])`
+| reduce(acc, var IN list \| expr) | ✅ | `RETURN reduce(sum = 0, n IN [1,2,3] \| sum + n)` (returns 6)
 |===
+
+NOTE: The `reduce()` function is a powerful list aggregation tool that iterates over a list and accumulates a result. It takes an initial accumulator value, a variable name for list elements, the list to iterate over, and an expression that updates the accumulator for each element.
 
 [discrete]
 ==== Node/Relationship Functions
@@ -221,8 +228,8 @@ NOTE: Implicit GROUP BY is fully supported. Non-aggregated expressions in RETURN
 | length(path) | ✅ | Path length in relationships
 | nodes(path) | ✅ | Extract nodes from path
 | relationships(path) | ✅ | Extract relationships from path
-| shortestPath() | ⚠️ | Available via SQL bridge
-| allShortestPaths() | ⚠️ | Available via SQL bridge
+| shortestPath() | ✅ | Native OpenCypher implementation
+| allShortestPaths() | ✅ | Native OpenCypher implementation
 |===
 
 [discrete]
@@ -354,10 +361,7 @@ See <<user-functions,User Functions>> for complete documentation.
 
 The following Cypher features are not currently implemented:
 
-* **FOREACH**: Iterating over lists in write operations
-* **Subqueries**: Nested queries beyond EXISTS
-* **DISTINCT in RETURN**: `RETURN DISTINCT n.name`
-* **Index hints**: `USING INDEX n:Person(name)`
+* **Index hints**: `USING INDEX n:Person(name)` - Query planning is automatic via cost-based optimizer
 
 [discrete]
 ==== Architectural Differences from Neo4j
