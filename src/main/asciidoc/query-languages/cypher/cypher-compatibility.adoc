@@ -5,18 +5,52 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 This section provides a comprehensive overview of Cypher language features and their support status in ArcadeDB's native OpenCypher implementation.
 
 [discrete]
+==== OpenCypher TCK Compliance
+
+ArcadeDB's OpenCypher implementation has been validated against the official https://github.com/opencypher/openCypher/tree/master/tck[OpenCypher Technology Compatibility Kit (TCK)] version 9, developed by Neo4j and released under the Apache License 2.0.
+
+[%header,cols="2,1,4"]
+|===
+| Metric | Value | Status
+| **TCK Pass Rate** | **97.8%** | ✅ Production Ready
+| Total Scenarios | 3,897 | Official OpenCypher v9 test suite
+| Passed | 3,812 | Full compatibility with core features
+| Failed | 0 | All executable tests pass
+| Skipped | 85 | Documented limitations (2.2%)
+|===
+
+[TIP]
+====
+**Verify TCK Compliance Yourself**
+
+To run the OpenCypher TCK tests on your system:
+
+[source,bash]
+----
+mvn test -pl engine -Dtest=OpenCypherTCKTest
+----
+
+The TCK test suite is located at: `engine/src/test/resources/opencypher/tck/features/`
+
+For more information about the OpenCypher TCK, visit: https://github.com/opencypher/openCypher/tree/master/tck
+====
+
+The 85 skipped scenarios (2.2%) represent either architectural design choices or edge cases that rarely occur in production use. These are fully documented in the <<cypher-limitations,Known Limitations>> section below.
+
+[discrete]
 ==== Overall Status
 
 [%header,cols="3,1,4"]
 |===
 | Category | Status | Notes
 | Parser | 100% | ANTLR4-based using official Cypher 2.5 grammar
-| Basic Read Queries | 95% | MATCH, WHERE, RETURN, ORDER BY, SKIP, LIMIT
+| Basic Read Queries | 98% | MATCH, WHERE, RETURN, ORDER BY, SKIP, LIMIT
 | Basic Write Queries | 100% | CREATE, SET, DELETE, MERGE with automatic transactions
 | Expression Evaluation | 100% | Complete: arithmetic, maps, lists, comprehensions, projections
-| Functions | 100% | 23 Cypher functions + bridge to 100+ SQL functions
+| Functions | 100% | 80+ Cypher functions + bridge to 100+ SQL functions
 | Aggregations & Grouping | 100% | Implicit GROUP BY, all aggregation functions
-| Advanced Features | 80% | Named paths, OPTIONAL MATCH, WITH, UNION, CALL, PROFILE
+| Advanced Features | 95% | Named paths, OPTIONAL MATCH, WITH, UNION, CALL, PROFILE
+| User Functions | 100% | SQL, JavaScript, OpenCypher, and Java languages supported
 |===
 
 **Legend:** ✅ Supported | ❌ Not Supported | ⚠️ Partial Support
@@ -33,7 +67,7 @@ This section provides a comprehensive overview of Cypher language features and t
 | OPTIONAL MATCH | ✅ | LEFT OUTER JOIN semantics
 | WHERE | ✅ | All comparison and logical operators
 | RETURN | ✅ | Variables, properties, aliases, expressions
-| RETURN DISTINCT | ❌ | Not yet implemented
+| RETURN DISTINCT | ✅ | Removes duplicate rows from results
 | ORDER BY | ✅ | ASC/DESC, multiple fields
 | SKIP | ✅ | Pagination support
 | LIMIT | ✅ | Result limiting
@@ -49,7 +83,10 @@ This section provides a comprehensive overview of Cypher language features and t
 | UNION | ✅ | Combine results with deduplication
 | UNION ALL | ✅ | Combine results keeping duplicates
 | CALL | ✅ | Built-in procedures + custom functions
-| FOREACH | ❌ | Not implemented
+| CALL { ... } | ✅ | Subqueries with variable scoping
+| CALL { ... } IN TRANSACTIONS | ✅ | Batch commits for large imports
+| LOAD CSV | ✅ | Import CSV from file or URL (with headers, compression, security)
+| FOREACH | ✅ | Iterate over lists in write operations
 | EXPLAIN | ✅ | Query plan visualization
 | PROFILE | ✅ | Execute with profiling metrics
 |===
@@ -111,6 +148,9 @@ This section provides a comprehensive overview of Cypher language features and t
 | min(expr) | ✅ | Minimum value
 | max(expr) | ✅ | Maximum value
 | collect(expr) | ✅ | Collect values into list
+| collect(DISTINCT expr) | ✅ | Collect only unique values into list
+| count(DISTINCT expr) | ✅ | Count only unique values
+| sum(DISTINCT expr) | ✅ | Sum only unique values
 | percentileCont() | ⚠️ | Available via SQL bridge
 | stDev() | ⚠️ | Available via SQL bridge
 |===
@@ -161,7 +201,10 @@ NOTE: Implicit GROUP BY is fully supported. Non-aggregated expressions in RETURN
 | last(list) | ✅ | `RETURN last([1,2,3])` (returns 3)
 | range(start, end) | ✅ | `RETURN range(1, 10)`
 | reverse(list) | ✅ | `RETURN reverse([1,2,3])`
+| reduce(acc, var IN list \| expr) | ✅ | `RETURN reduce(sum = 0, n IN [1,2,3] \| sum + n)` (returns 6)
 |===
+
+NOTE: The `reduce()` function is a powerful list aggregation tool that iterates over a list and accumulates a result. It takes an initial accumulator value, a variable name for list elements, the list to iterate over, and an expression that updates the accumulator for each element.
 
 [discrete]
 ==== Node/Relationship Functions
@@ -187,8 +230,8 @@ NOTE: Implicit GROUP BY is fully supported. Non-aggregated expressions in RETURN
 | length(path) | ✅ | Path length in relationships
 | nodes(path) | ✅ | Extract nodes from path
 | relationships(path) | ✅ | Extract relationships from path
-| shortestPath() | ⚠️ | Available via SQL bridge
-| allShortestPaths() | ⚠️ | Available via SQL bridge
+| shortestPath() | ✅ | Native OpenCypher implementation
+| allShortestPaths() | ✅ | Native OpenCypher implementation
 |===
 
 [discrete]
@@ -218,20 +261,118 @@ NOTE: Implicit GROUP BY is fully supported. Non-aggregated expressions in RETURN
 | Arithmetic expressions | ✅ | `RETURN n.age * 2 + 10`
 |===
 
+[[cypher-limitations]]
+[discrete]
+==== Known Limitations
+
+The following limitations affect 85 TCK scenarios (2.2%) and represent either design choices or rare edge cases.
+
+===== 1. Temporal Range Limitation (Java Platform Constraint)
+
+**TCK Impact**: 4 scenarios (temporal sorting with extreme date ranges)
+
+**Reason**: ArcadeDB uses Java's `LocalDateTime` with nanosecond precision stored as a 64-bit long, limiting the date range to approximately 1677-2262.
+
+**Examples that don't work**:
+[source,cypher]
+----
+// Year 0001 with nanoseconds - exceeds range
+CREATE (:Event {datetime: localdatetime({year: 1, month: 1, day: 1,
+                                        hour: 1, minute: 1, second: 1,
+                                        nanosecond: 1})})
+
+// Year 9999 with nanoseconds - exceeds range
+CREATE (:FutureEvent {datetime: localdatetime({year: 9999, month: 9, day: 9,
+                                               hour: 9, minute: 59, second: 59,
+                                               nanosecond: 999999999})})
+----
+
+**Workaround**: Use dates within the 1677-2262 range (covers virtually all real-world data), or store historical dates as strings.
+
+===== 2. Case-Insensitive Identifiers (By Design)
+
+**TCK Impact**: ~40 scenarios (case-sensitive type/property names)
+
+**Reason**: ArcadeDB follows SQL conventions where identifiers are case-insensitive, providing consistency across query languages.
+
+**Examples that don't work**:
+[source,cypher]
+----
+// These create a collision - T2 and t2 are considered the same type
+CREATE ()-[:T2]->()
+CREATE ()-[:t2]->()  // ❌ Conflicts with :T2
+----
+
+**Workaround**: Use distinct type names (e.g., `:Type2` and `:Type2Alt`).
+
+===== 3. Variable-Length Path with USING Clause (Advanced Feature)
+
+**TCK Impact**: ~20 scenarios (VLP with relationship list constraints)
+
+**Reason**: The `USING` clause for constraining VLP traversal to specific relationship lists is an advanced feature rarely used in production.
+
+**Examples that don't work**:
+[source,cypher]
+----
+// Collect relationships, then traverse using only those relationships
+MATCH ()-[rels]->()
+MATCH (a)-[*2 USING rels]->(b)  // ❌ USING clause not implemented
+RETURN a, b
+----
+
+**Workaround**: Use standard VLP with relationship type filters:
+[source,cypher]
+----
+MATCH (a)-[:TYPE*2]->(b)  // ✅ Works - filters by type
+RETURN a, b
+----
+
+===== 4. Cross-Type Comparison Strictness (Semantic Edge Case)
+
+**TCK Impact**: ~20 scenarios (incompatible type comparisons)
+
+**Reason**: Comparing fundamentally different types (nodes vs strings, paths vs primitives) in production code typically indicates a query error.
+
+**Affected**: Strict null-return semantics for cross-type comparisons.
+
+===== 5. User Functions Support
+
+**TCK Impact**: 0 scenarios (extension feature)
+
+ArcadeDB enhances OpenCypher with user-defined functions in 4 languages:
+
+[source,cypher]
+----
+// Define in SQL
+DEFINE FUNCTION math.sum "SELECT :a + :b" PARAMETERS [a,b] LANGUAGE sql
+
+// Define in JavaScript
+DEFINE FUNCTION js.greet "return 'Hello ' + name" PARAMETERS [name] LANGUAGE js
+
+// Define in OpenCypher
+DEFINE FUNCTION cypher.double "RETURN $x * 2" PARAMETERS [x] LANGUAGE opencypher
+
+// Call from any query language
+RETURN math.sum(3, 5)  // Works in Cypher, SQL, Gremlin, etc.
+----
+
+See <<user-functions,User Functions>> for complete documentation.
+
 [discrete]
 ==== Not Implemented Features
 
 The following Cypher features are not currently implemented:
 
-* **FOREACH**: Iterating over lists in write operations
-* **Subqueries**: Nested queries beyond EXISTS
-* **DISTINCT in RETURN**: `RETURN DISTINCT n.name`
-* **Index hints**: `USING INDEX n:Person(name)`
+* **Index hints**: `USING INDEX n:Person(name)` - Query planning is automatic via cost-based optimizer
 
 [discrete]
-==== Known Limitations
+==== Architectural Differences from Neo4j
 
-1. **Variable-length path duplicates**: Variable-length traversals (`-[*1..3]->`) may return duplicate results. Use `LIMIT` or deduplicate in application logic.
+While implementing the OpenCypher standard, ArcadeDB differs from Neo4j in these intentional design choices:
 
-2. **EXISTS variable scoping**: The EXISTS subquery does not have access to variables from the outer query scope.
+1. **Case-Insensitive Identifiers**: Type names and property keys follow SQL conventions
+2. **Multi-Model Database**: Supports Document, Key-Value, and Graph models in one database
+3. **Native Indexing**: Uses LSM-Tree indexes optimized for write-heavy workloads
+4. **Query Language Flexibility**: Supports SQL, Cypher, Gremlin, GraphQL, and MongoDB Query Language on the same data
+5. **User Functions**: Dynamic functions in 4 languages (SQL, JavaScript, OpenCypher, Java) vs Neo4j's Java-only compiled plugins
 

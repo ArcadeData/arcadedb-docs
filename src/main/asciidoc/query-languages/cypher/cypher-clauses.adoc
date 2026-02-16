@@ -216,6 +216,18 @@ RETURN p.name, toUpper(p.city) AS upperCity
 MATCH (p:Person)
 RETURN count(p) AS total, avg(p.age) AS avgAge
 
+// RETURN DISTINCT - removes duplicate rows
+MATCH (p:Person)
+RETURN DISTINCT p.city AS city
+
+// DISTINCT with multiple columns
+UNWIND [1, 2, 2, 3, 3, 3] AS n
+RETURN DISTINCT n
+
+// Aggregations with DISTINCT
+UNWIND [1, 1, 2, 3] AS n
+RETURN count(DISTINCT n) AS uniqueCount, sum(DISTINCT n) AS uniqueSum
+
 // Standalone expressions (no MATCH)
 RETURN abs(-42), sqrt(16), range(1, 5)
 ----
@@ -786,26 +798,38 @@ CALL db.propertyKeys()
 CALL db.schema()
 ----
 
-*Calling Custom Functions:*
+*Calling User Functions:*
 
-Custom functions defined via SQL's `DEFINE FUNCTION` statement can be called using the `CALL` clause with their namespace.
+User functions defined via SQL's `DEFINE FUNCTION` statement can be called using the `CALL` clause with their namespace. Functions can be defined in SQL, JavaScript, OpenCypher, or Java and are callable from any query language.
 
 [source,sql]
 ----
-// First, define a custom function in SQL
+// Define user functions in different languages
 DEFINE FUNCTION math.add "SELECT :a + :b AS result" PARAMETERS [a,b] LANGUAGE sql
+DEFINE FUNCTION js.multiply "return x * y" PARAMETERS [x,y] LANGUAGE js
+DEFINE FUNCTION cypher.double "RETURN $n * 2" PARAMETERS [n] LANGUAGE opencypher
 ----
 
 [source,cypher]
 ----
-// Then call it from Cypher
+// Call user functions from Cypher using CALL clause
 CALL math.add(3, 5)
-// Returns: {value: 8}
+// Returns: {result: 8}
 
-// Call with different parameter types
-CALL my.greet('World')
-// Returns: {value: 'Hello, World!'}
+CALL js.multiply(4, 2)
+// Returns: {result: 8}
+
+CALL cypher.double(5)
+// Returns: {result: 10}
+
+// Or call directly in expressions
+RETURN math.add(3, 5) AS sum,
+       js.multiply(4, 2) AS product,
+       cypher.double(5) AS doubled
+// Returns: {sum: 8, product: 8, doubled: 10}
 ----
+
+See <<user-functions,User Functions>> for complete documentation on defining and using functions.
 
 *Using YIELD:*
 
@@ -829,4 +853,237 @@ CALL db.propertyKeys() YIELD *
 ----
 
 NOTE: When calling custom SQL functions, the result is wrapped in a `value` property. Built-in procedures like `db.labels()` return results with specific property names like `label`, `relationshipType`, or `propertyKey`.
+
+*Subqueries (CALL { ... }):*
+
+Cypher supports subqueries using the `CALL { ... }` syntax. Subqueries are enclosed in curly braces and can import variables from the outer scope using `WITH`.
+
+[source,cypher]
+----
+// Basic subquery with imported variable
+UNWIND [1, 2, 3] AS x
+CALL {
+  WITH x
+  RETURN x * 10 AS y
+}
+RETURN x, y
+
+// Subquery with MATCH
+MATCH (n:Item)
+CALL {
+  WITH n
+  RETURN n.value * 2 AS doubled
+}
+RETURN n.name, doubled
+
+// Multiple imported variables
+UNWIND [1, 2] AS a
+UNWIND [10, 20] AS b
+CALL {
+  WITH a, b
+  RETURN a + b AS sum
+}
+RETURN a, b, sum
+----
+
+Subqueries allow you to isolate complex query logic, perform computations on imported variables, and return results back to the outer query.
+
+*Subqueries IN TRANSACTIONS:*
+
+When importing large datasets (e.g., from LOAD CSV), you can use `CALL { ... } IN TRANSACTIONS` to commit changes in batches rather than accumulating all changes in a single transaction. This prevents running out of memory and allows progress to be committed incrementally.
+
+[source,cypher]
+----
+// Commit every 1000 rows (default batch size)
+LOAD CSV WITH HEADERS FROM 'file:///data.csv' AS row
+CALL {
+  WITH row
+  CREATE (n:Person {name: row.name, age: toInteger(row.age)})
+} IN TRANSACTIONS
+
+// Custom batch size
+LOAD CSV WITH HEADERS FROM 'file:///data.csv' AS row
+CALL {
+  WITH row
+  CREATE (n:Person {name: row.name})
+} IN TRANSACTIONS OF 500 ROWS
+----
+
+NOTE: `IN TRANSACTIONS` should not be used inside an already open explicit transaction. The subquery manages its own transaction boundaries.
+
+---
+
+[[cypher-foreach]]
+[discrete]
+==== FOREACH
+
+The `FOREACH` clause iterates over a list and executes write operations (CREATE, SET, DELETE, MERGE) for each element. Unlike other clauses, FOREACH does not modify the result set - it passes through the input rows unchanged.
+
+*Syntax:*
+
+[source,cypher]
+----
+FOREACH (variable IN list |
+  update_clause [update_clause ...]
+)
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Create multiple nodes from a list
+FOREACH (name IN ['Alice', 'Bob', 'Charlie'] |
+  CREATE (:Person {name: name})
+)
+
+// Create relationships in a loop
+CREATE (root:Root {name: 'Main'})
+FOREACH (i IN [1, 2, 3] |
+  CREATE (root)-[:HAS_ITEM]->(:Item {id: i})
+)
+
+// Use with MATCH context
+MATCH (p:Person)
+FOREACH (tag IN ['developer', 'tester'] |
+  CREATE (p)-[:HAS_TAG]->(:Tag {value: tag})
+)
+
+// Update properties with SET
+MATCH (item:Item)
+WITH collect(item) AS items
+FOREACH (item IN items |
+  SET item.status = 'processed', item.timestamp = timestamp()
+)
+
+// FOREACH passes through input rows
+CREATE (root:Root {name: 'test'})
+FOREACH (i IN [1, 2] |
+  CREATE (:Child {id: i})
+)
+RETURN root.name AS name
+// Returns: {name: 'test'}
+----
+
+*Important Notes:*
+
+* FOREACH can only contain write operations (CREATE, SET, DELETE, MERGE)
+* FOREACH does not modify the result set - it passes input rows through unchanged
+* Variables defined inside FOREACH are not visible outside the clause
+* FOREACH is useful for batch operations and creating multiple elements from lists
+
+---
+
+[[cypher-load-csv]]
+[discrete]
+==== LOAD CSV
+
+The `LOAD CSV` clause reads data from a CSV file (local or remote) and makes each row available as a variable for further query processing. This is the primary mechanism for bulk-importing data into ArcadeDB from CSV files.
+
+*Syntax:*
+
+[source,cypher]
+----
+LOAD CSV FROM <url> AS <variable>
+LOAD CSV WITH HEADERS FROM <url> AS <variable>
+LOAD CSV WITH HEADERS FROM <url> AS <variable> FIELDTERMINATOR <delimiter>
+----
+
+* **Without `WITH HEADERS`**: Each row is bound as a list of strings. Access fields by index: `row[0]`, `row[1]`, etc.
+* **With `WITH HEADERS`**: The first row is treated as column names. Each subsequent row is bound as a map. Access fields by name: `row.name`, `row['age']`, etc.
+* **FIELDTERMINATOR**: Specify a custom field delimiter (default is `,`). Example: `FIELDTERMINATOR ';'` for semicolon-separated files.
+
+*Basic Examples:*
+
+[source,cypher]
+----
+// Load CSV without headers (list access)
+LOAD CSV FROM 'file:///people.csv' AS row
+CREATE (:Person {name: row[0], age: toInteger(row[1])})
+
+// Load CSV with headers (map access)
+LOAD CSV WITH HEADERS FROM 'file:///people.csv' AS row
+CREATE (:Person {name: row.name, age: toInteger(row.age)})
+
+// Custom field delimiter
+LOAD CSV WITH HEADERS FROM 'file:///data.tsv' AS row FIELDTERMINATOR '\t'
+RETURN row.name, row.value
+
+// Load from HTTP URL
+LOAD CSV WITH HEADERS FROM 'https://example.com/data.csv' AS row
+CREATE (:Item {id: row.id, label: row.label})
+----
+
+*Bulk Import with CALL IN TRANSACTIONS:*
+
+For large files, combine `LOAD CSV` with `CALL { ... } IN TRANSACTIONS` to commit in batches and avoid memory issues:
+
+[source,cypher]
+----
+LOAD CSV WITH HEADERS FROM 'file:///large-dataset.csv' AS row
+CALL {
+  WITH row
+  CREATE (p:Person {name: row.name, email: row.email})
+} IN TRANSACTIONS OF 1000 ROWS
+----
+
+*Compressed Files:*
+
+LOAD CSV transparently decompresses `.gz` (gzip) and `.zip` files:
+
+[source,cypher]
+----
+// Gzip compressed
+LOAD CSV WITH HEADERS FROM 'file:///data.csv.gz' AS row
+RETURN row.name
+
+// ZIP compressed (reads the first entry in the archive)
+LOAD CSV WITH HEADERS FROM 'file:///data.csv.zip' AS row
+RETURN row.name
+----
+
+*CSV Quoting:*
+
+Quoted fields follow RFC 4180 and also support backslash escaping:
+
+* Fields containing the delimiter, newlines, or quotes must be enclosed in double quotes
+* Embedded quotes can be escaped as `""` (RFC 4180) or `\"` (backslash escaping)
+* Quoted fields can span multiple lines
+
+*Security Configuration:*
+
+LOAD CSV file access is controlled by two configuration settings:
+
+[%header,cols="3,1,4"]
+|===
+| Setting | Default | Description
+| `arcadedb.opencypher.loadCsv.allowFileUrls` | `true` | Allow access to local files via `file:///` URLs and bare file paths. Set to `false` in multi-tenant server deployments.
+| `arcadedb.opencypher.loadCsv.importDirectory` | (empty) | Root directory for file URLs. When set, file paths are resolved relative to this directory and path traversal (`../`) is blocked. Empty means no restriction.
+|===
+
+HTTP/HTTPS URLs are always allowed regardless of these settings.
+
+*Example — Restrict to import directory:*
+
+[source,java]
+----
+// In server configuration
+arcadedb.opencypher.loadCsv.importDirectory=/var/arcadedb/import
+----
+
+[source,cypher]
+----
+// This works (resolved to /var/arcadedb/import/data.csv)
+LOAD CSV FROM 'file:///data.csv' AS row RETURN row
+
+// This is blocked (path traversal)
+LOAD CSV FROM 'file:///../etc/passwd' AS row RETURN row
+----
+
+*Built-in Helper Functions:*
+
+Two special functions are available within LOAD CSV queries:
+
+* `file()` — Returns the URL of the currently loaded CSV file
+* `linenumber()` — Returns the current line number being processed (1-based)
 

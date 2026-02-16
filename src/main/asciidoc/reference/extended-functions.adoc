@@ -1,0 +1,3331 @@
+[[extended-functions]]
+=== Extended Functions Reference
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/reference/extended-functions.adoc" float=right]
+
+ArcadeDB provides a comprehensive set of extended functions organized by namespace. These functions are available in both SQL and Cypher queries, providing powerful data manipulation capabilities.
+
+[discrete]
+[[extended-functions-overview]]
+==== Overview
+
+These extended functions provide:
+
+* **Zero configuration** - Functions are available immediately without any installation
+* **Native performance** - Direct integration with the query engine
+* **Type safety** - Proper type handling and error messages
+* **Cross-language support** - Available in both SQL and Cypher queries
+* **APOC compatibility** - Full support for the `apoc.` prefix for Neo4j migration
+
+[discrete]
+[[apoc-compatibility]]
+==== APOC Prefix Compatibility
+
+ArcadeDB automatically supports the `apoc.` prefix for all extended functions and procedures. This means existing Neo4j/APOC queries work without modification.
+
+When ArcadeDB encounters a function or procedure call with the `apoc.` prefix, it automatically strips the prefix and resolves to the corresponding ArcadeDB function:
+
+[%header,cols="3,3,2"]
+|===
+| APOC Call | Resolves To | Result
+| `apoc.text.indexOf("hello", "l")` | `text.indexOf("hello", "l")` | Same function
+| `apoc.map.merge({a:1}, {b:2})` | `map.merge({a:1}, {b:2})` | Same function
+| `CALL apoc.merge.relationship(...)` | `CALL merge.relationship(...)` | Same procedure
+|===
+
+This compatibility layer is:
+
+* **Automatic** - No configuration required
+* **Case-insensitive** - `APOC.TEXT.INDEXOF` works the same as `apoc.text.indexOf`
+* **Zero overhead** - Simple string prefix check, no performance impact
+
+*Example - These queries are equivalent:*
+
+[source,cypher]
+----
+-- Neo4j/APOC style (works in ArcadeDB)
+RETURN apoc.text.join(["a", "b", "c"], ",") AS result
+
+-- ArcadeDB native style
+RETURN text.join(["a", "b", "c"], ",") AS result
+----
+
+[discrete]
+[[function-namespaces]]
+==== Function Namespaces
+
+Functions are organized into the following namespaces:
+
+[%header,cols="2,4"]
+|===
+| Namespace | Description
+| `agg.*` | Aggregation and collection functions
+| `algo.*` | Graph algorithms (Dijkstra, A*, shortest paths)
+| `coll.*` | Collection/list operations (flatten, sort, distinct, min/max)
+| `convert.*` | Type conversion functions
+| `create.*` | Creation functions (UUIDs, virtual nodes/relationships)
+| `date.*` | Date/time operations
+| `map.*` | Map/object operations
+| `math.*` | Mathematical functions
+| `merge.*` | Merge procedures for nodes and relationships
+| `meta.*` | Schema and database introspection procedures
+| `node.*` | Node/vertex operations (degree, labels, relationships)
+| `path.*` | Path operations (create, combine, slice, expansion)
+| `rel.*` | Relationship/edge operations (type, endpoints)
+| `text.*` | String manipulation and text processing
+| `util.*` | Utility functions (hashing, compression, validation)
+| `vector.*` | Vector/embedding operations (similarity, distance, quantization)
+|===
+
+---
+
+==== Aggregation Functions
+
+[[agg-first]]
+[discrete]
+===== agg.first()
+
+Get the first non-null element from a list.
+
+*Syntax:* `agg.first(list)`
+
+*Returns:* Any - First non-null value
+
+*APOC Compatible:* `apoc.agg.first`
+
+[source,cypher]
+----
+RETURN agg.first([null, "a", "b"]) AS result
+// Returns: "a"
+----
+
+'''
+
+[[agg-last]]
+[discrete]
+===== agg.last()
+
+Get the last non-null element from a list.
+
+*Syntax:* `agg.last(list)`
+
+*Returns:* Any - Last non-null value
+
+*APOC Compatible:* `apoc.agg.last`
+
+'''
+
+[[agg-nth]]
+[discrete]
+===== agg.maxItems()
+
+Get items with maximum value.
+
+*Syntax:* `agg.maxItems(list, valueFunction)`
+
+*Returns:* List - Items with maximum value
+
+*APOC Compatible:* `apoc.agg.maxItems`
+
+---
+===== agg.median()
+
+Calculate the median of a list of numbers.
+
+*Syntax:* `agg.median(list)`
+
+*Returns:* Double - Median value
+
+*APOC Compatible:* `apoc.agg.median`
+
+[source,cypher]
+----
+RETURN agg.median([1, 2, 3, 4, 5]) AS result
+// Returns: 3.0
+
+RETURN agg.median([1, 2, 3, 4]) AS result
+// Returns: 2.5
+----
+
+'''
+
+[[agg-percentiles]]
+[discrete]
+===== agg.minItems()
+
+Get items with minimum value.
+
+*Syntax:* `agg.minItems(list, valueFunction)`
+
+*Returns:* List - Items with minimum value
+
+*APOC Compatible:* `apoc.agg.minItems`
+
+'''
+
+[[agg-max-items]]
+[discrete]
+===== agg.nth()
+
+Get the nth element from a list.
+
+*Syntax:* `agg.nth(list, n)`
+
+*Returns:* Any - Element at index n
+
+*APOC Compatible:* `apoc.agg.nth`
+
+'''
+
+[[agg-slice]]
+[discrete]
+===== agg.percentiles()
+
+Calculate percentiles of a list of numbers.
+
+*Syntax:* `agg.percentiles(list, percentiles)`
+
+*Returns:* List - Percentile values
+
+*APOC Compatible:* `apoc.agg.percentiles`
+
+'''
+
+[[agg-statistics]]
+[discrete]
+===== agg.product()
+
+Calculate the product of a list of numbers.
+
+*Syntax:* `agg.product(list)`
+
+*Returns:* Double - Product of all values
+
+*APOC Compatible:* `apoc.agg.product`
+
+'''
+
+[[agg-min-items]]
+[discrete]
+===== agg.slice()
+
+Get a slice of a list.
+
+*Syntax:* `agg.slice(list, start, [end])`
+
+*Returns:* List - Sliced list
+
+*APOC Compatible:* `apoc.agg.slice`
+
+'''
+
+[[agg-median]]
+[discrete]
+===== agg.statistics()
+
+Get full statistics for a list of numbers.
+
+*Syntax:* `agg.statistics(list)`
+
+*Returns:* Map - Statistics map with count, min, max, sum, mean, stdev, median
+
+*APOC Compatible:* `apoc.agg.statistics`
+
+[source,cypher]
+----
+RETURN agg.statistics([1, 2, 3, 4, 5]) AS stats
+// Returns: {count: 5, min: 1.0, max: 5.0, sum: 15.0, mean: 3.0, stdev: 1.414, median: 3.0}
+----
+
+'''
+
+[[agg-product]]
+[discrete]
+==== Collection Functions
+
+[[coll-distinct]]
+[discrete]
+===== coll.distinct()
+
+Returns a new list with duplicate values removed, preserving the order of first occurrence.
+
+*Syntax:* `coll.distinct(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The input list
+|===
+
+*Returns:* List - Deduplicated list, or null if input is null
+
+*APOC Compatible:* `apoc.coll.distinct`
+
+[source,cypher]
+----
+RETURN coll.distinct([1, 2, 2, 3, 1]) AS result
+// Returns: [1, 2, 3]
+----
+
+'''
+
+[[coll-flatten]]
+[discrete]
+===== coll.flatten()
+
+Flattens nested lists into a single list, with configurable depth control.
+
+*Syntax:* `coll.flatten(list [, depth])`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The nested list to flatten
+| depth | Integer | (Optional) Levels of nesting to flatten. Default: 1. Use -1 for unlimited depth.
+|===
+
+*Returns:* List - Flattened list, or null if input is null
+
+*APOC Compatible:* `apoc.coll.flatten`
+
+[source,cypher]
+----
+RETURN coll.flatten([[1, 2], [3, 4]]) AS result
+// Returns: [1, 2, 3, 4]
+
+RETURN coll.flatten([[1, [2, 3]], [4]], -1) AS result
+// Returns: [1, 2, 3, 4]
+
+RETURN coll.flatten([[1, [2, 3]], [4]], 1) AS result
+// Returns: [1, [2, 3], 4]
+----
+
+'''
+
+[[coll-indexof]]
+[discrete]
+===== coll.indexOf()
+
+Returns the index of the first occurrence of a value in a list, or -1 if not found.
+
+*Syntax:* `coll.indexOf(list, value)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The list to search
+| value | Any | The value to find
+|===
+
+*Returns:* Integer - Zero-based index, -1 if not found, null if list or value is null
+
+*APOC Compatible:* `apoc.coll.indexOf`
+
+[source,cypher]
+----
+RETURN coll.indexOf(["a", "b", "c"], "b") AS result
+// Returns: 1
+
+RETURN coll.indexOf([1, 2, 3], 5) AS result
+// Returns: -1
+----
+
+'''
+
+[[coll-insert]]
+[discrete]
+===== coll.insert()
+
+Returns a new list with a value inserted at the given index.
+
+*Syntax:* `coll.insert(list, index, value)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The original list
+| index | Integer | Position to insert at (0-based)
+| value | Any | Value to insert
+|===
+
+*Returns:* List - New list with value inserted, or null if input is null
+
+*APOC Compatible:* `apoc.coll.insert`
+
+[source,cypher]
+----
+RETURN coll.insert([1, 2, 3], 1, 99) AS result
+// Returns: [1, 99, 2, 3]
+----
+
+'''
+
+[[coll-max]]
+[discrete]
+===== coll.max()
+
+Returns the maximum value in a list using Cypher comparison semantics.
+
+*Syntax:* `coll.max(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The input list
+|===
+
+*Returns:* Any - Maximum value, or null if list is null or empty
+
+*APOC Compatible:* `apoc.coll.max`
+
+[source,cypher]
+----
+RETURN coll.max([3, 1, 4, 1, 5]) AS result
+// Returns: 5
+----
+
+'''
+
+[[coll-min]]
+[discrete]
+===== coll.min()
+
+Returns the minimum value in a list using Cypher comparison semantics.
+
+*Syntax:* `coll.min(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The input list
+|===
+
+*Returns:* Any - Minimum value, or null if list is null or empty
+
+*APOC Compatible:* `apoc.coll.min`
+
+[source,cypher]
+----
+RETURN coll.min([3, 1, 4, 1, 5]) AS result
+// Returns: 1
+----
+
+'''
+
+[[coll-remove]]
+[discrete]
+===== coll.remove()
+
+Returns a new list with element(s) removed starting at the given index.
+
+*Syntax:* `coll.remove(list, index [, count])`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The original list
+| index | Integer | Starting position (0-based)
+| count | Integer | (Optional) Number of elements to remove. Default: 1
+|===
+
+*Returns:* List - New list with elements removed, or null if input is null
+
+*APOC Compatible:* `apoc.coll.remove`
+
+[source,cypher]
+----
+RETURN coll.remove([1, 2, 3, 4, 5], 1) AS result
+// Returns: [1, 3, 4, 5]
+
+RETURN coll.remove([1, 2, 3, 4, 5], 1, 2) AS result
+// Returns: [1, 4, 5]
+----
+
+'''
+
+[[coll-sort]]
+[discrete]
+===== coll.sort()
+
+Returns a sorted copy of the list using Cypher comparison semantics.
+
+*Syntax:* `coll.sort(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The input list
+|===
+
+*Returns:* List - Sorted list, or null if input is null
+
+*APOC Compatible:* `apoc.coll.sort`
+
+[source,cypher]
+----
+RETURN coll.sort([3, 1, 4, 1, 5]) AS result
+// Returns: [1, 1, 3, 4, 5]
+----
+
+'''
+
+[discrete]
+==== Algorithm Procedures
+
+[[algo-dijkstra]]
+[discrete]
+===== algo.allsimplepaths()
+
+Find all simple paths (without repeated nodes) between two nodes.
+
+*Syntax:* `CALL algo.allsimplepaths(startNode, endNode, relTypes, maxDepth) YIELD path`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| endNode | Node | Target node
+| relTypes | String/List | Relationship type(s) to traverse
+| maxDepth | Integer | Maximum path length
+|===
+
+*Returns:* `path` - Each simple path found
+
+*APOC Compatible:* `apoc.algo.allSimplePaths`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CALL algo.allsimplepaths(a, b, 'KNOWS', 5) YIELD path
+RETURN path
+----
+
+---
+===== algo.astar()
+
+Find the shortest path using A* algorithm with optional geographic heuristics.
+
+*Syntax:* `CALL algo.astar(startNode, endNode, relType, weightProperty, [latProperty], [lonProperty]) YIELD path, weight`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| endNode | Node | Target node
+| relType | String | Relationship type to traverse
+| weightProperty | String | Edge property to use as weight
+| latProperty | String | Optional - Node property for latitude (for geographic heuristic)
+| lonProperty | String | Optional - Node property for longitude (for geographic heuristic)
+|===
+
+*Returns:*
+
+* `path` - The shortest path
+* `weight` - Total path weight
+
+*APOC Compatible:* `apoc.algo.aStar`
+
+[source,cypher]
+----
+MATCH (a:City {name: 'Seattle'}), (b:City {name: 'Miami'})
+CALL algo.astar(a, b, 'FLIGHT', 'distance', 'lat', 'lon') YIELD path, weight
+RETURN path, weight
+----
+
+'''
+
+[[algo-all-simple-paths]]
+[discrete]
+===== algo.dijkstra()
+
+Find the shortest weighted path between two nodes using Dijkstra's algorithm.
+
+*Syntax:* `CALL algo.dijkstra(startNode, endNode, relType, weightProperty, [direction]) YIELD path, weight`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| endNode | Node | Target node
+| relType | String | Relationship type to traverse
+| weightProperty | String | Edge property to use as weight
+| direction | String | Optional - Traversal direction ("OUT", "IN", "BOTH", default: "BOTH")
+|===
+
+*Returns:*
+
+* `path` - The shortest path
+* `weight` - Total path weight
+
+*APOC Compatible:* `apoc.algo.dijkstra`
+
+[source,cypher]
+----
+MATCH (a:City {name: 'New York'}), (b:City {name: 'Los Angeles'})
+CALL algo.dijkstra(a, b, 'ROAD', 'distance') YIELD path, weight
+RETURN path, weight
+----
+
+'''
+
+[[algo-astar]]
+[discrete]
+==== Convert Functions
+
+[[convert-to-json]]
+[discrete]
+===== convert.fromJsonList()
+
+Parse a JSON string to a list.
+
+*Syntax:* `convert.fromJsonList(json)`
+
+*Returns:* List - Parsed list
+
+*APOC Compatible:* `apoc.convert.fromJsonList`
+
+'''
+
+[[convert-to-map]]
+[discrete]
+===== convert.fromJsonMap()
+
+Parse a JSON string to a map.
+
+*Syntax:* `convert.fromJsonMap(json)`
+
+*Returns:* Map - Parsed map
+
+*APOC Compatible:* `apoc.convert.fromJsonMap`
+
+[source,cypher]
+----
+RETURN convert.fromJsonMap('{"name":"John","age":30}') AS result
+// Returns: {name: "John", age: 30}
+----
+
+'''
+
+[[convert-from-json-list]]
+[discrete]
+===== convert.toBoolean()
+
+Convert a value to boolean.
+
+*Syntax:* `convert.toBoolean(value)`
+
+*Returns:* Boolean - Converted value
+
+*APOC Compatible:* `apoc.convert.toBoolean`
+
+[source,cypher]
+----
+RETURN convert.toBoolean("true") AS result
+// Returns: true
+
+RETURN convert.toBoolean(1) AS result
+// Returns: true
+
+RETURN convert.toBoolean(0) AS result
+// Returns: false
+----
+
+'''
+
+[[convert-to-integer]]
+[discrete]
+===== convert.toFloat()
+
+Convert a value to float.
+
+*Syntax:* `convert.toFloat(value)`
+
+*Returns:* Float - Converted value
+
+*APOC Compatible:* `apoc.convert.toFloat`
+
+---
+===== convert.toInteger()
+
+Convert a value to integer.
+
+*Syntax:* `convert.toInteger(value)`
+
+*Returns:* Integer - Converted value
+
+*APOC Compatible:* `apoc.convert.toInteger`
+
+'''
+
+[[convert-to-float]]
+[discrete]
+===== convert.toJson()
+
+Convert a value to JSON string.
+
+*Syntax:* `convert.toJson(value)`
+
+*Returns:* String - JSON representation
+
+*APOC Compatible:* `apoc.convert.toJson`
+
+[source,cypher]
+----
+RETURN convert.toJson({name: "John", age: 30}) AS result
+// Returns: '{"name":"John","age":30}'
+
+RETURN convert.toJson([1, 2, 3]) AS result
+// Returns: '[1,2,3]'
+----
+
+'''
+
+[[convert-from-json-map]]
+[discrete]
+===== convert.toList()
+
+Convert a value to a list.
+
+*Syntax:* `convert.toList(value)`
+
+*Returns:* List - Converted list
+
+*APOC Compatible:* `apoc.convert.toList`
+
+'''
+
+[[convert-to-set]]
+[discrete]
+===== convert.toMap()
+
+Convert a value to a map.
+
+*Syntax:* `convert.toMap(value)`
+
+*Returns:* Map - Converted map
+
+*APOC Compatible:* `apoc.convert.toMap`
+
+'''
+
+[[convert-to-list]]
+[discrete]
+===== convert.toSet()
+
+Convert a value to a set (unique values).
+
+*Syntax:* `convert.toSet(value)`
+
+*Returns:* List - Set of unique values
+
+*APOC Compatible:* `apoc.convert.toSet`
+
+'''
+
+[[convert-to-boolean]]
+[discrete]
+==== Create Functions
+
+[[create-uuid]]
+[discrete]
+===== create.uuid()
+
+Generate a UUID.
+
+*Syntax:* `create.uuid()`
+
+*Returns:* String - UUID string
+
+*APOC Compatible:* `apoc.create.uuid`
+
+'''
+
+[[create-uuid-base64]]
+[discrete]
+===== create.uuidBase64()
+
+Generate a UUID in Base64 format.
+
+*Syntax:* `create.uuidBase64()`
+
+*Returns:* String - Base64-encoded UUID
+
+*APOC Compatible:* `apoc.create.uuidBase64`
+
+'''
+
+[[create-v-node]]
+[discrete]
+===== create.vNode()
+
+Create a virtual node (not persisted).
+
+*Syntax:* `create.vNode(labels, properties)`
+
+*Returns:* Node - Virtual node
+
+*APOC Compatible:* `apoc.create.vNode`
+
+'''
+
+[[create-v-relationship]]
+[discrete]
+===== create.vRelationship()
+
+Create a virtual relationship (not persisted).
+
+*Syntax:* `create.vRelationship(startNode, type, properties, endNode)`
+
+*Returns:* Relationship - Virtual relationship
+
+*APOC Compatible:* `apoc.create.vRelationship`
+
+---
+==== Date Functions (Extended)
+
+[[date-current-timestamp]]
+[discrete]
+===== date.add()
+
+Add time to a timestamp.
+
+*Syntax:* `date.add(timestamp, value, unit)`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| timestamp | Long | The timestamp (in milliseconds)
+| value | Long | Amount to add (can be negative)
+| unit | String | Unit of the value (ms, s, m, h, d)
+|===
+
+*Returns:* Long - New timestamp
+
+*APOC Compatible:* `apoc.date.add`
+
+[source,cypher]
+----
+RETURN date.add(date.currentTimestamp(), 1, "d") AS tomorrow
+// Returns: timestamp for tomorrow
+
+RETURN date.add(date.currentTimestamp(), -1, "h") AS oneHourAgo
+// Returns: timestamp for 1 hour ago
+----
+
+'''
+
+[[date-convert]]
+[discrete]
+===== date.convert()
+
+Convert a timestamp between units.
+
+*Syntax:* `date.convert(timestamp, fromUnit, toUnit)`
+
+*Returns:* Long - Converted timestamp
+
+*APOC Compatible:* `apoc.date.convert`
+
+'''
+
+[[date-field]]
+[discrete]
+===== date.currentTimestamp()
+
+Get the current timestamp in milliseconds.
+
+*Syntax:* `date.currentTimestamp()`
+
+*Returns:* Long - Current timestamp in milliseconds since epoch
+
+*APOC Compatible:* `apoc.date.currentTimestamp`
+
+[source,cypher]
+----
+RETURN date.currentTimestamp() AS now
+// Returns: 1705314600000 (example)
+----
+
+'''
+
+[[date-format-extended]]
+[discrete]
+===== date.field()
+
+Extract a specific field from a timestamp.
+
+*Syntax:* `date.field(timestamp, field)`
+
+*Returns:* Long - Field value
+
+*APOC Compatible:* `apoc.date.field`
+
+'''
+
+[[date-fields]]
+[discrete]
+===== date.fields()
+
+Extract all fields from a timestamp as a map.
+
+*Syntax:* `date.fields(timestamp)`
+
+*Returns:* Map - Map of date fields
+
+*APOC Compatible:* `apoc.date.fields`
+
+'''
+
+[[date-to-iso8601]]
+[discrete]
+===== date.format()
+
+Format a timestamp to a date string.
+
+*Syntax:* `date.format(timestamp, unit, format)`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| timestamp | Long | The timestamp value
+| unit | String | Unit of the timestamp (ms, s, m, h, d)
+| format | String | Date format pattern (Java SimpleDateFormat)
+|===
+
+*Returns:* String - Formatted date string
+
+*APOC Compatible:* `apoc.date.format`
+
+[source,cypher]
+----
+RETURN date.format(1705314600000, "ms", "yyyy-MM-dd HH:mm:ss") AS result
+// Returns: "2024-01-15 10:30:00"
+----
+
+'''
+
+[[date-parse]]
+[discrete]
+===== date.fromISO8601()
+
+Parse an ISO 8601 string to timestamp.
+
+*Syntax:* `date.fromISO8601(dateString)`
+
+*Returns:* Long - Timestamp in milliseconds
+
+*APOC Compatible:* `apoc.date.fromISO8601`
+
+[source,cypher]
+----
+RETURN date.fromISO8601("2024-01-15T10:30:00Z") AS result
+// Returns: 1705314600000
+----
+
+'''
+
+[[date-system-timezone]]
+[discrete]
+===== date.parse()
+
+Parse a date string to timestamp.
+
+*Syntax:* `date.parse(dateString, format)`
+
+*Returns:* Long - Timestamp in milliseconds
+
+*APOC Compatible:* `apoc.date.parse`
+
+'''
+
+[[date-add]]
+[discrete]
+===== date.systemTimezone()
+
+Get the system's default timezone.
+
+*Syntax:* `date.systemTimezone()`
+
+*Returns:* String - Timezone ID (e.g., "America/New_York")
+
+*APOC Compatible:* `apoc.date.systemTimezone`
+
+---
+===== date.toISO8601()
+
+Convert a timestamp to ISO 8601 format.
+
+*Syntax:* `date.toISO8601(timestamp)`
+
+*Returns:* String - ISO 8601 formatted string
+
+*APOC Compatible:* `apoc.date.toISO8601`
+
+[source,cypher]
+----
+RETURN date.toISO8601(1705314600000) AS result
+// Returns: "2024-01-15T10:30:00+00:00"
+----
+
+'''
+
+[[date-from-iso8601]]
+[discrete]
+==== Map Functions
+
+[[map-merge]]
+[discrete]
+===== map.clean()
+
+Remove null values and empty strings from a map.
+
+*Syntax:* `map.clean(map, [keys], [values])`
+
+*Returns:* Map - Cleaned map
+
+*APOC Compatible:* `apoc.map.clean`
+
+'''
+
+[[map-flatten]]
+[discrete]
+===== map.flatten()
+
+Flatten a nested map using a delimiter.
+
+*Syntax:* `map.flatten(map, delimiter)`
+
+*Returns:* Map - Flattened map
+
+*APOC Compatible:* `apoc.map.flatten`
+
+[source,cypher]
+----
+RETURN map.flatten({a: {b: 1, c: 2}}, ".") AS result
+// Returns: {"a.b": 1, "a.c": 2}
+----
+
+'''
+
+[[map-unflatten]]
+[discrete]
+===== map.fromLists()
+
+Create a map from a list of keys and a list of values.
+
+*Syntax:* `map.fromLists(keys, values)`
+
+*Returns:* Map - New map
+
+*APOC Compatible:* `apoc.map.fromLists`
+
+[source,cypher]
+----
+RETURN map.fromLists(["a", "b", "c"], [1, 2, 3]) AS result
+// Returns: {a: 1, b: 2, c: 3}
+----
+
+'''
+
+[[map-from-pairs]]
+[discrete]
+===== map.fromPairs()
+
+Create a map from a list of key-value pairs.
+
+*Syntax:* `map.fromPairs(pairs)`
+
+*Returns:* Map - New map
+
+*APOC Compatible:* `apoc.map.fromPairs`
+
+'''
+
+[[map-set-key]]
+[discrete]
+===== map.groupBy()
+
+Group a list of maps by a key.
+
+*Syntax:* `map.groupBy(list, key)`
+
+*Returns:* Map - Map of groups
+
+*APOC Compatible:* `apoc.map.groupBy`
+
+[source,cypher]
+----
+RETURN map.groupBy([{type: "A", val: 1}, {type: "B", val: 2}, {type: "A", val: 3}], "type") AS result
+// Returns: {A: [{type: "A", val: 1}, {type: "A", val: 3}], B: [{type: "B", val: 2}]}
+----
+
+'''
+
+[[map-sorted-properties]]
+[discrete]
+===== map.merge()
+
+Merge two maps, with the second map's values overriding the first.
+
+*Syntax:* `map.merge(map1, map2)`
+
+*Returns:* Map - Merged map
+
+*APOC Compatible:* `apoc.map.merge`
+
+[source,cypher]
+----
+RETURN map.merge({a: 1, b: 2}, {b: 3, c: 4}) AS result
+// Returns: {a: 1, b: 3, c: 4}
+----
+
+'''
+
+[[map-merge-list]]
+[discrete]
+===== map.mergeList()
+
+Merge a list of maps.
+
+*Syntax:* `map.mergeList(listOfMaps)`
+
+*Returns:* Map - Merged map
+
+*APOC Compatible:* `apoc.map.mergeList`
+
+'''
+
+[[map-from-lists]]
+[discrete]
+===== map.removeKey()
+
+Remove a key from a map.
+
+*Syntax:* `map.removeKey(map, key)`
+
+*Returns:* Map - Map with key removed
+
+*APOC Compatible:* `apoc.map.removeKey`
+
+'''
+
+[[map-remove-keys]]
+[discrete]
+===== map.removeKeys()
+
+Remove multiple keys from a map.
+
+*Syntax:* `map.removeKeys(map, keys)`
+
+*Returns:* Map - Map with keys removed
+
+*APOC Compatible:* `apoc.map.removeKeys`
+
+'''
+
+[[map-clean]]
+[discrete]
+===== map.setKey()
+
+Add or update a key in a map.
+
+*Syntax:* `map.setKey(map, key, value)`
+
+*Returns:* Map - Map with key added/updated
+
+*APOC Compatible:* `apoc.map.setKey`
+
+[source,cypher]
+----
+RETURN map.setKey({a: 1}, "b", 2) AS result
+// Returns: {a: 1, b: 2}
+----
+
+'''
+
+[[map-remove-key]]
+[discrete]
+===== map.sortedProperties()
+
+Get map entries sorted by key.
+
+*Syntax:* `map.sortedProperties(map)`
+
+*Returns:* List - Sorted list of [key, value] pairs
+
+*APOC Compatible:* `apoc.map.sortedProperties`
+
+---
+===== map.submap()
+
+Extract a subset of keys from a map.
+
+*Syntax:* `map.submap(map, keys, [defaults])`
+
+*Returns:* Map - Submap with specified keys
+
+*APOC Compatible:* `apoc.map.submap`
+
+'''
+
+[[map-values]]
+[discrete]
+===== map.unflatten()
+
+Unflatten a map with delimited keys into a nested map.
+
+*Syntax:* `map.unflatten(map, delimiter)`
+
+*Returns:* Map - Nested map
+
+*APOC Compatible:* `apoc.map.unflatten`
+
+'''
+
+[[map-submap]]
+[discrete]
+===== map.values()
+
+Get all values from a map.
+
+*Syntax:* `map.values(map, [keys])`
+
+*Returns:* List - List of values
+
+*APOC Compatible:* `apoc.map.values`
+
+'''
+
+[[map-group-by]]
+[discrete]
+==== Math Functions (Extended)
+
+[[math-sigmoid]]
+[discrete]
+===== math.cosh()
+
+Calculate the hyperbolic cosine.
+
+*Syntax:* `math.cosh(x)`
+
+*Returns:* Double - Hyperbolic cosine value
+
+*APOC Compatible:* `apoc.math.cosh`
+
+'''
+
+[[math-sinh]]
+[discrete]
+===== math.maxDouble()
+
+Get the maximum double value.
+
+*Syntax:* `math.maxDouble()`
+
+*Returns:* Double - Maximum double value
+
+*APOC Compatible:* `apoc.math.maxDouble`
+
+---
+===== math.maxLong()
+
+Get the maximum long value.
+
+*Syntax:* `math.maxLong()`
+
+*Returns:* Long - Maximum long value (9223372036854775807)
+
+*APOC Compatible:* `apoc.math.maxLong`
+
+'''
+
+[[math-min-long]]
+[discrete]
+===== math.minLong()
+
+Get the minimum long value.
+
+*Syntax:* `math.minLong()`
+
+*Returns:* Long - Minimum long value
+
+*APOC Compatible:* `apoc.math.minLong`
+
+'''
+
+[[math-max-double]]
+[discrete]
+===== math.sigmoid()
+
+Calculate the sigmoid function.
+
+*Syntax:* `math.sigmoid(x)`
+
+*Returns:* Double - Sigmoid value (0-1)
+
+*APOC Compatible:* `apoc.math.sigmoid`
+
+[source,cypher]
+----
+RETURN math.sigmoid(0) AS result
+// Returns: 0.5
+
+RETURN math.sigmoid(10) AS result
+// Returns: ~0.9999
+----
+
+'''
+
+[[math-sigmoid-prime]]
+[discrete]
+===== math.sigmoidPrime()
+
+Calculate the derivative of the sigmoid function.
+
+*Syntax:* `math.sigmoidPrime(x)`
+
+*Returns:* Double - Sigmoid derivative
+
+*APOC Compatible:* `apoc.math.sigmoidPrime`
+
+'''
+
+[[math-tanh]]
+[discrete]
+===== math.sinh()
+
+Calculate the hyperbolic sine.
+
+*Syntax:* `math.sinh(x)`
+
+*Returns:* Double - Hyperbolic sine value
+
+*APOC Compatible:* `apoc.math.sinh`
+
+'''
+
+[[math-max-long]]
+[discrete]
+===== math.tanh()
+
+Calculate the hyperbolic tangent.
+
+*Syntax:* `math.tanh(x)`
+
+*Returns:* Double - Hyperbolic tangent value
+
+*APOC Compatible:* `apoc.math.tanh`
+
+'''
+
+[[math-cosh]]
+[discrete]
+==== Merge Procedures
+
+[[merge-relationship]]
+[discrete]
+===== merge.node()
+
+Create or match a node by labels and properties.
+
+*Syntax:* `CALL merge.node(labels, matchProps, createProps) YIELD node`
+
+*Returns:* `node` - The merged node
+
+*APOC Compatible:* `apoc.merge.node`
+
+[source,cypher]
+----
+CALL merge.node(["Person"], {email: "alice@example.com"}, {name: "Alice", created: date.currentTimestamp()}) YIELD node
+RETURN node
+----
+
+---
+===== merge.relationship()
+
+Create or match a relationship between two nodes.
+
+*Syntax:* `CALL merge.relationship(startNode, relType, matchProps, createProps, endNode) YIELD rel`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| relType | String | Relationship type name
+| matchProps | Map | Properties to match on
+| createProps | Map | Properties to set on create
+| endNode | Node | Ending node
+|===
+
+*Returns:* `rel` - The merged relationship
+
+*APOC Compatible:* `apoc.merge.relationship`
+
+[source,cypher]
+----
+MATCH (a:Person {name: "Alice"}), (b:Person {name: "Bob"})
+CALL merge.relationship(a, "KNOWS", {}, {since: 2024}, b) YIELD rel
+RETURN rel
+
+// With batch processing:
+UNWIND $batch AS row
+MATCH (a), (b) WHERE elementId(a) = row.source AND elementId(b) = row.target
+CALL merge.relationship(a, row.relType, {}, row.props, b) YIELD rel
+RETURN count(rel)
+----
+
+'''
+
+[[merge-node]]
+[discrete]
+==== Meta/Schema Procedures
+
+[[meta-graph]]
+[discrete]
+===== meta.graph()
+
+Get a virtual graph representing the database schema structure.
+
+*Syntax:* `CALL meta.graph() YIELD nodes, relationships`
+
+*Returns:*
+
+* `nodes` - Virtual nodes representing vertex types with their counts and properties
+* `relationships` - Virtual relationships representing edge types with their counts
+
+*APOC Compatible:* `apoc.meta.graph`
+
+[source,cypher]
+----
+CALL meta.graph() YIELD nodes, relationships
+RETURN nodes, relationships
+----
+
+'''
+
+[[meta-schema]]
+[discrete]
+===== meta.nodetypeproperties()
+
+Get property information for each node type.
+
+*Syntax:* `CALL meta.nodetypeproperties() YIELD nodeType, propertyName, propertyTypes, mandatory`
+
+*Returns:*
+
+* `nodeType` - Name of the vertex type
+* `propertyName` - Name of the property
+* `propertyTypes` - List of property types
+* `mandatory` - Whether the property is required
+
+*APOC Compatible:* `apoc.meta.nodeTypeProperties`
+
+[source,cypher]
+----
+CALL meta.nodetypeproperties() YIELD nodeType, propertyName, propertyTypes
+RETURN nodeType, propertyName, propertyTypes
+----
+
+'''
+
+[[meta-rel-type-properties]]
+[discrete]
+===== meta.reltypeproperties()
+
+Get property information for each relationship type.
+
+*Syntax:* `CALL meta.reltypeproperties() YIELD relType, propertyName, propertyTypes, mandatory`
+
+*Returns:*
+
+* `relType` - Name of the edge type
+* `propertyName` - Name of the property
+* `propertyTypes` - List of property types
+* `mandatory` - Whether the property is required
+
+*APOC Compatible:* `apoc.meta.relTypeProperties`
+
+[source,cypher]
+----
+CALL meta.reltypeproperties() YIELD relType, propertyName, propertyTypes
+RETURN relType, propertyName, propertyTypes
+----
+
+---
+===== meta.schema()
+
+Get detailed schema information including all types and properties.
+
+*Syntax:* `CALL meta.schema() YIELD value`
+
+*Returns:* `value` - Map containing:
+
+* `nodeLabels` - List of vertex types with their properties
+* `relationshipTypes` - List of edge types with their properties
+
+*APOC Compatible:* `apoc.meta.schema`
+
+[source,cypher]
+----
+CALL meta.schema() YIELD value
+RETURN value.nodeLabels AS nodeTypes
+----
+
+'''
+
+[[meta-stats]]
+[discrete]
+===== meta.stats()
+
+Get database statistics including counts of nodes and relationships.
+
+*Syntax:* `CALL meta.stats() YIELD value`
+
+*Returns:* `value` - Map containing:
+
+* `labelCount` - Number of node labels
+* `relTypeCount` - Number of relationship types
+* `nodeCount` - Total number of nodes
+* `relCount` - Total number of relationships
+* `labels` - Map of label to count
+* `relTypes` - Map of relationship type to count
+
+*APOC Compatible:* `apoc.meta.stats`
+
+[source,cypher]
+----
+CALL meta.stats() YIELD value
+RETURN value.nodeCount AS nodes, value.relCount AS relationships
+----
+
+'''
+
+[[meta-node-type-properties]]
+[discrete]
+==== Node Functions
+
+[[node-degree]]
+[discrete]
+===== node.degree()
+
+Get the total degree (in + out) of a node.
+
+*Syntax:* `node.degree(node, [relType])`
+
+*Returns:* Long - Total degree
+
+*APOC Compatible:* `apoc.node.degree`
+
+'''
+
+[[node-degree-in]]
+[discrete]
+===== node.degree.in()
+
+Get the incoming degree of a node.
+
+*Syntax:* `node.degree.in(node, [relType])`
+
+*Returns:* Long - Incoming degree
+
+*APOC Compatible:* `apoc.node.degree.in`
+
+'''
+
+[[node-degree-out]]
+[discrete]
+===== node.degree.out()
+
+Get the outgoing degree of a node.
+
+*Syntax:* `node.degree.out(node, [relType])`
+
+*Returns:* Long - Outgoing degree
+
+*APOC Compatible:* `apoc.node.degree.out`
+
+'''
+
+[[node-labels]]
+[discrete]
+===== node.id()
+
+Get the internal ID of a node.
+
+*Syntax:* `node.id(node)`
+
+*Returns:* String - Node ID (RID)
+
+*APOC Compatible:* `apoc.node.id`
+
+'''
+
+[[node-relationship-exists]]
+[discrete]
+===== node.labels()
+
+Get all labels of a node.
+
+*Syntax:* `node.labels(node)`
+
+*Returns:* List - List of labels
+
+*APOC Compatible:* `apoc.node.labels`
+
+'''
+
+[[node-id]]
+[discrete]
+===== node.relationship.exists()
+
+Check if a relationship exists from a node.
+
+*Syntax:* `node.relationship.exists(node, [relType], [direction])`
+
+*Returns:* Boolean - true if relationship exists
+
+*APOC Compatible:* `apoc.node.relationship.exists`
+
+'''
+
+[[node-relationship-types]]
+[discrete]
+===== node.relationship.types()
+
+Get all relationship types connected to a node.
+
+*Syntax:* `node.relationship.types(node, [direction])`
+
+*Returns:* List - List of relationship types
+
+*APOC Compatible:* `apoc.node.relationship.types`
+
+---
+==== Path Functions (Extended)
+
+[[path-create]]
+[discrete]
+===== path.combine()
+
+Combine two paths.
+
+*Syntax:* `path.combine(path1, path2)`
+
+*Returns:* Path - Combined path
+
+*APOC Compatible:* `apoc.path.combine`
+
+'''
+
+[[path-slice]]
+[discrete]
+===== path.create()
+
+Create a path from a list of nodes and relationships.
+
+*Syntax:* `path.create(node, [rel, node, ...])`
+
+*Returns:* Path - Created path
+
+*APOC Compatible:* `apoc.path.create`
+
+'''
+
+[[path-combine]]
+[discrete]
+===== path.elements()
+
+Get all elements (nodes and relationships) of a path.
+
+*Syntax:* `path.elements(path)`
+
+*Returns:* List - List of nodes and relationships
+
+*APOC Compatible:* `apoc.path.elements`
+
+---
+===== path.slice()
+
+Get a slice of a path.
+
+*Syntax:* `path.slice(path, start, [end])`
+
+*Returns:* Path - Sliced path
+
+*APOC Compatible:* `apoc.path.slice`
+
+'''
+
+[[path-elements]]
+[discrete]
+==== Path Expansion Procedures
+
+[[path-expand]]
+[discrete]
+===== path.expand()
+
+Expand paths from a starting node following relationship types and node labels.
+
+*Syntax:* `CALL path.expand(startNode, relTypes, labelFilter, minDepth, maxDepth) YIELD path`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| relTypes | String | Relationship types (pipe-separated, e.g., "KNOWS\|WORKS_WITH")
+| labelFilter | String | Node labels to include (pipe-separated)
+| minDepth | Integer | Minimum path length (non-negative)
+| maxDepth | Integer | Maximum path length
+|===
+
+*Returns:* `path` - Each expanded path
+
+*APOC Compatible:* `apoc.path.expand`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.expand(a, 'KNOWS|WORKS_WITH', 'Person', 1, 3) YIELD path
+RETURN path
+----
+
+'''
+
+[[path-expand-config]]
+[discrete]
+===== path.expandconfig()
+
+Expand paths using a configuration map for more control.
+
+*Syntax:* `CALL path.expandconfig(startNode, config) YIELD path`
+
+*Configuration options:*
+[%header,cols="2,2,4"]
+|===
+| Option | Type | Description
+| relationshipFilter | String/List | Relationship types
+| labelFilter | String/List | Node labels
+| minLevel | Integer | Minimum depth (default: 0)
+| maxLevel | Integer | Maximum depth (default: unlimited)
+| bfs | Boolean | Use BFS (true) or DFS (false) (default: true)
+| limit | Integer | Maximum number of paths to return
+|===
+
+*Returns:* `path` - Each expanded path
+
+*APOC Compatible:* `apoc.path.expandConfig`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.expandconfig(a, {
+  relationshipFilter: 'KNOWS|WORKS_WITH',
+  labelFilter: 'Person',
+  minLevel: 1,
+  maxLevel: 3,
+  bfs: true,
+  limit: 100
+}) YIELD path
+RETURN path
+----
+
+'''
+
+[[path-subgraph-nodes]]
+[discrete]
+===== path.spanningtree()
+
+Get a spanning tree from the start node to all reachable nodes.
+
+*Syntax:* `CALL path.spanningtree(startNode, config) YIELD path`
+
+*Returns:* `path` - Each path in the spanning tree
+
+*APOC Compatible:* `apoc.path.spanningTree`
+
+[source,cypher]
+----
+MATCH (root:Category {name: 'Root'})
+CALL path.spanningtree(root, {relationshipFilter: 'HAS_CHILD', maxLevel: 5}) YIELD path
+RETURN path
+----
+
+---
+===== path.subgraphall()
+
+Get all nodes and relationships reachable from a starting node.
+
+*Syntax:* `CALL path.subgraphall(startNode, config) YIELD nodes, relationships`
+
+*Returns:*
+
+* `nodes` - List of all reachable nodes
+* `relationships` - List of all traversed relationships
+
+*APOC Compatible:* `apoc.path.subgraphAll`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.subgraphall(a, {relationshipFilter: 'KNOWS', maxLevel: 2}) YIELD nodes, relationships
+RETURN size(nodes) AS nodeCount, size(relationships) AS relCount
+----
+
+'''
+
+[[path-spanning-tree]]
+[discrete]
+===== path.subgraphnodes()
+
+Get all nodes reachable from a starting node within configured constraints.
+
+*Syntax:* `CALL path.subgraphnodes(startNode, config) YIELD node`
+
+*Returns:* `node` - Each reachable node
+
+*APOC Compatible:* `apoc.path.subgraphNodes`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.subgraphnodes(a, {relationshipFilter: 'KNOWS', maxLevel: 3}) YIELD node
+RETURN node.name
+----
+
+'''
+
+[[path-subgraph-all]]
+[discrete]
+==== Relationship Functions
+
+[[rel-id]]
+[discrete]
+===== rel.endNode()
+
+Get the end node of a relationship.
+
+*Syntax:* `rel.endNode(relationship)`
+
+*Returns:* Node - End node
+
+*APOC Compatible:* `apoc.rel.endNode`
+
+---
+===== rel.id()
+
+Get the internal ID of a relationship.
+
+*Syntax:* `rel.id(relationship)`
+
+*Returns:* String - Relationship ID (RID)
+
+*APOC Compatible:* `apoc.rel.id`
+
+'''
+
+[[rel-type]]
+[discrete]
+===== rel.startNode()
+
+Get the start node of a relationship.
+
+*Syntax:* `rel.startNode(relationship)`
+
+*Returns:* Node - Start node
+
+*APOC Compatible:* `apoc.rel.startNode`
+
+'''
+
+[[rel-end-node]]
+[discrete]
+===== rel.type()
+
+Get the type of a relationship.
+
+*Syntax:* `rel.type(relationship)`
+
+*Returns:* String - Relationship type
+
+*APOC Compatible:* `apoc.rel.type`
+
+'''
+
+[[rel-start-node]]
+[discrete]
+==== Text Functions
+
+[[text-indexof]]
+[discrete]
+===== text.byteCount()
+
+Get the byte count of a string.
+
+*Syntax:* `text.byteCount(string)`
+
+*Returns:* Long - Number of bytes
+
+*APOC Compatible:* `apoc.text.byteCount`
+
+'''
+
+[[text-char-at]]
+[discrete]
+===== text.camelCase()
+
+Convert a string to camelCase.
+
+*Syntax:* `text.camelCase(string)`
+
+*Returns:* String - camelCase string
+
+*APOC Compatible:* `apoc.text.camelCase`
+
+[source,cypher]
+----
+RETURN text.camelCase("hello world") AS result
+// Returns: "helloWorld"
+
+RETURN text.camelCase("hello_world") AS result
+// Returns: "helloWorld"
+----
+
+'''
+
+[[text-snake-case]]
+[discrete]
+===== text.capitalize()
+
+Capitalize the first letter of a string.
+
+*Syntax:* `text.capitalize(string)`
+
+*Returns:* String - Capitalized string
+
+*APOC Compatible:* `apoc.text.capitalize`
+
+[source,cypher]
+----
+RETURN text.capitalize("hello") AS result
+// Returns: "Hello"
+----
+
+'''
+
+[[text-capitalize-all]]
+[discrete]
+===== text.capitalizeAll()
+
+Capitalize the first letter of each word.
+
+*Syntax:* `text.capitalizeAll(string)`
+
+*Returns:* String - String with all words capitalized
+
+*APOC Compatible:* `apoc.text.capitalizeAll`
+
+[source,cypher]
+----
+RETURN text.capitalizeAll("hello world") AS result
+// Returns: "Hello World"
+----
+
+'''
+
+[[text-decapitalize]]
+[discrete]
+===== text.charAt()
+
+Get the character at a specific index.
+
+*Syntax:* `text.charAt(string, index)`
+
+*Returns:* String - Character at index
+
+*APOC Compatible:* `apoc.text.charAt`
+
+'''
+
+[[text-code]]
+[discrete]
+===== text.code()
+
+Get the Unicode code point of a character.
+
+*Syntax:* `text.code(character)`
+
+*Returns:* Long - Unicode code point
+
+*APOC Compatible:* `apoc.text.code`
+
+'''
+
+[[text-levenshtein-distance]]
+[discrete]
+===== text.decapitalize()
+
+Decapitalize the first letter of a string.
+
+*Syntax:* `text.decapitalize(string)`
+
+*Returns:* String - Decapitalized string
+
+*APOC Compatible:* `apoc.text.decapitalize`
+
+'''
+
+[[text-decapitalize-all]]
+[discrete]
+===== text.decapitalizeAll()
+
+Decapitalize the first letter of each word.
+
+*Syntax:* `text.decapitalizeAll(string)`
+
+*Returns:* String - String with all words decapitalized
+
+*APOC Compatible:* `apoc.text.decapitalizeAll`
+
+'''
+
+[[text-camel-case]]
+[discrete]
+===== text.format()
+
+Format a string using printf-style formatting.
+
+*Syntax:* `text.format(format, args...)`
+
+*Returns:* String - Formatted string
+
+*APOC Compatible:* `apoc.text.format`
+
+'''
+
+[[text-slug]]
+[discrete]
+===== text.hammingDistance()
+
+Calculate the Hamming distance between two strings of equal length.
+
+*Syntax:* `text.hammingDistance(string1, string2)`
+
+*Returns:* Long - Number of positions with different characters
+
+*APOC Compatible:* `apoc.text.hammingDistance`
+
+---
+===== text.hexValue()
+
+Convert a number to its hexadecimal representation.
+
+*Syntax:* `text.hexValue(number)`
+
+*Returns:* String - Hexadecimal string
+
+*APOC Compatible:* `apoc.text.hexValue`
+
+'''
+
+[[text-byte-count]]
+[discrete]
+===== text.indexOf()
+
+Find the position of a substring within a string.
+
+*Syntax:* `text.indexOf(string, substring, [start])`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| string | String | The string to search in
+| substring | String | The substring to find
+| start | Integer | Optional - Starting position (default: 0)
+|===
+
+*Returns:* Long - Position of substring, or -1 if not found
+
+*APOC Compatible:* `apoc.text.indexOf`
+
+[source,cypher]
+----
+RETURN text.indexOf("hello world", "world") AS pos
+// Returns: 6
+
+RETURN text.indexOf("hello hello", "hello", 1) AS pos
+// Returns: 6
+----
+
+'''
+
+[[text-join]]
+[discrete]
+===== text.jaroWinklerDistance()
+
+Calculate the Jaro-Winkler distance between two strings.
+
+*Syntax:* `text.jaroWinklerDistance(string1, string2)`
+
+*Returns:* Double - Distance score
+
+*APOC Compatible:* `apoc.text.jaroWinklerDistance`
+
+'''
+
+[[text-hamming-distance]]
+[discrete]
+===== text.join()
+
+Join a list of strings with a delimiter.
+
+*Syntax:* `text.join(list, delimiter)`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | List of strings to join
+| delimiter | String | String to insert between elements
+|===
+
+*Returns:* String - Joined string
+
+*APOC Compatible:* `apoc.text.join`
+
+[source,cypher]
+----
+RETURN text.join(["a", "b", "c"], ",") AS result
+// Returns: "a,b,c"
+----
+
+'''
+
+[[text-split]]
+[discrete]
+===== text.levenshteinDistance()
+
+Calculate the Levenshtein (edit) distance between two strings.
+
+*Syntax:* `text.levenshteinDistance(string1, string2)`
+
+*Returns:* Long - Number of edits required
+
+*APOC Compatible:* `apoc.text.levenshteinDistance`
+
+[source,cypher]
+----
+RETURN text.levenshteinDistance("kitten", "sitting") AS distance
+// Returns: 3
+----
+
+'''
+
+[[text-levenshtein-similarity]]
+[discrete]
+===== text.levenshteinSimilarity()
+
+Calculate the Levenshtein similarity (0-1) between two strings.
+
+*Syntax:* `text.levenshteinSimilarity(string1, string2)`
+
+*Returns:* Double - Similarity score (0-1)
+
+*APOC Compatible:* `apoc.text.levenshteinSimilarity`
+
+[source,cypher]
+----
+RETURN text.levenshteinSimilarity("hello", "hallo") AS similarity
+// Returns: 0.8
+----
+
+'''
+
+[[text-sorensen-dice-similarity]]
+[discrete]
+===== text.lpad()
+
+Left-pad a string to a specified length.
+
+*Syntax:* `text.lpad(string, length, padChar)`
+
+*Returns:* String - Padded string
+
+*APOC Compatible:* `apoc.text.lpad`
+
+[source,cypher]
+----
+RETURN text.lpad("42", 5, "0") AS result
+// Returns: "00042"
+----
+
+'''
+
+[[text-rpad]]
+[discrete]
+===== text.random()
+
+Generate a random string.
+
+*Syntax:* `text.random(length, [chars])`
+
+*Returns:* String - Random string
+
+*APOC Compatible:* `apoc.text.random`
+
+'''
+
+[[text-hex-value]]
+[discrete]
+===== text.regexReplace()
+
+Replace all matches of a regular expression.
+
+*Syntax:* `text.regexReplace(string, regex, replacement)`
+
+*Returns:* String - String with replacements made
+
+*APOC Compatible:* `apoc.text.regexReplace`
+
+[source,cypher]
+----
+RETURN text.regexReplace("hello123world", "[0-9]+", "-") AS result
+// Returns: "hello-world"
+----
+
+'''
+
+[[text-capitalize]]
+[discrete]
+===== text.replace()
+
+Replace all occurrences of a substring.
+
+*Syntax:* `text.replace(string, search, replacement)`
+
+*Returns:* String - String with replacements made
+
+*APOC Compatible:* `apoc.text.replace`
+
+[source,cypher]
+----
+RETURN text.replace("hello world", "world", "universe") AS result
+// Returns: "hello universe"
+----
+
+'''
+
+[[text-regex-replace]]
+[discrete]
+===== text.rpad()
+
+Right-pad a string to a specified length.
+
+*Syntax:* `text.rpad(string, length, padChar)`
+
+*Returns:* String - Padded string
+
+*APOC Compatible:* `apoc.text.rpad`
+
+[source,cypher]
+----
+RETURN text.rpad("42", 5, "0") AS result
+// Returns: "42000"
+----
+
+'''
+
+[[text-format]]
+[discrete]
+===== text.slug()
+
+Create a URL-friendly slug from a string.
+
+*Syntax:* `text.slug(string, [delimiter])`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| string | String | The string to convert
+| delimiter | String | Optional - Character to use as word separator (default: "-")
+|===
+
+*Returns:* String - URL-friendly slug
+
+*APOC Compatible:* `apoc.text.slug`
+
+[source,cypher]
+----
+RETURN text.slug("Hello World!") AS result
+// Returns: "hello-world"
+
+RETURN text.slug("Hello World!", "_") AS result
+// Returns: "hello_world"
+----
+
+'''
+
+[[text-random]]
+[discrete]
+===== text.snakeCase()
+
+Convert a string to snake_case.
+
+*Syntax:* `text.snakeCase(string)`
+
+*Returns:* String - snake_case string
+
+*APOC Compatible:* `apoc.text.snakeCase`
+
+[source,cypher]
+----
+RETURN text.snakeCase("helloWorld") AS result
+// Returns: "hello_world"
+----
+
+'''
+
+[[text-upper-camel-case]]
+[discrete]
+===== text.sorensenDiceSimilarity()
+
+Calculate the Sorensen-Dice similarity between two strings.
+
+*Syntax:* `text.sorensenDiceSimilarity(string1, string2)`
+
+*Returns:* Double - Similarity score (0-1)
+
+*APOC Compatible:* `apoc.text.sorensenDiceSimilarity`
+
+'''
+
+[[text-jaro-winkler-distance]]
+[discrete]
+===== text.split()
+
+Split a string by a delimiter.
+
+*Syntax:* `text.split(string, delimiter)`
+
+*Returns:* List - List of substrings
+
+*APOC Compatible:* `apoc.text.split`
+
+[source,cypher]
+----
+RETURN text.split("a,b,c", ",") AS parts
+// Returns: ["a", "b", "c"]
+----
+
+'''
+
+[[text-replace]]
+[discrete]
+===== text.upperCamelCase()
+
+Convert a string to UpperCamelCase (PascalCase).
+
+*Syntax:* `text.upperCamelCase(string)`
+
+*Returns:* String - UpperCamelCase string
+
+*APOC Compatible:* `apoc.text.upperCamelCase`
+
+[source,cypher]
+----
+RETURN text.upperCamelCase("hello world") AS result
+// Returns: "HelloWorld"
+----
+
+'''
+
+[[text-lpad]]
+[discrete]
+==== Utility Functions
+
+[[util-md5]]
+[discrete]
+===== util.compress()
+
+Compress data using gzip or deflate.
+
+*Syntax:* `util.compress(data, [algorithm])`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| data | String | String data to compress
+| algorithm | String | Optional - "gzip" (default) or "deflate"
+|===
+
+*Returns:* String - Base64-encoded compressed data
+
+*APOC Compatible:* `apoc.util.compress`
+
+'''
+
+[[util-decompress]]
+[discrete]
+===== util.decompress()
+
+Decompress base64-encoded compressed data.
+
+*Syntax:* `util.decompress(data, [algorithm])`
+
+*Returns:* String - Decompressed string
+
+*APOC Compatible:* `apoc.util.decompress`
+
+[source,cypher]
+----
+WITH util.compress("Hello World!") AS compressed
+RETURN util.decompress(compressed) AS original
+// Returns: "Hello World!"
+----
+
+'''
+
+[[util-sleep]]
+[discrete]
+===== util.md5()
+
+Compute MD5 hash of a value.
+
+*Syntax:* `util.md5(value)`
+
+*Returns:* String - MD5 hash (32 hex characters)
+
+*APOC Compatible:* `apoc.util.md5`
+
+[source,cypher]
+----
+RETURN util.md5("hello") AS hash
+// Returns: "5d41402abc4b2a76b9719d911017c592"
+----
+
+'''
+
+[[util-sha1]]
+[discrete]
+===== util.sha1()
+
+Compute SHA-1 hash of a value.
+
+*Syntax:* `util.sha1(value)`
+
+*Returns:* String - SHA-1 hash (40 hex characters)
+
+*APOC Compatible:* `apoc.util.sha1`
+
+'''
+
+[[util-sha256]]
+[discrete]
+===== util.sha256()
+
+Compute SHA-256 hash of a value.
+
+*Syntax:* `util.sha256(value)`
+
+*Returns:* String - SHA-256 hash (64 hex characters)
+
+*APOC Compatible:* `apoc.util.sha256`
+
+[source,cypher]
+----
+RETURN util.sha256("hello") AS hash
+// Returns: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+----
+
+'''
+
+[[util-sha512]]
+[discrete]
+===== util.sha512()
+
+Compute SHA-512 hash of a value.
+
+*Syntax:* `util.sha512(value)`
+
+*Returns:* String - SHA-512 hash (128 hex characters)
+
+*APOC Compatible:* `apoc.util.sha512`
+
+'''
+
+[[util-compress]]
+[discrete]
+===== util.sleep()
+
+Pause execution for a specified time.
+
+*Syntax:* `util.sleep(milliseconds)`
+
+*Returns:* Boolean - true after sleep
+
+*APOC Compatible:* `apoc.util.sleep`
+
+'''
+
+[[util-validate]]
+[discrete]
+===== util.validate()
+
+Validate a condition and throw an error if false.
+
+*Syntax:* `util.validate(predicate, message)`
+
+*Returns:* Boolean - true if validation passes
+
+*APOC Compatible:* `apoc.util.validate`
+
+[source,cypher]
+----
+RETURN util.validate(1 > 0, "Value must be positive") AS valid
+// Returns: true
+
+RETURN util.validate(false, "This will throw!") AS valid
+// Throws: IllegalArgumentException with message "This will throw!"
+----
+
+---
+==== Vector Functions
+
+Vector functions provide comprehensive operations for vector embeddings, similarity search, and machine learning workflows. These functions are available in both SQL and Cypher queries.
+
+NOTE: Vector functions are also available with the legacy `vectorXXX()` naming convention for backward compatibility. Both `vector.dimension()` and `vectorDimension()` work identically.
+
+[discrete]
+===== Aggregation Functions
+
+[[vector-sum-ext]]
+[discrete]
+====== vector.sum()
+
+Aggregate function: element-wise sum of vectors.
+
+*Syntax:* `vector.sum(<field>)`
+
+*Returns:* Vector - Sum of all vectors
+
+[source,sql]
+----
+SELECT vector.sum(embedding) FROM documents
+----
+
+'''
+
+[[vector-avg-ext]]
+[discrete]
+====== vector.avg()
+
+Aggregate function: element-wise average of vectors.
+
+*Syntax:* `vector.avg(<field>)`
+
+*Returns:* Vector - Average vector
+
+[source,sql]
+----
+SELECT vector.avg(embedding) FROM documents
+----
+
+'''
+
+[[vector-min-ext]]
+[discrete]
+====== vector.min()
+
+Aggregate function: element-wise minimum of vectors.
+
+*Syntax:* `vector.min(<field>)`
+
+*Returns:* Vector - Minimum vector
+
+[source,sql]
+----
+SELECT vector.min(embedding) FROM documents
+----
+
+'''
+
+[[vector-max-ext]]
+[discrete]
+====== vector.max()
+
+Aggregate function: element-wise maximum of vectors.
+
+*Syntax:* `vector.max(<field>)`
+
+*Returns:* Vector - Maximum vector
+
+[source,sql]
+----
+SELECT vector.max(embedding) FROM documents
+----
+
+'''
+
+[discrete]
+===== Basic Operations
+
+[[vector-dimension-ext]]
+[discrete]
+====== vector.dimension()
+
+Returns the dimension of a vector (length of the underlying array).
+
+*Syntax:* `vector.dimension(<vector>)`
+
+*Returns:* Integer - Vector dimension
+
+[source,sql]
+----
+SELECT vector.dimension([1.0, 2.0, 3.0])
+-- Returns: 3
+----
+
+[source,cypher]
+----
+RETURN vector.dimension([1.0, 2.0, 3.0]) AS dim
+----
+
+'''
+
+[[vector-add-ext]]
+[discrete]
+====== vector.add()
+
+Returns element-wise sum of two vectors.
+
+*Syntax:* `vector.add(<vector1>, <vector2>)`
+
+*Returns:* Vector - Sum vector
+
+[source,sql]
+----
+SELECT vector.add([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
+-- Returns: [3.0, 5.0, 7.0]
+----
+
+'''
+
+[[vector-subtract-ext]]
+[discrete]
+====== vector.subtract()
+
+Returns element-wise difference of two vectors.
+
+*Syntax:* `vector.subtract(<vector1>, <vector2>)`
+
+*Returns:* Vector - Difference vector
+
+[source,sql]
+----
+SELECT vector.subtract([3.0, 5.0, 7.0], [1.0, 2.0, 3.0])
+-- Returns: [2.0, 3.0, 4.0]
+----
+
+'''
+
+[[vector-scale-ext]]
+[discrete]
+====== vector.scale()
+
+Scales vector element-wise by a scalar value.
+
+*Syntax:* `vector.scale(<vector>, <scalar>)`
+
+*Returns:* Vector - Scaled vector
+
+[source,sql]
+----
+SELECT vector.scale([1.0, 2.0, 3.0], 2.0)
+-- Returns: [2.0, 4.0, 6.0]
+----
+
+'''
+
+[[vector-clip-ext]]
+[discrete]
+====== vector.clip()
+
+Clips vector elements to a specified range [min, max].
+
+*Syntax:* `vector.clip(<vector>, <min>, <max>)`
+
+*Returns:* Vector - Clipped vector
+
+[source,sql]
+----
+SELECT vector.clip([1.0, 5.0, 10.0], 2.0, 8.0)
+-- Returns: [2.0, 5.0, 8.0]
+----
+
+'''
+
+[discrete]
+===== Nearest Neighbor Search
+
+[[vector-neighbors-ext]]
+[discrete]
+====== vector.neighbors()
+
+Returns k nearest neighbors from a vector index.
+
+*Syntax:* `vector.neighbors(<index-spec>, <query-vector>, <k>)`
+
+*Parameters:*
+
+* `index-spec` - Index specification as `'TypeName[propertyName]'`
+* `query-vector` - Query vector or key to look up
+* `k` - Number of neighbors to return
+
+*Returns:* List - Nearest neighbors with distances
+
+[source,sql]
+----
+SELECT vector.neighbors('Document[embedding]', [0.1, 0.2, 0.3], 5)
+----
+
+[source,cypher]
+----
+MATCH (d:Document)
+WITH d, vector.neighbors('Document[embedding]', d.embedding, 10) AS neighbors
+RETURN d.title, neighbors
+----
+
+*Type-Specific Search with Inheritance:*
+
+When a vector index exists on a parent type, you can search specific child types:
+
+[source,sql]
+----
+-- Search only in EMBEDDING_IMAGE records
+SELECT vector.neighbors('EMBEDDING_IMAGE[vector]', $queryVector, 10)
+
+-- Search across all types (parent + children)
+SELECT vector.neighbors('EMBEDDING[vector]', $queryVector, 10)
+----
+
+---
+===== Normalization and Norms
+
+[[vector-normalize-ext]]
+[discrete]
+====== vector.normalize()
+
+Normalizes vector to unit length (L2 norm = 1.0).
+
+*Syntax:* `vector.normalize(<vector>)`
+
+*Returns:* Vector - Normalized vector
+
+[source,sql]
+----
+SELECT vector.normalize([3.0, 4.0])
+-- Returns: [0.6, 0.8]
+----
+
+'''
+
+[[vector-is-normalized-ext]]
+[discrete]
+====== vector.isnormalized()
+
+Checks if vector is normalized (L2 norm ≈ 1.0).
+
+*Syntax:* `vector.isnormalized(<vector>, [tolerance])`
+
+*Returns:* Boolean - true if normalized
+
+[source,sql]
+----
+SELECT vector.isnormalized([0.6, 0.8])
+-- Returns: true
+----
+
+'''
+
+[[vector-magnitude-ext]]
+[discrete]
+====== vector.magnitude()
+
+Computes L2 norm (Euclidean length) of vector.
+
+*Syntax:* `vector.magnitude(<vector>)`
+
+*Returns:* Double - L2 norm
+
+[source,sql]
+----
+SELECT vector.magnitude([3.0, 4.0])
+-- Returns: 5.0
+----
+
+'''
+
+[[vector-l1norm-ext]]
+[discrete]
+====== vector.l1norm()
+
+Computes L1 norm (Manhattan norm) of vector.
+
+*Syntax:* `vector.l1norm(<vector>)`
+
+*Returns:* Double - L1 norm
+
+[source,sql]
+----
+SELECT vector.l1norm([1.0, 2.0, 3.0])
+-- Returns: 6.0
+----
+
+'''
+
+[[vector-linfnorm-ext]]
+[discrete]
+====== vector.linfnorm()
+
+Computes L∞ norm (maximum absolute value) of vector.
+
+*Syntax:* `vector.linfnorm(<vector>)`
+
+*Returns:* Double - L∞ norm
+
+[source,sql]
+----
+SELECT vector.linfnorm([1.0, -5.0, 3.0])
+-- Returns: 5.0
+----
+
+'''
+
+[discrete]
+===== Quantization
+
+[[vector-quantizeint8-ext]]
+[discrete]
+====== vector.quantizeint8()
+
+Quantizes vector to 8-bit integers using min-max scaling.
+
+*Syntax:* `vector.quantizeint8(<vector>)`
+
+*Returns:* ByteArray - Quantized vector
+
+[source,sql]
+----
+SELECT vector.quantizeint8([0.1, 0.5, 0.9])
+----
+
+'''
+
+[[vector-dequantizeint8-ext]]
+[discrete]
+====== vector.dequantizeint8()
+
+Dequantizes 8-bit integers back to float vector (approximate recovery).
+
+*Syntax:* `vector.dequantizeint8(<quantized>, <min>, <max>)`
+
+*Returns:* Vector - Dequantized vector
+
+[source,sql]
+----
+SELECT vector.dequantizeint8(vector.quantizeint8([1.0, 2.0, 3.0]), 1.0, 3.0)
+----
+
+'''
+
+[[vector-quantizebinary-ext]]
+[discrete]
+====== vector.quantizebinary()
+
+Quantizes vector to binary (1 bit per dimension) using median threshold.
+
+*Syntax:* `vector.quantizebinary(<vector>)`
+
+*Returns:* ByteArray - Binary quantized vector
+
+[source,sql]
+----
+SELECT vector.quantizebinary([0.1, 0.5, 0.9])
+----
+
+'''
+
+[discrete]
+===== Scoring and Fusion
+
+[[vector-hybridscore-ext]]
+[discrete]
+====== vector.hybridscore()
+
+Computes weighted average of two scores.
+
+*Syntax:* `vector.hybridscore(<score1>, <score2>, <alpha>)`
+
+*Returns:* Double - Weighted average
+
+[source,sql]
+----
+SELECT vector.hybridscore(0.8, 0.6, 0.7)
+-- Returns: 0.7 * 0.8 + 0.3 * 0.6 = 0.74
+----
+
+'''
+
+[[vector-multiscore-ext]]
+[discrete]
+====== vector.multiscore()
+
+Combines multiple scores using a fusion method.
+
+*Syntax:* `vector.multiscore(<scores>, <method>, [weights])`
+
+*Methods:*
+
+* `'MAX'` - Maximum score (ColBERT style)
+* `'AVG'` - Arithmetic average
+* `'MIN'` - Minimum score
+* `'WEIGHTED'` - Weighted average (requires weights)
+
+*Returns:* Double - Combined score
+
+[source,sql]
+----
+SELECT vector.multiscore([0.9, 0.7, 0.8], 'MAX')
+-- Returns: 0.9
+----
+
+'''
+
+[[vector-rrfscore-ext]]
+[discrete]
+====== vector.rrfscore()
+
+Computes Reciprocal Rank Fusion (RRF) for combining multiple rankings.
+
+*Syntax:* `vector.rrfscore(<rank1>, <rank2>, ..., [k])`
+
+*Parameters:*
+
+* `k` - Center rank constant (default: 60)
+
+*Returns:* Double - RRF score
+
+[source,sql]
+----
+SELECT vector.rrfscore(1, 2, 4, 60)
+----
+
+'''
+
+[[vector-normalizescores-ext]]
+[discrete]
+====== vector.normalizescores()
+
+Normalizes scores to [0, 1] range using min-max normalization.
+
+*Syntax:* `vector.normalizescores(<scores>)`
+
+*Returns:* Vector - Normalized scores
+
+[source,sql]
+----
+SELECT vector.normalizescores([1.0, 2.0, 3.0])
+-- Returns: [0.0, 0.5, 1.0]
+----
+
+'''
+
+[[vector-scoretransform-ext]]
+[discrete]
+====== vector.scoretransform()
+
+Transforms scores using various functions.
+
+*Syntax:* `vector.scoretransform(<score>, <method>)`
+
+*Methods:*
+
+* `'LINEAR'` - No transformation
+* `'SIGMOID'` - Logistic function
+* `'LOG'` - Natural logarithm
+* `'EXP'` - Exponential function
+
+*Returns:* Double - Transformed score
+
+[source,sql]
+----
+SELECT vector.scoretransform(0.5, 'SIGMOID')
+----
+
+'''
+
+[discrete]
+===== Similarity and Distance
+
+[[vector-dotproduct-ext]]
+[discrete]
+====== vector.dotproduct()
+
+Computes dot product (inner product) between two vectors.
+
+*Syntax:* `vector.dotproduct(<vector1>, <vector2>)`
+
+*Returns:* Double - Dot product
+
+[source,sql]
+----
+SELECT vector.dotproduct([1.0, 2.0, 3.0], [4.0, 5.0, 6.0])
+-- Returns: 32.0
+----
+
+'''
+
+[[vector-cosinesimilarity-ext]]
+[discrete]
+====== vector.cosinesimilarity()
+
+Computes cosine similarity between two vectors. Returns value between -1 and 1.
+
+*Syntax:* `vector.cosinesimilarity(<vector1>, <vector2>)`
+
+*Returns:* Double - Cosine similarity (-1 to 1)
+
+[source,sql]
+----
+SELECT vector.cosinesimilarity([1.0, 0.0], [1.0, 0.0])
+-- Returns: 1.0 (identical direction)
+
+SELECT vector.cosinesimilarity([1.0, 0.0], [0.0, 1.0])
+-- Returns: 0.0 (orthogonal)
+----
+
+'''
+
+[[vector-l2distance-ext]]
+[discrete]
+====== vector.l2distance()
+
+Computes L2 distance (Euclidean distance) between two vectors.
+
+*Syntax:* `vector.l2distance(<vector1>, <vector2>)`
+
+*Returns:* Double - Euclidean distance
+
+[source,sql]
+----
+SELECT vector.l2distance([0.0, 0.0], [3.0, 4.0])
+-- Returns: 5.0
+----
+
+'''
+
+[[vector-approxdistance-ext]]
+[discrete]
+====== vector.approxdistance()
+
+Computes approximate distance between quantized vectors without full dequantization.
+
+*Syntax:* `vector.approxdistance(<quantized1>, <quantized2>, <mode>)`
+
+*Modes:*
+
+* `'INT8'` - Faster than floats, preserves ranking order
+* `'BINARY'` - Very fast Hamming distance, 8x fewer operations
+
+*Returns:* Double - Approximate distance
+
+[source,sql]
+----
+SELECT vector.approxdistance(
+  vector.quantizeint8([1.0, 2.0, 3.0]),
+  vector.quantizeint8([1.0, 3.0, 3.0]),
+  'INT8'
+)
+----
+
+'''
+
+[discrete]
+===== Sparse Vectors
+
+[[vector-densetosparse-ext]]
+[discrete]
+====== vector.densetosparse()
+
+Converts dense vector to sparse representation.
+
+*Syntax:* `vector.densetosparse(<vector>, [threshold])`
+
+*Parameters:*
+
+* `threshold` - Values below this are considered zero (default: 0.0)
+
+*Returns:* SparseVector - Sparse representation
+
+[source,sql]
+----
+SELECT vector.densetosparse([0.5, 0.0, 0.1], 0.2)
+-- Only keeps elements >= 0.2
+----
+
+'''
+
+[[vector-sparsetodense-ext]]
+[discrete]
+====== vector.sparsetodense()
+
+Converts sparse vector back to dense representation.
+
+*Syntax:* `vector.sparsetodense(<sparsevector>)`
+
+*Returns:* Vector - Dense vector
+
+[source,sql]
+----
+SELECT vector.sparsetodense(vector.sparsecreate([0, 2], [0.5, 0.3]))
+----
+
+'''
+
+[[vector-sparsecreate-ext]]
+[discrete]
+====== vector.sparsecreate()
+
+Creates sparse vector from indices and values.
+
+*Syntax:* `vector.sparsecreate(<indices>, <values>, [dimension])`
+
+*Returns:* SparseVector - Sparse vector
+
+[source,sql]
+----
+SELECT vector.sparsecreate([0, 2, 5], [0.5, 0.3, 0.8], 7)
+----
+
+'''
+
+[[vector-sparsedot-ext]]
+[discrete]
+====== vector.sparsedot()
+
+Computes dot product between two sparse vectors.
+
+*Syntax:* `vector.sparsedot(<sparse1>, <sparse2>)`
+
+*Returns:* Double - Dot product
+
+[source,sql]
+----
+SELECT vector.sparsedot(
+  vector.densetosparse([1.0, 2.0, 3.0]),
+  vector.densetosparse([1.0, 1.0, 1.0])
+)
+----
+
+'''
+
+[[vector-sparsity-ext]]
+[discrete]
+====== vector.sparsity()
+
+Returns fraction of elements below a threshold.
+
+*Syntax:* `vector.sparsity(<vector>, <threshold>)`
+
+*Returns:* Double - Sparsity ratio (0 to 1)
+
+[source,sql]
+----
+SELECT vector.sparsity([0.01, 0.1, 0.05, 0.02], 0.06)
+-- Returns: 0.75 (3 of 4 elements are below 0.06)
+----
+
+'''
+
+[discrete]
+===== Statistics
+
+[[vector-variance-ext]]
+[discrete]
+====== vector.variance()
+
+Computes variance of vector elements.
+
+*Syntax:* `vector.variance(<vector>)`
+
+*Returns:* Double - Variance
+
+[source,sql]
+----
+SELECT vector.variance([1.0, 2.0, 3.0])
+----
+
+'''
+
+[[vector-stddev-ext]]
+[discrete]
+====== vector.stddev()
+
+Computes standard deviation of vector elements.
+
+*Syntax:* `vector.stddev(<vector>)`
+
+*Returns:* Double - Standard deviation
+
+[source,sql]
+----
+SELECT vector.stddev([1.0, 2.0, 3.0])
+----
+
+'''
+
+[[vector-hasnan-ext]]
+[discrete]
+====== vector.hasnan()
+
+Checks if vector contains NaN values.
+
+*Syntax:* `vector.hasnan(<vector>)`
+
+*Returns:* Boolean - true if contains NaN
+
+[source,sql]
+----
+SELECT vector.hasnan([1.0, 2.0, 3.0])
+-- Returns: false
+----
+
+'''
+
+[[vector-hasinf-ext]]
+[discrete]
+====== vector.hasinf()
+
+Checks if vector contains infinity values.
+
+*Syntax:* `vector.hasinf(<vector>)`
+
+*Returns:* Boolean - true if contains infinity
+
+[source,sql]
+----
+SELECT vector.hasinf([1.0, 10e400, 2.0])
+-- Returns: true
+----
+
+'''
+
+[discrete]
+===== Utility Functions
+
+[[vector-tostring-ext]]
+[discrete]
+====== vector.tostring()
+
+Converts vector to string representation.
+
+*Syntax:* `vector.tostring(<vector>, [format])`
+
+*Formats:*
+
+* `'COMPACT'` - Single line `[1.0, 2.0, 3.0]` (default)
+* `'PRETTY'` - Multi-line with formatting
+* `'PYTHON'` - Python list format
+* `'MATLAB'` - MATLAB format
+
+*Returns:* String - Formatted vector
+
+[source,sql]
+----
+SELECT vector.tostring([0.5, 0.25, 0.75], 'PYTHON')
+----
+
+'''
+
+[discrete]
+==== Migration Guide
+
+[discrete]
+===== Converting APOC Queries to ArcadeDB
+
+*Good news: In most cases, no changes are required!*
+
+ArcadeDB automatically supports the `apoc.` prefix, so your existing Neo4j/APOC queries will work without modification:
+
+[source,cypher]
+----
+-- This Neo4j/APOC query works directly in ArcadeDB
+RETURN apoc.text.join(["a", "b"], ",")
+
+-- This procedure call also works directly
+CALL apoc.merge.relationship(a, "KNOWS", {}, {}, b) YIELD rel
+----
+
+[discrete]
+===== Optional: Removing the APOC Prefix
+
+If you prefer to use the cleaner ArcadeDB-native syntax, you can optionally remove the `apoc.` prefix:
+
+1. *Functions* - Remove the `apoc.` prefix
++
+[source,cypher]
+----
+-- Neo4j/APOC style (works in ArcadeDB)
+RETURN apoc.text.join(["a", "b"], ",")
+
+-- ArcadeDB native style (also works)
+RETURN text.join(["a", "b"], ",")
+----
+
+2. *Procedures* - Remove the `apoc.` prefix
++
+[source,cypher]
+----
+-- Neo4j/APOC style (works in ArcadeDB)
+CALL apoc.merge.relationship(a, "KNOWS", {}, {}, b) YIELD rel
+
+-- ArcadeDB native style (also works)
+CALL merge.relationship(a, "KNOWS", {}, {}, b) YIELD rel
+----
+
+3. *Function signatures are 100% compatible* - Parameters are in the same order with the same semantics
+
+[discrete]
+===== Unsupported APOC Functions
+
+Some APOC procedures are not yet implemented in ArcadeDB:
+
+* Periodic/batch operations (`apoc.periodic.*`) - Use ArcadeDB's transaction API
+* Schema modification operations (`apoc.schema.*`) - Use ArcadeDB's Schema API
+* Refactoring procedures (`apoc.refactor.*`) - Use ArcadeDB's native capabilities
+* Export/import procedures (`apoc.export.*`, `apoc.import.*`) - Use ArcadeDB's native import/export
+

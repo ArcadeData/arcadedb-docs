@@ -13,6 +13,9 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<http-servercommand,Send server command>>       | POST     | `/api/v1/server`
 | <<http-listdatabases,List databases>>            | GET      | `/api/v1/databases`
 | <<http-databaseexists,Does database exist>>      | GET      | `/api/v1/exists/{database}`
+| <<http-login,Login (get auth token)>>            | POST     | `/api/v1/login`
+| <<http-logout,Logout (invalidate token)>>        | POST     | `/api/v1/logout`
+| <<http-sessions,List active sessions>>           | GET      | `/api/v1/sessions`
 | <<http-executequery,Execute a query>>            | GET      | `/api/v1/query/{database}/{language}/{query}`
 | <<http-executequery,Execute a query>>            | POST     | `/api/v1/query/{database}`
 | <<http-executecommand,Execute database command>> | POST     | `/api/v1/command/{database}`
@@ -32,6 +35,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | limit         | Optional | maximum number of results
 | params        | Optional | map of parameters
 | serializer    | Optional | "graph", "record", "studio"
+| autoCommit    | Optional | Boolean. `true` to force atomic transaction, `false` to disable, omit for automatic behavior
 |===
 
 [discrete]
@@ -48,6 +52,52 @@ In the examples below we're going to always use "root" user with password "arcad
 NOTE: Under Windows (Powershell) single and double quotes inside a single or double quoted string need to be replaced with their Unicode entity representations `\u0022` (double quote) and
 `\u0027` (single quote).
 This is for example the case in the data argument (`-d`) of POST requests.
+
+[discrete]
+[[token-authentication]]
+==== Token-Based Authentication
+
+[IMPORTANT]
+====
+Available since version 26.2.1.
+====
+
+In addition to HTTP Basic Authentication, ArcadeDB supports token-based authentication.
+This allows you to login once with credentials and receive a token that can be used for subsequent requests, avoiding the need to send username and password with every request.
+
+This is particularly useful when:
+
+* Building applications that make multiple API calls
+* You want to avoid storing credentials in your application
+* You need to manage user sessions with explicit logout capability
+
+*Authentication Flow:*
+
+1. Call <<http-login,`POST /api/v1/login`>> with Basic Auth credentials to obtain a token
+2. Use the token in subsequent requests via `Authorization: Bearer <token>` header
+3. Call <<http-logout,`POST /api/v1/logout`>> to invalidate the token when done
+
+Example workflow:
+
+[source,shell]
+----
+# 1. Login and get a token
+$ curl -X POST http://localhost:2480/api/v1/login \
+       --user root:arcadedb-password
+
+# Response: {"token":"AU-2af64e60-8455-423a-bc64-ed0e19729f04","user":"root"}
+
+# 2. Use the token for subsequent requests
+$ curl http://localhost:2480/api/v1/query/mydb/sql/select%201 \
+       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+
+# 3. Logout when done
+$ curl -X POST http://localhost:2480/api/v1/logout \
+       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+----
+
+Authentication tokens expire after a configurable period of inactivity (default is 30 minutes).
+See <<settings-sql,`server.httpAuthSessionExpireTimeout`>> to configure this timeout.
 
 [discrete]
 ==== Server-Side Transactions
@@ -608,6 +658,129 @@ Return:
 ----
 
 [discrete]
+[[http-login]]
+===== Login - Get Authentication Token (POST)
+
+[IMPORTANT]
+====
+Available since version 26.2.1.
+====
+
+Authenticates a user and returns an authentication token that can be used for subsequent requests instead of sending credentials each time.
+See <<token-authentication,Token-Based Authentication>> for more details.
+
+URL Syntax: `/api/v1/login`
+
+This endpoint requires HTTP Basic Authentication with valid credentials.
+On successful authentication, it returns a JSON response containing the authentication token.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK - returns token and username
+* https://httpstatuses.io/403[`403`] invalid credentials
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/login \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"token": "AU-2af64e60-8455-423a-bc64-ed0e19729f04", "user": "root"}
+----
+
+The returned token can be used in subsequent requests via the `Authorization: Bearer` header:
+
+[source,shell]
+----
+$ curl http://localhost:2480/api/v1/databases \
+       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+----
+
+[discrete]
+[[http-logout]]
+===== Logout - Invalidate Authentication Token (POST)
+
+[IMPORTANT]
+====
+Available since version 26.2.1.
+====
+
+Invalidates an authentication token so it can no longer be used for requests.
+The token must be provided via the `Authorization: Bearer` header.
+
+URL Syntax: `/api/v1/logout`
+
+Responses:
+
+* https://httpstatuses.io/204[`204`] OK - token invalidated (or was already invalid)
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/logout \
+       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+----
+
+After logout, any attempt to use the invalidated token will result in a `401 Unauthorized` response.
+
+[discrete]
+[[http-sessions]]
+===== List Active Authentication Sessions (GET)
+
+[IMPORTANT]
+====
+Available since version 26.2.1.
+====
+
+Returns a list of all active authentication sessions.
+This endpoint is restricted to *root* users only for security reasons.
+
+URL Syntax: `/api/v1/sessions`
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK - returns list of active sessions
+* https://httpstatuses.io/403[`403`] forbidden (non-root user)
+
+Example:
+
+[source,shell]
+----
+$ curl http://localhost:2480/api/v1/sessions \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{
+  "result": [
+    {
+      "token": "AU-2af64e60-8455-423a-bc64-ed0e19729f04",
+      "user": "root",
+      "elapsedMs": 12345
+    },
+    {
+      "token": "AU-6fa459ea-ee8a-3ca4-894e-db77e160355e",
+      "user": "admin",
+      "elapsedMs": 5678
+    }
+  ],
+  "count": 2
+}
+----
+
+The `elapsedMs` field indicates how many milliseconds have passed since the last request using that token.
+
+[discrete]
 [[http-executequery]]
 ===== Execute a query (GET|POST)
 
@@ -662,6 +835,23 @@ $ curl -X POST http://localhost:2480/api/v1/query/school \
        --user root:arcadedb-password
 ----
 
+The POST variant accepts additional parameters in the JSON body:
+
+- `autoCommit` (optional) controls transaction behavior (same as in <<http-executecommand,Execute database command>>):
+** `true`: Forces the query to execute within an atomic transaction
+** `false`: Disables transaction wrapping (query executes directly)
+** not specified: Uses automatic behavior (no transaction for read-only queries)
+
+Example of forcing a transaction for a query to ensure consistent reads:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/query/mydb \
+       -d '{"language": "sql", "command": "SELECT FROM Account WHERE balance > 1000", "autoCommit": true}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
 [discrete]
 [[http-command]]
 [[http-executecommand]]
@@ -694,6 +884,11 @@ The completion of the command is noted in the log, yet no results of the command
 - `limit` (optional) is the maximum number of results to return
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`.
 - `retries` (optional), is the number of times the command (transaction) is retried.
+- `autoCommit` (optional) controls transaction behavior:
+** `true`: Forces the command to execute within an atomic transaction that auto-commits on success
+** `false`: Disables automatic transaction wrapping (command executes directly without transaction)
+** not specified (default): Uses automatic behavior (commands are wrapped in atomic transactions unless a session is active)
+** NOTE: This parameter is ignored when using session-based transactions (see <<http-begin,Begin a transaction>>). If you provide `autoCommit: true` with an active session, a warning will be logged and the session transaction will be used instead.
 - `serializer` (optional) specify the serializer used for the result:
 ** `graph`: returns a graph separating vertices from edges
 ** `record`: returns everything as records
@@ -715,6 +910,26 @@ Example of insertion of a new Client by using parameters:
 ----
 $ curl -X POST http://localhost:2480/api/v1/command/company \
        -d '{"language": "sql", "command": "create vertex Client set firstName = :firstName, lastName =  :lastName", params: {"firstName": "Jay", "lastName": "Miner"}}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Example of forcing an atomic transaction with `autoCommit`:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/mydb \
+       -d '{"language": "sql", "command": "INSERT INTO Account SET balance = 1000", "autoCommit": true}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Example of disabling automatic transaction wrapping:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/mydb \
+       -d '{"language": "sql", "command": "SELECT FROM Account LIMIT 1", "autoCommit": false}' \
        -H "Content-Type: application/json" \
        --user root:arcadedb-password
 ----
