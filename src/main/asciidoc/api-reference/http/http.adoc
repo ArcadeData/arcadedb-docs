@@ -35,6 +35,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | limit         | Optional | maximum number of results
 | params        | Optional | map of parameters
 | serializer    | Optional | "graph", "record", "studio"
+| autoCommit    | Optional | Boolean. `true` to force atomic transaction, `false` to disable, omit for automatic behavior
 |===
 
 [discrete]
@@ -834,6 +835,23 @@ $ curl -X POST http://localhost:2480/api/v1/query/school \
        --user root:arcadedb-password
 ----
 
+The POST variant accepts additional parameters in the JSON body:
+
+- `autoCommit` (optional) controls transaction behavior (same as in <<http-executecommand,Execute database command>>):
+** `true`: Forces the query to execute within an atomic transaction
+** `false`: Disables transaction wrapping (query executes directly)
+** not specified: Uses automatic behavior (no transaction for read-only queries)
+
+Example of forcing a transaction for a query to ensure consistent reads:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/query/mydb \
+       -d '{"language": "sql", "command": "SELECT FROM Account WHERE balance > 1000", "autoCommit": true}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
 [discrete]
 [[http-command]]
 [[http-executecommand]]
@@ -866,6 +884,11 @@ The completion of the command is noted in the log, yet no results of the command
 - `limit` (optional) is the maximum number of results to return
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`.
 - `retries` (optional), is the number of times the command (transaction) is retried.
+- `autoCommit` (optional) controls transaction behavior:
+** `true`: Forces the command to execute within an atomic transaction that auto-commits on success
+** `false`: Disables automatic transaction wrapping (command executes directly without transaction)
+** not specified (default): Uses automatic behavior (commands are wrapped in atomic transactions unless a session is active)
+** NOTE: This parameter is ignored when using session-based transactions (see <<http-begin,Begin a transaction>>). If you provide `autoCommit: true` with an active session, a warning will be logged and the session transaction will be used instead.
 - `serializer` (optional) specify the serializer used for the result:
 ** `graph`: returns a graph separating vertices from edges
 ** `record`: returns everything as records
@@ -887,6 +910,26 @@ Example of insertion of a new Client by using parameters:
 ----
 $ curl -X POST http://localhost:2480/api/v1/command/company \
        -d '{"language": "sql", "command": "create vertex Client set firstName = :firstName, lastName =  :lastName", params: {"firstName": "Jay", "lastName": "Miner"}}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Example of forcing an atomic transaction with `autoCommit`:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/mydb \
+       -d '{"language": "sql", "command": "INSERT INTO Account SET balance = 1000", "autoCommit": true}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Example of disabling automatic transaction wrapping:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/mydb \
+       -d '{"language": "sql", "command": "SELECT FROM Account LIMIT 1", "autoCommit": false}' \
        -H "Content-Type: application/json" \
        --user root:arcadedb-password
 ----
