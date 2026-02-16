@@ -888,6 +888,29 @@ RETURN a, b, sum
 
 Subqueries allow you to isolate complex query logic, perform computations on imported variables, and return results back to the outer query.
 
+*Subqueries IN TRANSACTIONS:*
+
+When importing large datasets (e.g., from LOAD CSV), you can use `CALL { ... } IN TRANSACTIONS` to commit changes in batches rather than accumulating all changes in a single transaction. This prevents running out of memory and allows progress to be committed incrementally.
+
+[source,cypher]
+----
+// Commit every 1000 rows (default batch size)
+LOAD CSV WITH HEADERS FROM 'file:///data.csv' AS row
+CALL {
+  WITH row
+  CREATE (n:Person {name: row.name, age: toInteger(row.age)})
+} IN TRANSACTIONS
+
+// Custom batch size
+LOAD CSV WITH HEADERS FROM 'file:///data.csv' AS row
+CALL {
+  WITH row
+  CREATE (n:Person {name: row.name})
+} IN TRANSACTIONS OF 500 ROWS
+----
+
+NOTE: `IN TRANSACTIONS` should not be used inside an already open explicit transaction. The subquery manages its own transaction boundaries.
+
 ---
 
 [[cypher-foreach]]
@@ -948,4 +971,119 @@ RETURN root.name AS name
 * FOREACH does not modify the result set - it passes input rows through unchanged
 * Variables defined inside FOREACH are not visible outside the clause
 * FOREACH is useful for batch operations and creating multiple elements from lists
+
+---
+
+[[cypher-load-csv]]
+[discrete]
+==== LOAD CSV
+
+The `LOAD CSV` clause reads data from a CSV file (local or remote) and makes each row available as a variable for further query processing. This is the primary mechanism for bulk-importing data into ArcadeDB from CSV files.
+
+*Syntax:*
+
+[source,cypher]
+----
+LOAD CSV FROM <url> AS <variable>
+LOAD CSV WITH HEADERS FROM <url> AS <variable>
+LOAD CSV WITH HEADERS FROM <url> AS <variable> FIELDTERMINATOR <delimiter>
+----
+
+* **Without `WITH HEADERS`**: Each row is bound as a list of strings. Access fields by index: `row[0]`, `row[1]`, etc.
+* **With `WITH HEADERS`**: The first row is treated as column names. Each subsequent row is bound as a map. Access fields by name: `row.name`, `row['age']`, etc.
+* **FIELDTERMINATOR**: Specify a custom field delimiter (default is `,`). Example: `FIELDTERMINATOR ';'` for semicolon-separated files.
+
+*Basic Examples:*
+
+[source,cypher]
+----
+// Load CSV without headers (list access)
+LOAD CSV FROM 'file:///people.csv' AS row
+CREATE (:Person {name: row[0], age: toInteger(row[1])})
+
+// Load CSV with headers (map access)
+LOAD CSV WITH HEADERS FROM 'file:///people.csv' AS row
+CREATE (:Person {name: row.name, age: toInteger(row.age)})
+
+// Custom field delimiter
+LOAD CSV WITH HEADERS FROM 'file:///data.tsv' AS row FIELDTERMINATOR '\t'
+RETURN row.name, row.value
+
+// Load from HTTP URL
+LOAD CSV WITH HEADERS FROM 'https://example.com/data.csv' AS row
+CREATE (:Item {id: row.id, label: row.label})
+----
+
+*Bulk Import with CALL IN TRANSACTIONS:*
+
+For large files, combine `LOAD CSV` with `CALL { ... } IN TRANSACTIONS` to commit in batches and avoid memory issues:
+
+[source,cypher]
+----
+LOAD CSV WITH HEADERS FROM 'file:///large-dataset.csv' AS row
+CALL {
+  WITH row
+  CREATE (p:Person {name: row.name, email: row.email})
+} IN TRANSACTIONS OF 1000 ROWS
+----
+
+*Compressed Files:*
+
+LOAD CSV transparently decompresses `.gz` (gzip) and `.zip` files:
+
+[source,cypher]
+----
+// Gzip compressed
+LOAD CSV WITH HEADERS FROM 'file:///data.csv.gz' AS row
+RETURN row.name
+
+// ZIP compressed (reads the first entry in the archive)
+LOAD CSV WITH HEADERS FROM 'file:///data.csv.zip' AS row
+RETURN row.name
+----
+
+*CSV Quoting:*
+
+Quoted fields follow RFC 4180 and also support backslash escaping:
+
+* Fields containing the delimiter, newlines, or quotes must be enclosed in double quotes
+* Embedded quotes can be escaped as `""` (RFC 4180) or `\"` (backslash escaping)
+* Quoted fields can span multiple lines
+
+*Security Configuration:*
+
+LOAD CSV file access is controlled by two configuration settings:
+
+[%header,cols="3,1,4"]
+|===
+| Setting | Default | Description
+| `arcadedb.opencypher.loadCsv.allowFileUrls` | `true` | Allow access to local files via `file:///` URLs and bare file paths. Set to `false` in multi-tenant server deployments.
+| `arcadedb.opencypher.loadCsv.importDirectory` | (empty) | Root directory for file URLs. When set, file paths are resolved relative to this directory and path traversal (`../`) is blocked. Empty means no restriction.
+|===
+
+HTTP/HTTPS URLs are always allowed regardless of these settings.
+
+*Example — Restrict to import directory:*
+
+[source,java]
+----
+// In server configuration
+arcadedb.opencypher.loadCsv.importDirectory=/var/arcadedb/import
+----
+
+[source,cypher]
+----
+// This works (resolved to /var/arcadedb/import/data.csv)
+LOAD CSV FROM 'file:///data.csv' AS row RETURN row
+
+// This is blocked (path traversal)
+LOAD CSV FROM 'file:///../etc/passwd' AS row RETURN row
+----
+
+*Built-in Helper Functions:*
+
+Two special functions are available within LOAD CSV queries:
+
+* `file()` — Returns the URL of the currently loaded CSV file
+* `linenumber()` — Returns the current line number being processed (1-based)
 
