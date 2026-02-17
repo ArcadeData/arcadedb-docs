@@ -1087,3 +1087,92 @@ Two special functions are available within LOAD CSV queries:
 * `file()` — Returns the URL of the currently loaded CSV file
 * `linenumber()` — Returns the current line number being processed (1-based)
 
+---
+
+[[cypher-create-constraint]]
+[discrete]
+==== CREATE CONSTRAINT
+
+The `CREATE CONSTRAINT` clause defines schema constraints on node or relationship properties. Constraints enforce data integrity rules such as uniqueness, mandatory (NOT NULL), and node keys.
+
+ArcadeDB maps Cypher constraints to its native schema features:
+
+* **IS UNIQUE** → Creates a unique LSM-Tree index on the specified properties
+* **IS NOT NULL** → Sets the property as mandatory in the schema
+* **IS NODE KEY** / **IS KEY** → Creates a unique index and sets the property as mandatory
+
+*Syntax:*
+
+[source,cypher]
+----
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS UNIQUE
+
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS NOT NULL
+
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS NODE KEY
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Unique constraint on a single property
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.email IS UNIQUE
+
+// Named constraint with IF NOT EXISTS (idempotent)
+CREATE CONSTRAINT unique_person_email IF NOT EXISTS
+FOR (p:Person) REQUIRE p.email IS UNIQUE
+
+// Composite unique constraint (multiple properties)
+CREATE CONSTRAINT FOR (p:Person) REQUIRE (p.firstName, p.lastName) IS UNIQUE
+
+// NOT NULL constraint (mandatory property)
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.name IS NOT NULL
+
+// Node key constraint (unique + mandatory)
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.id IS NODE KEY
+
+// Relationship constraint
+CREATE CONSTRAINT FOR ()-[r:KNOWS]-() REQUIRE r.since IS NOT NULL
+----
+
+NOTE: If the property does not already exist in the schema, ArcadeDB will automatically create it as a STRING type. For other types, define the property first using SQL (`ALTER TYPE Person CREATE PROPERTY email STRING`).
+
+NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple times will not cause an error if the constraint already exists.
+
+---
+
+[[cypher-drop-constraint]]
+[discrete]
+==== DROP CONSTRAINT
+
+The `DROP CONSTRAINT` clause removes a previously created constraint by its index name.
+
+*Syntax:*
+
+[source,cypher]
+----
+DROP CONSTRAINT constraintName [IF EXISTS]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Drop a constraint by name
+DROP CONSTRAINT `Person[email]`
+
+// Drop only if it exists (no error if missing)
+DROP CONSTRAINT `Person[email]` IF EXISTS
+----
+
+NOTE: In ArcadeDB, constraint names correspond to index names. Use backtick escaping for names containing special characters like brackets.
+
+NOTE: `IF EXISTS` makes the operation safe to run even when the constraint does not exist.
+
