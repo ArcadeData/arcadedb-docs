@@ -1,0 +1,78 @@
+[[sql-create-materialized-view]]
+[discrete]
+==== SQL - `CREATE MATERIALIZED VIEW`
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/query-languages/sql/sql-create-materialized-view.adoc" float=right]
+
+Creates a new materialized view in the schema.
+A materialized view stores the result of a SQL `SELECT` query in a backing document type for fast reads.
+The defining query is executed immediately on creation to perform the initial data load.
+
+*Syntax*
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW [IF NOT EXISTS] <name>
+  AS <select-query>
+  [REFRESH MANUAL | REFRESH INCREMENTAL | REFRESH EVERY <n> SECOND | MINUTE | HOUR]
+  [BUCKETS <n>]
+----
+
+* *`<name>`* Defines the name of the materialized view. It must not conflict with any existing type or materialized view.
+* *`IF NOT EXISTS`* Silently skips creation if a view with the same name already exists, instead of raising an error.
+* *`<select-query>`* A SQL `SELECT` statement that defines the data for the view. All source types referenced must exist at creation time.
+* *`REFRESH MANUAL`* (default) The view is only refreshed when triggered explicitly.
+* *`REFRESH INCREMENTAL`* The view is automatically refreshed after each committed transaction that modifies a source type.
+* *`REFRESH EVERY <n> SECOND | MINUTE | HOUR`* The view is refreshed on a schedule at the given interval.
+* *`BUCKETS <n>`* Sets the number of buckets for the backing document type.
+
+*Examples*
+
+* Create a simple manual-refresh view:
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW ActiveUsers
+  AS SELECT name, email FROM User WHERE active = true
+----
+
+* Create a view that updates automatically after each relevant commit:
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW RecentOrders
+  AS SELECT customer, amount FROM Order WHERE status = 'PENDING'
+  REFRESH INCREMENTAL
+----
+
+* Create a view that refreshes on a schedule:
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW HourlySummary
+  AS SELECT product, sum(amount) AS total FROM Sale GROUP BY product
+  REFRESH EVERY 1 HOUR
+----
+
+* Skip creation if the view already exists:
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW IF NOT EXISTS ActiveUsers
+  AS SELECT name FROM User WHERE active = true
+----
+
+* Create a view with a custom bucket count for large result sets:
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW BigView
+  AS SELECT * FROM HugeType
+  BUCKETS 8
+----
+
+For more information, see:
+
+* <<materialized-views,Materialized Views>>
+* <<sql-drop-materialized-view,`DROP MATERIALIZED VIEW`>>
+* <<sql-refresh-materialized-view,`REFRESH MATERIALIZED VIEW`>>
+* <<sql-alter-materialized-view,`ALTER MATERIALIZED VIEW`>>
