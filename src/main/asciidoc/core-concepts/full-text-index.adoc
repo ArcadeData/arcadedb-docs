@@ -1,0 +1,490 @@
+[[full-text-index]]
+=== Full-Text Index
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/core-concepts/full-text-index.adoc" float=right]
+
+ArcadeDB's full-text index is built on https://lucene.apache.org[Apache Lucene] and supports configurable analyzers, advanced Lucene query syntax, multi-property indexing, relevance scoring, and "More Like This" similarity search.
+
+[[full-text-index-create]]
+==== Creating a Full-Text Index
+
+[source,sql]
+----
+CREATE INDEX ON Article (content) FULL_TEXT
+----
+
+Multiple properties can be indexed together:
+
+[source,sql]
+----
+CREATE INDEX ON Article (title, body) FULL_TEXT
+----
+
+[[full-text-index-analyzer]]
+==== Configuring the Analyzer
+
+Pass a `METADATA` block to choose a Lucene analyzer:
+
+[source,sql]
+----
+CREATE INDEX ON Article (content) FULL_TEXT
+  METADATA {
+    "analyzer": "org.apache.lucene.analysis.en.EnglishAnalyzer",
+    "allowLeadingWildcard": false,
+    "defaultOperator": "OR"
+  }
+----
+
+===== Metadata Options
+
+[%header,cols="2,1,2,4"]
+|===
+| Option | Type | Default | Description
+
+| `analyzer`
+| string
+| `org.apache.lucene.analysis.standard.StandardAnalyzer`
+| Lucene analyzer class used for both indexing and querying
+
+| `index_analyzer`
+| string
+| —
+| Override analyzer used only at index time
+
+| `query_analyzer`
+| string
+| —
+| Override analyzer used only at query time
+
+| `allowLeadingWildcard`
+| boolean
+| `false`
+| Allow `*term` wildcard queries
+
+| `defaultOperator`
+| `"OR"` \| `"AND"`
+| `"OR"`
+| Default operator between terms when none is specified
+
+| `<field>_analyzer`
+| string
+| —
+| Per-field analyzer override, e.g. `"title_analyzer"`
+|===
+
+===== Common Analyzers
+
+[%header,cols="3,3"]
+|===
+| Analyzer Class | Description
+
+| `org.apache.lucene.analysis.standard.StandardAnalyzer`
+| General-purpose tokenizer (default)
+
+| `org.apache.lucene.analysis.en.EnglishAnalyzer`
+| English stemming and stop words
+
+| `org.apache.lucene.analysis.core.SimpleAnalyzer`
+| Lowercase only, no stop words
+
+| `org.apache.lucene.analysis.core.WhitespaceAnalyzer`
+| Split on whitespace only
+|===
+
+===== Per-Field Analyzers
+
+For multi-property indexes, each field can use a different analyzer:
+
+[source,sql]
+----
+CREATE INDEX ON Article (title, body) FULL_TEXT
+  METADATA {
+    "analyzer": "org.apache.lucene.analysis.standard.StandardAnalyzer",
+    "title_analyzer": "org.apache.lucene.analysis.en.EnglishAnalyzer"
+  }
+----
+
+Here `title` uses the English analyzer while `body` falls back to the standard analyzer.
+
+[[full-text-index-searching]]
+==== Searching
+
+[[search-index]]
+===== SEARCH_INDEX()
+
+Searches a named full-text index using Lucene query syntax.
+
+[source,sql]
+----
+SELECT * FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java programming')
+----
+
+*Signature:* `SEARCH_INDEX(indexName, query)`
+
+[%header,cols="1,1,3"]
+|===
+| Parameter | Type | Description
+
+| `indexName`
+| string
+| The full index name as shown in the schema, e.g. `Article[content]`
+
+| `query`
+| string
+| A Lucene query string
+|===
+
+[[search-fields]]
+===== SEARCH_FIELDS()
+
+Finds the full-text index automatically from field names, without needing to know the index name.
+
+[source,sql]
+----
+SELECT * FROM Article
+WHERE SEARCH_FIELDS(['title', 'content'], 'database tutorial')
+----
+
+*Signature:* `SEARCH_FIELDS(fieldNames, query)`
+
+[%header,cols="1,1,3"]
+|===
+| Parameter | Type | Description
+
+| `fieldNames`
+| array of strings
+| Fields to search; a full-text index covering these fields must exist
+
+| `query`
+| string
+| A Lucene query string
+|===
+
+[[full-text-index-lucene-syntax]]
+==== Lucene Query Syntax
+
+Both `SEARCH_INDEX` and `SEARCH_FIELDS` accept standard Lucene query syntax.
+
+===== Boolean Operators
+
+[%header,cols="2,3"]
+|===
+| Syntax | Meaning
+
+| `java programming`
+| Either term (OR, default)
+
+| `+java +programming`
+| Both terms required (AND)
+
+| `java -python`
+| `java` required, `python` excluded
+
+| `java AND programming`
+| Explicit AND
+
+| `java OR python`
+| Explicit OR
+|===
+
+[source,sql]
+----
+-- Requires both terms
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', '+java +programming')
+
+-- Excludes documents about python
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'java -python')
+----
+
+===== Phrase Queries
+
+Wrap a phrase in double quotes to require terms to appear in order:
+
+[source,sql]
+----
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', '"machine learning"')
+----
+
+===== Wildcard Queries
+
+[%header,cols="2,3"]
+|===
+| Syntax | Matches
+
+| `data*`
+| database, datastore, dataset…
+
+| `dat?base`
+| database, datXbase…
+
+| `*base`
+| Requires `allowLeadingWildcard: true`
+|===
+
+[source,sql]
+----
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'data*')
+----
+
+===== Fuzzy Queries
+
+Append `~` to match terms within an edit distance:
+
+[source,sql]
+----
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'database~')
+-- matches "database"
+----
+
+===== Field-Qualified Queries (Multi-Property Indexes)
+
+For indexes over multiple fields, restrict a term to a specific field:
+
+[source,sql]
+----
+-- Only match "database" in the title field
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[title,body]', 'title:database')
+
+-- Combine field-specific and general terms
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[title,body]', '+title:"multi model" -nosql')
+----
+
+[[full-text-index-score]]
+==== Relevance Score ($score)
+
+Every match carries a relevance score.
+Use `$score` in projections or `ORDER BY` clauses:
+
+[source,sql]
+----
+SELECT title, $score
+FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java programming')
+ORDER BY $score DESC
+----
+
+Documents that match more query terms receive higher scores.
+
+[source,sql]
+----
+SELECT title, $score AS relevance
+FROM Article
+WHERE SEARCH_FIELDS(['content'], 'java programming')
+ORDER BY relevance DESC
+LIMIT 10
+----
+
+[[full-text-index-mlt]]
+==== More Like This
+
+"More Like This" finds documents similar to one or more source documents.
+It extracts representative terms from the sources, then searches for other documents sharing those terms.
+
+[[search-index-more]]
+===== SEARCH_INDEX_MORE()
+
+[source,sql]
+----
+SELECT title, $score, $similarity
+FROM Article
+WHERE SEARCH_INDEX_MORE('Article[content]', [#10:3])
+ORDER BY $similarity DESC
+----
+
+*Signature:* `SEARCH_INDEX_MORE(indexName, sourceRIDs [, config])`
+
+[%header,cols="1,1,3"]
+|===
+| Parameter | Type | Description
+
+| `indexName`
+| string
+| Full-text index name
+
+| `sourceRIDs`
+| array of RIDs
+| One or more source documents
+
+| `config`
+| JSON object
+| Optional MLT parameters (see <<full-text-index-mlt-config>>)
+|===
+
+[[search-fields-more]]
+===== SEARCH_FIELDS_MORE()
+
+Same as `SEARCH_INDEX_MORE` but resolves the full-text index automatically from field names:
+
+[source,sql]
+----
+SELECT title, $similarity
+FROM Article
+WHERE SEARCH_FIELDS_MORE(['content'], [#10:3])
+ORDER BY $similarity DESC
+----
+
+*Signature:* `SEARCH_FIELDS_MORE(fieldNames, sourceRIDs [, config])`
+
+===== Multiple Source Documents
+
+Provide multiple RIDs to find documents similar to a combination of sources:
+
+[source,sql]
+----
+SELECT title, $similarity
+FROM Article
+WHERE SEARCH_INDEX_MORE('Article[content]', [#10:3, #10:4])
+ORDER BY $similarity DESC
+----
+
+===== Similarity Score ($similarity)
+
+`$similarity` is a normalized score from `0.0` to `1.0`.
+The most similar document in the result set always receives `1.0`.
+
+[source,sql]
+----
+SELECT title, $score, $similarity
+FROM Article
+WHERE SEARCH_INDEX_MORE('Article[content]', [#10:3])
+ORDER BY $similarity DESC
+LIMIT 5
+----
+
+[[full-text-index-mlt-config]]
+===== More Like This Configuration
+
+Pass an optional JSON object to tune the algorithm:
+
+[source,sql]
+----
+SELECT title, $similarity
+FROM Article
+WHERE SEARCH_FIELDS_MORE(['title', 'content'], [#10:3], {
+  'minTermFreq': 1,
+  'minDocFreq': 3,
+  'maxQueryTerms': 50,
+  'excludeSource': false
+})
+----
+
+[%header,cols="2,1,1,4"]
+|===
+| Option | Type | Default | Description
+
+| `minTermFreq`
+| int
+| `2`
+| Minimum times a term must appear in the source document(s) to be considered
+
+| `minDocFreq`
+| int
+| `5`
+| Minimum number of index documents that must contain a term for it to be used
+
+| `maxDocFreqPercent`
+| float
+| `null`
+| Exclude terms appearing in more than this fraction of all documents (e.g. `0.5` = 50%)
+
+| `maxQueryTerms`
+| int
+| `25`
+| Maximum number of terms to use in the similarity query
+
+| `minWordLen`
+| int
+| `0`
+| Ignore terms shorter than this length (0 = no minimum)
+
+| `maxWordLen`
+| int
+| `0`
+| Ignore terms longer than this length (0 = no maximum)
+
+| `boostByScore`
+| boolean
+| `true`
+| Weight terms by TF-IDF score rather than raw frequency
+
+| `excludeSource`
+| boolean
+| `true`
+| Exclude source documents from results
+
+| `maxSourceDocs`
+| int
+| `25`
+| Maximum number of source RIDs allowed
+|===
+
+[[full-text-index-examples]]
+==== Practical Examples
+
+===== Blog Search with Ranking
+
+[source,sql]
+----
+SELECT title, author, $score AS relevance
+FROM BlogPost
+WHERE SEARCH_INDEX('BlogPost[title,body]', '+java +spring -legacy')
+ORDER BY relevance DESC
+LIMIT 20
+----
+
+===== Autocomplete with Prefix Wildcard
+
+[source,sql]
+----
+SELECT title
+FROM Product
+WHERE SEARCH_INDEX('Product[name]', 'micro*')
+----
+
+===== Stemming with English Analyzer
+
+With `EnglishAnalyzer`, searching for `"run"` also matches `"running"`, `"runs"`, and `"ran"`:
+
+[source,sql]
+----
+CREATE INDEX ON Article (content) FULL_TEXT
+  METADATA { "analyzer": "org.apache.lucene.analysis.en.EnglishAnalyzer" }
+
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'running')
+-- also returns documents containing "run", "runs", "ran"
+----
+
+===== Related Articles Recommendation
+
+[source,sql]
+----
+SELECT title, $similarity AS score
+FROM Article
+WHERE SEARCH_INDEX_MORE('Article[title,body]', [#10:42], {
+  'minTermFreq': 1,
+  'minDocFreq': 2,
+  'maxQueryTerms': 30
+})
+ORDER BY score DESC
+LIMIT 5
+----
+
+===== Readers Who Liked This Also Liked
+
+[source,sql]
+----
+SELECT title, $similarity
+FROM Article
+WHERE SEARCH_INDEX_MORE('Article[content]', [#10:1, #10:7, #10:12])
+ORDER BY $similarity DESC
+LIMIT 10
+----
+
+[[full-text-index-notes]]
+==== Notes
+
+* Full-text indexes require all indexed properties to be of type `STRING`.
+* Full-text indexes cannot be marked `UNIQUE`.
+* Without a `METADATA` block, indexes use `StandardAnalyzer` with `OR` default operator and leading wildcards disabled.
+* Indexes created without metadata continue to work with `SEARCH_INDEX` and `SEARCH_INDEX_MORE` exactly as before.
+* `$score` and `$similarity` are always available as query variables for matching documents; non-matching documents receive `0`.
