@@ -1,0 +1,258 @@
+[[mcp-server]]
+=== MCP Server (Model Context Protocol)
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/administration-guide/mcp.adoc" float=right]
+
+ArcadeDB includes a built-in https://modelcontextprotocol.io/[Model Context Protocol (MCP)] server that allows Large Language Model (LLM) clients -- such as Claude Desktop, Claude Code, and Cursor -- to interact with your databases using natural language.
+
+The MCP server exposes database tools over the standard MCP protocol (JSON-RPC 2.0 over HTTP), enabling AI assistants to list databases, explore schemas, run queries, and execute commands -- all with fine-grained permission control.
+
+[discrete]
+==== Enabling the MCP Server
+
+The MCP server is disabled by default. You can enable it through the <<studio-mcp,Studio MCP tab>> or by editing the configuration file directly.
+
+The configuration is stored in `config/mcp-config.json`:
+
+[source,json]
+----
+{
+  "enabled": true,
+  "allowReads": true,
+  "allowInsert": false,
+  "allowUpdate": false,
+  "allowDelete": false,
+  "allowSchemaChange": false,
+  "allowAdmin": false,
+  "allowedUsers": ["root"]
+}
+----
+
+You can also manage the configuration at runtime through the REST API:
+
+[source,shell]
+----
+# Get current MCP configuration
+$ curl http://localhost:2480/api/v1/mcp/config \
+       --user root:arcadedb-password
+
+# Update MCP configuration
+$ curl -X POST http://localhost:2480/api/v1/mcp/config \
+       -d '{"enabled": true, "allowReads": true, "allowInsert": true}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+NOTE: Only *root* users can update the MCP configuration.
+
+[discrete]
+==== Permissions
+
+The MCP server enforces a permission model that controls which operations LLM clients can perform:
+
+[cols="25,15,~",options="header"]
+|===
+| Permission | Default | Description
+| `allowReads` | `true` | Allow read-only queries, listing databases, reading schema, and server status
+| `allowInsert` | `false` | Allow `INSERT` / `CREATE` record operations
+| `allowUpdate` | `false` | Allow `UPDATE` operations
+| `allowDelete` | `false` | Allow `DELETE` operations
+| `allowSchemaChange` | `false` | Allow schema modifications (`CREATE TYPE`, `CREATE PROPERTY`, `CREATE INDEX`, etc.)
+| `allowAdmin` | `false` | Allow administrative operations and expose HA/cluster status
+|===
+
+Operations are classified through semantic analysis of the query AST, ensuring accurate permission enforcement regardless of how the command is written.
+
+[discrete]
+==== Allowed Users
+
+The `allowedUsers` field controls which server users can access the MCP endpoint. By default, only `root` is allowed.
+
+Set `"allowedUsers": ["*"]` to permit any authenticated user. Each user's database access is still enforced based on their configured database permissions (see <<users,Users>>).
+
+[discrete]
+==== Available Tools
+
+The MCP server exposes the following tools to LLM clients:
+
+[cols="25,~",options="header"]
+|===
+| Tool | Description
+| `list_databases` | Lists all databases accessible to the authenticated user. Requires `allowReads`.
+| `get_schema` | Returns the complete schema for a database, including types, properties, indexes, and inheritance. Requires `allowReads`.
+| `query` | Executes a read-only (idempotent) query. Supports SQL, Cypher, Gremlin, GraphQL, and MongoDB query languages. Requires `allowReads`.
+| `execute_command` | Executes a write operation (INSERT, UPDATE, DELETE, schema changes). Permission checked per operation type. Supports SQL, Cypher, Gremlin, GraphQL, and MongoDB.
+| `server_status` | Returns server version, name, available query languages, and accessible databases. Shows HA status if `allowAdmin` is enabled. Requires `allowReads`.
+|===
+
+[discrete]
+==== Authentication
+
+The MCP endpoint requires authentication. Two methods are supported:
+
+*HTTP Basic Authentication*
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/mcp \
+       -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+*API Token (Bearer Authentication)*
+
+Use an <<api-tokens,API token>> for long-lived, programmatic access:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/mcp \
+       -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}' \
+       -H "Content-Type: application/json" \
+       -H "Authorization: Bearer at-your-api-token-here"
+----
+
+API tokens are recommended for MCP integrations because they are database-scoped, support fine-grained permissions, and don't require storing user passwords in client configuration files.
+
+[discrete]
+==== Client Configuration
+
+Below are ready-to-use configuration examples for popular LLM clients.
+
+[discrete]
+===== Claude Desktop
+
+Add this to your `claude_desktop_config.json`:
+
+*Using Basic Auth:*
+
+[source,json]
+----
+{
+  "mcpServers": {
+    "arcadedb": {
+      "url": "http://localhost:2480/api/v1/mcp",
+      "headers": {
+        "Authorization": "Basic cm9vdDphcmNhZGVkYi1wYXNzd29yZA=="
+      }
+    }
+  }
+}
+----
+
+*Using API Token:*
+
+[source,json]
+----
+{
+  "mcpServers": {
+    "arcadedb": {
+      "url": "http://localhost:2480/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer at-your-api-token-here"
+      }
+    }
+  }
+}
+----
+
+[discrete]
+===== Claude Code / Cursor
+
+Use the same configuration format. In Cursor, add the MCP server configuration in the Cursor Settings under the MCP section.
+
+[discrete]
+==== Protocol Details
+
+The MCP server implements the https://modelcontextprotocol.io/[Model Context Protocol] specification version `2025-03-26` using JSON-RPC 2.0 over HTTP.
+
+*Endpoint:* `POST /api/v1/mcp`
+
+*Supported JSON-RPC methods:*
+
+[cols="30,~",options="header"]
+|===
+| Method | Description
+| `initialize` | Initialize the MCP session. Returns server info, protocol version, and capabilities.
+| `notifications/initialized` | Client notification after initialization (no response body).
+| `tools/list` | List all available tools with their input schemas.
+| `tools/call` | Execute a tool by name with arguments.
+| `ping` | Health check.
+|===
+
+*Example request:*
+
+[source,json]
+----
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "query",
+    "arguments": {
+      "database": "mydb",
+      "language": "sql",
+      "query": "SELECT FROM V LIMIT 10"
+    }
+  }
+}
+----
+
+*Example response:*
+
+[source,json]
+----
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"records\":[...],\"count\":10}"
+      }
+    ],
+    "isError": false
+  }
+}
+----
+
+*Error codes:*
+
+[cols="15,~",options="header"]
+|===
+| Code | Description
+| `-32600` | Invalid request (authentication required, user not authorized, MCP disabled)
+| `-32601` | Method not found
+| `-32700` | Parse error (empty request body)
+|===
+
+*HTTP status codes:*
+
+[cols="15,~",options="header"]
+|===
+| Status | Description
+| `200` | Success
+| `401` | Authentication required
+| `403` | User not authorized for MCP access
+| `503` | MCP server is disabled
+|===
+
+[discrete]
+==== Configuration File Reference
+
+The MCP configuration is stored in `config/mcp-config.json` under the server root directory.
+This file is created automatically with default values on first server startup.
+
+[cols="25,15,15,~",options="header"]
+|===
+| Field | Type | Default | Description
+| `enabled` | boolean | `false` | Enable or disable the MCP server endpoint
+| `allowReads` | boolean | `true` | Allow read operations (queries, schema, list databases)
+| `allowInsert` | boolean | `false` | Allow INSERT / CREATE record operations
+| `allowUpdate` | boolean | `false` | Allow UPDATE operations
+| `allowDelete` | boolean | `false` | Allow DELETE operations
+| `allowSchemaChange` | boolean | `false` | Allow schema modifications
+| `allowAdmin` | boolean | `false` | Allow administrative operations
+| `allowedUsers` | string[] | `["root"]` | Users authorized for MCP access. Use `["*"]` for any authenticated user.
+|===

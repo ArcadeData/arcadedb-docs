@@ -1,0 +1,197 @@
+[[api-tokens]]
+==== API Tokens
+
+API tokens provide long-lived, database-scoped authentication for programmatic access to the ArcadeDB server.
+They are designed for integrations such as <<mcp-server,MCP clients>>, REST API applications, CI/CD pipelines, and any automated workflow that needs to authenticate without user credentials.
+
+[discrete]
+===== Key Features
+
+* *Database-scoped* -- each token is bound to a specific database (or `*` for all databases)
+* *Fine-grained permissions* -- per-type CRUD control and database-level access
+* *Secure storage* -- tokens are hashed with SHA-256 before being persisted; plaintext is never stored on disk
+* *Expiration support* -- tokens can have an optional expiry date
+* *Brute-force protection* -- automatic lockout after repeated failed authentication attempts
+
+[discrete]
+===== Creating a Token
+
+Create tokens using the REST API or the <<studio-security,Studio Security panel>>.
+
+*Via REST API:*
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server/api-tokens \
+       -d '{
+         "name": "my-app-token",
+         "database": "mydb",
+         "expiresAt": 0,
+         "permissions": {
+           "types": {
+             "*": {"access": ["readRecord"]}
+           }
+         }
+       }' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Response (HTTP 201):
+
+[source,json]
+----
+{
+  "result": {
+    "name": "my-app-token",
+    "token": "at-a1b2c3d4e5f6...",
+    "tokenHash": "e3b0c44298fc...",
+    "tokenSuffix": "f6...",
+    "database": "mydb",
+    "expiresAt": 0,
+    "createdAt": 1708444800000,
+    "permissions": {
+      "types": {
+        "*": {"access": ["readRecord"]}
+      }
+    }
+  }
+}
+----
+
+[IMPORTANT]
+====
+Copy the full token value immediately after creation. The plaintext token is returned only once and cannot be retrieved later.
+====
+
+NOTE: Only *root* users can create, list, and delete API tokens.
+
+[discrete]
+===== Token Format
+
+API tokens use the format `at-{64-character-hex}` (e.g., `at-a1b2c3d4...`).
+The `at-` prefix distinguishes API tokens from session tokens (`AU-` prefix) and allows the server to route authentication correctly.
+
+[discrete]
+===== Using a Token
+
+Authenticate with a token using the standard `Authorization: Bearer` HTTP header:
+
+[source,shell]
+----
+# Query using an API token
+$ curl http://localhost:2480/api/v1/query/mydb/sql/select%20from%20V%20limit%2010 \
+       -H "Authorization: Bearer at-a1b2c3d4e5f6..."
+
+# Execute a command using an API token
+$ curl -X POST http://localhost:2480/api/v1/command/mydb \
+       -d '{"language": "sql", "command": "INSERT INTO V SET name = '\''test'\''"}' \
+       -H "Content-Type: application/json" \
+       -H "Authorization: Bearer at-a1b2c3d4e5f6..."
+----
+
+API tokens work with all HTTP endpoints that support authentication, including the <<mcp-server,MCP server endpoint>>.
+
+[discrete]
+===== Permissions Structure
+
+Token permissions define what operations the token is allowed to perform. The structure supports per-type record-level access and database-level permissions:
+
+[source,json]
+----
+{
+  "permissions": {
+    "types": {
+      "*": {"access": ["readRecord", "createRecord"]},
+      "SensitiveData": {"access": ["readRecord"]}
+    },
+    "database": ["updateSecurity"]
+  }
+}
+----
+
+*Type-level access values:*
+
+[cols="30,~",options="header"]
+|===
+| Access Value | Description
+| `createRecord` | Create new records of this type
+| `readRecord` | Read records of this type
+| `updateRecord` | Update existing records of this type
+| `deleteRecord` | Delete records of this type
+|===
+
+Use `*` as the type name to apply permissions to all types. Specific type entries override the wildcard for that type.
+
+[discrete]
+===== Listing Tokens
+
+[source,shell]
+----
+$ curl http://localhost:2480/api/v1/server/api-tokens \
+       --user root:arcadedb-password
+----
+
+Response:
+
+[source,json]
+----
+{
+  "result": [
+    {
+      "name": "my-app-token",
+      "database": "mydb",
+      "expiresAt": 0,
+      "createdAt": 1708444800000,
+      "permissions": {"types": {"*": {"access": ["readRecord"]}}},
+      "tokenHash": "e3b0c44298fc...",
+      "tokenSuffix": "f6..."
+    }
+  ],
+  "count": 1
+}
+----
+
+NOTE: The plaintext token is never included in list responses. Use `tokenHash` and `tokenSuffix` (the last 4 characters) to identify tokens.
+
+[discrete]
+===== Deleting a Token
+
+Delete a token by its hash (obtained from the list endpoint):
+
+[source,shell]
+----
+$ curl -X DELETE "http://localhost:2480/api/v1/server/api-tokens?token=e3b0c44298fc..." \
+       --user root:arcadedb-password
+----
+
+For security, the delete endpoint only accepts token hashes, not plaintext tokens. This prevents accidental exposure of token values in server logs and URL history.
+
+[discrete]
+===== Expiration
+
+Tokens can be created with an optional expiration timestamp (in milliseconds since epoch). Set `expiresAt` to `0` for tokens that never expire.
+
+[source,shell]
+----
+# Create a token that expires on 2026-12-31
+$ curl -X POST http://localhost:2480/api/v1/server/api-tokens \
+       -d '{"name": "temp-token", "database": "mydb", "expiresAt": 1798761600000}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Expired tokens are automatically rejected during authentication and cleaned up when the token configuration file is loaded.
+
+[discrete]
+===== Security
+
+* *Hashed storage* -- tokens are stored as SHA-256 hashes in `config/server-api-tokens.json`. The file is created with restrictive permissions (600 on POSIX systems).
+* *Brute-force protection* -- after 5 failed authentication attempts with the same token prefix, that prefix is locked out for 30 seconds.
+* *One-time display* -- the plaintext token is returned only in the creation response and never persisted or exposed again.
+* *Safe deletion* -- the delete API rejects plaintext tokens to avoid leaking them in logs.
+
+[discrete]
+===== Storage
+
+API tokens are stored in `config/server-api-tokens.json` under the server root directory. This file is managed automatically by ArcadeDB. Do not edit it manually while the server is running.

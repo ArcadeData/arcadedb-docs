@@ -22,6 +22,11 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<http-begin,Begin a new transaction>>           | POST     | `/api/v1/begin/{database}`
 | <<http-commit,Commit a transaction>>             | POST     | `/api/v1/commit/{database}`
 | <<http-rollback,Rollback a transaction>>         | POST     | `/api/v1/rollback/{database}`
+| <<http-create-api-token,Create API token>>          | POST     | `/api/v1/server/api-tokens`
+| <<http-list-api-tokens,List API tokens>>            | GET      | `/api/v1/server/api-tokens`
+| <<http-delete-api-token,Delete API token>>          | DELETE   | `/api/v1/server/api-tokens`
+| <<http-mcp,MCP protocol endpoint>>                  | POST     | `/api/v1/mcp`
+| <<http-mcp-config,Get/Set MCP configuration>>       | GET/POST | `/api/v1/mcp/config`
 |===
 
 *Overview Query & Command Parameters*
@@ -98,6 +103,8 @@ $ curl -X POST http://localhost:2480/api/v1/logout \
 
 Authentication tokens expire after a configurable period of inactivity (default is 30 minutes).
 See <<settings-sql,`server.httpAuthSessionExpireTimeout`>> to configure this timeout.
+
+TIP: For long-lived programmatic access (MCP integrations, CI/CD, microservices), use <<api-tokens,API Tokens>> instead of session tokens. API tokens don't expire on inactivity and support database-scoped, fine-grained permissions.
 
 [discrete]
 ==== Server-Side Transactions
@@ -1037,5 +1044,200 @@ Example:
 ----
 $ curl -I -X POST http://localhost:2480/api/v1/rollback/school \
        -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4" \
+       --user root:arcadedb-password
+----
+
+[discrete]
+[[http-create-api-token]]
+===== Create API Token (POST)
+
+Creates a new API token for programmatic access. See <<api-tokens,API Tokens>> for full details.
+
+URL Syntax: `/api/v1/server/api-tokens`
+
+This endpoint is restricted to *root* users only.
+
+The request body accepts the following parameters:
+
+[cols="15,10,10,~",options="header"]
+|===
+| Parameter | Type | Required | Description
+| `name` | string | Yes | A unique descriptive name for the token
+| `database` | string | No | The database to scope the token to (default: `*` for all databases)
+| `expiresAt` | long | No | Expiration timestamp in milliseconds since epoch (`0` for no expiration, default: `0`)
+| `permissions` | object | No | Permission structure with `types` and/or `database` fields
+|===
+
+Responses:
+
+* https://httpstatuses.io/201[`201`] Created - returns token metadata including the plaintext token (one-time)
+* https://httpstatuses.io/400[`400`] missing name or invalid permissions structure
+* https://httpstatuses.io/403[`403`] invalid credentials or non-root user
+* https://httpstatuses.io/409[`409`] a token with this name already exists
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server/api-tokens \
+       -d '{"name": "my-app", "database": "mydb", "permissions": {"types": {"*": {"access": ["readRecord"]}}}}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{
+  "result": {
+    "name": "my-app",
+    "token": "at-a1b2c3d4e5f6...",
+    "tokenHash": "e3b0c44298fc...",
+    "tokenSuffix": "f6...",
+    "database": "mydb",
+    "expiresAt": 0,
+    "createdAt": 1708444800000,
+    "permissions": {
+      "types": {"*": {"access": ["readRecord"]}}
+    }
+  }
+}
+----
+
+IMPORTANT: The plaintext `token` field is only returned in this response. Copy it immediately.
+
+[discrete]
+[[http-list-api-tokens]]
+===== List API Tokens (GET)
+
+Lists all API tokens without exposing plaintext values.
+
+URL Syntax: `/api/v1/server/api-tokens`
+
+This endpoint is restricted to *root* users only.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials or non-root user
+
+Example:
+
+[source,shell]
+----
+$ curl http://localhost:2480/api/v1/server/api-tokens \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{
+  "result": [
+    {
+      "name": "my-app",
+      "database": "mydb",
+      "expiresAt": 0,
+      "createdAt": 1708444800000,
+      "permissions": {"types": {"*": {"access": ["readRecord"]}}},
+      "tokenHash": "e3b0c44298fc...",
+      "tokenSuffix": "f6..."
+    }
+  ],
+  "count": 1
+}
+----
+
+[discrete]
+[[http-delete-api-token]]
+===== Delete API Token (DELETE)
+
+Deletes an API token by its hash.
+
+URL Syntax: `/api/v1/server/api-tokens?token={tokenHash}`
+
+This endpoint is restricted to *root* users only. The `token` query parameter must be the SHA-256 hash of the token (as returned by the list endpoint), not the plaintext token value.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] token deleted
+* https://httpstatuses.io/400[`400`] missing parameter or plaintext token provided
+* https://httpstatuses.io/403[`403`] invalid credentials or non-root user
+* https://httpstatuses.io/404[`404`] token not found
+
+Example:
+
+[source,shell]
+----
+$ curl -X DELETE "http://localhost:2480/api/v1/server/api-tokens?token=e3b0c44298fc..." \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "Token deleted"}
+----
+
+[discrete]
+[[http-mcp]]
+===== MCP Protocol Endpoint (POST)
+
+The MCP (Model Context Protocol) endpoint allows LLM clients to interact with ArcadeDB. See <<mcp-server,MCP Server>> for full configuration and usage details.
+
+URL Syntax: `/api/v1/mcp`
+
+This endpoint accepts JSON-RPC 2.0 requests and requires authentication (Basic Auth or Bearer token).
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/401[`401`] authentication required
+* https://httpstatuses.io/403[`403`] user not authorized for MCP access
+* https://httpstatuses.io/503[`503`] MCP server is disabled
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/mcp \
+       -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+[discrete]
+[[http-mcp-config]]
+===== Get/Set MCP Configuration (GET/POST)
+
+Retrieves or updates the MCP server configuration. See <<mcp-server,MCP Server>> for details on all configuration options.
+
+URL Syntax: `/api/v1/mcp/config`
+
+This endpoint is restricted to *root* users only for POST operations.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/403[`403`] invalid credentials or non-root user
+
+Example (get configuration):
+
+[source,shell]
+----
+$ curl http://localhost:2480/api/v1/mcp/config \
+       --user root:arcadedb-password
+----
+
+Example (update configuration):
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/mcp/config \
+       -d '{"enabled": true, "allowReads": true}' \
+       -H "Content-Type: application/json" \
        --user root:arcadedb-password
 ----
