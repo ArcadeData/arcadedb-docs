@@ -142,7 +142,7 @@ Finds the full-text index automatically from field names, without needing to kno
 [source,sql]
 ----
 SELECT * FROM Article
-WHERE SEARCH_FIELDS(['title', 'content'], 'database tutorial')
+WHERE SEARCH_FIELDS(['title', 'body'], 'database tutorial')
 ----
 
 *Signature:* `SEARCH_FIELDS(fieldNames, query)`
@@ -212,10 +212,10 @@ SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', '"machine learning"
 | Syntax | Matches
 
 | `data*`
-| database, datastore, dataset…
+| database, datastore, dataset...
 
 | `dat?base`
-| database, datXbase…
+| database, datXbase...
 
 | `*base`
 | Requires `allowLeadingWildcard: true`
@@ -233,7 +233,7 @@ Append `~` to match terms within an edit distance:
 [source,sql]
 ----
 SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'database~')
--- matches "database"
+-- also matches terms within edit distance 1, e.g. "database", "databasee"
 ----
 
 ===== Field-Qualified Queries (Multi-Property Indexes)
@@ -325,6 +325,23 @@ ORDER BY $similarity DESC
 
 *Signature:* `SEARCH_FIELDS_MORE(fieldNames, sourceRIDs [, config])`
 
+[%header,cols="1,1,3"]
+|===
+| Parameter | Type | Description
+
+| `fieldNames`
+| array of strings
+| Fields to search; a full-text index covering these fields must exist
+
+| `sourceRIDs`
+| array of RIDs
+| One or more source documents
+
+| `config`
+| JSON object
+| Optional MLT parameters (see <<full-text-index-mlt-config>>)
+|===
+
 ===== Multiple Source Documents
 
 Provide multiple RIDs to find documents similar to a combination of sources:
@@ -361,10 +378,10 @@ Pass an optional JSON object to tune the algorithm:
 SELECT title, $similarity
 FROM Article
 WHERE SEARCH_FIELDS_MORE(['title', 'content'], [#10:3], {
-  'minTermFreq': 1,
-  'minDocFreq': 3,
-  'maxQueryTerms': 50,
-  'excludeSource': false
+  "minTermFreq": 1,
+  "minDocFreq": 3,
+  "maxQueryTerms": 50,
+  "excludeSource": false
 })
 ----
 
