@@ -1,0 +1,3673 @@
+[[appendix-graph-algorithms]]
+[appendix]
+== Graph Algorithms
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/appendix/graph-algorithms.adoc" float=right]
+
+ArcadeDB provides a comprehensive library of graph algorithms available as Cypher procedures and SQL functions. Cypher procedures follow the pattern:
+
+[source,cypher]
+----
+CALL algo.name([arg1, arg2, ...]) YIELD field1, field2, ...
+RETURN field1, field2, ...
+----
+
+SQL path functions return a list of vertex RIDs and can be used directly in `SELECT` statements.
+
+=== Algorithm Index
+
+[cols="3,2,2,1", options="header"]
+|===
+| Algorithm | Procedure / Function | Category | Complexity
+
+| <<algo-astar,A*>> | `algo.astar` | Path Finding | CPU
+| <<algo-adamic-adar,Adamic-Adar Index>> | `algo.adamicAdar` | Link Prediction | CPU
+| <<algo-apsp,All-Pairs Shortest Paths (APSP)>> | `algo.apsp` | Path Finding | CPU+RAM
+| <<algo-all-simple-paths,All Simple Paths>> | `algo.allsimplepaths` | Path Finding | CPU
+| <<algo-articulation-points,Articulation Points>> | `algo.articulationPoints` | Structural Analysis | CPU
+| <<algo-assortativity,Assortativity>> | `algo.assortativity` | Network Science | CPU
+| <<algo-bellman-ford,Bellman-Ford>> | `algo.bellmanford` | Path Finding | CPU
+| <<algo-bellman-ford-sql,Bellman-Ford (SQL)>> | `bellmanFord()` | Path Finding | CPU
+| <<algo-betweenness,Betweenness Centrality>> | `algo.betweenness` | Centrality | CPU
+| <<algo-bipartite,Bipartite Check>> | `algo.bipartite` | Structural Analysis | CPU
+| <<algo-bridges,Bridges>> | `algo.bridges` | Structural Analysis | CPU
+| <<algo-clique,Clique Enumeration>> | `algo.clique` | Structural Analysis | CPU
+| <<algo-closeness,Closeness Centrality>> | `algo.closeness` | Centrality | CPU
+| <<algo-common-neighbors,Common Neighbors>> | `algo.commonNeighbors` | Link Prediction | CPU
+| <<algo-conductance,Conductance>> | `algo.conductance` | Community Quality | CPU
+| <<algo-cycle-detection,Cycle Detection>> | `algo.cycleDetection` | Structural Analysis | CPU
+| <<algo-degree,Degree Centrality>> | `algo.degree` | Centrality | CPU
+| <<algo-densest-subgraph,Densest Subgraph>> | `algo.densestSubgraph` | Structural Analysis | CPU
+| <<algo-dijkstra,Dijkstra>> | `algo.dijkstra` | Path Finding | CPU
+| <<algo-dijkstra-sql,Dijkstra (SQL)>> | `dijkstra()` | Path Finding | CPU
+| <<algo-eccentricity,Eccentricity>> | `algo.eccentricity` | Centrality | CPU
+| <<algo-eigenvector,Eigenvector Centrality>> | `algo.eigenvector` | Centrality | CPU
+| <<algo-graph-coloring,Graph Coloring>> | `algo.graphColoring` | Structural Analysis | CPU
+| <<algo-graph-summary,Graph Summary>> | `algo.graphSummary` | Graph Statistics | CPU
+| <<algo-harmonic,Harmonic Centrality>> | `algo.harmonic` | Centrality | CPU
+| <<algo-hierarchical-clustering,Hierarchical Clustering>> | `algo.hierarchicalClustering` | Community Detection | CPU+RAM
+| <<algo-hits,HITS (Hubs and Authorities)>> | `algo.hits` | Centrality | CPU
+| <<algo-influence-maximization,Influence Maximization>> | `algo.influenceMaximization` | Network Science | CPU
+| <<algo-jaccard,Jaccard Similarity>> | `algo.jaccard` | Similarity | CPU
+| <<algo-k-core,K-Core Decomposition>> | `algo.kcore` | Structural Analysis | CPU
+| <<algo-k-shortest-paths,K-Shortest Paths>> | `algo.kShortestPaths` | Path Finding | CPU+RAM
+| <<algo-k-truss,K-Truss Decomposition>> | `algo.kTruss` | Structural Analysis | CPU
+| <<algo-katz,Katz Centrality>> | `algo.katz` | Centrality | CPU
+| <<algo-label-propagation,Label Propagation>> | `algo.labelpropagation` | Community Detection | CPU
+| <<algo-leiden,Leiden>> | `algo.leiden` | Community Detection | CPU
+| <<algo-louvain,Louvain>> | `algo.louvain` | Community Detection | CPU
+| <<algo-max-flow,Maximum Flow>> | `algo.maxFlow` | Network Flow | CPU+RAM
+| <<algo-mst,Minimum Spanning Tree (MST)>> | `algo.mst` | Structural Analysis | CPU
+| <<algo-modularity-score,Modularity Score>> | `algo.modularityScore` | Community Quality | CPU
+| <<algo-page-rank,PageRank>> | `algo.pagerank` | Centrality | CPU
+| <<algo-personalized-page-rank,Personalized PageRank>> | `algo.personalizedPageRank` | Centrality | CPU
+| <<algo-preferential-attachment,Preferential Attachment>> | `algo.preferentialAttachment` | Link Prediction | CPU
+| <<algo-random-walk,Random Walk>> | `algo.randomWalk` | Traversal / Sampling | CPU
+| <<algo-resource-allocation,Resource Allocation>> | `algo.resourceAllocation` | Link Prediction | CPU
+| <<algo-rich-club,Rich-Club Coefficient>> | `algo.richClub` | Network Science | CPU
+| <<algo-shortest-path-sql,Shortest Path (SQL)>> | `shortestPath()` | Path Finding | CPU
+| <<algo-sim-rank,SimRank>> | `algo.simRank` | Similarity | CPU+RAM
+| <<algo-scc,Strongly Connected Components (SCC)>> | `algo.scc` | Community Detection | CPU
+| <<algo-topological-sort,Topological Sort>> | `algo.topologicalSort` | Traversal / Ordering | CPU
+| <<algo-triangle-count,Triangle Count>> | `algo.triangleCount` | Structural Analysis | CPU
+| <<algo-vote-rank,VoteRank>> | `algo.voteRank` | Centrality | CPU
+| <<algo-wcc,Weakly Connected Components (WCC)>> | `algo.wcc` | Community Detection | CPU
+|===
+
+=== Path Finding
+
+[[algo-dijkstra]]
+==== algo.dijkstra
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.dijkstra`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.dijkstra(startNode, endNode, relTypes, weightProperty [, direction])
+YIELD path, weight
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `weight` | Double | Total path weight
+|===
+
+*Description*
+
+Finds the single shortest weighted path between two vertices using Dijkstra's algorithm. Non-negative edge weights are required. Internally delegates to the A* implementation with no heuristic.
+
+*Use Cases*
+
+- Route planning in transportation networks
+- Cost-optimal navigation in weighted graphs
+- Network latency analysis
+
+*Example*
+
+[source,cypher]
+----
+MATCH (src:City {name:'Rome'}), (dst:City {name:'Berlin'})
+CALL algo.dijkstra(src, dst, 'ROAD', 'distance', 'OUT')
+YIELD path, weight
+RETURN path, weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm[Dijkstra's algorithm – Wikipedia]
+
+See also: <<algo-dijkstra-sql>> for the SQL function variant, and <<astar,astar()>> / <<dijkstra,dijkstra()>> for the SQL function equivalents.
+
+'''
+
+[[algo-astar]]
+==== algo.astar
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.astar`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 6
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.astar(startNode, endNode, relTypes, weightProperty [, latProperty, lonProperty])
+YIELD path, weight
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight
+| `latProperty` | String | No | — | Vertex property name for latitude (enables geographic heuristic)
+| `lonProperty` | String | No | — | Vertex property name for longitude (enables geographic heuristic)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `weight` | Double | Total path weight
+|===
+
+*Description*
+
+Finds the shortest weighted path using the A* algorithm. When `latProperty` and `lonProperty` are provided, a geographic (Euclidean) heuristic accelerates the search. Without the geographic properties it behaves identically to Dijkstra.
+
+*Use Cases*
+
+- Geospatial route optimization
+- Game AI pathfinding with spatial heuristics
+- Weighted graph shortest paths with domain-specific heuristics
+
+*Example*
+
+[source,cypher]
+----
+MATCH (src:City {name:'Milan'}), (dst:City {name:'Paris'})
+CALL algo.astar(src, dst, 'ROAD', 'km', 'lat', 'lon')
+YIELD path, weight
+RETURN path, weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/A*_search_algorithm[A* search algorithm – Wikipedia]
+
+'''
+
+[[algo-bellman-ford]]
+==== algo.bellmanford
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.bellmanford`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.bellmanford(startNode, endNode, relTypes, weightProperty)
+YIELD path, weight, negativeCycle
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight (may be negative)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `weight` | Double | Total path weight
+| `negativeCycle` | Boolean | `true` if a negative-weight cycle is reachable from `startNode`
+|===
+
+*Description*
+
+Finds the shortest weighted path between two vertices using the Bellman-Ford algorithm. Unlike Dijkstra, it correctly handles graphs with negative edge weights. It runs V−1 relaxation iterations followed by one extra iteration to detect negative-weight cycles. If a negative cycle is detected, `negativeCycle` is set to `true` and the path result is unreliable.
+
+*Use Cases*
+
+- Financial transaction networks with negative-cost edges
+- Currency arbitrage detection (negative cycle = profit cycle)
+- Graphs where edge weights can be negative
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:Account {id:1}), (b:Account {id:5})
+CALL algo.bellmanford(a, b, 'TRANSFER', 'cost')
+YIELD path, weight, negativeCycle
+RETURN path, weight, negativeCycle
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bellman%E2%80%93Ford_algorithm[Bellman-Ford algorithm – Wikipedia]
+
+See also: <<algo-bellman-ford-sql>> for the SQL function variant.
+
+'''
+
+[[algo-all-simple-paths]]
+==== algo.allsimplepaths
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.allsimplepaths`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.allsimplepaths(startNode, endNode, relTypes, maxDepth)
+YIELD path
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `maxDepth` | Integer | Yes | — | Maximum path length in hops (minimum 1)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities for one simple path
+|===
+
+*Description*
+
+Enumerates all simple (loop-free) paths between two vertices up to a maximum depth, using DFS with backtracking. Edges are traversed in both directions. Each result row contains one complete path. Use `maxDepth` to prevent combinatorial explosion in dense graphs.
+
+*Use Cases*
+
+- Finding all routes between two nodes in a network
+- Dependency analysis between components
+- Attack path enumeration in security graphs
+
+*Example*
+
+[source,cypher]
+----
+MATCH (s:Service {name:'AuthService'}), (t:Service {name:'Database'})
+CALL algo.allsimplepaths(s, t, 'CALLS', 4)
+YIELD path
+RETURN path
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Path_(graph_theory)[Path (graph theory) – Wikipedia]
+
+'''
+
+[[algo-k-shortest-paths]]
+==== algo.kShortestPaths
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.kShortestPaths`
+| Category | Path Finding
+| Complexity | CPU+RAM
+| Min Args | 3
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.kShortestPaths(startNode, endNode, k [, relTypes, weightProperty])
+YIELD path, weight, rank
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `k` | Integer | Yes | — | Number of shortest paths to find
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `weightProperty` | String | No | uniform weight | Edge property name for weights
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities
+| `weight` | Double | Total path weight
+| `rank` | Integer | 1-based rank (1 = shortest)
+|===
+
+*Description*
+
+Finds the k shortest loopless paths between two vertices using Yen's algorithm. Internally uses Dijkstra on a V×V weight matrix, progressively building candidate paths by spur-node deviation from previous shortest paths. Memory usage scales as O(V²) for the weight matrix.
+
+*Use Cases*
+
+- Resilience planning: top-k alternative routes in case of failures
+- Network redundancy analysis
+- Multi-criteria path exploration
+
+*Example*
+
+[source,cypher]
+----
+MATCH (s:Router {id:'R1'}), (t:Router {id:'R10'})
+CALL algo.kShortestPaths(s, t, 3, 'LINK', 'latency')
+YIELD path, weight, rank
+RETURN rank, path, weight ORDER BY rank ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Yen%27s_k-shortest_path_algorithm[Yen's k shortest simple paths – Wikipedia]
+
+'''
+
+[[algo-apsp]]
+==== algo.apsp
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.apsp`
+| Category | Path Finding
+| Complexity | CPU+RAM
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.apsp([weightProperty, relTypes])
+YIELD source, target, distance
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `weightProperty` | String | No | uniform weight | Edge property name for weights
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | RID | Source vertex identity
+| `target` | RID | Target vertex identity
+| `distance` | Double | Shortest distance between source and target
+|===
+
+*Description*
+
+Computes shortest distances between all reachable pairs of distinct vertices using the Floyd-Warshall algorithm. Time complexity is O(V³); memory usage is O(V²). Only reachable pairs (finite distance, source ≠ target) are returned. Suitable for small to medium graphs.
+
+*Use Cases*
+
+- Graph diameter and radius computation
+- Network reachability analysis
+- Pre-computing all pairwise distances for downstream analytics
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.apsp('weight', 'ROAD')
+YIELD source, target, distance
+RETURN source, target, distance ORDER BY distance DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Floyd%E2%80%93Warshall_algorithm[Floyd-Warshall algorithm – Wikipedia]
+
+'''
+
+=== Centrality
+
+[[algo-page-rank]]
+==== algo.pagerank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.pagerank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.pagerank([{dampingFactor: 0.85, maxIterations: 20, tolerance: 0.0001, weightProperty: null}])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| config map | Map | No | see defaults | Configuration properties (all optional)
+| `dampingFactor` | Double | No | `0.85` | Probability of following an edge vs. teleporting
+| `maxIterations` | Integer | No | `20` | Maximum number of power-iteration steps
+| `tolerance` | Double | No | `0.0001` | Convergence threshold (max score change)
+| `weightProperty` | String | No | `null` | Edge property for weighted PageRank
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | PageRank score
+|===
+
+*Description*
+
+Computes the PageRank centrality score for every vertex using the power-iteration method. Dangling nodes (no outgoing edges) contribute their rank to all nodes proportionally via the teleportation mechanism. When `weightProperty` is specified, edge weights are used as transition probabilities (normalized per node).
+
+*Use Cases*
+
+- Web page and document importance ranking
+- Identifying authoritative nodes in citation networks
+- Social network influence scoring
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.pagerank({dampingFactor: 0.85, maxIterations: 30})
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/PageRank[PageRank – Wikipedia]
+
+'''
+
+[[algo-betweenness]]
+==== algo.betweenness
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.betweenness`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.betweenness([{normalized: true}])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| config map | Map | No | see defaults | Configuration properties (all optional)
+| `normalized` | Boolean | No | `true` | Divide scores by `2/((n-1)(n-2))` to normalize to [0,1]
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Betweenness centrality score
+|===
+
+*Description*
+
+Measures how often a vertex lies on the shortest path between all other pairs, using the Brandes algorithm with stack-based back-propagation. When `normalized` is `true`, scores are divided by `2/((n-1)(n-2))` (undirected normalization factor).
+
+*Use Cases*
+
+- Identifying bridge nodes and bottlenecks in networks
+- Communication hub detection in social graphs
+- Critical infrastructure analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.betweenness({normalized: true})
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 20
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Betweenness_centrality[Betweenness centrality – Wikipedia]
+- Brandes, U. (2001). A faster algorithm for betweenness centrality. _Journal of Mathematical Sociology_, 25(2), 163–177.
+
+'''
+
+[[algo-closeness]]
+==== algo.closeness
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.closeness`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.closeness([relTypes, direction, normalized])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `normalized` | Boolean | No | `true` | Use Wasserman-Faust formula for disconnected graphs
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Closeness centrality score
+|===
+
+*Description*
+
+Computes closeness centrality via BFS from each vertex. For disconnected graphs, the Wasserman-Faust formula is applied: `score = (reachable / sumDist) × (reachable / (n-1))`, where `reachable` is the number of vertices reached and `sumDist` is the sum of shortest path distances to those vertices.
+
+*Use Cases*
+
+- Identifying well-positioned nodes for information spread
+- Supply chain hub identification
+- Social network influence reach analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.closeness('KNOWS', 'BOTH', true)
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Closeness_centrality[Closeness centrality – Wikipedia]
+- Wasserman, S. & Faust, K. (1994). _Social Network Analysis_.
+
+'''
+
+[[algo-degree]]
+==== algo.degree
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.degree`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.degree([relTypes, direction])
+YIELD node, inDegree, outDegree, degree, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `inDegree` | Long | Number of incoming edges
+| `outDegree` | Long | Number of outgoing edges
+| `degree` | Long | Total degree (in + out for BOTH, else directional)
+| `score` | Double | Normalized degree: `total / (n-1)`
+|===
+
+*Description*
+
+Efficiently counts in-degree, out-degree, and total degree for every vertex using `vertex.countEdges()` to avoid materializing edge objects. The normalized score divides total degree by `(n-1)`, representing the fraction of all possible connections.
+
+*Use Cases*
+
+- Identifying high-degree hubs in social networks
+- Popularity ranking by connection count
+- Network connectivity baseline measurement
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.degree('FOLLOWS', 'IN')
+YIELD node, inDegree, score
+RETURN node, inDegree, score ORDER BY inDegree DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Degree_(graph_theory)[Degree (graph theory) – Wikipedia]
+
+'''
+
+[[algo-harmonic]]
+==== algo.harmonic
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.harmonic`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.harmonic([relTypes, direction, normalized])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `normalized` | Boolean | No | `true` | Divide raw score by `(n-1)`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Harmonic centrality score
+|===
+
+*Description*
+
+Computes harmonic centrality as the sum of reciprocal shortest-path distances from a vertex to all reachable vertices: `score = Σ 1/dist(v, u)`. When `normalized` is `true`, divides by `(n-1)`. Harmonic centrality handles disconnected graphs naturally (unreachable vertices contribute 0 to the sum), unlike closeness centrality.
+
+*Use Cases*
+
+- Centrality measure robust to disconnected components
+- Influence reach in sparse networks
+- Alternative to closeness in disconnected graphs
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.harmonic('KNOWS', 'BOTH', true)
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Closeness_centrality#Harmonic_centrality[Harmonic centrality – Wikipedia]
+
+'''
+
+[[algo-eigenvector]]
+==== algo.eigenvector
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.eigenvector`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.eigenvector([relTypes, direction, maxIterations, tolerance])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `maxIterations` | Integer | No | `20` | Maximum power-iteration steps
+| `tolerance` | Double | No | `1e-6` | Convergence threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Eigenvector centrality score in [0, 1]
+|===
+
+*Description*
+
+Computes eigenvector centrality using the power iteration method. A node scores highly if it is connected to other high-scoring nodes. L∞ normalization (divide by maximum score) keeps values in [0, 1]. Convergence is checked against the maximum absolute change in scores between iterations.
+
+*Use Cases*
+
+- Identifying globally influential nodes
+- Academic citation influence analysis
+- Prestige scoring in directed networks
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.eigenvector('CITES', 'IN', 50, 1e-8)
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Eigenvector_centrality[Eigenvector centrality – Wikipedia]
+
+'''
+
+[[algo-hits]]
+==== algo.hits
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.hits`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.hits([relTypes, maxIterations, tolerance])
+YIELD node, hubScore, authorityScore
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `maxIterations` | Integer | No | `20` | Maximum number of iterations
+| `tolerance` | Double | No | `1e-6` | Convergence threshold (max score change)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `hubScore` | Double | Hub score (good hub points to good authorities)
+| `authorityScore` | Double | Authority score (good authority is pointed to by good hubs)
+|===
+
+*Description*
+
+Computes Hyperlink-Induced Topic Search (HITS) scores using alternating updates: authority scores are the sum of hub scores of incoming neighbors; hub scores are the sum of authority scores of outgoing neighbors. Both score vectors are L2-normalized after each iteration.
+
+*Use Cases*
+
+- Web link analysis (hubs = index pages, authorities = content pages)
+- Identifying experts vs. curators in knowledge networks
+- Bipartite influence analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.hits('LINKS_TO', 30, 1e-8)
+YIELD node, hubScore, authorityScore
+RETURN node, hubScore, authorityScore ORDER BY authorityScore DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/HITS_algorithm[HITS algorithm – Wikipedia]
+- Kleinberg, J. M. (1999). Authoritative sources in a hyperlinked environment. _Journal of the ACM_, 46(5), 604–632.
+
+'''
+
+[[algo-katz]]
+==== algo.katz
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.katz`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.katz([relTypes, alpha, maxIterations, tolerance])
+YIELD nodeId, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `alpha` | Double | No | `0.005` | Attenuation factor (must be less than 1/λ_max)
+| `maxIterations` | Integer | No | `100` | Maximum number of iterations
+| `tolerance` | Double | No | `1e-6` | Convergence threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `score` | Double | Katz centrality score (normalized to [0, 1])
+|===
+
+*Description*
+
+Computes Katz centrality, which counts all paths between nodes with exponential decay by path length. Formula: `k[i] = alpha × Σ_j(A[j][i] × k[j]) + 1`, normalized by the maximum score. Unlike eigenvector centrality, every node receives a base score (the `+1` term), making it robust for directed and sparse graphs.
+
+*Use Cases*
+
+- Influence ranking in directed social networks
+- Ranking nodes when direct connection is sparse
+- Early-stage recommendation systems
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.katz('FOLLOWS', 0.01, 50, 1e-8)
+YIELD nodeId, score
+RETURN nodeId, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Katz_centrality[Katz centrality – Wikipedia]
+
+'''
+
+[[algo-vote-rank]]
+==== algo.voteRank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.voteRank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.voteRank([relTypes, topK])
+YIELD nodeId, rank
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `topK` | Integer | No | all nodes | Maximum number of top spreaders to return
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `rank` | Integer | 1-based rank (1 = most influential spreader)
+|===
+
+*Description*
+
+Identifies the most influential spreaders in a network using an iterative election process. In each round, the node with the highest accumulated votes is selected as a spreader. After selection, each of its neighbors has its voting ability reduced by `1/degree`. This suppression mechanism ensures that the selected spreaders are structurally diverse rather than clustered together.
+
+*Use Cases*
+
+- Viral marketing seed set selection
+- Identifying structurally independent influencers
+- Epidemic intervention: selecting individuals for immunization
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.voteRank('KNOWS', 5)
+YIELD nodeId, rank
+RETURN nodeId, rank ORDER BY rank ASC
+----
+
+*References*
+
+- Zhang, J., et al. (2016). Identifying a set of influential spreaders in complex networks. _Scientific Reports_, 6, 27823.
+
+'''
+
+[[algo-eccentricity]]
+==== algo.eccentricity
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.eccentricity`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.eccentricity([relTypes, direction])
+YIELD node, eccentricity, isCenter, isPeripheral
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `eccentricity` | Integer | Maximum shortest-path distance to any reachable vertex
+| `isCenter` | Boolean | `true` if eccentricity equals the graph radius
+| `isPeripheral` | Boolean | `true` if eccentricity equals the graph diameter
+|===
+
+*Description*
+
+Computes the eccentricity of each vertex (the greatest shortest-path distance to any other reachable vertex) via BFS from each node. The graph radius is the minimum eccentricity and the graph diameter is the maximum. Center nodes have eccentricity equal to the radius; peripheral nodes have eccentricity equal to the diameter.
+
+*Use Cases*
+
+- Graph center identification for optimal facility placement
+- Network diameter and radius computation
+- Peripheral node analysis for vulnerability assessment
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.eccentricity('ROAD', 'BOTH')
+YIELD node, eccentricity, isCenter, isPeripheral
+RETURN node, eccentricity, isCenter, isPeripheral ORDER BY eccentricity ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Distance_(graph_theory)[Distance (graph theory) – Wikipedia]
+
+'''
+
+[[algo-personalized-page-rank]]
+==== algo.personalizedPageRank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.personalizedPageRank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.personalizedPageRank(sourceNode [, relTypes, dampingFactor, maxIterations, tolerance])
+YIELD nodeId, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceNode` | Vertex | Yes | — | The personalization origin vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `dampingFactor` | Double | No | `0.85` | Probability of following an edge
+| `maxIterations` | Integer | No | `20` | Maximum power-iteration steps
+| `tolerance` | Double | No | `1e-6` | Convergence threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `score` | Double | Personalized PageRank score relative to the source node
+|===
+
+*Description*
+
+Computes Personalized PageRank (PPR) relative to a single source vertex. Unlike standard PageRank, the teleportation probability is concentrated entirely at the source node (personalization vector = 1 at source, 0 everywhere else). Scores represent structural proximity/importance relative to the source. Dangling nodes contribute their rank back to the source only.
+
+*Use Cases*
+
+- Node-centric similarity and proximity ranking
+- Recommendation systems ("nodes similar to X")
+- Query-centric graph exploration
+
+*Example*
+
+[source,cypher]
+----
+MATCH (s:Person {name:'Alice'})
+CALL algo.personalizedPageRank(s, 'KNOWS', 0.85, 20, 0.000001)
+YIELD nodeId, score
+RETURN nodeId, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/PageRank#Personalized_PageRank[Personalized PageRank – Wikipedia]
+
+'''
+
+=== Community Detection
+
+[[algo-wcc]]
+==== algo.wcc
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.wcc`
+| Category | Community Detection
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.wcc([relTypes])
+YIELD node, componentId
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `componentId` | Integer | Sequential component identifier (0-based)
+|===
+
+*Description*
+
+Identifies weakly connected components using BFS, treating all edges as undirected regardless of their actual direction. Two vertices are in the same component if there exists any undirected path between them. Component IDs are remapped to sequential integers starting at 0.
+
+*Use Cases*
+
+- Data quality: detecting isolated subgraphs
+- Network partition detection
+- Graph reachability analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.wcc('CONNECTED_TO')
+YIELD node, componentId
+RETURN componentId, count(node) AS size ORDER BY size DESC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Component_(graph_theory)[Connected component – Wikipedia]
+
+'''
+
+[[algo-scc]]
+==== algo.scc
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.scc`
+| Category | Community Detection
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.scc([relTypes])
+YIELD node, componentId
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `componentId` | Integer | Sequential component identifier (0-based)
+|===
+
+*Description*
+
+Identifies strongly connected components using Kosaraju's two-pass algorithm: iterative DFS on the original graph to compute finish-time ordering, then BFS on the reversed graph in reverse finish order. A strongly connected component is a maximal set of vertices where every vertex is reachable from every other.
+
+*Use Cases*
+
+- Deadlock detection in dependency graphs
+- Circular dependency analysis in software systems
+- Identifying mutually-reachable clusters in directed networks
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.scc('DEPENDS_ON')
+YIELD node, componentId
+RETURN componentId, collect(node) AS members ORDER BY size(members) DESC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Kosaraju%27s_algorithm[Kosaraju's algorithm – Wikipedia]
+
+'''
+
+[[algo-louvain]]
+==== algo.louvain
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.louvain`
+| Category | Community Detection
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.louvain([{maxIterations: 10, tolerance: 0.0001, weightProperty: null}])
+YIELD node, communityId, modularity
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| config map | Map | No | see defaults | Configuration properties (all optional)
+| `maxIterations` | Integer | No | `10` | Maximum number of phase-1 passes
+| `tolerance` | Double | No | `0.0001` | Stop when modularity gain falls below this value
+| `weightProperty` | String | No | `null` | Edge property for weighted modularity
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `communityId` | Integer | Sequential community identifier (0-based)
+| `modularity` | Double | Final modularity score of the partition
+|===
+
+*Description*
+
+Detects communities by maximizing modularity using the Louvain method: a greedy phase where each node is moved to the neighboring community that maximally increases modularity, iterated until no improvement is found. Community IDs are remapped to sequential 0-based integers.
+
+*Use Cases*
+
+- Social community discovery
+- Topic clustering in citation networks
+- Customer segmentation in purchase graphs
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.louvain({maxIterations: 15, weightProperty: 'weight'})
+YIELD node, communityId, modularity
+RETURN communityId, collect(node) AS members, modularity ORDER BY size(members) DESC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Louvain_method[Louvain method – Wikipedia]
+
+'''
+
+[[algo-leiden]]
+==== algo.leiden
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.leiden`
+| Category | Community Detection
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.leiden([relTypes, maxIterations, resolution])
+YIELD nodeId, community
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `maxIterations` | Integer | No | `10` | Maximum number of local-move + refinement iterations
+| `resolution` | Double | No | `1.0` | Resolution parameter γ (higher = more, smaller communities)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `community` | Integer | Sequential community identifier (0-based)
+|===
+
+*Description*
+
+An improved community detection algorithm over Louvain, featuring a two-phase approach: (1) local greedy moves maximizing modularity, followed by (2) a refinement phase that checks whether nodes should be split out from their community to ensure well-connectedness. The resolution parameter γ controls granularity of the resulting communities.
+
+*Use Cases*
+
+- High-quality community detection with guaranteed well-connectedness
+- Hierarchical community structure analysis
+- Fine-grained cluster control via resolution parameter
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.leiden('KNOWS', 10, 1.0)
+YIELD nodeId, community
+RETURN community, count(nodeId) AS size ORDER BY size DESC
+----
+
+*References*
+
+- Traag, V. A., Waltman, L., & van Eck, N. J. (2019). From Louvain to Leiden: guaranteeing well-connected communities. _Scientific Reports_, 9, 5233.
+
+'''
+
+[[algo-label-propagation]]
+==== algo.labelpropagation
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.labelpropagation`
+| Category | Community Detection
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.labelpropagation([{maxIterations: 10, direction: 'BOTH'}])
+YIELD node, communityId
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| config map | Map | No | see defaults | Configuration properties (all optional)
+| `maxIterations` | Integer | No | `10` | Maximum number of propagation passes
+| `direction` | String | No | `"BOTH"` | Edge direction to follow: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `communityId` | Integer | Community label assigned to this vertex
+|===
+
+*Description*
+
+Detects communities by iteratively propagating labels. Each vertex adopts the most frequent label among its neighbors; ties are broken by choosing the smallest label. Vertex processing order is randomly shuffled each iteration. Converges quickly in practice but may produce non-deterministic results.
+
+*Use Cases*
+
+- Fast community detection in very large graphs
+- Semi-supervised classification when some labels are pre-assigned
+- Near-linear time community discovery
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.labelpropagation({maxIterations: 20, direction: 'OUT'})
+YIELD node, communityId
+RETURN communityId, count(node) AS size ORDER BY size DESC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Label_propagation_algorithm[Label propagation algorithm – Wikipedia]
+
+'''
+
+[[algo-hierarchical-clustering]]
+==== algo.hierarchicalClustering
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.hierarchicalClustering`
+| Category | Community Detection
+| Complexity | CPU+RAM
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.hierarchicalClustering([relTypes, numClusters])
+YIELD nodeId, cluster
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `numClusters` | Integer | No | `2` | Desired number of clusters
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `cluster` | Integer | Assigned cluster identifier
+|===
+
+*Description*
+
+Performs agglomerative (bottom-up) hierarchical clustering using single-linkage: each vertex starts in its own cluster, and the two clusters with the highest Jaccard similarity between their neighbor sets are merged iteratively until the target number of clusters is reached. Uses Union-Find for efficient cluster management.
+
+*Use Cases*
+
+- Dendrogram-style cluster analysis
+- Grouping vertices by structural neighborhood similarity
+- Coarse-grained community assignment with controlled count
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.hierarchicalClustering('SIMILAR_TO', 5)
+YIELD nodeId, cluster
+RETURN cluster, count(nodeId) AS size ORDER BY size DESC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Hierarchical_clustering[Hierarchical clustering – Wikipedia]
+
+'''
+
+=== Structural Analysis
+
+[[algo-k-core]]
+==== algo.kcore
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.kcore`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.kcore([relTypes])
+YIELD node, coreNumber
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `coreNumber` | Integer | Maximum k for which this vertex belongs to a k-core
+|===
+
+*Description*
+
+Computes the k-core decomposition of the graph using the Batagelj-Zaversnik O(V+E) algorithm with bucket sort. The k-core of a graph is the maximal subgraph in which every vertex has at least degree k. Each vertex is assigned its coreness: the maximum k for which it belongs to a k-core.
+
+*Use Cases*
+
+- Identifying dense graph cores and peripheral nodes
+- Network robustness analysis
+- Cohesive subgroup detection
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.kcore('KNOWS')
+YIELD node, coreNumber
+RETURN node, coreNumber ORDER BY coreNumber DESC LIMIT 20
+----
+
+*References*
+
+- Batagelj, V. & Zaversnik, M. (2003). An O(m) Algorithm for Cores Decomposition of Networks. _arXiv:cs/0310049_.
+
+'''
+
+[[algo-triangle-count]]
+==== algo.triangleCount
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.triangleCount`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.triangleCount([relTypes])
+YIELD node, triangles, clusteringCoefficient
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `triangles` | Integer | Number of triangles the vertex participates in
+| `clusteringCoefficient` | Double | Local clustering coefficient
+|===
+
+*Description*
+
+Counts the number of closed triangles for each vertex using BitSet intersection of neighbor sets (minimal GC pressure). The local clustering coefficient is computed as `2 × triangles / (deg × (deg-1))`, measuring how close the vertex's neighbors are to forming a complete subgraph.
+
+*Use Cases*
+
+- Social network cohesiveness analysis
+- Spam detection (low clustering = suspicious accounts)
+- Community structure pre-screening
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.triangleCount('KNOWS')
+YIELD node, triangles, clusteringCoefficient
+RETURN node, triangles, clusteringCoefficient ORDER BY triangles DESC LIMIT 20
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Clustering_coefficient[Clustering coefficient – Wikipedia]
+
+'''
+
+[[algo-articulation-points]]
+==== algo.articulationPoints
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.articulationPoints`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.articulationPoints([relTypes])
+YIELD node
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity of an articulation point
+|===
+
+*Description*
+
+Finds all articulation points (cut vertices) — vertices whose removal would increase the number of connected components — using Tarjan's iterative DFS algorithm with discovery time and low-link arrays. Only vertices identified as articulation points are returned; all other vertices produce no result rows.
+
+*Use Cases*
+
+- Network resilience analysis: single points of failure
+- Critical infrastructure node identification
+- Dependency chain vulnerability assessment
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.articulationPoints('CONNECTED_TO')
+YIELD node
+RETURN node
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Biconnected_component[Biconnected component – Wikipedia]
+
+'''
+
+[[algo-bridges]]
+==== algo.bridges
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.bridges`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.bridges([relTypes])
+YIELD source, target
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | RID | Source vertex of the bridge edge
+| `target` | RID | Target vertex of the bridge edge
+|===
+
+*Description*
+
+Finds all bridge edges — edges whose removal would disconnect the graph — using Tarjan's iterative DFS. A bridge is detected when the low-link value of the child strictly exceeds the discovery time of the parent: `low[v] > disc[parent]`. Uses OUT-direction adjacency for DFS traversal.
+
+*Use Cases*
+
+- Network resilience: critical links whose failure causes disconnection
+- Infrastructure planning: bottleneck link identification
+- Supply chain single-path dependency detection
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.bridges('LINK')
+YIELD source, target
+RETURN source, target
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bridge_(graph_theory)[Bridge (graph theory) – Wikipedia]
+
+'''
+
+[[algo-mst]]
+==== algo.mst
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.mst`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.mst([weightProperty, relTypes])
+YIELD source, target, weight, totalWeight
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `weightProperty` | String | No | uniform weight | Edge property name for weights
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | RID | Source vertex of the MST edge
+| `target` | RID | Target vertex of the MST edge
+| `weight` | Double | Weight of this MST edge
+| `totalWeight` | Double | Total weight of the entire MST (same on every row)
+|===
+
+*Description*
+
+Computes the minimum spanning tree of the graph using Kruskal's algorithm with a Union-Find data structure (path halving + union by rank). Edges are sorted by weight; each edge is added if it connects two different components. For disconnected graphs, a minimum spanning forest is returned.
+
+*Use Cases*
+
+- Network infrastructure with minimal cost
+- Clustering by minimal connectivity
+- Dendrogram construction for hierarchical analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.mst('cost', 'CABLE')
+YIELD source, target, weight, totalWeight
+RETURN source, target, weight, totalWeight ORDER BY weight ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Kruskal%27s_algorithm[Kruskal's algorithm – Wikipedia]
+
+'''
+
+[[algo-topological-sort]]
+==== algo.topologicalSort
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.topologicalSort`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.topologicalSort([relTypes])
+YIELD node, order
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `order` | Integer | Topological position (0-based); `-1` if the node is part of a cycle
+|===
+
+*Description*
+
+Computes a topological ordering of the vertices of a directed acyclic graph (DAG) using Kahn's BFS algorithm. Nodes in cycles cannot be topologically sorted and receive `order = -1`. The algorithm processes nodes with zero in-degree first, progressively reducing in-degrees of successors.
+
+*Use Cases*
+
+- Build system dependency resolution
+- Task scheduling with ordering constraints
+- Compilation order determination
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.topologicalSort('DEPENDS_ON')
+YIELD node, order
+RETURN node, order ORDER BY order ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Topological_sorting[Topological sorting – Wikipedia]
+
+'''
+
+[[algo-bipartite]]
+==== algo.bipartite
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.bipartite`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.bipartite([relTypes])
+YIELD node, partition, isBipartite
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `partition` | Integer | Partition assignment: `0` or `1`
+| `isBipartite` | Boolean | Global flag: `true` if the graph is bipartite
+|===
+
+*Description*
+
+Tests whether the graph is bipartite by attempting 2-coloring via BFS. A graph is bipartite if and only if it contains no odd-length cycles. The algorithm correctly handles disconnected graphs by running BFS from each unvisited component. All rows share the same `isBipartite` value.
+
+*Use Cases*
+
+- Verifying bipartite structure before applying bipartite-specific algorithms
+- Recommendation system graph validation (users ↔ items)
+- Conflict-free scheduling verification
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.bipartite('CONNECTS')
+YIELD node, partition, isBipartite
+RETURN isBipartite, partition, collect(node) AS members
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bipartite_graph[Bipartite graph – Wikipedia]
+
+'''
+
+[[algo-graph-coloring]]
+==== algo.graphColoring
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.graphColoring`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.graphColoring([relTypes])
+YIELD node, color, chromaticNumber
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `color` | Integer | Assigned color (0-based integer)
+| `chromaticNumber` | Integer | Global chromatic number of the coloring (same on every row)
+|===
+
+*Description*
+
+Assigns colors to vertices such that no two adjacent vertices share the same color, using a greedy algorithm with a `forbidden[]` array to track unavailable colors for each vertex. The result is a valid coloring but not guaranteed to use the minimum number of colors (the chromatic number). The greedy approach works well in practice for most graph types.
+
+*Use Cases*
+
+- Exam/exam-room scheduling (students sharing courses cannot share a room)
+- Frequency assignment in radio networks
+- Register allocation in compilers
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.graphColoring('CONFLICTS_WITH')
+YIELD node, color, chromaticNumber
+RETURN chromaticNumber, color, collect(node) AS group
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Graph_coloring[Graph coloring – Wikipedia]
+
+'''
+
+[[algo-cycle-detection]]
+==== algo.cycleDetection
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.cycleDetection`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.cycleDetection([relTypes])
+YIELD node, inCycle, hasCycle
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `inCycle` | Boolean | `true` if the vertex is part of a cycle
+| `hasCycle` | Boolean | Global flag: `true` if the graph contains any cycle
+|===
+
+*Description*
+
+Detects cycles using Kosaraju's SCC algorithm. A vertex is considered to be in a cycle if it belongs to an SCC of size greater than 1, or if it has a self-loop. The global `hasCycle` flag is `true` if any vertex satisfies this condition.
+
+*Use Cases*
+
+- Dependency graph cycle detection (circular dependencies)
+- Deadlock possibility analysis
+- DAG validation before topological sort
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.cycleDetection('DEPENDS_ON')
+YIELD node, inCycle, hasCycle
+RETURN hasCycle, node, inCycle
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Cycle_detection[Cycle detection – Wikipedia]
+
+'''
+
+[[algo-densest-subgraph]]
+==== algo.densestSubgraph
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.densestSubgraph`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.densestSubgraph([relTypes])
+YIELD node, inDenseSubgraph, density
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `inDenseSubgraph` | Boolean | `true` if the vertex is part of the densest subgraph found
+| `density` | Double | Edge density of the densest subgraph (same on every row)
+|===
+
+*Description*
+
+Finds the densest subgraph using Charikar's greedy peeling 2-approximation algorithm. The algorithm iteratively removes the vertex with the lowest current degree, tracking the density `(edges / nodes)` of the remaining subgraph. The subgraph that achieved the maximum density is returned.
+
+*Use Cases*
+
+- Identifying tightly-knit communities in social networks
+- Quasi-clique detection
+- Anomaly detection: unusually dense subgraphs
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.densestSubgraph('KNOWS')
+YIELD node, inDenseSubgraph, density
+RETURN density, node, inDenseSubgraph ORDER BY inDenseSubgraph DESC
+----
+
+*References*
+
+- Charikar, M. (2000). Greedy approximation algorithms for finding dense components in a graph. _APPROX 2000_.
+
+'''
+
+[[algo-clique]]
+==== algo.clique
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.clique`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.clique([relTypes, minSize])
+YIELD clique, size
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `minSize` | Integer | No | `3` | Minimum clique size to report
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `clique` | List<RID> | List of vertex identities forming the clique
+| `size` | Integer | Number of vertices in the clique
+|===
+
+*Description*
+
+Enumerates all maximal cliques in the graph using the Bron-Kerbosch algorithm with Tomita pivoting, implemented iteratively with an explicit stack to avoid JVM stack overflow on deep recursion. The graph is treated as undirected (both OUT and IN edges merged). Only cliques of size ≥ `minSize` are returned.
+
+*Use Cases*
+
+- Finding tightly connected groups (friend circles, co-author clusters)
+- Network motif analysis
+- Dense community detection
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.clique('KNOWS', 4)
+YIELD clique, size
+RETURN size, clique ORDER BY size DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bron%E2%80%93Kerbosch_algorithm[Bron-Kerbosch algorithm – Wikipedia]
+
+'''
+
+[[algo-k-truss]]
+==== algo.kTruss
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.kTruss`
+| Category | Structural Analysis
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.kTruss([relTypes, k])
+YIELD nodeId, trussNumber
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `k` | Integer | No | `3` | Target truss parameter (minimum 3)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `trussNumber` | Integer | Maximum k for which this vertex belongs to a k-truss
+|===
+
+*Description*
+
+Computes the k-truss decomposition using BitSet-based triangle counting. A k-truss is a maximal subgraph where every edge participates in at least k−2 triangles. The algorithm iteratively removes edges with insufficient triangle support, and each vertex is assigned the maximum truss number of any of its incident edges in the full decomposition.
+
+*Use Cases*
+
+- Dense subgraph discovery beyond k-cores
+- Social cohesion analysis (friend of a friend structures)
+- Financial fraud ring detection
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.kTruss('KNOWS', 4)
+YIELD nodeId, trussNumber
+RETURN nodeId, trussNumber ORDER BY trussNumber DESC LIMIT 20
+----
+
+*References*
+
+- Cohen, J. (2008). Trusses: Cohesive subgraphs for social network analysis. _National Security Agency Technical Report_.
+
+'''
+
+=== Similarity and Link Prediction
+
+[[algo-jaccard]]
+==== algo.jaccard
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.jaccard`
+| Category | Similarity
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.jaccard(node [, relTypes, direction, cutoff])
+YIELD node1, node2, similarity
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex to compare against all others
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Double | No | `0.0` | Minimum similarity threshold; pairs below are excluded
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `similarity` | Double | Jaccard similarity: |N(src) ∩ N(v)| / |N(src) ∪ N(v)|
+|===
+
+*Description*
+
+Computes the Jaccard similarity between the given source vertex and all other vertices, based on neighborhood overlap. Formula: `similarity = |N(src) ∩ N(v)| / |N(src) ∪ N(v)|`. Pairs with similarity below `cutoff` are filtered out.
+
+*Use Cases*
+
+- Collaborative filtering: "users with similar tastes"
+- Friend recommendation based on shared connections
+- Document similarity via shared keyword links
+
+*Example*
+
+[source,cypher]
+----
+MATCH (u:User {name:'Alice'})
+CALL algo.jaccard(u, 'LIKES', 'OUT', 0.2)
+YIELD node1, node2, similarity
+RETURN node2, similarity ORDER BY similarity DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Jaccard_index[Jaccard index – Wikipedia]
+
+'''
+
+[[algo-adamic-adar]]
+==== algo.adamicAdar
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.adamicAdar`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.adamicAdar(node [, relTypes, direction, cutoff])
+YIELD node1, node2, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Double | No | `0.0` | Minimum score threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `score` | Double | Adamic-Adar score; higher = more likely to form a link
+|===
+
+*Description*
+
+Computes the Adamic-Adar link prediction score between the source vertex and all non-adjacent vertices. For each pair, the score is the sum over common neighbors w of `1/log(degree(w))`. Highly-connected common neighbors contribute less than rare common neighbors. Results are sorted by score descending.
+
+*Use Cases*
+
+- Social network friend recommendation
+- Knowledge graph link prediction
+- Co-authorship prediction in citation networks
+
+*Example*
+
+[source,cypher]
+----
+MATCH (p:Person {name:'Bob'})
+CALL algo.adamicAdar(p, 'KNOWS', 'BOTH', 0.5)
+YIELD node1, node2, score
+RETURN node2, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- Adamic, L. & Adar, E. (2003). Friends and neighbors on the web. _Social Networks_, 25(3), 211–230.
+
+'''
+
+[[algo-common-neighbors]]
+==== algo.commonNeighbors
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.commonNeighbors`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.commonNeighbors(node [, relTypes, direction, cutoff])
+YIELD node1, node2, commonNeighbors
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Integer | No | `1` | Minimum number of common neighbors
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `commonNeighbors` | Integer | Count of shared neighbors
+|===
+
+*Description*
+
+Counts the number of common neighbors between the source vertex and all other vertices. Pairs with fewer than `cutoff` common neighbors are excluded. Results are sorted by count descending.
+
+*Use Cases*
+
+- Simple friend-of-a-friend recommendation
+- Link prediction baseline
+- Mutual connection analysis
+
+*Example*
+
+[source,cypher]
+----
+MATCH (u:User {name:'Charlie'})
+CALL algo.commonNeighbors(u, 'FOLLOWS', 'BOTH', 3)
+YIELD node1, node2, commonNeighbors
+RETURN node2, commonNeighbors ORDER BY commonNeighbors DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Link_prediction[Link prediction – Wikipedia]
+
+'''
+
+[[algo-preferential-attachment]]
+==== algo.preferentialAttachment
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.preferentialAttachment`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.preferentialAttachment(node [, relTypes, direction])
+YIELD node1, node2, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `score` | Long | Product of the two nodes' degrees
+|===
+
+*Description*
+
+Computes the preferential attachment score for each pair as `degree(node1) × degree(node2)`. Based on the observation that in evolving networks, new links preferentially form between high-degree nodes. A simple but effective baseline for link prediction in scale-free networks.
+
+*Use Cases*
+
+- Scale-free network link prediction
+- Social network "people you may know" baseline
+- Network growth modeling
+
+*Example*
+
+[source,cypher]
+----
+MATCH (u:User {id:1})
+CALL algo.preferentialAttachment(u, 'KNOWS', 'BOTH')
+YIELD node1, node2, score
+RETURN node2, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Preferential_attachment[Preferential attachment – Wikipedia]
+
+'''
+
+[[algo-resource-allocation]]
+==== algo.resourceAllocation
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.resourceAllocation`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.resourceAllocation(node [, relTypes, direction, cutoff])
+YIELD node1, node2, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Double | No | `0.0` | Minimum score threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `score` | Double | Resource allocation score
+|===
+
+*Description*
+
+Computes the resource allocation link prediction score: `score = Σ 1/degree(w)` over all common neighbors w. Models the fraction of "resources" that each common neighbor can send to both endpoints if it distributes equally to all its neighbors. Conceptually similar to Adamic-Adar but uses degree directly rather than its logarithm.
+
+*Use Cases*
+
+- Link prediction with emphasis on rare intermediaries
+- Recommendation in sparse networks
+- Metabolic network pathway prediction
+
+*Example*
+
+[source,cypher]
+----
+MATCH (p:Protein {id:'P1'})
+CALL algo.resourceAllocation(p, 'INTERACTS', 'BOTH', 0.1)
+YIELD node1, node2, score
+RETURN node2, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- Zhou, T., Lü, L., & Zhang, Y. C. (2009). Predicting missing links via local information. _European Physical Journal B_, 71(4), 623–630.
+
+'''
+
+[[algo-sim-rank]]
+==== algo.simRank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.simRank`
+| Category | Similarity
+| Complexity | CPU+RAM
+| Min Args | 2
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.simRank(nodeA, nodeB [, relTypes, decayFactor, maxIterations])
+YIELD similarity, nodeAId, nodeBId
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `nodeA` | Vertex | Yes | — | First vertex
+| `nodeB` | Vertex | Yes | — | Second vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `decayFactor` | Double | No | `0.8` | Decay constant C ∈ (0,1)
+| `maxIterations` | Integer | No | `5` | Number of refinement iterations
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `similarity` | Double | SimRank similarity score between nodeA and nodeB
+| `nodeAId` | RID | Identity of nodeA
+| `nodeBId` | RID | Identity of nodeB
+|===
+
+*Description*
+
+Computes SimRank similarity between two vertices using the recursive definition: two nodes are similar if they are pointed to by similar nodes. Maintains a full V×V similarity matrix (O(V²) memory), updated iteratively. Similarity of a node with itself is 1.0. Uses IN adjacency for the standard directed graph formulation.
+
+*Use Cases*
+
+- Structural equivalence analysis in directed graphs
+- Computing vertex pair similarity for matching problems
+- Entity resolution in knowledge graphs
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:Paper {id:'P1'}), (b:Paper {id:'P2'})
+CALL algo.simRank(a, b, 'CITES', 0.8, 5)
+YIELD similarity, nodeAId, nodeBId
+RETURN nodeAId, nodeBId, similarity
+----
+
+*References*
+
+- Jeh, G. & Widom, J. (2002). SimRank: a measure of structural-context similarity. _KDD 2002_.
+
+'''
+
+=== Network Flow
+
+[[algo-max-flow]]
+==== algo.maxFlow
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.maxFlow`
+| Category | Network Flow
+| Complexity | CPU+RAM
+| Min Args | 2
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.maxFlow(sourceNode, sinkNode [, relTypes, capacityProperty])
+YIELD maxFlow, sourceId, sinkId
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceNode` | Vertex | Yes | — | Flow source vertex
+| `sinkNode` | Vertex | Yes | — | Flow sink vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `capacityProperty` | String | No | uniform capacity | Edge property for flow capacity
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `maxFlow` | Double | Maximum flow value from source to sink
+| `sourceId` | RID | Identity of the source vertex
+| `sinkId` | RID | Identity of the sink vertex
+|===
+
+*Description*
+
+Computes the maximum flow from a source to a sink using the Edmonds-Karp algorithm (BFS-based Ford-Fulkerson). Time complexity is O(V·E²). Builds a V×V capacity matrix (O(V²) memory). Returns a single row with the maximum achievable flow.
+
+*Use Cases*
+
+- Network throughput capacity analysis
+- Traffic flow optimization
+- Supply chain max throughput calculation
+
+*Example*
+
+[source,cypher]
+----
+MATCH (src:Node {id:'source'}), (sink:Node {id:'sink'})
+CALL algo.maxFlow(src, sink, 'PIPE', 'capacity')
+YIELD maxFlow, sourceId, sinkId
+RETURN maxFlow, sourceId, sinkId
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Edmonds%E2%80%93Karp_algorithm[Edmonds-Karp algorithm – Wikipedia]
+
+'''
+
+=== Traversal and Sampling
+
+[[algo-random-walk]]
+==== algo.randomWalk
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.randomWalk`
+| Category | Traversal / Sampling
+| Complexity | CPU
+| Min Args | 2
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.randomWalk(startNode, steps [, relTypes, direction, seed])
+YIELD path, steps
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Starting vertex
+| `steps` | Integer | Yes | — | Maximum number of steps to walk
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `seed` | Long | No | current time | Random seed for reproducibility
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities visited
+| `steps` | Integer | Actual number of steps taken (may be less than requested if dead-end reached)
+|===
+
+*Description*
+
+Performs a single random walk starting from the given vertex. At each step, one neighbor is chosen uniformly at random from available edges matching the direction and type constraints. The walk stops when the requested number of steps is reached or a dead-end (no valid neighbors) is encountered.
+
+*Use Cases*
+
+- Graph embedding feature generation (node2vec-style)
+- Sampling large graphs for approximate analysis
+- Stochastic exploration of graph neighborhoods
+
+*Example*
+
+[source,cypher]
+----
+MATCH (start:Page {id:'home'})
+CALL algo.randomWalk(start, 20, 'LINKS_TO', 'OUT', 42)
+YIELD path, steps
+RETURN path, steps
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Random_walk[Random walk – Wikipedia]
+
+'''
+
+=== Network Science Metrics
+
+[[algo-assortativity]]
+==== algo.assortativity
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.assortativity`
+| Category | Network Science
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.assortativity([relTypes])
+YIELD assortativity, edgeCount
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `assortativity` | Double | Newman's degree assortativity coefficient ∈ [-1, 1]
+| `edgeCount` | Integer | Number of edges used in the computation
+|===
+
+*Description*
+
+Computes Newman's degree assortativity coefficient. A positive value indicates that high-degree nodes tend to connect to other high-degree nodes (assortative); negative indicates disassortative mixing.
+
+*Use Cases*
+
+- Network topology characterization
+- Social network analysis (social networks are typically assortative)
+- Comparing mixing patterns across different networks
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.assortativity('KNOWS')
+YIELD assortativity, edgeCount
+RETURN assortativity, edgeCount
+----
+
+*References*
+
+- Newman, M. E. J. (2002). Assortative mixing in networks. _Physical Review Letters_, 89(20), 208701.
+
+'''
+
+[[algo-rich-club]]
+==== algo.richClub
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.richClub`
+| Category | Network Science
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.richClub([relTypes, minDegree])
+YIELD degree, richClubCoefficient, nodeCount, edgeCount
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `minDegree` | Integer | No | `2` | Starting degree threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `degree` | Integer | Degree threshold k for this row
+| `richClubCoefficient` | Double | φ(k): density of edges among nodes with degree > k
+| `nodeCount` | Integer | Number of nodes with degree > k
+| `edgeCount` | Integer | Number of edges among those nodes
+|===
+
+*Description*
+
+Computes the rich-club coefficient φ(k) for every degree threshold k from `minDegree` to the maximum degree in the graph. One row is returned per degree threshold. Formula: `φ(k) = 2·E_k / (N_k·(N_k−1))`, where N_k = number of nodes with degree > k and E_k = edges between those nodes.
+
+*Use Cases*
+
+- Characterizing the "rich get richer" phenomenon
+- Network topology analysis: do high-degree nodes interconnect?
+- Comparing network structure across domains
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.richClub('KNOWS', 2)
+YIELD degree, richClubCoefficient, nodeCount, edgeCount
+RETURN degree, richClubCoefficient ORDER BY degree ASC
+----
+
+*References*
+
+- Colizza, V., Flammini, A., Serrano, M. A., & Vespignani, A. (2006). Detecting rich-club ordering in complex networks. _Nature Physics_, 2, 110–115.
+
+'''
+
+[[algo-influence-maximization]]
+==== algo.influenceMaximization
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.influenceMaximization`
+| Category | Network Science
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.influenceMaximization(k [, relTypes, simulations, propagationProbability])
+YIELD nodeId, rank, marginalGain
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `k` | Integer | Yes | — | Number of seed nodes to select
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `simulations` | Integer | No | `100` | Monte Carlo simulation count per candidate
+| `propagationProbability` | Double | No | `0.1` | Independent Cascade activation probability per edge
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity of the selected seed node
+| `rank` | Integer | Selection rank (1 = best seed)
+| `marginalGain` | Double | Expected additional nodes activated by adding this seed
+|===
+
+*Description*
+
+Selects k seed nodes that maximize influence spread using a greedy algorithm with Monte Carlo simulation of the Independent Cascade (IC) model. In each round, the candidate that maximizes the expected spread when added to the current seed set is selected.
+
+*Use Cases*
+
+- Viral marketing campaign planning
+- Identifying optimal vaccination targets for epidemic control
+- Information cascade maximization in social media
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.influenceMaximization(3, 'FOLLOWS', 200, 0.15)
+YIELD nodeId, rank, marginalGain
+RETURN nodeId, rank, marginalGain ORDER BY rank ASC
+----
+
+*References*
+
+- Kempe, D., Kleinberg, J., & Tardos, E. (2003). Maximizing the spread of influence through a social network. _KDD 2003_.
+
+'''
+
+=== Community Quality Metrics
+
+[[algo-modularity-score]]
+==== algo.modularityScore
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.modularityScore`
+| Category | Community Quality
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.modularityScore(communityProperty [, relTypes])
+YIELD modularity, communities, edgeCount
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `communityProperty` | String | Yes | — | Vertex property name holding the community label
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `modularity` | Double | Newman-Girvan modularity Q ∈ [-0.5, 1]
+| `communities` | Integer | Number of distinct communities found
+| `edgeCount` | Long | Total number of edges in the graph
+|===
+
+*Description*
+
+Evaluates the modularity of an existing community partition stored as a vertex property. Formula: `Q = Σ_c [ L_c/m − (d_c/(2m))² ]`, where L_c is the number of internal edges in community c, d_c is the sum of degrees in c, and m is the total number of edges. Returns a single row.
+
+*Use Cases*
+
+- Evaluating the output of community detection algorithms
+- Comparing alternative community assignments
+- Graph partition quality benchmarking
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.modularityScore('community', 'KNOWS')
+YIELD modularity, communities, edgeCount
+RETURN modularity, communities, edgeCount
+----
+
+*References*
+
+- Newman, M. E. J. & Girvan, M. (2004). Finding and evaluating community structure in networks. _Physical Review E_, 69(2), 026113.
+
+'''
+
+[[algo-conductance]]
+==== algo.conductance
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.conductance`
+| Category | Community Quality
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.conductance(communityProperty [, relTypes])
+YIELD community, conductance, internalEdges, boundaryEdges, nodeCount
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `communityProperty` | String | Yes | — | Vertex property name holding the community label
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `community` | Object | Community label value
+| `conductance` | Double | Conductance score (lower = better community)
+| `internalEdges` | Integer | Edges with both endpoints inside the community
+| `boundaryEdges` | Integer | Edges crossing the community boundary
+| `nodeCount` | Integer | Number of nodes in the community
+|===
+
+*Description*
+
+Computes the conductance of each community in an existing partition stored as a vertex property. Formula: `conductance = cut(C) / min(vol(C), vol(V\C))`, where `cut(C)` is the number of boundary edges and `vol(C)` is the sum of degrees within C. Lower conductance indicates a better-separated community. Returns one row per community.
+
+*Use Cases*
+
+- Evaluating community separation quality
+- Identifying poorly-separated or "leaky" communities
+- Graph cut analysis for partitioning algorithms
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.conductance('community', 'KNOWS')
+YIELD community, conductance, internalEdges, boundaryEdges, nodeCount
+RETURN community, conductance ORDER BY conductance ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Conductance_(graph)[Conductance (graph) – Wikipedia]
+
+'''
+
+=== Graph Statistics
+
+[[algo-graph-summary]]
+==== algo.graphSummary
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.graphSummary`
+| Category | Graph Statistics
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.graphSummary([relTypes, nodeLabels])
+YIELD nodeCount, edgeCount, avgDegree, maxDegree, minDegree, density, isolatedNodes, selfLoops
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types to include
+| `nodeLabels` | String | No | all labels | Comma-separated node labels to include
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeCount` | Integer | Total number of vertices
+| `edgeCount` | Long | Total number of edges
+| `avgDegree` | Double | Average degree across all vertices
+| `maxDegree` | Integer | Maximum vertex degree
+| `minDegree` | Integer | Minimum vertex degree
+| `density` | Double | Graph density: `2E / (V × (V-1))`
+| `isolatedNodes` | Integer | Number of vertices with degree 0
+| `selfLoops` | Long | Number of self-loop edges
+|===
+
+*Description*
+
+Computes a comprehensive one-row statistical summary of the graph. Density is computed as `2E / (V × (V-1))` for undirected graphs (0 for graphs with ≤ 1 node). Self-loops are counted separately. Optionally filters by edge type and/or node label.
+
+*Use Cases*
+
+- Quick graph health check and characterization
+- Monitoring graph evolution over time
+- Input validation before running expensive algorithms
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.graphSummary('KNOWS', 'Person')
+YIELD nodeCount, edgeCount, avgDegree, maxDegree, density, isolatedNodes
+RETURN nodeCount, edgeCount, avgDegree, maxDegree, density, isolatedNodes
+----
+
+'''
+
+=== SQL Path Functions
+
+The following algorithms are also available as SQL functions that return a list of vertex RIDs (identities). They can be used in any SQL `SELECT` statement.
+
+[[algo-dijkstra-sql]]
+==== dijkstra() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `dijkstra()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direction>])
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | — | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
+| `weightEdgeFieldName` | String | Yes | — | Edge property name for weights
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Return Value*
+
+`List<RID>` — Ordered list of vertex identities on the shortest path (including source and destination).
+
+*Description*
+
+SQL function equivalent of `algo.dijkstra`. Internally delegates to the A* implementation with no heuristic. Returns a `LinkedList` of vertex RIDs.
+
+*Example*
+
+[source,sql]
+----
+SELECT dijkstra(#12:0, #12:5, 'weight', 'OUT') AS path
+----
+
+See also: <<dijkstra,dijkstra()>> in SQL Functions reference and <<algo-dijkstra>> for the Cypher procedure variant.
+
+'''
+
+[[algo-bellman-ford-sql]]
+==== bellmanFord() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `bellmanFord()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+bellmanFord(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direction>])
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | — | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
+| `weightEdgeFieldName` | String | Yes | — | Edge property name for weights (may be negative)
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Return Value*
+
+`List<RID>` — Ordered list of vertex identities on the shortest path.
+
+*Description*
+
+SQL function equivalent of `algo.bellmanford`. Supports negative edge weights and detects negative-weight cycles (returns an empty path if a negative cycle is reachable).
+
+*Example*
+
+[source,sql]
+----
+SELECT bellmanFord(#12:0, #12:5, 'cost') AS path
+----
+
+See also: <<algo-bellman-ford>> for the Cypher procedure variant.
+
+'''
+
+[[algo-shortest-path-sql]]
+==== shortestPath() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `shortestPath()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+shortestPath(<sourceVertex>, <destinationVertex> [, <direction> [, <edgeType>]])
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | — | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `edgeType` | String | No | all types | Edge type name to restrict traversal
+|===
+
+*Return Value*
+
+`List<RID>` — Ordered list of vertex identities on the shortest path (unweighted; minimizes hop count).
+
+*Description*
+
+Finds the unweighted shortest path (minimum hop count) between two vertices using bidirectional BFS (meets in the middle), which can be significantly faster than single-direction BFS for large graphs. Optionally accepts a map parameter with `maxDepth` and `edge` flags.
+
+*Example*
+
+[source,sql]
+----
+SELECT shortestPath(#12:0, #12:9, 'BOTH', 'KNOWS') AS path
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bidirectional_search[Bidirectional search – Wikipedia]
+
+See also: <<shortest-path-function,shortestPath()>> in SQL Functions reference.
+
+'''
+
+=== Notes
+
+==== relTypes Parameter
+
+All procedures that accept a `relTypes` parameter use comma-separated relationship type names. To traverse *all* relationship types, pass an empty string `''` or omit the parameter where it is optional:
+
+[source,cypher]
+----
+CALL algo.pagerank()               -- all types (parameter omitted)
+CALL algo.wcc('')                  -- all types (empty string)
+CALL algo.wcc('KNOWS,FOLLOWS')     -- only KNOWS and FOLLOWS edges
+----
+
+==== direction Parameter
+
+Where supported, the `direction` parameter controls which edges are considered:
+
+- `"OUT"` — only outgoing edges from each vertex
+- `"IN"` — only incoming edges to each vertex
+- `"BOTH"` — edges in either direction (default for most algorithms)
+
+==== Config Map Parameters
+
+Several algorithms (PageRank, Louvain, Betweenness, LabelPropagation) accept an optional configuration map as their first argument:
+
+[source,cypher]
+----
+CALL algo.pagerank({dampingFactor: 0.9, maxIterations: 50})
+YIELD node, score
+----
+
+==== Memory Considerations
+
+Algorithms marked *CPU+RAM* build in-memory data structures that scale with V² or E²:
+
+[cols="3,3", options="header"]
+|===
+| Algorithm | Memory Usage
+
+| `algo.apsp` | O(V²) distance matrix
+| `algo.maxFlow` | O(V²) capacity matrix
+| `algo.kShortestPaths` | O(V²) weight matrix
+| `algo.simRank` | O(V²) similarity matrix
+| `algo.hierarchicalClustering` | O(V²) similarity pairs
+|===
+
+For graphs with more than a few thousand vertices, these algorithms may require significant heap space.
