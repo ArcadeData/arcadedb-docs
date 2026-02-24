@@ -53,6 +53,9 @@ SQL path functions return a list of vertex RIDs and can be used directly in `SEL
 | <<algo-hierarchical-clustering,Hierarchical Clustering>> | `algo.hierarchicalClustering` | Community Detection | CPU+RAM
 | <<algo-hits,HITS (Hubs and Authorities)>> | `algo.hits` | Centrality | CPU
 | <<algo-influence-maximization,Influence Maximization>> | `algo.influenceMaximization` | Network Science | CPU
+| <<algo-fastrp,FastRP (Fast Random Projection)>> | `algo.fastrp` | Node Embedding | CPU
+| <<algo-graphsage,GraphSAGE>> | `algo.graphsage` | Node Embedding | CPU
+| <<algo-hashgnn,HashGNN>> | `algo.hashgnn` | Node Embedding | CPU
 | <<algo-jaccard,Jaccard Similarity>> | `algo.jaccard` | Similarity | CPU
 | <<algo-k-core,K-Core Decomposition>> | `algo.kcore` | Structural Analysis | CPU
 | <<algo-knn,K-Nearest Neighbours (KNN)>> | `algo.knn` | Similarity | CPU
@@ -64,9 +67,12 @@ SQL path functions return a list of vertex RIDs and can be used directly in `SEL
 | <<algo-local-clustering-coefficient,Local Clustering Coefficient>> | `algo.localClusteringCoefficient` | Structural Analysis | CPU
 | <<algo-longest-path-dag,Longest Path (DAG)>> | `algo.longestPath` | Path Finding | CPU
 | <<algo-louvain,Louvain>> | `algo.louvain` | Community Detection | CPU
+| <<algo-max-k-cut,Max k-Cut (Approximate)>> | `algo.maxKCut` | Community Detection | CPU
 | <<algo-max-flow,Maximum Flow>> | `algo.maxFlow` | Network Flow | CPU+RAM
+| <<algo-msa,Minimum Spanning Arborescence>> | `algo.msa` | Path Finding | CPU
 | <<algo-mst,Minimum Spanning Tree (MST)>> | `algo.mst` | Structural Analysis | CPU
 | <<algo-modularity-score,Modularity Score>> | `algo.modularityScore` | Community Quality | CPU
+| <<algo-node2vec,Node2Vec>> | `algo.node2vec` | Node Embedding | CPU
 | <<algo-page-rank,PageRank>> | `algo.pagerank` | Centrality | CPU
 | <<algo-personalized-page-rank,Personalized PageRank>> | `algo.personalizedPageRank` | Centrality | CPU
 | <<algo-preferential-attachment,Preferential Attachment>> | `algo.preferentialAttachment` | Link Prediction | CPU
@@ -78,6 +84,7 @@ SQL path functions return a list of vertex RIDs and can be used directly in `SEL
 | <<algo-sim-rank,SimRank>> | `algo.simRank` | Similarity | CPU+RAM
 | <<algo-slpa,SLPA (Speaker-Listener Label Propagation)>> | `algo.slpa` | Community Detection | CPU
 | <<algo-scc,Strongly Connected Components (SCC)>> | `algo.scc` | Community Detection | CPU
+| <<algo-steiner-tree,Steiner Tree>> | `algo.steinerTree` | Path Finding | CPU+RAM
 | <<algo-topological-sort,Topological Sort>> | `algo.topologicalSort` | Traversal / Ordering | CPU
 | <<algo-total-neighbors,Total Neighbors>> | `algo.totalNeighbors` | Link Prediction | CPU
 | <<algo-triangle-count,Triangle Count>> | `algo.triangleCount` | Structural Analysis | CPU
@@ -797,6 +804,158 @@ ORDER BY distance DESC LIMIT 5
 - https://en.wikipedia.org/wiki/Longest_path_problem[Longest path problem – Wikipedia]
 
 See also: <<algo-topological-sort>> for topological ordering.
+
+'''
+
+[[algo-msa]]
+==== algo.msa
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.msa`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.msa(rootNode [, relTypes, weightProperty]) YIELD source, target, weight, totalWeight
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `rootNode` | Vertex | — | Root vertex for the arborescence
+| `relTypes` | String | all types | Comma-separated edge type names to traverse
+| `weightProperty` | String | `null` | Edge property for weights; `null` = all weights 1.0
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | Vertex | Source vertex of this MSA edge
+| `target` | Vertex | Destination vertex of this MSA edge
+| `weight` | Float | Weight of this edge
+| `totalWeight` | Float | Total weight of the arborescence (same on every row)
+|===
+
+*Description*
+
+Computes the Minimum Spanning Arborescence (directed MST) rooted at a specified vertex using the Chu-Liu/Edmonds algorithm. Unlike the undirected `algo.mst`, the arborescence is a *directed* spanning tree where every non-root vertex has exactly one incoming edge and all vertices are reachable from the root along directed paths.
+
+Returns n − 1 rows (one per arborescence edge). Returns an empty result if no spanning arborescence exists (the directed graph is not strongly connected from the root).
+
+*Use Cases*
+
+- Optimising directed distribution networks (water, power, logistics)
+- Dependency resolution with minimum total cost
+- Directed network backbone extraction
+
+*Example*
+
+[source,cypher]
+----
+MATCH (r:City {name:'Rome'})
+CALL algo.msa(r, 'ROAD', 'distance')
+YIELD source, target, weight, totalWeight
+RETURN source.name, target.name, weight ORDER BY weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Edmonds%27_algorithm[Edmonds' algorithm – Wikipedia]
+- Chu, Y. J. & Liu, T. H. (1965). On the Shortest Arborescence of a Directed Graph. _Science Sinica_.
+
+'''
+
+[[algo-steiner-tree]]
+==== algo.steinerTree
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.steinerTree`
+| Category | Path Finding
+| Complexity | CPU+RAM
+| Min Args | 1
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.steinerTree(terminalNodes [, relTypes, weightProperty]) YIELD source, target, weight, totalWeight
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `terminalNodes` | List<Vertex> | — | List of terminal (required) vertices to connect
+| `relTypes` | String | all types | Comma-separated edge type names to traverse (undirected)
+| `weightProperty` | String | `null` | Edge property for weights; `null` = all weights 1.0
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | Vertex | Source vertex of this Steiner-tree edge
+| `target` | Vertex | Destination vertex of this Steiner-tree edge
+| `weight` | Float | Weight of this edge
+| `totalWeight` | Float | Total Steiner-tree weight (same on every row)
+|===
+
+*Description*
+
+Finds an approximate minimum-weight connected subgraph that spans all terminal vertices, using the Kou-Markowsky-Berman 2-approximation algorithm (approximation ratio `2(1 − 1/|T|)` where |T| is the number of terminals):
+
+1. Run Dijkstra from each terminal to find shortest paths to all other terminals.
+2. Build a complete graph on terminals with shortest-path distances.
+3. Find the MST of this terminal graph (Kruskal's).
+4. Expand each MST edge back to its actual shortest path in the original graph.
+5. Prune non-terminal leaves iteratively.
+
+Edges are traversed undirected. Returns an empty result if terminals are unreachable from each other.
+
+*Use Cases*
+
+- Designing minimum-cost subnetworks connecting mandatory waypoints
+- Content distribution network planning
+- Pipeline / cable routing connecting required endpoints
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:City {name:'Rome'}), (b:City {name:'Milan'}), (c:City {name:'Naples'})
+CALL algo.steinerTree([a, b, c], 'ROAD', 'distance')
+YIELD source, target, weight, totalWeight
+RETURN source.name, target.name, weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Steiner_tree_problem[Steiner tree problem – Wikipedia]
+- Kou, L., Markowsky, G. & Berman, L. (1981). A fast algorithm for Steiner trees. _Acta Informatica_.
 
 '''
 
@@ -2124,6 +2283,96 @@ ORDER BY size(communities) DESC
 *References*
 
 - https://doi.org/10.1109/IPDPS.2012.111[Xie, J. et al. (2013). SLPA: Uncovering Overlapping Communities in Social Networks via a Speaker-listener Interaction Dynamic Process. _ICDMW 2011_]
+
+'''
+
+[[algo-max-k-cut]]
+==== algo.maxKCut
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.maxKCut`
+| Category | Community Detection
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.maxKCut(k [, config]) YIELD node, community, cutWeight
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `k` | Integer | — | Number of partitions (≥ 2)
+| `config` | Map | `{}` | Configuration map (see below)
+|===
+
+*Config Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Key | Type | Default | Description
+
+| `maxIterations` | Integer | `100` | Maximum local-search passes per restart
+| `restarts` | Integer | `3` | Number of random restarts (best result returned)
+| `weightProperty` | String | `null` | Edge property for weights; `null` = all weights 1.0
+| `relTypes` | String | all types | Comma-separated edge type names
+| `direction` | String | `BOTH` | Edge traversal direction: `IN`, `OUT`, or `BOTH`
+| `seed` | Long | `-1` | Random seed; -1 = random
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | Vertex | The vertex
+| `community` | Integer | Partition index in range [0, k − 1]
+| `cutWeight` | Float | Total weight of inter-partition edges (same on every row)
+|===
+
+*Description*
+
+Approximates the Maximum k-Cut problem: partition all vertices into k disjoint subsets to maximise the total weight of edges that cross between different partitions. Uses a greedy local-search heuristic:
+
+1. Randomly assign each vertex to one of k partitions.
+2. For each vertex, compute the cut gain for every possible partition and move it to the best one.
+3. Repeat until no vertex can be moved to improve the cut (or `maxIterations` is reached).
+4. Repeat steps 1–3 for `restarts` independent runs and return the best result found.
+
+This heuristic achieves a `(k−1)/k` fraction of the optimal cut on unweighted graphs and converges quickly in practice.
+
+*Use Cases*
+
+- Graph partitioning for parallel processing
+- Community detection via balanced cut
+- Circuit bipartitioning and VLSI placement
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.maxKCut(3, {restarts: 5, seed: 42})
+YIELD node, community, cutWeight
+RETURN node.name AS name, community
+ORDER BY community
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Maximum_cut[Maximum cut – Wikipedia]
+- Sahni, S. & Gonzalez, T. (1976). P-Complete Approximation Problems. _Journal of the ACM_.
 
 '''
 
@@ -4335,6 +4584,344 @@ CALL algo.graphSummary('KNOWS', 'Person')
 YIELD nodeCount, edgeCount, avgDegree, maxDegree, density, isolatedNodes
 RETURN nodeCount, edgeCount, avgDegree, maxDegree, density, isolatedNodes
 ----
+
+'''
+
+=== Node Embedding
+
+Node embedding procedures map each vertex to a dense real-valued vector that encodes its structural position in the graph. The resulting vectors can be used directly as features for machine-learning tasks (classification, clustering, link prediction) or for similarity search using ArcadeDB's vector index.
+
+All embedding procedures yield a `List<Float>` that can be stored as a vertex property or forwarded to a downstream vector index.
+
+[[algo-fastrp]]
+==== algo.fastrp
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.fastrp`
+| Category | Node Embedding
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.fastrp([config]) YIELD node, embedding
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `config` | Map | `{}` | Configuration map (see below)
+|===
+
+*Config Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Key | Type | Default | Description
+
+| `dimensions` | Integer | `128` | Embedding vector size
+| `iterations` | Integer | `4` | Number of propagation rounds
+| `normalization` | Float | `0.0` | Degree-normalisation exponent α: weight of neighbour j contributing to node i is proportional to `deg(i)^{-α} × deg(j)^{-α}`; 0 = no normalisation, 1 = GCN-style
+| `selfInfluence` | Float | `0.0` | Weight [0,1] given to the node's own previous embedding vs. the aggregated neighbour embedding
+| `relTypes` | String | all types | Comma-separated edge type names
+| `direction` | String | `BOTH` | Edge traversal direction: `IN`, `OUT`, or `BOTH`
+| `seed` | Long | `-1` | Random seed; -1 = random
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | Vertex | The vertex
+| `embedding` | List<Float> | L2-normalised embedding vector of length `dimensions`
+|===
+
+*Description*
+
+FastRP (Fast Random Projection, Chen et al. 2019) generates dense node embeddings without any training phase. Each node is initialised with a sparse ternary random vector (values ±√3 with probability 1/6 each, 0 with probability 2/3 — the optimal sparse random projection of Achlioptas 2003). The embedding is then iteratively refined by computing a weighted average of neighbour embeddings, followed by L2 normalisation. The resulting vectors capture multi-hop structural proximity and run orders of magnitude faster than walk-based methods.
+
+*Use Cases*
+
+- Fast baseline embeddings for downstream ML pipelines
+- Similarity search via vector index
+- Graph-aware feature generation without labelled data
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.fastrp({dimensions: 64, iterations: 3, seed: 42})
+YIELD node, embedding
+RETURN node.name AS name, embedding
+----
+
+*References*
+
+- https://arxiv.org/abs/1908.11512[Chen, H. et al. (2019). Fast and Accurate Network Embeddings via Very Sparse Random Projection. _CIKM 2019_]
+
+'''
+
+[[algo-node2vec]]
+==== algo.node2vec
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.node2vec`
+| Category | Node Embedding
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.node2vec([config]) YIELD node, embedding
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `config` | Map | `{}` | Configuration map (see below)
+|===
+
+*Config Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Key | Type | Default | Description
+
+| `embeddingDimension` | Integer | `128` | Embedding vector size
+| `walkLength` | Integer | `80` | Number of steps per random walk
+| `walksPerNode` | Integer | `10` | Random walks generated per node
+| `iterations` | Integer | `1` | Training epochs over all walks
+| `windowSize` | Integer | `10` | Skip-gram context window radius
+| `negSamples` | Integer | `5` | Negative samples per positive (centre, context) pair
+| `learningRate` | Float | `0.025` | Initial SGD learning rate (linearly decayed per epoch)
+| `p` | Float | `1.0` | Return parameter: high p → less likely to return to previous node
+| `q` | Float | `1.0` | In-out parameter: low q → DFS-like exploration; high q → BFS-like
+| `relTypes` | String | all types | Comma-separated edge type names
+| `direction` | String | `BOTH` | Edge traversal direction
+| `seed` | Long | `-1` | Random seed; -1 = random
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | Vertex | The vertex
+| `embedding` | List<Float> | L2-normalised embedding vector of length `embeddingDimension`
+|===
+
+*Description*
+
+Node2Vec (Grover & Leskovec, 2016) learns node embeddings using biased second-order random walks combined with a Skip-gram model trained via negative sampling. The walk bias is controlled by two parameters:
+
+- *p* (return parameter): low p makes the walk more likely to revisit the previous node (BFS-like neighbourhood exploration)
+- *q* (in-out parameter): low q makes the walk explore outward (DFS-like), revealing structural roles; high q stays close to the source (community-based embeddings)
+
+The Skip-gram model is trained with SGD and negative sampling, using a linearly decaying learning rate per epoch.
+
+*Use Cases*
+
+- Community-aware embeddings (high q)
+- Structural-role embeddings (low q)
+- Link prediction feature generation
+- Node classification pre-training
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.node2vec({embeddingDimension: 64, p: 1.0, q: 0.5, walkLength: 30, seed: 42})
+YIELD node, embedding
+RETURN node.name AS name, embedding
+----
+
+*References*
+
+- https://arxiv.org/abs/1607.00653[Grover, A. & Leskovec, J. (2016). node2vec: Scalable Feature Learning for Networks. _KDD 2016_]
+
+'''
+
+[[algo-graphsage]]
+==== algo.graphsage
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.graphsage`
+| Category | Node Embedding
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.graphsage([config]) YIELD node, embedding
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `config` | Map | `{}` | Configuration map (see below)
+|===
+
+*Config Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Key | Type | Default | Description
+
+| `embeddingDimension` | Integer | `64` | Output embedding size per layer
+| `layers` | Integer | `2` | Number of aggregation layers (receptive field = layers hops)
+| `relTypes` | String | all types | Comma-separated edge type names
+| `direction` | String | `BOTH` | Edge traversal direction
+| `seed` | Long | `-1` | Random seed; -1 = random
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | Vertex | The vertex
+| `embedding` | List<Float> | L2-normalised embedding vector of length `embeddingDimension`
+|===
+
+*Description*
+
+GraphSAGE (Hamilton et al., 2017) — inductive neighbourhood aggregation. This implementation is *unsupervised*: no training labels are needed. Node features are initialised from structural properties (log-normalised degree + Gaussian noise) and then propagated through `layers` rounds of mean aggregation, each followed by a random linear projection (Xavier initialisation) and ReLU activation. The resulting embeddings capture multi-hop structural similarity.
+
+Because the projection matrices are randomly initialised rather than trained, the embeddings are structurally consistent (nodes with similar neighbourhoods receive similar embeddings) and can be used directly as ML features or refined with downstream fine-tuning.
+
+*Use Cases*
+
+- Inductive embeddings for graphs that grow over time
+- Feature generation for node classification / link prediction
+- Similarity search and clustering on graph data
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.graphsage({embeddingDimension: 32, layers: 2, seed: 7})
+YIELD node, embedding
+RETURN node.name AS name, embedding
+----
+
+*References*
+
+- https://arxiv.org/abs/1706.02216[Hamilton, W. et al. (2017). Inductive Representation Learning on Large Graphs. _NeurIPS 2017_]
+
+'''
+
+[[algo-hashgnn]]
+==== algo.hashgnn
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.hashgnn`
+| Category | Node Embedding
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.hashgnn([config]) YIELD node, embedding
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `config` | Map | `{}` | Configuration map (see below)
+|===
+
+*Config Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Key | Type | Default | Description
+
+| `embeddingDimension` | Integer | `128` | Output embedding size (number of MinHash functions)
+| `iterations` | Integer | `4` | Message-passing rounds (receptive field = iterations hops)
+| `relTypes` | String | all types | Comma-separated edge type names
+| `direction` | String | `BOTH` | Edge traversal direction
+| `seed` | Long | `-1` | Random seed; -1 = random
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | Vertex | The vertex
+| `embedding` | List<Float> | L2-normalised MinHash embedding vector of length `embeddingDimension`
+|===
+
+*Description*
+
+HashGNN is a *training-free* graph neural network that uses locality-sensitive hashing for neighbourhood aggregation. Each node is initialised with a sparse random binary feature vector (≈12.5% density) derived from its structural identity. For each propagation round, each node's feature set is expanded by OR-combining neighbour feature sets, then reduced to a fixed-size MinHash sketch using random linear hash functions `h_d(x) = (a·x + b) mod F`. The final embedding is the L2-normalised MinHash signature, providing probabilistic Jaccard similarity guarantees: two nodes with similar MinHash signatures have similar neighbourhood feature sets.
+
+HashGNN is extremely fast (no matrix multiplication, no gradient computation) and naturally handles graphs without node features.
+
+*Use Cases*
+
+- Ultra-fast structural embeddings as features for downstream ML
+- Graph-level similarity via pooled embeddings
+- Anomaly detection (unusual neighbourhood structure)
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.hashgnn({embeddingDimension: 64, iterations: 3, seed: 42})
+YIELD node, embedding
+RETURN node.name AS name, embedding
+----
+
+*References*
+
+- https://arxiv.org/abs/2206.01652[Dasoulas, G. et al. (2022). Improving Graph Neural Networks with Learnable Propagation Operators. _ICML 2022_]
+- https://en.wikipedia.org/wiki/MinHash[MinHash – Wikipedia]
 
 '''
 
