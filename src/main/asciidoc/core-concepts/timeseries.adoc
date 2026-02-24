@@ -1,0 +1,753 @@
+[[timeseries]]
+=== Time Series
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/core-concepts/timeseries.adoc" float=right]
+
+ArcadeDB includes a native Time Series engine designed for high-throughput ingestion and fast analytical queries over timestamped data.
+Unlike bolt-on solutions, the Time Series model is integrated directly into the multi-model core -- the same database that stores graphs, documents, and key/value pairs can store and query billions of time-stamped samples with specialized columnar compression, SIMD-vectorized aggregation, and automatic lifecycle management.
+
+Key capabilities:
+
+* **Columnar storage** with Gorilla (float), Delta-of-Delta (timestamp), Simple-8b (integer), and Dictionary (tag) compression -- 0.4 to 1.4 bytes per sample
+* **Shard-per-core parallelism** with lock-free writes
+* **Block-level aggregation statistics** for zero-decompression fast-path queries
+* **InfluxDB Line Protocol** ingestion for compatibility with Telegraf, Grafana Agent, and hundreds of collection agents
+* **Prometheus remote_write / remote_read** protocol for drop-in Prometheus backend usage
+* **PromQL query language** -- native parser and evaluator with HTTP-compatible API endpoints
+* **SQL analytical functions** -- `ts.timeBucket`, `ts.rate`, `ts.percentile`, `ts.interpolate`, window functions, and more
+* **Continuous aggregates** with watermark-based incremental refresh
+* **Retention policies** and **downsampling tiers** for automatic data lifecycle
+* **Grafana integration** via DataFrame-compatible endpoints (works with the Infinity datasource plugin)
+* **Studio TimeSeries Explorer** with query, schema inspection, ingestion docs, and PromQL tabs
+
+==== Creating a TimeSeries Type
+
+Use `CREATE TIMESERIES TYPE` to define a new time series type.
+Every type requires a `TIMESTAMP` column, zero or more `TAGS` (low-cardinality indexed dimensions), and one or more `FIELDS` (high-cardinality measurement values).
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE SensorReading
+  TIMESTAMP ts PRECISION NANOSECOND
+  TAGS (sensor_id STRING, location STRING)
+  FIELDS (
+    temperature DOUBLE,
+    humidity DOUBLE,
+    pressure DOUBLE
+  )
+  SHARDS 8
+  RETENTION 90 DAYS
+  COMPACTION_INTERVAL 1 HOURS
+  BLOCK_SIZE 65536
+----
+
+Minimal syntax (defaults for everything optional):
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE SensorReading
+  TIMESTAMP ts
+  TAGS (sensor_id STRING)
+  FIELDS (temperature DOUBLE)
+----
+
+[%header,cols="20%,20%,60%"]
+|===
+| Option | Default | Description
+| `TIMESTAMP <name>` | _(required)_ | Name of the timestamp column
+| `PRECISION` | `NANOSECOND` | Timestamp resolution: `SECOND`, `MILLISECOND`, `MICROSECOND`, `NANOSECOND`
+| `TAGS (...)` | _(none)_ | Comma-separated `name TYPE` pairs for low-cardinality dimensions
+| `FIELDS (...)` | _(required)_ | Comma-separated `name TYPE` pairs for measurement values
+| `SHARDS` | CPU count | Number of shards for parallel writes
+| `RETENTION` | _(none)_ | Automatic deletion of data older than the specified duration (e.g., `90 DAYS`, `1 HOURS`)
+| `COMPACTION_INTERVAL` | _(none)_ | Splits sealed blocks at time-bucket boundaries for fast-path aggregation
+| `BLOCK_SIZE` | `65536` | Samples per sealed block
+| `IF NOT EXISTS` | _(none)_ | Silently skip creation if the type already exists
+|===
+
+==== Altering a TimeSeries Type
+
+Add downsampling policies to automatically reduce resolution of old data:
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading
+  ADD DOWNSAMPLING POLICY
+    AFTER 7 DAYS GRANULARITY 1 MINUTES
+    AFTER 30 DAYS GRANULARITY 1 HOURS
+----
+
+Remove all downsampling policies:
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading DROP DOWNSAMPLING POLICY
+----
+
+==== Dropping a TimeSeries Type
+
+[source,sql]
+----
+DROP TIMESERIES TYPE SensorReading
+DROP TIMESERIES TYPE IF EXISTS SensorReading
+----
+
+==== Ingesting Data
+
+There are four ways to ingest data into a TimeSeries type, listed from fastest to most convenient.
+
+===== InfluxDB Line Protocol (Recommended for High Throughput)
+
+The fastest remote ingestion path.
+ArcadeDB exposes an InfluxDB Line Protocol-compatible HTTP endpoint that skips SQL parsing entirely.
+
+[source]
+----
+POST /api/v1/ts/{database}/write?precision=ns
+Content-Type: text/plain
+
+SensorReading,sensor_id=sensor-A,location=building-1 temperature=22.5,humidity=65.0,pressure=1013.25 1708430400000000000
+SensorReading,sensor_id=sensor-B,location=building-2 temperature=19.1,humidity=70.0 1708430400000000000
+----
+
+Line Protocol format: `<measurement>[,<tag>=<value>...] <field>=<value>[,...] [<timestamp>]`
+
+Precision parameter: `ns` (nanoseconds, default), `us` (microseconds), `ms` (milliseconds), `s` (seconds).
+
+Example with `curl`:
+
+[source,bash]
+----
+curl -X POST "http://localhost:2480/api/v1/ts/mydb/write?precision=ns" \
+  -u root:password \
+  -H "Content-Type: text/plain" \
+  --data-binary 'SensorReading,sensor_id=sensor-A temperature=22.5 1708430400000000000
+SensorReading,sensor_id=sensor-A temperature=22.6 1708430401000000000'
+----
+
+Example with Python:
+
+[source,python]
+----
+import requests
+
+lines = [
+    "SensorReading,sensor_id=sensor-A temperature=22.5 1708430400000000000",
+    "SensorReading,sensor_id=sensor-A temperature=22.6 1708430401000000000",
+]
+
+requests.post(
+    "http://localhost:2480/api/v1/ts/mydb/write?precision=ns",
+    auth=("root", "password"),
+    headers={"Content-Type": "text/plain"},
+    data="\n".join(lines),
+)
+----
+
+If the type does not exist and auto-creation is enabled (`arcadedb.tsAutoCreateType=true`), the schema is inferred from the first line: measurement name becomes the type, tags become TAG columns, fields become FIELD columns with inferred types.
+
+===== Prometheus Remote Write
+
+ArcadeDB acts as a drop-in Prometheus remote storage backend.
+Configure Prometheus to write to ArcadeDB:
+
+[source,yaml]
+----
+# prometheus.yml
+remote_write:
+  - url: "http://localhost:2480/ts/mydb/prom/write"
+    basic_auth:
+      username: root
+      password: password
+----
+
+The endpoint accepts the standard Prometheus `remote_write` Protobuf payload (snappy-compressed).
+Each time series is mapped to an ArcadeDB TimeSeries type named after the `__name__` label.
+Types are auto-created if they do not exist.
+
+===== SQL INSERT
+
+Standard ArcadeDB SQL syntax works for TimeSeries types:
+
+[source,sql]
+----
+-- Single row
+INSERT INTO SensorReading
+  SET ts = '2026-02-20T10:00:00.000Z',
+      sensor_id = 'sensor-A',
+      location = 'building-1',
+      temperature = 22.5,
+      humidity = 65.0
+
+-- Batch insert
+INSERT INTO SensorReading
+  (ts, sensor_id, location, temperature, humidity)
+  VALUES
+    ('2026-02-20T10:00:00Z', 'sensor-A', 'building-1', 22.5, 65.0),
+    ('2026-02-20T10:00:01Z', 'sensor-A', 'building-1', 22.6, 64.8),
+    ('2026-02-20T10:00:02Z', 'sensor-B', 'building-2', 19.1, 70.0)
+
+-- CONTENT syntax
+INSERT INTO SensorReading
+  CONTENT { "ts": "2026-02-20T10:00:00Z", "sensor_id": "sensor-A", "temperature": 22.5 }
+----
+
+===== Java Embedded API
+
+The fastest path -- bypasses all protocol and SQL overhead:
+
+[source,java]
+----
+TimeSeriesEngine engine = database.getSchema()
+    .getTimeSeriesType("SensorReading").getEngine();
+
+long[] timestamps = { 1708430400000000000L, 1708430401000000000L };
+String[] sensorIds = { "sensor-A", "sensor-A" };
+double[] temperatures = { 22.5, 22.6 };
+
+database.transaction(() -> {
+  engine.appendSamples(timestamps,
+      new Object[] { sensorIds, temperatures });
+});
+----
+
+===== Ingestion Method Comparison
+
+[%header,cols="25%,25%,25%,25%"]
+|===
+| Method | Throughput | Overhead | Best For
+| Java Embedded API | ~0.5-1 us/sample | None (direct) | Embedded applications
+| InfluxDB Line Protocol | ~1-5 us/sample | Text parsing | Remote ingestion, Telegraf
+| Prometheus Remote Write | ~2-10 us/sample | Protobuf + Snappy | Prometheus ecosystems
+| SQL INSERT | ~50-100 us/sample | SQL parsing + planning | Ad-hoc inserts, small batches
+|===
+
+==== Querying Time Series Data
+
+===== SQL Queries
+
+Time series types support standard SQL `SELECT` with `WHERE`, `GROUP BY`, and `ORDER BY`.
+Time range conditions (`BETWEEN`, `>`, `>=`, `<`, `\<=`, `=`) on the timestamp column are pushed down to the storage engine for efficient range scans.
+
+[source,sql]
+----
+-- Basic range query
+SELECT ts, sensor_id, temperature, humidity
+FROM SensorReading
+WHERE ts BETWEEN '2026-02-19' AND '2026-02-20'
+  AND sensor_id = 'sensor-A'
+ORDER BY ts
+
+-- Aggregation with time bucketing
+SELECT ts.timeBucket('1h', ts) AS hour,
+       sensor_id,
+       avg(temperature) AS avg_temp,
+       max(temperature) AS max_temp,
+       min(temperature) AS min_temp,
+       count(*) AS sample_count
+FROM SensorReading
+WHERE ts BETWEEN '2026-02-19' AND '2026-02-20'
+GROUP BY hour, sensor_id
+ORDER BY hour
+----
+
+===== TimeSeries SQL Functions
+
+ArcadeDB provides a comprehensive set of `ts.*` SQL functions for time series analytics.
+
+[%header,cols="35%,65%"]
+|===
+| Function | Description
+
+| `ts.timeBucket(interval, timestamp)`
+| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc.
+
+| `ts.first(value, timestamp)`
+| Returns the value corresponding to the earliest timestamp in the group.
+
+| `ts.last(value, timestamp)`
+| Returns the value corresponding to the latest timestamp in the group.
+
+| `ts.rate(value, timestamp [, counterResetDetection])`
+| Per-second rate of change. Optional 3rd parameter (`true`) enables Prometheus-style counter reset detection for monotonic counters.
+
+| `ts.delta(value, timestamp)`
+| Difference between the last and first values in the group.
+
+| `ts.movingAvg(value, window)`
+| Moving average with a configurable window size.
+
+| `ts.interpolate(value, method [, timestamp])`
+| Gap filling. Methods: `'zero'`, `'prev'`, `'linear'`, `'none'`. The `'linear'` method requires the timestamp parameter.
+
+| `ts.correlate(a, b)`
+| Pearson correlation coefficient between two series.
+
+| `ts.percentile(value, percentile)`
+| Approximate percentile calculation (0.0-1.0). E.g., `ts.percentile(latency, 0.99)` for p99.
+
+| `ts.lag(value, offset, timestamp [, default])`
+| Window function: returns the value from a previous row.
+
+| `ts.lead(value, offset, timestamp [, default])`
+| Window function: returns the value from a subsequent row.
+
+| `ts.rowNumber(timestamp)`
+| Window function: sequential 1-based row numbering.
+
+| `ts.rank(value, timestamp)`
+| Window function: rank with ties, gaps after ties.
+|===
+
+Examples:
+
+[source,sql]
+----
+-- Rate of change with counter reset detection
+SELECT ts.timeBucket('5m', ts) AS window,
+       ts.rate(request_count, ts, true) AS requests_per_sec
+FROM HttpMetrics
+WHERE ts > '2026-02-20T10:00:00Z'
+GROUP BY window
+
+-- Percentile calculation
+SELECT ts.timeBucket('1h', ts) AS hour,
+       ts.percentile(latency_ms, 0.99) AS p99,
+       ts.percentile(latency_ms, 0.50) AS median
+FROM ServiceMetrics
+GROUP BY hour
+
+-- Gap filling with linear interpolation
+SELECT ts.timeBucket('1m', ts) AS minute,
+       ts.interpolate(temperature, 'linear', ts) AS temp
+FROM SensorReading
+WHERE ts BETWEEN '2026-02-20T10:00:00Z' AND '2026-02-20T11:00:00Z'
+GROUP BY minute
+
+-- Correlation between two fields
+SELECT ts.correlate(temperature, humidity) AS correlation
+FROM SensorReading
+WHERE ts BETWEEN '2026-02-19' AND '2026-02-20'
+----
+
+===== Dedicated JSON Query Endpoint
+
+A simplified REST endpoint is available for programmatic access and Grafana integration:
+
+[source]
+----
+POST /api/v1/ts/{database}/query
+Content-Type: application/json
+
+{
+  "type": "SensorReading",
+  "from": "2026-02-19T00:00:00Z",
+  "to": "2026-02-20T00:00:00Z",
+  "columns": ["temperature", "humidity"],
+  "tags": { "sensor_id": "sensor-A" },
+  "aggregation": "AVG",
+  "bucketInterval": "1h"
+}
+----
+
+For raw (non-aggregated) queries, omit the `aggregation` and `bucketInterval` fields.
+
+To retrieve the most recent data point:
+
+[source]
+----
+GET /api/v1/ts/{database}/latest?type=SensorReading&tag=sensor_id:sensor-A
+----
+
+==== PromQL Query Language
+
+ArcadeDB includes a native PromQL parser and evaluator, providing Prometheus-compatible query capabilities without requiring an external Prometheus server.
+
+===== PromQL via HTTP API
+
+The PromQL endpoints follow the Prometheus HTTP API format and return standard `{status: "success", data: {...}}` JSON responses.
+
+*Instant query:*
+
+[source]
+----
+GET /ts/{database}/prom/api/v1/query?query=avg(cpu_usage{host="srv1"})&time=1700000000
+----
+
+The `time` parameter is Unix seconds (float). Defaults to current time if omitted.
+
+*Range query:*
+
+[source]
+----
+GET /ts/{database}/prom/api/v1/query_range?query=rate(http_requests_total[5m])&start=1700000000&end=1700003600&step=60
+----
+
+All timestamps in Unix seconds. The `step` parameter accepts a duration string (`60s`, `1m`) or seconds as a float.
+
+*Label discovery:*
+
+[source]
+----
+GET /ts/{database}/prom/api/v1/labels
+GET /ts/{database}/prom/api/v1/label/{name}/values
+GET /ts/{database}/prom/api/v1/series?match[]=cpu_usage{host=~"srv.*"}
+----
+
+===== Supported PromQL Features
+
+[%header,cols="30%,70%"]
+|===
+| Category | Supported
+
+| Vector selectors
+| `metric_name`, `metric{label="value"}`, `metric{label=~"regex"}`, `metric{label!="value"}`, `metric{label!~"regex"}`
+
+| Range selectors
+| `metric[5m]`, `metric[1h]`, `metric[30s]`, `metric[1d]`
+
+| Aggregations
+| `sum`, `min`, `max`, `avg`, `count`, `topk`, `bottomk`, `quantile` with `by` / `without` clauses
+
+| Rate functions
+| `rate()`, `irate()`, `increase()`, `delta()`, `idelta()`
+
+| Over-time functions
+| `avg_over_time()`, `min_over_time()`, `max_over_time()`, `sum_over_time()`, `count_over_time()`, `stddev_over_time()`
+
+| Math functions
+| `abs()`, `ceil()`, `floor()`, `round()`, `sqrt()`, `exp()`, `ln()`, `log2()`, `log10()`, `clamp_min()`, `clamp_max()`, `pi()`
+
+| Label functions
+| `label_replace()`, `label_join()`
+
+| Other
+| `absent()`, `histogram_quantile()`, `vector()`, `scalar()`, `time()`
+
+| Operators
+| `+`, `-`, `*`, `/`, `%`, `^`, comparison (`==`, `!=`, `<`, `>`, `\<=`, `>=`), logical (`and`, `or`, `unless`)
+|===
+
+===== PromQL via SQL
+
+The `promql()` SQL function calls the PromQL evaluator from within SQL queries:
+
+[source,sql]
+----
+-- Instant query at explicit time
+RETURN promql('cpu_usage{host="srv1"}', 1700000000000)
+
+-- Rate calculation
+RETURN promql('rate(http_requests_total[5m])')
+
+-- Scalar arithmetic
+RETURN promql('2 + 3 * 4', 1000)
+----
+
+The function accepts 1-2 arguments: the PromQL expression (required) and an optional evaluation timestamp in milliseconds.
+
+===== Prometheus Remote Read
+
+Configure Prometheus to read from ArcadeDB for long-term storage:
+
+[source,yaml]
+----
+# prometheus.yml
+remote_read:
+  - url: "http://localhost:2480/ts/mydb/prom/read"
+    basic_auth:
+      username: root
+      password: password
+----
+
+The endpoint accepts the standard Prometheus `remote_read` Protobuf query (snappy-compressed) and supports `=`, `!=`, `=~`, `!~` label matchers.
+
+==== Continuous Aggregates
+
+Continuous aggregates are pre-computed time-bucketed rollups that are automatically refreshed when new data is inserted.
+They dramatically speed up common dashboard queries by maintaining materialized summaries.
+
+[source,sql]
+----
+-- Create a continuous aggregate
+CREATE CONTINUOUS AGGREGATE hourly_temps AS
+  SELECT ts.timeBucket('1h', ts) AS hour,
+         sensor_id,
+         avg(temperature) AS avg_temp,
+         max(temperature) AS max_temp,
+         count(*) AS cnt
+  FROM SensorReading
+  GROUP BY hour, sensor_id
+
+-- Query the aggregate like any other type
+SELECT * FROM hourly_temps
+WHERE hour BETWEEN '2026-02-19' AND '2026-02-20'
+
+-- Manual refresh
+REFRESH CONTINUOUS AGGREGATE hourly_temps
+
+-- Drop
+DROP CONTINUOUS AGGREGATE hourly_temps
+----
+
+The defining query must reference a TimeSeries source type and contain a `ts.timeBucket()` call with a `GROUP BY` clause.
+After creation, every committed insert into the source type triggers an incremental refresh using watermark tracking -- only new data since the last watermark is processed.
+
+Inspect continuous aggregates via:
+
+[source,sql]
+----
+SELECT FROM schema:continuousAggregates
+----
+
+This returns name, query, source type, bucket column, bucket interval, watermark timestamp, status, and metrics for each aggregate.
+
+==== Retention Policies
+
+Retention policies automatically delete data older than a specified duration.
+Set the retention period during type creation:
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE SensorReading
+  TIMESTAMP ts
+  TAGS (sensor_id STRING)
+  FIELDS (temperature DOUBLE)
+  RETENTION 90 DAYS
+----
+
+A background maintenance scheduler (60-second interval) automatically enforces retention and downsampling policies on all TimeSeries types.
+
+==== Downsampling Policies
+
+Downsampling reduces the resolution of old data to save storage while preserving long-term trends.
+Multiple tiers can be defined to progressively reduce resolution as data ages:
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading
+  ADD DOWNSAMPLING POLICY
+    AFTER 7 DAYS GRANULARITY 1 MINUTES
+    AFTER 30 DAYS GRANULARITY 1 HOURS
+----
+
+In this example, data older than 7 days is downsampled to 1-minute resolution, and data older than 30 days is further reduced to 1-hour resolution.
+The downsampling process aggregates values using AVG within each granularity bucket, preserving tag groupings.
+
+==== Grafana Integration
+
+ArcadeDB provides Grafana DataFrame-compatible HTTP endpoints that work with the https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/[Grafana Infinity datasource plugin] -- no custom plugin is needed.
+
+*Endpoints:*
+
+[%header,cols="35%,65%"]
+|===
+| Endpoint | Description
+| `GET /api/v1/ts/{database}/grafana/health` | Datasource health check
+| `GET /api/v1/ts/{database}/grafana/metadata` | Discovers TimeSeries types, fields, tags, and available aggregation types
+| `POST /api/v1/ts/{database}/grafana/query` | Multi-target query returning Grafana DataFrame wire format
+|===
+
+The query endpoint supports raw queries, aggregated queries (SUM/AVG/MIN/MAX/COUNT), tag filtering, field projection, and automatic bucket interval calculation from Grafana's `maxDataPoints` setting.
+
+*Grafana Infinity datasource configuration:*
+
+. Install the Grafana Infinity datasource plugin.
+. Add a new Infinity datasource.
+. Set the base URL to `http://<arcadedb-host>:2480`.
+. Configure authentication (Basic Auth with ArcadeDB credentials).
+. Use the health endpoint for health checks.
+
+==== Studio TimeSeries Explorer
+
+The ArcadeDB Studio web interface includes a dedicated TimeSeries Explorer accessible from the main navigation sidebar.
+
+The explorer provides four tabs:
+
+* **Query** -- Time range selector, aggregation controls, field checkboxes, interactive charts (ApexCharts with zoom), data table with pagination, auto-refresh capability
+* **Schema** -- Type introspection with column roles (TIMESTAMP/TAG/FIELD badges), diagnostics (total samples, shards, time range), configuration details, downsampling tiers, per-shard statistics
+* **Ingestion** -- Documentation and examples for all four ingestion methods with a method comparison table
+* **PromQL** -- PromQL expression input, instant/range toggle, time controls, chart and table rendering of results
+
+==== HTTP API Reference
+
+[%header,cols="10%,40%,50%"]
+|===
+| Method | Endpoint | Description
+
+| `POST`
+| `/api/v1/ts/{database}/write?precision=<ns\|us\|ms\|s>`
+| InfluxDB Line Protocol ingestion. Body: plain text lines. Returns 204 on success.
+
+| `POST`
+| `/api/v1/ts/{database}/query`
+| JSON query endpoint. Supports raw and aggregated queries with tag filtering and field projection.
+
+| `GET`
+| `/api/v1/ts/{database}/latest?type=<name>&tag=<key>:<value>`
+| Returns the most recent data point, with optional tag filter.
+
+| `GET`
+| `/ts/{database}/prom/api/v1/query?query=<promql>&time=<unix_seconds>`
+| PromQL instant query.
+
+| `GET`
+| `/ts/{database}/prom/api/v1/query_range?query=<promql>&start=<s>&end=<s>&step=<s>`
+| PromQL range query.
+
+| `GET`
+| `/ts/{database}/prom/api/v1/labels`
+| List all label names (metric names and tag columns).
+
+| `GET`
+| `/ts/{database}/prom/api/v1/label/{name}/values`
+| List distinct values for a label.
+
+| `GET`
+| `/ts/{database}/prom/api/v1/series?match[]=<selector>`
+| Find series matching PromQL selector(s).
+
+| `POST`
+| `/ts/{database}/prom/write`
+| Prometheus remote_write endpoint (snappy-compressed Protobuf).
+
+| `POST`
+| `/ts/{database}/prom/read`
+| Prometheus remote_read endpoint (snappy-compressed Protobuf).
+
+| `GET`
+| `/api/v1/ts/{database}/grafana/health`
+| Grafana datasource health check.
+
+| `GET`
+| `/api/v1/ts/{database}/grafana/metadata`
+| Grafana metadata discovery.
+
+| `POST`
+| `/api/v1/ts/{database}/grafana/query`
+| Grafana DataFrame query endpoint.
+|===
+
+==== High Availability
+
+In an HA cluster, TimeSeries data is handled as follows:
+
+* **Mutable bucket data** (`.tstb` files) is replicated to all followers via ArcadeDB's standard page-replication protocol
+* **Sealed store data** (`.ts.sealed` files) is _not_ replicated -- each node compacts independently from its local mutable data
+* **Reads are consistent after failover**: the engine queries both sealed and mutable layers, so a newly promoted leader returns correct results even before its first compaction cycle
+* **Compaction lag**: a node that has not yet compacted may serve reads slightly slower until the maintenance scheduler runs (default: 60 seconds)
+
+==== Comparison with Other TimeSeries Databases
+
+[%header,cols="17%,17%,17%,17%,17%,17%"]
+|===
+| Feature | ArcadeDB | InfluxDB 3 | TimescaleDB | Prometheus | QuestDB
+
+| License
+| Apache 2.0
+| MIT (core)
+| Apache 2.0 (core)
+| Apache 2.0
+| Apache 2.0
+
+| Multi-Model
+| Graph + Document + K/V + TimeSeries + Vector in one engine
+| TimeSeries only
+| Relational + TimeSeries (PostgreSQL extension)
+| Metrics only
+| TimeSeries only (SQL)
+
+| Query Languages
+| SQL, PromQL, Cypher, Gremlin, GraphQL, MongoDB QL
+| SQL, InfluxQL
+| Full PostgreSQL SQL
+| PromQL
+| SQL (PG wire)
+
+| Ingestion Protocols
+| Line Protocol, Prometheus remote_write, SQL, Java API
+| Line Protocol, SQL
+| SQL (INSERT, COPY)
+| Prometheus scrape, remote_write
+| Line Protocol, SQL, CSV
+
+| Compression
+| Gorilla, Delta-of-Delta, Simple-8b, Dictionary
+| Parquet native (Delta, Dict, Snappy/ZSTD)
+| Gorilla, Delta-of-delta, Simple-8b, Dictionary, LZ4
+| Gorilla (~1.37 B/sample)
+| ZFS-level + Parquet for cold tier
+
+| Continuous Aggregates
+| Yes (watermark-based, auto-refresh on commit)
+| Materialized views
+| Yes (policy-based refresh)
+| Recording rules
+| No
+
+| Downsampling
+| Yes (multi-tier, automatic)
+| Via compaction
+| Via continuous aggregates + retention
+| Recording rules
+| No
+
+| Retention Policies
+| Yes (automatic, per-type)
+| Yes
+| Yes (per-chunk)
+| Yes (per-block)
+| Yes (per-partition)
+
+| Grafana Integration
+| DataFrame endpoints (Infinity plugin)
+| Native plugin
+| PostgreSQL datasource
+| Native plugin
+| PostgreSQL datasource
+
+| PromQL Support
+| Native (parser + evaluator + HTTP endpoints)
+| No
+| Via adapter
+| Native
+| No
+
+| Embeddable (in-process)
+| Yes (Java library)
+| No
+| No (requires PostgreSQL)
+| No
+| No (separate process)
+
+| SIMD Aggregation
+| Yes (Java Vector API)
+| Via DataFusion (Arrow)
+| No
+| No
+| Yes (AVX2)
+
+| Prometheus Remote Write/Read
+| Yes
+| No
+| Via adapter
+| Native
+| No
+
+| Graph + TimeSeries Queries
+| Yes (native cross-model)
+| No
+| No
+| No
+| No
+|===
+
+==== Architecture
+
+The TimeSeries engine uses a two-layer storage architecture:
+
+* **Mutable bucket** -- An append-only in-memory buffer backed by ArcadeDB's `PaginatedComponent`. New samples land here first. This layer is ACID-transactional and replicated in HA mode.
+* **Sealed store** -- Immutable, compressed columnar blocks on disk. The maintenance scheduler periodically compacts mutable data into sealed blocks using Gorilla, Delta-of-Delta, Simple-8b, and Dictionary codecs. Block-level min/max/sum statistics enable zero-decompression aggregation when an entire block falls within a single time bucket.
+
+Data is distributed across N shards (default: one per CPU core) for parallel writes and reads.
+Each shard maintains its own mutable bucket and sealed store.
+Queries merge results across shards using a min-heap priority queue sorted by timestamp.
