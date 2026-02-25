@@ -1,0 +1,572 @@
+[[geospatial]]
+=== Geospatial Index
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/core-concepts/geospatial.adoc" float=right]
+
+ArcadeDB's geospatial index enables spatial queries directly from SQL using the `geo.*` function namespace.
+Geometries are stored as https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry[Well-Known Text (WKT)] strings in regular `STRING` properties — no special column type is required.
+
+The index is built on ArcadeDB's LSM-Tree storage engine, which means ACID guarantees, write-ahead logging, high availability replication, and automatic compaction all apply without any extra configuration.
+Internally, the index decomposes each geometry into https://en.wikipedia.org/wiki/Geohash[GeoHash] tokens using a `RecursivePrefixTreeStrategy`, stores each token in the underlying LSM-Tree, and applies an exact Spatial4j predicate as a post-filter when queries are evaluated.
+
+[[geospatial-create]]
+==== Creating a Geospatial Index
+
+Create a `STRING` property, then add a `GEOSPATIAL` index to it:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Location
+CREATE PROPERTY Location.coords STRING
+CREATE INDEX ON Location (coords) GEOSPATIAL
+----
+
+The index type keyword is `GEOSPATIAL`.
+Only `STRING` properties are supported (WKT values are stored as strings).
+
+[[geospatial-precision]]
+===== Configuring Precision
+
+The precision level controls the GeoHash grid resolution used to decompose geometries.
+Higher precision means more tokens per geometry, finer resolution, and a larger index.
+
+[source,sql]
+----
+CREATE INDEX ON Location (coords) GEOSPATIAL
+  METADATA { "precision": 9 }
+----
+
+[%header,cols="1,2,2"]
+|===
+| Precision | Cell size (approx.) | Typical use
+
+| 5
+| ~4.9 km × 4.9 km
+| Country / region level
+
+| 7
+| ~153 m × 153 m
+| City / neighborhood level
+
+| 9
+| ~4.8 m × 4.8 m
+| Street-address precision
+
+| 11 (default)
+| ~2.4 m × 2.4 m
+| High precision — building footprints, GPS tracks
+|===
+
+NOTE: Changing precision after data has been indexed requires rebuilding the index with <<sql-rebuild-index,`REBUILD INDEX`>>.
+
+[[geospatial-insert]]
+==== Inserting Geometries
+
+Store any valid WKT string in the indexed property.
+Pass it as a plain string literal or use the `geo.asText()` function to convert a geometry object back to WKT:
+
+[source,sql]
+----
+-- Insert a point by WKT literal
+INSERT INTO Location SET name = 'Eiffel Tower', coords = 'POINT(2.2945 48.8584)'
+
+-- Insert a polygon by WKT literal
+INSERT INTO Location SET name = 'Paris Centre', coords =
+  'POLYGON((2.2945 48.8584, 2.3522 48.8566, 2.3488 48.8791, 2.2945 48.8584))'
+
+-- Use geo.asText() to store a constructed geometry
+INSERT INTO Location SET name = 'Arc de Triomphe',
+  coords = geo.asText(geo.point(2.2950, 48.8738))
+----
+
+Records with null or unparsable WKT values in the indexed property are silently skipped during indexing.
+
+[[geospatial-query]]
+==== Querying with Spatial Predicates
+
+Use any `geo.*` predicate in a `WHERE` clause.
+When a geospatial index exists on the referenced field, the query planner automatically uses it — no hint or special syntax is required.
+
+[source,sql]
+----
+-- All locations within a bounding polygon
+SELECT name FROM Location
+WHERE geo.within(coords, geo.geomFromText('POLYGON((2.28 48.85, 2.40 48.85, 2.40 48.89, 2.28 48.89, 2.28 48.85))')) = true
+
+-- All locations that intersect a line
+SELECT name FROM Location
+WHERE geo.intersects(coords, geo.geomFromText('LINESTRING(2.29 48.85, 2.35 48.87)')) = true
+
+-- All locations within 500 m of a point (full-scan fallback — see note)
+SELECT name FROM Location
+WHERE geo.dWithin(coords, geo.geomFromText('POINT(2.2945 48.8584)'), 0.0045) = true
+----
+
+NOTE: `geo.dWithin` and `geo.disjoint` always perform a full scan because their semantics cannot be efficiently mapped to the GeoHash candidate set.
+All other predicates use the geospatial index automatically.
+
+[[geospatial-how-it-works]]
+==== How Index-Accelerated Queries Work
+
+. The SQL query planner detects a spatial predicate function implementing `IndexableSQLFunction` in the `WHERE` clause.
+. It calls `allowsIndexedExecution()`, which returns `true` when the first argument is a bare field reference and a `GEOSPATIAL` index exists on that field.
+. The index decomposes the query shape into GeoHash cells and looks up candidate record IDs in the LSM-Tree.
+. The predicate function's exact Spatial4j implementation post-filters the candidates to remove false positives (GeoHash cells are rectangular approximations).
+
+The result is correct — the index is a superset filter, and the exact predicate is always applied afterward.
+
+[[geospatial-functions]]
+==== geo.* Functions Reference
+
+Geospatial functions are organised into two groups: *constructor / accessor functions* (pure computation, no index) and *spatial predicate functions* (used in `WHERE` clauses, index-accelerated where possible).
+
+All functions accept either WKT strings or geometry objects produced by other `geo.*` functions.
+All predicate functions return `null` when either argument is `null` (SQL three-valued logic).
+
+[[geospatial-constructor-functions]]
+===== Constructor and Accessor Functions
+
+[[geo-geom-from-text]]
+====== geo.geomFromText()
+
+Parses any WKT string into a geometry object that can be passed to other `geo.*` functions.
+
+Syntax: `geo.geomFromText(<wkt-string>)`
+
+[source,sql]
+----
+SELECT geo.geomFromText('POINT(2.2945 48.8584)') AS geom
+SELECT geo.geomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))') AS geom
+----
+
+Throws `IllegalArgumentException` for malformed WKT.
+
+---
+
+[[geo-point]]
+====== geo.point()
+
+Creates a 2D point from longitude and latitude (or X and Y) coordinates.
+
+Syntax: `geo.point(<x>, <y>)`
+
+[source,sql]
+----
+SELECT geo.point(2.2945, 48.8584) AS pt
+----
+
+---
+
+[[geo-line-string]]
+====== geo.lineString()
+
+Creates a line string from a list of points.
+
+Syntax: `geo.lineString([<point>*])`
+
+[source,sql]
+----
+SELECT geo.lineString([geo.point(0, 0), geo.point(10, 10), geo.point(20, 0)]) AS line
+----
+
+---
+
+[[geo-polygon]]
+====== geo.polygon()
+
+Creates a polygon from an ordered list of points.
+The first and last point must be identical to close the ring.
+
+Syntax: `geo.polygon([<point>*])`
+
+[source,sql]
+----
+SELECT geo.polygon([
+  geo.point(0, 0), geo.point(10, 0),
+  geo.point(10, 10), geo.point(0, 10),
+  geo.point(0, 0)
+]) AS poly
+----
+
+---
+
+[[geo-buffer]]
+====== geo.buffer()
+
+Returns a new geometry that is a buffer of the given distance (in degrees) around the input geometry.
+
+Syntax: `geo.buffer(<geometry>, <distance-in-degrees>)`
+
+[source,sql]
+----
+-- Buffer 0.01 degrees (~1.1 km) around a point
+SELECT geo.buffer(geo.point(2.2945, 48.8584), 0.01) AS buffered
+----
+
+NOTE: Distance is expressed in degrees. To approximate metres, divide by 111,000 (1 degree ≈ 111 km at the equator).
+
+---
+
+[[geo-envelope]]
+====== geo.envelope()
+
+Returns the minimum bounding rectangle (envelope) of a geometry as a polygon WKT.
+
+Syntax: `geo.envelope(<geometry>)`
+
+[source,sql]
+----
+SELECT geo.envelope(geo.geomFromText('LINESTRING(0 0, 10 5, 20 0)')) AS bbox
+----
+
+---
+
+[[geo-distance]]
+====== geo.distance()
+
+Returns the distance between two points using the https://en.wikipedia.org/wiki/Haversine_formula[Haversine formula] (great-circle distance).
+
+Syntax: `geo.distance(<geometry1>, <geometry2> [, <unit>])`
+
+The optional `unit` parameter accepts `'km'` (default) or `'m'`.
+
+[source,sql]
+----
+-- Distance in kilometres between two points on a record
+SELECT geo.distance(coords, geo.geomFromText('POINT(2.3522 48.8566)')) AS dist_km
+FROM Location
+
+-- Distance in metres
+SELECT geo.distance(geo.point(0, 0), geo.point(1, 1), 'm') AS dist_m
+----
+
+---
+
+[[geo-area]]
+====== geo.area()
+
+Returns the area of a geometry in square degrees.
+
+Syntax: `geo.area(<geometry>)`
+
+[source,sql]
+----
+SELECT geo.area(geo.geomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))')) AS area
+----
+
+---
+
+[[geo-as-text]]
+====== geo.asText()
+
+Converts a geometry object to its WKT string representation.
+
+Syntax: `geo.asText(<geometry>)`
+
+[source,sql]
+----
+SELECT geo.asText(geo.point(2.2945, 48.8584)) AS wkt
+-- Returns: 'POINT (2.2945 48.8584)'
+----
+
+---
+
+[[geo-as-geo-json]]
+====== geo.asGeoJson()
+
+Converts a geometry object to a https://geojson.org[GeoJSON] string.
+
+Syntax: `geo.asGeoJson(<geometry>)`
+
+[source,sql]
+----
+SELECT geo.asGeoJson(geo.point(2.2945, 48.8584)) AS geojson
+-- Returns: '{"type":"Point","coordinates":[2.2945,48.8584]}'
+----
+
+---
+
+[[geo-x]]
+====== geo.x()
+
+Extracts the X coordinate (longitude) from a point geometry.
+
+Syntax: `geo.x(<point>)`
+
+[source,sql]
+----
+SELECT geo.x(geo.geomFromText('POINT(2.2945 48.8584)')) AS longitude
+-- Returns: 2.2945
+----
+
+---
+
+[[geo-y]]
+====== geo.y()
+
+Extracts the Y coordinate (latitude) from a point geometry.
+
+Syntax: `geo.y(<point>)`
+
+[source,sql]
+----
+SELECT geo.y(geo.geomFromText('POINT(2.2945 48.8584)')) AS latitude
+-- Returns: 48.8584
+----
+
+[[geospatial-predicate-functions]]
+===== Spatial Predicate Functions
+
+All predicate functions accept a field reference or WKT string as the first argument and a geometry (from any `geo.*` constructor) as the second.
+When a `GEOSPATIAL` index exists on the referenced field, the query planner uses it automatically.
+
+[%header,cols="2,4,1"]
+|===
+| Function | Semantics | Index used?
+
+| `geo.within(g, shape)`
+| `g` is fully contained within `shape`
+| Yes
+
+| `geo.intersects(g, shape)`
+| `g` and `shape` share at least one point
+| Yes
+
+| `geo.contains(g, shape)`
+| `g` fully contains `shape`
+| Yes
+
+| `geo.equals(g, shape)`
+| `g` and `shape` are geometrically identical
+| Yes
+
+| `geo.crosses(g, shape)`
+| `g` crosses the boundary of `shape`
+| Yes
+
+| `geo.overlaps(g, shape)`
+| `g` and `shape` overlap (share interior but neither contains the other)
+| Yes
+
+| `geo.touches(g, shape)`
+| `g` touches the boundary of `shape` but interiors do not intersect
+| Yes
+
+| `geo.disjoint(g, shape)`
+| `g` and `shape` share no points
+| No — full scan
+
+| `geo.dWithin(g, shape, dist)`
+| `g` is within `dist` degrees of `shape`
+| No — full scan
+|===
+
+NOTE: `geo.disjoint` cannot use the index because the index stores records that _intersect_ indexed cells; records absent from the index are exactly those that are disjoint.
+`geo.dWithin` falls back to a full scan because correct proximity indexing requires expanding the query shape into a bounding circle first — planned as a future enhancement.
+
+[[geo-within]]
+====== geo.within()
+
+Returns `true` if the first geometry is fully within the second.
+
+[source,sql]
+----
+SELECT name FROM Location
+WHERE geo.within(coords, geo.geomFromText(
+  'POLYGON((2.28 48.84, 2.42 48.84, 2.42 48.90, 2.28 48.90, 2.28 48.84))'
+)) = true
+----
+
+---
+
+[[geo-intersects]]
+====== geo.intersects()
+
+Returns `true` if the geometries share at least one point.
+
+[source,sql]
+----
+SELECT name FROM Location
+WHERE geo.intersects(coords, geo.geomFromText('LINESTRING(0 0, 10 10)')) = true
+----
+
+---
+
+[[geo-contains]]
+====== geo.contains()
+
+Returns `true` if the first geometry fully contains the second.
+
+[source,sql]
+----
+SELECT name FROM Zone
+WHERE geo.contains(boundary, geo.geomFromText('POINT(2.2945 48.8584)')) = true
+----
+
+---
+
+[[geo-d-within]]
+====== geo.dWithin()
+
+Returns `true` if the first geometry is within the given distance (in degrees) of the second.
+
+[source,sql]
+----
+-- All locations within 0.01 degrees (~1.1 km) of the Eiffel Tower
+SELECT name FROM Location
+WHERE geo.dWithin(coords, geo.geomFromText('POINT(2.2945 48.8584)'), 0.01) = true
+----
+
+---
+
+[[geo-disjoint]]
+====== geo.disjoint()
+
+Returns `true` if the geometries share no points.
+
+[source,sql]
+----
+SELECT name FROM Location
+WHERE geo.disjoint(coords, geo.geomFromText(
+  'POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))'
+)) = true
+----
+
+---
+
+[[geo-equals]]
+====== geo.equals()
+
+Returns `true` if the geometries are geometrically identical.
+
+[source,sql]
+----
+SELECT * FROM Location
+WHERE geo.equals(coords, geo.geomFromText('POINT(2.2945 48.8584)')) = true
+----
+
+---
+
+[[geo-crosses]]
+====== geo.crosses()
+
+Returns `true` if the geometries cross (share some but not all interior points, and the intersection is of lower dimension than the geometries).
+
+[source,sql]
+----
+SELECT name FROM Road
+WHERE geo.crosses(path, geo.geomFromText('LINESTRING(0 5, 10 5)')) = true
+----
+
+---
+
+[[geo-overlaps]]
+====== geo.overlaps()
+
+Returns `true` if the geometries overlap (share interior but neither contains the other).
+
+[source,sql]
+----
+SELECT name FROM Zone
+WHERE geo.overlaps(boundary, geo.geomFromText(
+  'POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'
+)) = true
+----
+
+---
+
+[[geo-touches]]
+====== geo.touches()
+
+Returns `true` if the geometries share boundary points but their interiors do not intersect.
+
+[source,sql]
+----
+SELECT name FROM Parcel
+WHERE geo.touches(boundary, geo.geomFromText(
+  'LINESTRING(0 0, 10 0)'
+)) = true
+----
+
+[[geospatial-examples]]
+==== Practical Examples
+
+===== Points of Interest Near a Landmark
+
+[source,sql]
+----
+-- All POIs within a 500 m bounding box of the Eiffel Tower
+SELECT name, coords
+FROM PointOfInterest
+WHERE geo.within(coords, geo.buffer(geo.point(2.2945, 48.8584), 0.0045)) = true
+ORDER BY geo.distance(coords, geo.geomFromText('POINT(2.2945 48.8584)'))
+LIMIT 20
+----
+
+===== Delivery Zones Containing an Address
+
+[source,sql]
+----
+SELECT zone_name, carrier
+FROM DeliveryZone
+WHERE geo.contains(boundary, geo.geomFromText('POINT(2.3522 48.8566)')) = true
+----
+
+===== Fleet Vehicles Inside a Geofence
+
+[source,sql]
+----
+SELECT vehicle_id, last_seen
+FROM Vehicle
+WHERE geo.within(last_position,
+  geo.geomFromText('POLYGON((2.28 48.85, 2.42 48.85, 2.42 48.90, 2.28 48.90, 2.28 48.85))')
+) = true
+  AND last_seen > date('2026-01-01', 'yyyy-MM-dd')
+----
+
+===== Building Envelopes Intersecting a Road Segment
+
+[source,sql]
+----
+SELECT building_id, address
+FROM Building
+WHERE geo.intersects(footprint, geo.geomFromText(
+  'LINESTRING(2.2900 48.8600, 2.3100 48.8700)'
+)) = true
+----
+
+===== Combining Geospatial and Graph Queries
+
+Graph traversal and spatial predicates compose naturally in the same query:
+
+[source,sql]
+----
+SELECT expand(outV())
+FROM Has
+WHERE geo.within(outV().location, geo.geomFromText(
+  'POLYGON((2.28 48.84, 2.42 48.84, 2.42 48.90, 2.28 48.90, 2.28 48.84))'
+)) = true
+----
+
+[[geospatial-notes]]
+==== Notes and Limitations
+
+* Geometries must be stored as WKT strings in `STRING` properties.
+No dedicated geometry column type is introduced; WKT is the only supported format at storage level.
+* GeoJSON is not a storage format, but `geo.asGeoJson()` converts any geometry to GeoJSON for output.
+* 3D geometry and raster data are not supported.
+* The antimeridian and polar edge cases are handled correctly by the underlying GeoHash grid.
+* Changing the precision level of an existing geospatial index requires rebuilding the index:
+
+[source,sql]
+----
+REBUILD INDEX `Location[coords]`
+----
+
+* A `GEOSPATIAL` index cannot be marked `UNIQUE`.
+
+For related commands, see:
+
+* <<sql-create-index,`CREATE INDEX`>>
+* <<sql-drop-index,`DROP INDEX`>>
+* <<sql-rebuild-index,`REBUILD INDEX`>>
+* <<indexes,Indexes>>
