@@ -9,6 +9,7 @@ Indexes can be:
 - *Unique* Where they don't allow duplicates.
 - *Not Unique* Where they allow duplicates.
 - *Full Text* Where they index any single word of text.
+- *Geospatial* Where they index WKT geometry strings for spatial queries.
 - *HNSW* (Hierarchical Navigable Small World) vector index.
 - *LSMVectorIndex* LSM Tree-based vector index for persistent similarity search.
 
@@ -48,6 +49,8 @@ The property must already exist.
 ** `FULL_TEXT` based on any single word of text.
 Uses https://lucene.apache.org[Apache Lucene] for tokenization and supports configurable analyzers, multi-property indexing, and advanced query syntax.
 See <<full-text-index>> for full documentation.
+** `GEOSPATIAL` indexes WKT geometry strings stored in `STRING` properties, enabling spatial queries via the `geo.*` SQL function namespace.
+See <<geospatial>> for full documentation.
 ** `HNSW` vector index (Hierarchical Navigable Small World).
 ** `LSMVECTORINDEX` LSM Tree-based vector index.
 * *`&lt;key-type&gt;`* Defines the key type.
@@ -321,6 +324,24 @@ ArcadeDB> CREATE INDEX ON LargeScale (embedding) LSM_VECTOR METADATA {
   mutationsBeforeRebuild: 1000       -- Reduce rebuild frequency
 }
 ----
+
+* Create a geospatial index on a WKT property and query it:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Location
+CREATE PROPERTY Location.coords STRING
+CREATE INDEX ON Location (coords) GEOSPATIAL
+
+INSERT INTO Location SET name = 'Eiffel Tower', coords = 'POINT(2.2945 48.8584)'
+
+SELECT name FROM Location
+WHERE geo.within(coords, geo.geomFromText(
+  'POLYGON((2.28 48.84, 2.42 48.84, 2.42 48.90, 2.28 48.90, 2.28 48.84))'
+)) = true
+----
+
+See <<geospatial>> for full documentation on geometry formats, predicate functions, and precision configuration.
 
 For more information, see:
 
