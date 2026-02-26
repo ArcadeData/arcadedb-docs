@@ -2,7 +2,10 @@
 === Indexes
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/core-concepts/indexes.adoc" float=right]
 
-ArcadeDB indexes are built by using the https://en.wikipedia.org/wiki/Log-structured_merge-tree[LSM Tree] algorithm.
+ArcadeDB supports multiple index algorithms, each optimized for different access patterns:
+
+- **<<lsm-tree,LSM Tree>>** (default) — Optimized for range scans, ordered iteration, and write-heavy workloads.
+- **Hash Index** — O(1) equality lookups using https://en.wikipedia.org/wiki/Extendible_hashing[extendible hashing]. Best for primary key access, JOINs, and edge traversal where ordering is not needed.
 
 ==== LSM Tree algorithm
 
@@ -39,9 +42,43 @@ B+Tree is the most common algorithm used by relational DBMSs. What are the diffe
 
 If you're interested to ArcadeDB's LSM-Tree index implementation detail, look at <<lsm-tree,LSM-Tree>>
 
+[[hash-index]]
+==== Hash Index algorithm
+
+ArcadeDB's Hash Index uses https://en.wikipedia.org/wiki/Extendible_hashing[extendible hashing], a disk-oriented algorithm that provides O(1) equality lookups with typically 1-2 page reads.
+
+===== How it works
+
+1. Each key is hashed to produce a binary hash code. The index maintains a *global depth* — the number of leading bits used from each hash.
+
+2. A *directory* maps each possible bit prefix (2^globalDepth^ entries) to a *bucket page*. Multiple directory entries can point to the same bucket if the bucket's *local depth* is less than the global depth.
+
+3. To look up a key, the index hashes the key, reads the directory entry for the corresponding prefix, and reads the target bucket page. The key is found via binary search within the bucket.
+
+4. When a bucket overflows, it *splits*: the bucket's local depth increases by one, and entries are redistributed based on the additional bit. If the local depth exceeds the global depth, the directory doubles in size.
+
+===== When to use Hash Index vs LSM Tree
+
+[cols="1,1,1", options="header"]
+|===
+| Use Case | Hash Index | LSM Tree
+| Point lookup (`WHERE id = ?`) | *Best* — O(1), 1-2 page reads | O(log N), multiple page reads
+| JOINs and edge traversal | *Best* — constant-time resolution | Good
+| Range scans (`WHERE age > 30`) | Not supported | *Best* — ordered iteration
+| `ORDER BY` on indexed field | Not supported | *Best* — natural ordering
+| Bulk insertion throughput | Consistent — no compaction | May degrade at scale due to compaction
+|===
+
+===== Key properties
+
+- *No compaction needed*: Unlike LSM Tree, there are no background merge operations and no write amplification.
+- *Local splits*: When a bucket is full, only that bucket splits — no global reorganization.
+- *Supports unique and non-unique*: Both `UNIQUE_HASH` and `NOTUNIQUE_HASH` modes are available.
+- *Null strategy*: Supports the same `NULL_STRATEGY` options as LSM Tree (`SKIP`, `ERROR`, `INDEX`).
+
 ==== Index Property Types
 
-ArcadeDB's LSM Tree Indexes can index property fields in various ways:
+ArcadeDB indexes can index property fields in various ways:
 
 1. All properties (scalar or collections) can be indexed in a unique or non-unique index (as a whole).
 

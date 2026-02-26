@@ -6,8 +6,10 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 Creates a new index.
 Indexes can be:
 
-- *Unique* Where they don't allow duplicates.
-- *Not Unique* Where they allow duplicates.
+- *Unique* Where they don't allow duplicates (LSM Tree).
+- *Not Unique* Where they allow duplicates (LSM Tree).
+- *Unique Hash* O(1) equality lookups, no duplicates (Hash Index).
+- *Not Unique Hash* O(1) equality lookups, allows duplicates (Hash Index).
 - *Full Text* Where they index any single word of text.
 - *Geospatial* Where they index WKT geometry strings for spatial queries.
 - *HNSW* (Hierarchical Navigable Small World) vector index.
@@ -44,8 +46,10 @@ The property must already exist.
 ** `BY VALUE` index by values for map properties.
 ** `BY ITEM` index by values for list elements.
 * *`&lt;index-type&gt;`* Defines the index type you want to use:
-** `UNIQUE` does not allow duplicate keys,
-** `NOTUNIQUE` allows duplicate keys,
+** `UNIQUE` does not allow duplicate keys (LSM Tree),
+** `NOTUNIQUE` allows duplicate keys (LSM Tree),
+** `UNIQUE_HASH` does not allow duplicate keys (Hash Index — O(1) equality lookups, no range queries),
+** `NOTUNIQUE_HASH` allows duplicate keys (Hash Index — O(1) equality lookups, no range queries),
 ** `FULL_TEXT` based on any single word of text.
 Uses https://lucene.apache.org[Apache Lucene] for tokenization and supports configurable analyzers, multi-property indexing, and advanced query syntax.
 See <<full-text-index>> for full documentation.
@@ -159,6 +163,22 @@ To return an error in case of null values, append `NULL_STRATEGY ERROR` when you
 ----
 ArcadeDB> CREATE INDEX ON Employee (address) NOTUNIQUE NULL_STRATEGY ERROR
 ----
+
+* Create a unique hash index for O(1) primary key lookups:
+
+----
+ArcadeDB> CREATE PROPERTY User.email STRING
+ArcadeDB> CREATE INDEX ON User (email) UNIQUE_HASH
+----
+
+* Create a non-unique hash index for fast equality lookups:
+
+----
+ArcadeDB> CREATE PROPERTY Order.status STRING
+ArcadeDB> CREATE INDEX ON Order (status) NOTUNIQUE_HASH
+----
+
+NOTE: Hash indexes use <<hash-index,extendible hashing>> and provide O(1) equality lookups — significantly faster than LSM Tree for point queries (`WHERE key = value`). However, they do not support range scans (`<`, `>`, `BETWEEN`) or ordered iteration (`ORDER BY`). Use `UNIQUE`/`NOTUNIQUE` (LSM Tree) when you need range queries or ordering.
 
 * Create a full-text index and search it using `SEARCH_INDEX()`:
 
