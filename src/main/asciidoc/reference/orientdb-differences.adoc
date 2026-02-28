@@ -1,0 +1,63 @@
+[[orientdb-differences]]
+
+=== Differences with OrientDB
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/reference/orientdb-differences.adoc" float=right]
+
+ArcadeDB was created from the same original developers of OrientDB, but it was built from scratch with a completely new codebase and architecture. While many concepts will feel familiar to OrientDB users, there are important differences to be aware of when migrating.
+
+==== Architecture
+
+- **No classes hierarchy**: ArcadeDB uses Types instead of Classes. Types support single inheritance but do not support the polymorphic class hierarchy that OrientDB offered.
+- **Buckets instead of Clusters**: What OrientDB called "clusters" are called "buckets" in ArcadeDB. They serve a similar purpose of physically grouping records, but the API and behavior differ.
+- **No Record-level security**: ArcadeDB does not implement record-level security. Security is managed at the database and server level.
+- **Embedded only or Client-Server**: ArcadeDB runs either as an embedded database or in client-server mode. There is no "remote" storage engine concept as in OrientDB.
+- **Component-based storage**: ArcadeDB uses an LSM-Tree based storage engine, which is fundamentally different from OrientDB's plocal/memory storage engines.
+
+==== Data Model
+
+- **No BLOB/Binary type**: ArcadeDB does not have a dedicated BLOB or ORecordBytes type. Binary data should be stored as Base64-encoded strings or managed externally.
+- **No LINKBAG**: ArcadeDB uses simpler edge management for graphs and does not use the LINKBAG (ridbag) structure.
+- **No CUSTOM field type**: The `CUSTOM` field type from OrientDB is not available.
+- **Record IDs**: ArcadeDB uses Record IDs (RIDs) with the same `#bucket:position` format, but the internal storage is different.
+
+==== SQL
+
+- **Mostly compatible**: ArcadeDB SQL is largely compatible with OrientDB SQL, with some differences:
+  * `LET` blocks in queries have some syntax differences.
+  * `TRAVERSE` is supported but deprecated in favor of `MATCH` and recursive queries.
+  * The `.asSet()`, `.asList()`, `.asMap()` methods are kept for OrientDB compatibility.
+  * `DELETE ... UNSAFE` is kept only for compatibility but has no effect.
+  * Some OrientDB-specific functions may not be available.
+- **New SQL extensions**: ArcadeDB adds SQL commands not found in OrientDB, such as `ALIGN DATABASE`, `IMPORT DATABASE` with multiple format support, and enhanced `MATCH` syntax.
+
+==== API
+
+- **No ODocument/OVertex/OEdge**: ArcadeDB has its own API with `Document`, `Vertex`, and `Edge` interfaces that are similar in concept but different in implementation.
+- **No ODatabaseDocument**: Use `Database` or `DatabaseFactory` in ArcadeDB.
+- **No OClass**: Use `DocumentType`, `VertexType`, and `EdgeType` instead.
+- **Multi-model API**: ArcadeDB provides a unified multi-model API from the start, supporting Document, Graph, Key/Value, Search Engine, Time Series, Vector, and Geospatial models.
+
+==== Connectivity
+
+- **HTTP/JSON API**: ArcadeDB provides a REST API that is different from OrientDB's REST API. The endpoints and JSON format are not compatible.
+- **Postgres wire protocol**: ArcadeDB supports the PostgreSQL wire protocol, allowing connections from any PostgreSQL-compatible client. OrientDB did not offer this.
+- **MongoDB wire protocol**: ArcadeDB supports the MongoDB wire protocol natively.
+- **Redis wire protocol**: ArcadeDB supports a subset of the Redis protocol.
+- **No binary protocol**: ArcadeDB does not use a custom binary protocol for client-server communication. It uses HTTP/JSON or standard database wire protocols instead.
+- **Gremlin**: ArcadeDB supports Apache TinkerPop Gremlin, similar to OrientDB, but through an embedded Gremlin engine rather than as a TinkerPop server.
+
+==== Migration
+
+To migrate from OrientDB to ArcadeDB:
+
+1. **Export from OrientDB**: Export your OrientDB database using the OrientDB console `EXPORT DATABASE` command in JSON format.
+2. **Import into ArcadeDB**: Use the ArcadeDB <<orientdb-importer,OrientDB Importer>> or the `IMPORT DATABASE` SQL command:
++
+[source,sql]
+----
+IMPORT DATABASE url=file:///path/to/orientdb-export.json.gz
+----
+3. **Update application code**: Adapt your application to use ArcadeDB's API, drivers, and connection protocols.
+4. **Test thoroughly**: Verify that queries, data integrity, and application logic work correctly with ArcadeDB.
+
+For more details on importing, see the <<orientdb-importer,OrientDB Importer>> section.
