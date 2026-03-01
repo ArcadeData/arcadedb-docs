@@ -1,0 +1,541 @@
+[[java-select-api]]
+=== Native Select API
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api-reference/java/java-select-api.adoc" float=right]
+
+The Native Select API is a zero-parsing, JIT-friendly fluent query builder for embedded Java applications.
+It provides a type-safe alternative to SQL or Cypher for common query patterns, with automatic index detection and significantly lower overhead.
+
+==== Quick Start
+
+[source,java]
+----
+// Simple query
+List<Vertex> results = database.select().fromType("Person")
+    .where().property("age").gt().value(18)
+    .vertices().toList();
+
+// Compiled query with parameters (reusable)
+SelectCompiled query = database.select().fromType("Person")
+    .where().property("name").eq().parameter("name")
+    .compile();
+
+Vertex john = query.parameter("name", "John").vertices().nextOrNull();
+Vertex jane = query.parameter("name", "Jane").vertices().nextOrNull();
+----
+
+==== Building Queries
+
+===== From Type or Buckets
+
+Every query starts with `database.select()` followed by the source:
+
+[source,java]
+----
+// Query from a type (polymorphic by default)
+database.select().fromType("Person")...
+
+// Disable polymorphic query (only the exact type, not subtypes)
+database.select().fromType("Person").polymorphic(false)...
+
+// Query from specific buckets
+database.select().fromBuckets("person_bucket_0", "person_bucket_1")...
+----
+
+===== WHERE Conditions
+
+The `where()` method starts the fluent condition builder.
+Each condition follows the pattern: `property(name)` -> `operator()` -> `value(val)`.
+
+[source,java]
+----
+database.select().fromType("Person")
+    .where().property("age").gt().value(18)
+    .and().property("active").eq().value(true)
+    .vertices().toList();
+----
+
+===== Comparison Operators
+
+[cols="2,3,3"]
+|===
+|Method|Description|Example
+
+|`eq()`|Equals|`.property("name").eq().value("John")`
+|`neq()`|Not equals|`.property("status").neq().value("inactive")`
+|`lt()`|Less than|`.property("age").lt().value(30)`
+|`le()`|Less than or equal|`.property("age").le().value(30)`
+|`gt()`|Greater than|`.property("age").gt().value(18)`
+|`ge()`|Greater than or equal|`.property("age").ge().value(18)`
+|`like()`|Pattern match (case-sensitive)|`.property("name").like().value("J%")`
+|`ilike()`|Pattern match (case-insensitive)|`.property("name").ilike().value("j%")`
+|`in()`|Value in collection|`.property("status").in().value(List.of("A", "B"))`
+|`between()`|Value in range (inclusive)|`.property("age").between().values(18, 65)`
+|`isNull()`|Property is null (unary)|`.property("email").isNull()`
+|`isNotNull()`|Property is not null (unary)|`.property("email").isNotNull()`
+|===
+
+===== IN Operator
+
+The `in()` operator checks if a property value is contained in a collection.
+When the property is indexed, ArcadeDB performs multiple point lookups on the index.
+
+[source,java]
+----
+// Find persons with specific statuses
+List<Vertex> results = database.select().fromType("Person")
+    .where().property("status").in().value(List.of("active", "pending"))
+    .vertices().toList();
+
+// IN with parameterized values
+SelectCompiled query = database.select().fromType("Order")
+    .where().property("status").in().parameter("statuses")
+    .compile();
+
+List<Document> orders = query.parameter("statuses", List.of("shipped", "delivered"))
+    .documents().toList();
+----
+
+===== BETWEEN Operator
+
+The `between()` operator checks if a value falls within an inclusive range.
+When the property is indexed, ArcadeDB uses a range scan on the index.
+
+[source,java]
+----
+// Find orders with amount between 100 and 500
+List<Document> results = database.select().fromType("Order")
+    .where().property("amount").between().values(100, 500)
+    .documents().toList();
+----
+
+===== IS NULL / IS NOT NULL
+
+These are unary operators -- they don't require a right-hand value.
+
+[source,java]
+----
+// Find records where email is not set
+List<Document> results = database.select().fromType("Person")
+    .where().property("email").isNull()
+    .documents().toList();
+
+// Combine with other conditions
+List<Vertex> active = database.select().fromType("Person")
+    .where().property("email").isNotNull()
+    .and().property("age").gt().value(18)
+    .vertices().toList();
+----
+
+===== AND / OR Logic
+
+Conditions can be combined with `and()` and `or()`.
+AND has higher precedence than OR (same as SQL).
+
+[source,java]
+----
+// AND: both conditions must match
+database.select().fromType("Person")
+    .where().property("age").gt().value(18)
+    .and().property("active").eq().value(true)
+    .vertices();
+
+// OR: either condition matches
+database.select().fromType("Person")
+    .where().property("role").eq().value("admin")
+    .or().property("role").eq().value("manager")
+    .vertices();
+
+// Mixed: AND binds tighter than OR
+// Equivalent to: (age > 18 AND active = true) OR role = 'admin'
+database.select().fromType("Person")
+    .where().property("age").gt().value(18)
+    .and().property("active").eq().value(true)
+    .or().property("role").eq().value("admin")
+    .vertices();
+----
+
+==== Terminal Operations
+
+Terminal methods execute the query and return results.
+
+===== Iterator-Based Results
+
+[source,java]
+----
+// Returns SelectIterator<Vertex>
+SelectIterator<Vertex> iter = database.select().fromType("Person")
+    .where().property("active").eq().value(true)
+    .vertices();
+
+// Returns SelectIterator<Edge>
+SelectIterator<Edge> iter = database.select().fromType("Follows")
+    .where().property("since").gt().value(2020)
+    .edges();
+
+// Returns SelectIterator<Document>
+SelectIterator<Document> iter = database.select().fromType("Log")
+    .where().property("level").eq().value("ERROR")
+    .documents();
+----
+
+`SelectIterator` extends `Iterator` and adds:
+
+* `toList()` -- collects all results into a `List`
+* `nextOrNull()` -- returns the next element or `null` if empty
+* `stream()` -- returns a Java `Stream` for functional-style processing
+* `getMetrics()` -- returns execution metrics (evaluated records, used indexes)
+* `traverseOut()` / `traverseIn()` / `traverseBoth()` -- graph traversal (see <<select-api-graph-traversal>>)
+
+===== count()
+
+Returns the number of matching records without materializing them.
+Respects `skip()` and `limit()`.
+
+[source,java]
+----
+long total = database.select().fromType("Person")
+    .where().property("active").eq().value(true)
+    .count();
+
+// With limit
+long capped = database.select().fromType("Person")
+    .where().property("active").eq().value(true)
+    .limit(100).count();
+
+// From compiled query
+SelectCompiled query = database.select().fromType("Order")
+    .where().property("status").eq().parameter("status")
+    .compile();
+
+long pending = query.parameter("status", "pending").count();
+----
+
+===== exists()
+
+Returns `true` if at least one matching record exists.
+Short-circuits immediately on the first match (does not scan further).
+
+[source,java]
+----
+boolean hasAdmins = database.select().fromType("Person")
+    .where().property("role").eq().value("admin")
+    .exists();
+----
+
+===== stream()
+
+Returns a standard Java `Stream<Document>` for functional-style processing.
+
+[source,java]
+----
+List<String> names = database.select().fromType("Person")
+    .where().property("age").gt().value(18)
+    .stream()
+    .map(d -> d.getString("name"))
+    .collect(Collectors.toList());
+
+// From iterator (preserves the generic type)
+Optional<Vertex> first = database.select().fromType("Person")
+    .where().property("name").eq().value("Alice")
+    .vertices().stream()
+    .findFirst();
+----
+
+==== Pagination and Ordering
+
+===== Skip and Limit
+
+[source,java]
+----
+// Skip the first 20, return the next 10
+List<Vertex> page = database.select().fromType("Person")
+    .where().property("active").eq().value(true)
+    .skip(20).limit(10)
+    .vertices().toList();
+----
+
+===== Order By
+
+[source,java]
+----
+// Sort ascending by name
+List<Vertex> sorted = database.select().fromType("Person")
+    .where().property("active").eq().value(true)
+    .orderBy("name", true)  // true = ascending
+    .vertices().toList();
+
+// Sort descending by age
+List<Vertex> sorted = database.select().fromType("Person")
+    .orderBy("age", false)  // false = descending
+    .vertices().toList();
+----
+
+When the ORDER BY property matches an indexed property used in the WHERE condition, ArcadeDB reads results directly from the index in sorted order, avoiding an in-memory sort.
+
+==== Compiled Queries
+
+Compiled queries separate query definition from execution.
+The query structure is built once, then reused with different parameter values.
+
+[source,java]
+----
+// Compile once
+SelectCompiled query = database.select().fromType("Person")
+    .where().property("name").eq().parameter("name")
+    .and().property("city").eq().parameter("city")
+    .compile();
+
+// Execute many times with different parameters
+Vertex v1 = query.parameter("name", "John").parameter("city", "NYC").vertices().nextOrNull();
+Vertex v2 = query.parameter("name", "Jane").parameter("city", "LA").vertices().nextOrNull();
+
+// All terminal methods are available on compiled queries
+long count = query.parameter("name", "John").parameter("city", "NYC").count();
+boolean exists = query.parameter("name", "John").parameter("city", "NYC").exists();
+Stream<Document> stream = query.parameter("name", "John").parameter("city", "NYC").stream();
+----
+
+===== JSON Serialization
+
+Compiled queries can be serialized to/from JSON for persistence or network transfer:
+
+[source,java]
+----
+SelectCompiled original = database.select().fromType("Person")
+    .where().property("name").eq().parameter("name")
+    .compile();
+
+// Serialize to JSON
+JSONObject json = original.json();
+
+// Deserialize from JSON
+SelectCompiled restored = database.select().json(json).compile();
+
+Vertex v = restored.parameter("name", "John").vertices().nextOrNull();
+----
+
+==== Parallel Execution
+
+For large datasets, enable parallel execution to distribute bucket scanning across multiple threads:
+
+[source,java]
+----
+SelectCompiled query = database.select().fromType("LargeTable")
+    .where().property("status").eq().value("active")
+    .compile()
+    .parallel();
+
+List<Document> results = query.documents().toList();
+----
+
+NOTE: Parallel queries cannot use the current transaction context because they execute in separate threads. Use them for read-only queries outside transactions.
+
+==== Timeout
+
+Set a maximum execution time for queries:
+
+[source,java]
+----
+// Timeout after 5 seconds, throw TimeoutException
+database.select().fromType("Person")
+    .where().property("name").like().value("%pattern%")
+    .timeout(5, TimeUnit.SECONDS, true)
+    .documents().toList();
+
+// Timeout after 5 seconds, silently return partial results
+database.select().fromType("Person")
+    .where().property("name").like().value("%pattern%")
+    .timeout(5, TimeUnit.SECONDS, false)
+    .documents().toList();
+----
+
+==== Index Detection
+
+The Select API automatically detects and leverages available indexes:
+
+* **Equality (`eq`)** -- single-key index lookup
+* **Range (`gt`, `ge`, `lt`, `le`)** -- range scan on the index
+* **IN (`in`)** -- multiple point lookups on the index
+* **BETWEEN (`between`)** -- range scan with inclusive bounds
+* **AND logic** -- uses the best available index (prefers unique indexes)
+* **OR logic** -- uses both indexes when both sides are indexed; falls back to full scan when either side is not indexed
+
+Operators that cannot use indexes (`neq`, `like`, `ilike`, `isNull`, `isNotNull`) always require a full scan (but can still benefit from indexes on other conditions in an AND chain).
+
+Use `getMetrics()` on the iterator to verify index usage:
+
+[source,java]
+----
+SelectIterator<Vertex> iter = database.select().fromType("Person")
+    .where().property("id").eq().value(42)
+    .vertices();
+
+Vertex result = iter.nextOrNull();
+
+Map<String, Object> metrics = iter.getMetrics();
+long evaluatedRecords = (long) metrics.get("evaluatedRecords");
+int usedIndexes = (int) metrics.get("usedIndexes");
+----
+
+[[select-api-graph-traversal]]
+==== Graph Traversal
+
+The Select API supports graph traversal directly from query results.
+Use `traverseOut()`, `traverseIn()`, or `traverseBoth()` on a `SelectIterator<Vertex>` to expand to neighboring vertices.
+
+[source,java]
+----
+// Single hop: find all friends of Alice
+List<Vertex> friends = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .traverseOut("FRIENDS")
+    .toList();
+
+// Multi-hop: friends of friends
+Set<String> fof = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .traverseOut("FRIENDS")
+    .thenOut("FRIENDS")
+    .stream()
+    .map(v -> v.getString("name"))
+    .collect(Collectors.toSet());
+
+// Incoming edges
+List<Vertex> followers = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .traverseIn("FOLLOWS")
+    .toList();
+
+// Both directions
+List<Vertex> connections = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .traverseBoth("KNOWS")
+    .toList();
+
+// No edge type filter (all edge types)
+List<Vertex> allNeighbors = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .traverseOut()
+    .toList();
+----
+
+`SelectTraversal` implements `Iterator<Vertex>` and provides:
+
+* `thenOut(edgeTypes...)` -- chain another outgoing traversal
+* `thenIn(edgeTypes...)` -- chain another incoming traversal
+* `thenBoth(edgeTypes...)` -- chain another bidirectional traversal
+* `toList()` -- collect results into a `List<Vertex>`
+* `stream()` -- return a Java `Stream<Vertex>`
+
+[[select-api-vector-search]]
+==== Vector k-NN Search
+
+The Select API provides a fluent interface for vector similarity search.
+It requires a <<java-vectors,vector index>> on the target property.
+
+[source,java]
+----
+float[] queryVector = getEmbedding("search query");
+
+// Basic k-NN search: find 10 nearest neighbors
+List<SelectVectorResult<Vertex>> results = database.select()
+    .fromType("Product")
+    .nearestTo("embedding", queryVector, 10)
+    .vertices();
+
+// Access results
+for (SelectVectorResult<Vertex> result : results) {
+    Vertex doc = result.getDocument();     // the matched vertex
+    float distance = result.getDistance();  // distance from query vector
+}
+----
+
+Results are returned as a `List` (not an iterator) sorted by ascending distance, because vector search is inherently bounded by `k` and requires cross-bucket merging.
+
+===== Approximate Search
+
+For large datasets, enable approximate nearest neighbor search using product quantization:
+
+[source,java]
+----
+List<SelectVectorResult<Vertex>> results = database.select()
+    .fromType("Product")
+    .nearestTo("embedding", queryVector, 10)
+    .approximate(true)
+    .vertices();
+----
+
+===== Post-Filtering
+
+Apply WHERE conditions to filter vector search results:
+
+[source,java]
+----
+// Find 50 nearest, then filter to only "electronics" category
+List<SelectVectorResult<Vertex>> results = database.select()
+    .fromType("Product")
+    .nearestTo("embedding", queryVector, 50)
+    .where().property("category").eq().value("electronics")
+    .vectorVertices();
+----
+
+NOTE: Post-filtering is applied after the k-NN search. To ensure enough results after filtering, request more candidates than you need (e.g., request 50 to get ~10 after filtering).
+
+==== Complete Example
+
+[source,java]
+----
+try (DatabaseFactory factory = new DatabaseFactory("./mydb")) {
+  Database database;
+  if (factory.exists())
+    database = factory.open();
+  else
+    database = factory.create();
+
+  // Create schema
+  database.getSchema().createVertexType("Person")
+      .createProperty("name", Type.STRING)
+      .createIndex(Schema.INDEX_TYPE.LSM_TREE, true);
+  database.getSchema().createVertexType("Person")
+      .createProperty("age", Type.INTEGER);
+  database.getSchema().createEdgeType("FRIENDS");
+
+  // Insert data
+  database.transaction(() -> {
+    Vertex alice = database.newVertex("Person").set("name", "Alice", "age", 30).save();
+    Vertex bob = database.newVertex("Person").set("name", "Bob", "age", 25).save();
+    alice.newEdge("FRIENDS", bob).save();
+  });
+
+  // Query with the Select API
+  // Count
+  long adults = database.select().fromType("Person")
+      .where().property("age").ge().value(18).count();
+
+  // Check existence
+  boolean hasAlice = database.select().fromType("Person")
+      .where().property("name").eq().value("Alice").exists();
+
+  // Stream processing
+  List<String> names = database.select().fromType("Person")
+      .where().property("age").gt().value(20)
+      .stream()
+      .map(d -> d.getString("name"))
+      .sorted()
+      .collect(Collectors.toList());
+
+  // Graph traversal
+  List<Vertex> aliceFriends = database.select().fromType("Person")
+      .where().property("name").eq().value("Alice")
+      .vertices()
+      .traverseOut("FRIENDS")
+      .toList();
+
+  database.close();
+}
+----
