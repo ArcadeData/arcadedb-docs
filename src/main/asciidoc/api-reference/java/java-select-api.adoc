@@ -184,7 +184,8 @@ SelectIterator<Document> iter = database.select().fromType("Log")
 * `nextOrNull()` -- returns the next element or `null` if empty
 * `stream()` -- returns a Java `Stream` for functional-style processing
 * `getMetrics()` -- returns execution metrics (evaluated records, used indexes)
-* `traverseOut()` / `traverseIn()` / `traverseBoth()` -- graph traversal (see <<select-api-graph-traversal>>)
+* `outVertices()` / `inVertices()` / `bothVertices()` -- traverse to adjacent vertices (see <<select-api-graph-traversal>>)
+* `outEdges()` / `inEdges()` / `bothEdges()` -- traverse to adjacent edges (see <<select-api-graph-traversal>>)
 
 ===== count()
 
@@ -381,7 +382,9 @@ int usedIndexes = (int) metrics.get("usedIndexes");
 ==== Graph Traversal
 
 The Select API supports graph traversal directly from query results.
-Use `traverseOut()`, `traverseIn()`, or `traverseBoth()` on a `SelectIterator<Vertex>` to expand to neighboring vertices.
+ArcadeDB is optimized to skip edges when you only need vertices -- use `outVertices()` / `inVertices()` / `bothVertices()` for vertex-to-vertex traversal, and `outEdges()` / `inEdges()` / `bothEdges()` when you need the edge records themselves.
+
+===== Vertex Traversal
 
 [source,java]
 ----
@@ -389,48 +392,83 @@ Use `traverseOut()`, `traverseIn()`, or `traverseBoth()` on a `SelectIterator<Ve
 List<Vertex> friends = database.select().fromType("User")
     .where().property("name").eq().value("Alice")
     .vertices()
-    .traverseOut("FRIENDS")
+    .outVertices("FRIENDS")
     .toList();
 
 // Multi-hop: friends of friends
 Set<String> fof = database.select().fromType("User")
     .where().property("name").eq().value("Alice")
     .vertices()
-    .traverseOut("FRIENDS")
-    .thenOut("FRIENDS")
+    .outVertices("FRIENDS")
+    .thenOutVertices("FRIENDS")
     .stream()
     .map(v -> v.getString("name"))
     .collect(Collectors.toSet());
 
-// Incoming edges
+// Incoming direction
 List<Vertex> followers = database.select().fromType("User")
     .where().property("name").eq().value("Alice")
     .vertices()
-    .traverseIn("FOLLOWS")
+    .inVertices("FOLLOWS")
     .toList();
 
 // Both directions
 List<Vertex> connections = database.select().fromType("User")
     .where().property("name").eq().value("Alice")
     .vertices()
-    .traverseBoth("KNOWS")
+    .bothVertices("KNOWS")
     .toList();
 
 // No edge type filter (all edge types)
 List<Vertex> allNeighbors = database.select().fromType("User")
     .where().property("name").eq().value("Alice")
     .vertices()
-    .traverseOut()
+    .outVertices()
     .toList();
 ----
 
-`SelectTraversal` implements `Iterator<Vertex>` and provides:
+`SelectVertexTraversal` implements `Iterator<Vertex>` and provides:
 
-* `thenOut(edgeTypes...)` -- chain another outgoing traversal
-* `thenIn(edgeTypes...)` -- chain another incoming traversal
-* `thenBoth(edgeTypes...)` -- chain another bidirectional traversal
+* `thenOutVertices(edgeTypes...)` -- chain another outgoing vertex traversal
+* `thenInVertices(edgeTypes...)` -- chain another incoming vertex traversal
+* `thenBothVertices(edgeTypes...)` -- chain another bidirectional vertex traversal
+* `thenOutEdges(edgeTypes...)` -- switch to edge traversal (outgoing)
+* `thenInEdges(edgeTypes...)` -- switch to edge traversal (incoming)
+* `thenBothEdges(edgeTypes...)` -- switch to edge traversal (both directions)
 * `toList()` -- collect results into a `List<Vertex>`
 * `stream()` -- return a Java `Stream<Vertex>`
+
+===== Edge Traversal
+
+Use edge traversal when you need the edge records (e.g., to read edge properties):
+
+[source,java]
+----
+// Get outgoing FRIENDS edges
+List<Edge> edges = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .outEdges("FRIENDS")
+    .toList();
+
+// Access edge properties
+for (Edge edge : edges) {
+    System.out.println(edge.getString("since"));
+}
+
+// Vertex-to-edge chaining: find friends, then get their WORKS_AT edges
+List<Edge> worksAt = database.select().fromType("User")
+    .where().property("name").eq().value("Alice")
+    .vertices()
+    .outVertices("FRIENDS")
+    .thenOutEdges("WORKS_AT")
+    .toList();
+----
+
+`SelectEdgeTraversal` implements `Iterator<Edge>` and provides:
+
+* `toList()` -- collect results into a `List<Edge>`
+* `stream()` -- return a Java `Stream<Edge>`
 
 [[select-api-vector-search]]
 ==== Vector k-NN Search
@@ -533,7 +571,7 @@ try (DatabaseFactory factory = new DatabaseFactory("./mydb")) {
   List<Vertex> aliceFriends = database.select().fromType("Person")
       .where().property("name").eq().value("Alice")
       .vertices()
-      .traverseOut("FRIENDS")
+      .outVertices("FRIENDS")
       .toList();
 
   database.close();
