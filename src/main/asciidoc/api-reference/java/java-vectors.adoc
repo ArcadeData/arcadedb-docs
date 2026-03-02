@@ -801,8 +801,7 @@ System.out.println("Fetched from documents: " + stats.get("vectorFetchFromDocume
 [source,sql]
 ----
 -- Same query works for all quantization types
-SELECT FROM Document
-WHERE vectorNeighbors('embedding', $queryVector, 10) > 0.8;
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
 ----
 
 6. *Two-Stage Search with BINARY*: For very large datasets, use BINARY quantization as a fast pre-filter, then rerank with full precision:
@@ -976,25 +975,23 @@ Find the 10 most similar documents to a query vector:
 
 [source,sql]
 ----
-SELECT FROM Document
-WHERE vectorNeighbors('embedding', $queryVector, 10) > 0.8;
+-- Returns rows with .record (full document) and .distance
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
 ----
 
-The `vectorNeighbors()` function returns similarity scores, allowing you to filter results by minimum similarity threshold. Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
+The `vectorNeighbors()` function takes the *index name* (format: `'TypeName[propertyName]'`) as its first argument and returns an array of `{record, distance}` objects. Use `expand()` to flatten the array into individual result rows. The `distance` semantics depend on the similarity metric (for COSINE: 0 = identical, higher = more different). Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
 
 ====== Combining with Other Filters
 
-Combine vector search with traditional SQL filters:
+Perform a vector search and filter results client-side, or use a subquery:
 
 [source,sql]
 ----
--- Find similar documents from a specific source
-SELECT FROM Document
-WHERE source = 'wikipedia'
-  AND vectorNeighbors('embedding', $queryVector, 10) > 0.8
-ORDER BY vectorNeighbors('embedding', $queryVector, 10) DESC
-LIMIT 5;
+-- Find the 10 nearest neighbors
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
 ----
+
+NOTE: Vector search returns `{record, distance}` objects. To filter by additional properties (e.g., `source`), apply filters in your application code after retrieving the nearest neighbors.
 
 ====== Multi-Modal Vector Search
 
@@ -1018,10 +1015,11 @@ CREATE INDEX ON MultiModalRecord (textEmbedding) LSM_VECTOR METADATA {
   similarity: 'COSINE'
 };
 
--- Query both modalities
-SELECT FROM MultiModalRecord
-WHERE vectorNeighbors('imageEmbedding', [0.1, 0.2, ...], 5) > 0.8
-   OR vectorNeighbors('textEmbedding', [0.2, 0.3, ...], 5) > 0.8;
+-- Query by image modality
+SELECT expand(vectorNeighbors('MultiModalRecord[imageEmbedding]', [0.1, 0.2, ...], 5))
+
+-- Query by text modality
+SELECT expand(vectorNeighbors('MultiModalRecord[textEmbedding]', [0.2, 0.3, ...], 5))
 ----
 
 ====== Retrieving Neighbor Details
@@ -1034,7 +1032,7 @@ Get detailed information about nearest neighbors:
 SELECT vectorNeighbors('Document[embedding]', $queryVector, 10) AS neighbors;
 ----
 
-*Note*: When using `vectorNeighbors()` in a `SELECT` clause to retrieve neighbor details, pass the full index name (e.g., `'Document[embedding]'`) as the first argument. In `WHERE` clauses, use the property name (e.g., `'embedding'`) instead.
+*Note*: The first argument to `vectorNeighbors()` must always be the *index name* in `'TypeName[propertyName]'` format (e.g., `'Document[embedding]'`). The function returns an array of `{record, distance}` objects — use `expand()` to flatten the results into individual rows.
 
 ====== Type-Specific Search with Inheritance
 
@@ -1190,13 +1188,12 @@ float[] queryVector = new float[] {0.1f, 0.2f, 0.3f}; // Vector must match index
 
 // Perform similarity search using SQL
 final ResultSet resultSet = database.query("sql",
-    "SELECT FROM Document " +
-    "WHERE vectorNeighbors('embedding', ?, 10) > 0.8 " +
-    "LIMIT 5",
+    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
     queryVector);
 
 while (resultSet.hasNext()) {
   final Result result = resultSet.next();
+  // Each result has .record (the document) and .distance
   System.out.println("Similar document: " + result.toJSON());
 }
 ----
@@ -1333,10 +1330,8 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
   "similarity": "COSINE"
 };
 
--- Query for similar documents
-SELECT content FROM Document
-WHERE vectorNeighbors('embedding', $queryEmbedding, 10) > 0.75
-ORDER BY vectorNeighbors('embedding', $queryEmbedding, 10) DESC;
+-- Query for the 10 nearest documents
+SELECT expand(vectorNeighbors('Document[embedding]', $queryEmbedding, 10))
 ----
 
 ====== Image Similarity Search
@@ -1352,9 +1347,8 @@ CREATE INDEX ON Image (features) LSM_VECTOR METADATA {
   similarity: 'COSINE'
 };
 
--- Find similar images
-SELECT url FROM Image
-WHERE vectorNeighbors('features', $imageFeatures, 5) > 0.8;
+-- Find the 5 most similar images
+SELECT expand(vectorNeighbors('Image[features]', $imageFeatures, 5))
 ----
 
 ====== Recommendation System
@@ -1369,12 +1363,8 @@ CREATE INDEX ON Product (embedding) LSM_VECTOR METADATA {
   "similarity": "COSINE"
 };
 
--- Find similar products for recommendations
-SELECT * FROM Product
-WHERE category = $category
-  AND vectorNeighbors('embedding', $userPreferenceVector, 20) > 0.7
-ORDER BY vectorNeighbors('embedding', $userPreferenceVector, 20) DESC
-LIMIT 10;
+-- Find the 20 most similar products for recommendations
+SELECT expand(vectorNeighbors('Product[embedding]', $userPreferenceVector, 20))
 ----
 
 For more information, see:

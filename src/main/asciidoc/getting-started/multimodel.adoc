@@ -139,11 +139,9 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
   similarity: 'COSINE'
 };
 
--- Query for similar documents
-SELECT content FROM Document
-WHERE vectorNeighbors('embedding', $queryVector, 10) > 0.8
-ORDER BY vectorNeighbors('embedding', $queryVector, 10) DESC
-LIMIT 5;
+-- Query for the 10 nearest documents
+-- Returns rows with .record (full document) and .distance (0 = identical for COSINE)
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
 ```
 
 ===== Java Example
@@ -169,9 +167,7 @@ final LSMVectorIndex index = builder.create();
 
 // Query the index using SQL
 final ResultSet resultSet = database.query("sql",
-    "SELECT FROM Document " +
-    "WHERE vectorNeighbors('embedding', ?, 10) > 0.8 " +
-    "LIMIT 5",
+    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
     queryVector);
 ```
 
