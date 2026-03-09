@@ -2720,12 +2720,26 @@ Returns k nearest neighbors from a vector index.
 SELECT vector.neighbors('Document[embedding]', [0.1, 0.2, 0.3], 5)
 ----
 
+*Cypher Usage:*
+
+The recommended way to use vector search from Cypher is via `CALL`, which uses the HNSW index for fast approximate nearest neighbor search:
+
 [source,cypher]
 ----
-MATCH (d:Document)
-WITH d, vector.neighbors('Document[embedding]', d.embedding, 10) AS neighbors
-RETURN d.title, neighbors
+// ArcadeDB-native syntax
+CALL vector.neighbors('Document[embedding]', $queryVector, 10)
+YIELD name, distance
+RETURN name, distance
+ORDER BY distance
+
+// Neo4j-compatible syntax (returns node + score)
+CALL db.index.vector.queryNodes('Document[embedding]', 10, $queryVector)
+YIELD node, score
+RETURN node.title AS title, score
+ORDER BY score DESC
 ----
+
+NOTE: `db.index.vector.queryNodes()` returns `score` (cosine similarity, 1.0 = identical), while `vector.neighbors()` returns `distance` (0.0 = identical). The relationship is `score = 1 - distance`.
 
 *Type-Specific Search with Inheritance:*
 

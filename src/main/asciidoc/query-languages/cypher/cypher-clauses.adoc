@@ -798,6 +798,48 @@ CALL db.propertyKeys()
 CALL db.schema()
 ----
 
+*Vector Search Procedures:*
+
+ArcadeDB provides built-in procedures for performing approximate nearest neighbor (ANN) vector search using HNSW indexes. These are accessible from Cypher via `CALL` and use the same high-performance index as SQL's `vector.neighbors()`.
+
+[%header,cols="2,3"]
+|===
+| Procedure | Description
+| `db.index.vector.queryNodes(indexSpec, k, vector)` | Neo4j-compatible vector search. Returns `node` (the document) and `score` (cosine similarity, higher is better)
+| `vector.neighbors(indexSpec, vector, k)` | ArcadeDB-native vector search. Returns document properties and `distance` (lower is better)
+|===
+
+NOTE: The `indexSpec` parameter uses ArcadeDB's `'Type[property]'` format (e.g., `'Document[embedding]'`).
+
+*Examples:*
+
+[source,cypher]
+----
+// Neo4j-compatible syntax — returns node and score (similarity)
+CALL db.index.vector.queryNodes('Document[embedding]', 10, $queryVector)
+YIELD node, score
+RETURN node.title AS title, score
+ORDER BY score DESC
+
+// ArcadeDB-native syntax — returns properties and distance
+CALL vector.neighbors('Document[embedding]', $queryVector, 10)
+YIELD name, distance
+RETURN name, distance
+ORDER BY distance
+
+// With parameters for k and vector
+CALL db.index.vector.queryNodes('Document[embedding]', $k, $vec)
+YIELD node, score
+RETURN node.title AS title, score
+
+// Search specific child type in an inheritance hierarchy
+CALL db.index.vector.queryNodes('EMBEDDING_IMAGE[vector]', 5, $vec)
+YIELD node, score
+RETURN node.name, score
+----
+
+IMPORTANT: These procedures use the HNSW vector index for fast approximate search (O(log n)). Do *not* use `vector.cosinesimilarity()` inside a `MATCH` loop — that performs a brute-force O(n) scan over all documents. Always use `CALL` with a vector index for production workloads.
+
 *Calling User Functions:*
 
 User functions defined via SQL's `DEFINE FUNCTION` statement can be called using the `CALL` clause with their namespace. Functions can be defined in SQL, JavaScript, OpenCypher, or Java and are callable from any query language.
