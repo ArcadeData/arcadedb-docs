@@ -1,0 +1,70 @@
+[[use-case-recommendation-engine]]
+=== Recommendation Engine
+
+Build intelligent product and content recommendations by combining collaborative filtering, content-based similarity, and trending detection in a single multi-model database -- no external recommendation service required.
+
+==== ArcadeDB Features Used
+
+* **<<graph-model,Graph Traversal>>** -- Collaborative filtering via relationship patterns (User-PURCHASED->Product, User-WATCHED->Show)
+* **<<vector-model,Vector Similarity>>** -- Content-based recommendations using `vectorNeighbors()` with LSM_VECTOR indexes on product and show embeddings
+* **<<timeseries,Time Series>>** -- Trending detection via interaction count aggregation over time windows
+
+==== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `User`, `Product`, `Show` (each with embedding vectors)
+| Edges | `PURCHASED`, `WATCHED`, `INTERACTED`
+| Documents | `ProductInteraction` (productId, purchaseCount, timestamp)
+|===
+
+Users connect to products and shows through purchase, watch, and interaction edges. Each item carries a 4-dimensional embedding vector for content-based similarity. A `ProductInteraction` document type tracks interaction counts over time for trending analysis.
+
+==== Key Queries
+
+*Collaborative Filtering* -- Find products purchased by users who bought the same items:
+
+[source,cypher]
+----
+MATCH (u:User)-[:PURCHASED]->(p:Product)<-[:PURCHASED]-(other:User)-[:PURCHASED]->(rec:Product)
+WHERE u.name = 'Alice' AND NOT (u)-[:PURCHASED]->(rec)
+RETURN rec.name, count(other) AS score ORDER BY score DESC
+----
+
+*Vector Similarity Search* -- Find products similar to a given product by embedding:
+
+[source,sql]
+----
+SELECT name, category FROM (
+  SELECT vectorNeighbors('Product[embedding]', [0.9, 0.1, 0.8, 0.2], 5) AS neighbors
+) ORDER BY neighbors.distance
+----
+
+*Trending Detection* -- Identify trending products by recent interaction volume:
+
+[source,sql]
+----
+SELECT productId, SUM(purchaseCount) AS total
+FROM ProductInteraction
+WHERE timestamp > date('2024-01-14', 'yyyy-MM-dd')
+GROUP BY productId ORDER BY total DESC
+----
+
+==== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/recommendation-engine
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/recommendation-engine[recommendation-engine on GitHub]
+
+==== Related Documentation
+
+* <<vector-model,Vector Search Concepts>>
+* <<graph-model,Graph Model>>
+* <<timeseries,Time Series>>
