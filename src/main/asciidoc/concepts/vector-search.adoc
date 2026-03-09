@@ -1,0 +1,123 @@
+[[vector-model]]
+[[vector-search-concepts]]
+=== Vector Search
+
+ArcadeDB includes a native vector search engine for similarity-based retrieval of embeddings. Vector indexes are fully integrated into the SQL query engine and support ACID transactions, persistent storage, and automatic compaction.
+
+==== How Vector Search Works
+
+Vector search finds the nearest neighbors to a query vector in high-dimensional space. Instead of exact matching (like SQL `WHERE`), it finds the most _similar_ items based on a distance or similarity metric.
+
+Typical workflow:
+
+1. Generate embeddings from your data using an external model (OpenAI, Sentence Transformers, etc.)
+2. Store embeddings as vector properties on vertices or documents
+3. Create a vector index on the property
+4. Query with `vectorNeighbors()` to find the k most similar items
+
+==== LSMVectorIndex Architecture
+
+ArcadeDB's vector index is built on two foundations:
+
+* **LSM Tree storage** -- ArcadeDB's proven LSM Tree architecture provides persistent, crash-safe storage with automatic compaction
+* **JVector 4.0.0** -- A high-performance vector search library that implements both HNSW (Hierarchical Navigable Small World) and Vamana (DiskANN) graph algorithms
+
+The index stores vectors as a navigable graph where each node connects to its approximate nearest neighbors. Searches traverse this graph, narrowing in on the closest matches efficiently -- typically in O(log n) time rather than O(n) brute-force scanning.
+
+==== Flat vs Hierarchical Structure
+
+The index supports two graph structures:
+
+[cols="1,1,1"]
+|===
+| | Flat (default) | Hierarchical
+
+| **Algorithm** | Single-layer Vamana graph | Multi-layer HNSW with exponential decay
+| **Build speed** | Faster | 10-20% slower
+| **Disk usage** | Baseline | 5-15% larger
+| **Best for** | < 100K vectors, well-clustered data | 100K+ vectors, 1024+ dimensions, diverse queries
+|===
+
+Enable hierarchical mode with `addHierarchy: true` in the index metadata.
+
+==== Similarity Functions
+
+Three distance metrics are available:
+
+[cols="1,2,1"]
+|===
+| Function | When to Use | Value Range
+
+| **COSINE** (default) | Text embeddings (BERT, GPT, Sentence Transformers). Direction matters, magnitude does not. | -1 to 1
+| **DOT_PRODUCT** | Normalized vectors where speed matters. 10-15% faster than COSINE. | Unbounded
+| **EUCLIDEAN** | Spatial data, point clouds, continuous measurements. Absolute distance matters. | 0 to infinity
+|===
+
+TIP: If your embeddings are already L2-normalized (unit vectors), use DOT_PRODUCT for best performance -- it produces the same ranking as COSINE but skips the normalization step.
+
+==== Quantization
+
+Quantization reduces memory usage by compressing vector components at the cost of slight accuracy loss:
+
+[cols="1,1,1,1,1"]
+|===
+| Type | Memory Reduction | Speed | Recall | Use Case
+
+| **NONE** | Baseline | Baseline | 100% | Small datasets (< 10K vectors), maximum accuracy
+| **INT8** | 4x (75% savings) | 10-15% faster | 95-98% | Production recommended for most workloads
+| **BINARY** | 32x (97% savings) | 15-20% faster | 85-92% | Massive datasets, approximate search with reranking
+|===
+
+Quantization is transparent -- queries work identically regardless of quantization setting. The index automatically quantizes on insert and dequantizes on retrieval.
+
+.Memory example: 100K vectors with 384 dimensions
+[cols="1,1"]
+|===
+| Quantization | Memory
+
+| NONE | 156 MB
+| INT8 | 39 MB
+| BINARY | 5 MB
+|===
+
+==== Key Parameters
+
+[cols="1,1,2"]
+|===
+| Parameter | Default | Purpose
+
+| `dimensions` | (required) | Must match your embedding model output size
+| `similarity` | `COSINE` | Distance metric: COSINE, DOT_PRODUCT, or EUCLIDEAN
+| `quantization` | `NONE` | Compression: NONE, INT8, or BINARY
+| `maxConnections` | 16 | Connections per node. Higher = better recall, more memory
+| `beamWidth` | 100 | Search depth during build. Higher = better index quality, slower builds
+| `addHierarchy` | false | Enable multi-layer HNSW for large/complex datasets
+| `storeVectorsInGraph` | false | Co-locate vectors in graph file for faster retrieval at large scale
+|===
+
+==== Multi-Modal Search
+
+A single vertex type can have multiple vector indexes on different properties:
+
+[source,sql]
+----
+CREATE INDEX ON Product (imageEmbedding) LSM_VECTOR METADATA {dimensions: 512, similarity: 'COSINE'}
+CREATE INDEX ON Product (textEmbedding)  LSM_VECTOR METADATA {dimensions: 768, similarity: 'COSINE'}
+----
+
+Query each index independently to search by image similarity, text similarity, or combine scores.
+
+==== Integration with Other Models
+
+Vector search combines naturally with ArcadeDB's other data models:
+
+* **Graph + Vectors** -- Find similar items, then traverse relationships to discover connected context (<<use-case-graph-rag,Graph RAG pattern>>)
+* **Full-text + Vectors** -- Hybrid search combining keyword matching with semantic similarity (<<use-case-knowledge-graph,Knowledge Graph pattern>>)
+* **Time Series + Vectors** -- Detect behavioral anomalies by comparing embedding patterns over time (<<use-case-fraud-detection,Fraud Detection pattern>>)
+
+==== Further Reading
+
+* <<vector-search-tutorial,Vector Search Tutorial>> -- Step-by-step hands-on guide
+* <<vector-embeddings-howto,Vector Embeddings How-To>> -- Index creation, tuning, and best practices
+* <<java-vectors,Java Vector API>> -- Programmatic vector index management
+* <<sql-functions,SQL Vector Functions>> -- All 40+ vector SQL functions
