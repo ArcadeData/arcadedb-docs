@@ -1,0 +1,97 @@
+[[monitoring]]
+==== Monitoring
+
+ArcadeDB provides built-in metrics collection and integration with Prometheus and Grafana for production monitoring.
+
+===== Enabling Metrics
+
+Metrics are enabled by default. Verify with:
+
+[source,sql]
+----
+SELECT FROM schema:settings WHERE name = 'arcadedb.serverMetrics'
+----
+
+Or set in `arcadedb-server.properties`:
+
+[source,properties]
+----
+arcadedb.serverMetrics=true
+arcadedb.serverMetrics.logging=true
+----
+
+===== Prometheus Integration
+
+Enable the Prometheus metrics plugin by adding it to the server plugins:
+
+[source,properties]
+----
+arcadedb.server.plugins=Prometheus:com.arcadedb.metrics.prometheus.PrometheusMetricsPlugin
+----
+
+This exposes a Prometheus scrape endpoint at `http://localhost:2480/metrics` (default port).
+
+Configure Prometheus to scrape ArcadeDB:
+
+[source,yaml]
+----
+# prometheus.yml
+scrape_configs:
+  - job_name: 'arcadedb'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:2480']
+    basic_auth:
+      username: root
+      password: arcadedb
+----
+
+===== Available Metrics
+
+ArcadeDB exposes metrics for:
+
+* **Database operations** -- Query count, command count, read/write throughput
+* **Cache** -- Page cache hits, misses, evictions
+* **Disk** -- Read/write operations, compaction activity
+* **Transactions** -- Active transactions, commits, rollbacks
+* **Network** -- HTTP request count, response times
+* **JVM** -- Heap usage, GC pauses, thread count
+
+===== Periodic Metric Dumps
+
+For environments without Prometheus, enable periodic metric logging:
+
+[source,properties]
+----
+arcadedb.dumpMetricsEvery=60
+----
+
+This dumps metrics to the server log every 60 seconds.
+
+===== Grafana Dashboard Setup
+
+. Install Grafana and add a Prometheus datasource pointing to your Prometheus instance
+. Import or create dashboards using ArcadeDB metrics
+. For time series data visualization, use ArcadeDB's native <<timeseries,Grafana integration>> endpoints with the Infinity datasource plugin
+
+===== Health Checks
+
+Use the server info endpoint for health monitoring:
+
+[source,bash]
+----
+curl http://localhost:2480/api/v1/server
+----
+
+For time series health:
+
+[source,bash]
+----
+curl http://localhost:2480/api/v1/ts/mydb/grafana/health
+----
+
+===== Further Reading
+
+* <<arcadedb-settings,Server Settings>> -- All configuration parameters
+* <<timeseries,Time Series>> -- Grafana DataFrame endpoints for time series dashboards
+* <<use-case-realtime-analytics,Realtime Analytics Use Case>> -- Complete monitoring example with Grafana
