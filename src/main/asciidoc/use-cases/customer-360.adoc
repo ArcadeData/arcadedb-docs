@@ -1,0 +1,76 @@
+[[use-case-customer-360]]
+=== Customer 360
+
+Build a unified customer view that combines graph traversal, documents, vector embeddings, full-text search, and time-series analysis in a single database -- enabling identity resolution, churn prediction, fuzzy deduplication, cross-sell recommendations, and customer journey analysis.
+
+==== ArcadeDB Features Used
+
+* **<<graph-model,Graph Traversal>>** -- Identity resolution, churn risk scoring, and cross-sell recommendations
+* **<<document-model,Document Model>>** -- Fuzzy deduplication via cross-matching on customer attributes
+* **<<vector-model,Vector Similarity>>** -- Customer preference and product embeddings with LSM_VECTOR (8 dimensions, cosine similarity)
+* **<<searchengine-model,Full-Text Search>>** -- Support ticket content indexing and search
+* **<<timeseries,Time Series>>** -- Customer journey event chains and conversion path analysis
+
+==== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `Customer`, `Household`, `Product`, `Device`, `Address`, `Ticket`, `Campaign`, `Session`, `Event`, `Identifier`
+| Edges | `BELONGS_TO`, `PURCHASED`, `USES`, `LIVES_AT`, `OPENED`, `TARGETED_BY`, `STARTED`, `TRIGGERED`, `HAS_IDENTIFIER`
+|===
+
+Customers connect to households, devices, addresses, and support tickets. Sessions contain events that trace customer journeys. Customers carry `prefVector` embeddings for personalization. Support tickets are full-text indexed.
+
+==== Key Queries
+
+*Identity Resolution* -- Discover linked identities through shared sessions (3-hop transitive):
+
+[source,sql]
+----
+SELECT c1.name, c2.name, session.id AS sharedSession
+FROM MATCH {type: Customer, as: c1}
+  -STARTED->      {type: Session, as: session}
+  <-STARTED-      {type: Customer, as: c2}
+WHERE c1 <> c2
+----
+
+*Churn Risk Scoring* -- Calculate churn risk based on churned neighbors in the social network:
+
+[source,sql]
+----
+SELECT customer.name,
+  COUNT(CASE WHEN neighbor.status = 'churned' THEN 1 END) * 1.0 / COUNT(neighbor) AS churnRatio
+FROM MATCH {type: Customer, as: customer}
+  -BELONGS_TO-> {type: Household}
+  <-BELONGS_TO- {type: Customer, as: neighbor}
+GROUP BY customer.name ORDER BY churnRatio DESC
+----
+
+*Customer Journey Analysis* -- Trace conversion paths from ad click to purchase:
+
+[source,cypher]
+----
+MATCH (c:Customer)-[:STARTED]->(s:Session)-[:TRIGGERED]->(e1:Event)-[:TRIGGERED]->(e2:Event)-[:TRIGGERED]->(e3:Event)
+WHERE e1.type = 'ad_click' AND e3.type = 'purchase'
+RETURN c.name, e1.type, e2.type, e3.type, s.channel
+----
+
+==== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/customer-360
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/customer-360[customer-360 on GitHub]
+
+==== Related Documentation
+
+* <<graph-model,Graph Model>>
+* <<document-model,Document Model>>
+* <<vector-model,Vector Search Concepts>>
+* <<searchengine-model,Full-Text Search>>
