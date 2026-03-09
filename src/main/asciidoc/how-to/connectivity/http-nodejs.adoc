@@ -1,33 +1,140 @@
 [[http-api-nodejs]]
-=== NodeJS/JavaScript (HTTP/JSON)
-image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/connectivity/http-nodejs.adoc" float=right]
+==== Node.js / JavaScript
+image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/connectivity/http-nodejs.adoc" float=right]
 
-[discrete]
-==== Sample Code
+ArcadeDB can be accessed from Node.js in two ways:
 
-In NodeJS Javascript, HTTP/JSON requests can be made by installing the https://www.npmjs.com/package/axios[Axios HTTP package].
+[cols="1,2,1"]
+|===
+| Method | Best For | Library
 
-1. Ensure NodeJS and Node Package Manager are installed and accessible from the command prompt. If installed, `node -v` and `npm -v` will report their version numbers for confirmation.
-2. Create a folder to contain a NodeJS project and a file in this folder called `test.js`.
-3. From this folder, run `npm install axios` to add the https://www.npmjs.com/package/axios[Axios HTTP package] to the folder/project.
-4. Open `test.js` and add the needed code to be run.
-5. Run the script from the command line with `node test.js`.
+| **PostgreSQL protocol** | Most applications | `pg`
+| **HTTP/JSON API** | Lightweight scripts, serverless, browsers | `fetch` / `axios`
+|===
 
-The following demonstrates a simple function which can be added to the javascript file. It will return records of the type `Profile` from a database named `mydb` and debug them to the command line.
+===== PostgreSQL Protocol (Recommended)
 
-[source,shell]
+ArcadeDB speaks the PostgreSQL wire protocol natively. Use the standard `pg` client.
+
+[source,bash]
 ----
-const axios = require('axios')
-
-// Make request
-const userPass = 'root:arcadedb-password';
-const authString = 'Basic ' + btoa(userPass);
-axios.post('http://serveraddress:2480/api/v1/command/mydb', //customize with your server address (or local host) and db name
-    { "language": "sql", "command": "SELECT from Profile" }, //customize with your required command
-    { headers : { 'Authorization' : authString, 'Content-Type': 'application/json' }}
-  )
-
-// Show response data
-.then(res => console.log(res.data))
-.catch(err => console.log(err))
+npm install pg
 ----
+
+[source,javascript]
+----
+const { Client } = require('pg');
+
+const client = new Client({
+  host: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  user: 'root',
+  password: 'arcadedb',
+});
+
+await client.connect();
+
+// SQL queries
+const result = await client.query('SELECT FROM V LIMIT 10');
+console.log(result.rows);
+
+// Cypher queries (prefix with {cypher})
+const cypher = await client.query('{cypher} MATCH (n) RETURN n LIMIT 10');
+console.log(cypher.rows);
+
+// Graph traversal with MATCH
+const graph = await client.query(`
+  SELECT person.name, friend.name
+  FROM MATCH {type: Person, as: person}
+       -Knows-> {type: Person, as: friend}
+`);
+for (const row of graph.rows) {
+  console.log(`${row['person.name']} knows ${row['friend.name']}`);
+}
+
+await client.end();
+----
+
+===== HTTP/JSON API
+
+For lightweight scripts, serverless functions, or browser-side code:
+
+====== Using fetch (Node.js 18+ or browsers)
+
+[source,javascript]
+----
+const base = 'http://localhost:2480/api/v1';
+const auth = 'Basic ' + btoa('root:arcadedb');
+
+const response = await fetch(`${base}/command/mydb`, {
+  method: 'POST',
+  headers: {
+    'Authorization': auth,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    language: 'sql',
+    command: 'SELECT FROM V LIMIT 10',
+  }),
+});
+
+const data = await response.json();
+console.log(data);
+----
+
+====== Using axios
+
+[source,bash]
+----
+npm install axios
+----
+
+[source,javascript]
+----
+const axios = require('axios');
+
+const auth = 'Basic ' + btoa('root:arcadedb');
+
+const res = await axios.post(
+  'http://localhost:2480/api/v1/command/mydb',
+  { language: 'sql', command: 'SELECT FROM V LIMIT 10' },
+  { headers: { 'Authorization': auth, 'Content-Type': 'application/json' } },
+);
+
+console.log(res.data);
+----
+
+===== TypeScript
+
+Both `pg` and `fetch` work with TypeScript. Install type definitions for `pg`:
+
+[source,bash]
+----
+npm install pg @types/pg
+----
+
+[source,typescript]
+----
+import { Client } from 'pg';
+
+const client = new Client({
+  host: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  user: 'root',
+  password: 'arcadedb',
+});
+
+await client.connect();
+const result = await client.query('SELECT FROM V LIMIT 10');
+console.log(result.rows);
+await client.end();
+----
+
+===== Further Reading
+
+* <<javascript-quickstart,JavaScript Quickstart Tutorial>> -- Step-by-step tutorial
+* <<use-case-supply-chain,Supply Chain Use Case>> -- Full JavaScript implementation with 7 query patterns
+* <<postgres-driver,PostgreSQL Protocol Reference>>
+* <<http-json-api,HTTP/JSON API Reference>>
