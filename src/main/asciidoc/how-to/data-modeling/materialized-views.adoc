@@ -1,5 +1,5 @@
 [[materialized-views]]
-=== Materialized Views
+==== Materialized Views
 image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/data-modeling/materialized-views.adoc" float=right]
 
 A materialized view is a schema-level object that stores the result of a SQL `SELECT` query as a backing document type.
@@ -13,17 +13,17 @@ A materialized view:
 * Persists its definition and metadata in `schema.json` alongside other schema objects
 * Can be created, dropped, refreshed, and altered via SQL DDL statements or the Java Schema API
 
-==== Refresh Modes
+===== Refresh Modes
 
 [[refresh-mode-manual]]
-===== MANUAL
+====== MANUAL
 
 The view data is never automatically updated.
 You must trigger a refresh explicitly via <<sql-refresh-materialized-view,`REFRESH MATERIALIZED VIEW`>> or the Java API.
 Use this when you control refresh timing yourself or when source data changes infrequently.
 
 [[refresh-mode-incremental]]
-===== INCREMENTAL
+====== INCREMENTAL
 
 After every committed transaction that modifies a source type, ArcadeDB automatically refreshes the view in a post-commit callback.
 The refresh is:
@@ -37,7 +37,7 @@ If the refresh fails, the view is marked `STALE` and a warning is logged.
 A manual refresh can recover it.
 
 [[refresh-mode-periodic]]
-===== PERIODIC
+====== PERIODIC
 
 A background scheduler thread runs a full refresh at the specified interval after each successful refresh completes.
 Intervals are specified in seconds, minutes, or hours:
@@ -52,7 +52,7 @@ REFRESH EVERY 1 HOUR
 The scheduler uses a single daemon thread (`ArcadeDB-MV-Scheduler`) shared across all periodic views.
 If the database is closed, all scheduled tasks are cancelled automatically.
 
-==== View Status
+===== View Status
 
 Each view tracks a `status` field that reflects its current state:
 
@@ -67,7 +67,7 @@ Each view tracks a `status` field that reflects its current state:
 
 If the database crashes while a view is `BUILDING`, the status is reset to `STALE` on the next startup to signal that the data may be incomplete.
 
-==== Querying a Materialized View
+===== Querying a Materialized View
 
 Query a materialized view exactly like any other document type:
 
@@ -78,7 +78,7 @@ SELECT name FROM ActiveUsers WHERE name LIKE 'A%'
 SELECT count(*) FROM RecentOrders
 ----
 
-==== Java API
+===== Java API
 
 *Creating a view*
 
@@ -153,7 +153,7 @@ view.getSourceTypeNames();  // list of source type names parsed from the query
 view.getBackingType();      // the underlying DocumentType
 ----
 
-==== Behavior and Constraints
+===== Behavior and Constraints
 
 * *Backing type protection*: You cannot `DROP TYPE` on a type that backs a materialized view. Drop the materialized view first.
 * *Name uniqueness*: The view name must not match any existing type or materialized view.
@@ -163,20 +163,20 @@ view.getBackingType();      // the underlying DocumentType
 * *Query result columns*: Only non-internal properties (those not starting with `@`) are copied into the backing type during refresh.
 * *No schema on backing type*: The backing document type is schema-less; property types are not enforced.
 
-==== Error Handling
+===== Error Handling
 
 * If a post-commit refresh fails (`INCREMENTAL` mode), the view is marked `STALE` and a `WARNING` is logged. The source transaction is unaffected.
 * If a periodic refresh fails, the view is marked `ERROR` and a `SEVERE` log entry is written. The scheduler continues running and will retry on the next interval.
 * Callback errors in the transaction callback system are logged at `WARNING` level and do not affect the triggering transaction or other callbacks.
 
-==== Limitations
+===== Limitations
 
 * <<sql-alter-materialized-view,`ALTER MATERIALIZED VIEW`>> is not yet implemented.
 * Per-record incremental refresh (tracking `_sourceRID` to update individual view rows) is a planned future optimization. Currently, all refresh operations perform a full truncate-and-reload.
 * No support for cross-database queries in the defining query.
 * Server replication: materialized view data lives in the local backing type and is replicated like any other document type in an HA cluster, but refresh triggering is local to the node that executes the write.
 
-==== Example: Sales Dashboard
+===== Example: Sales Dashboard
 
 [source,sql]
 ----
