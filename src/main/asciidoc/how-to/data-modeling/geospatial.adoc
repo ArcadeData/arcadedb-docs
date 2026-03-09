@@ -1,5 +1,5 @@
 [[geospatial]]
-=== Geospatial Index
+==== Geospatial Index
 image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/data-modeling/geospatial.adoc" float=right]
 
 ArcadeDB's geospatial index enables spatial queries directly from SQL using the `geo.*` function namespace.
@@ -9,7 +9,7 @@ The index is built on ArcadeDB's LSM-Tree storage engine, which means ACID guara
 Internally, the index decomposes each geometry into https://en.wikipedia.org/wiki/Geohash[GeoHash] tokens using a `RecursivePrefixTreeStrategy`, stores each token in the underlying LSM-Tree, and applies an exact Spatial4j predicate as a post-filter when queries are evaluated.
 
 [[geospatial-create]]
-==== Creating a Geospatial Index
+===== Creating a Geospatial Index
 
 Create a `STRING` property, then add a `GEOSPATIAL` index to it:
 
@@ -24,7 +24,7 @@ The index type keyword is `GEOSPATIAL`.
 Only `STRING` properties are supported (WKT values are stored as strings).
 
 [[geospatial-precision]]
-===== Configuring Precision
+====== Configuring Precision
 
 The precision level controls the GeoHash grid resolution used to decompose geometries.
 Higher precision means more tokens per geometry, finer resolution, and a larger index.
@@ -59,7 +59,7 @@ CREATE INDEX ON Location (coords) GEOSPATIAL
 NOTE: Changing precision after data has been indexed requires rebuilding the index with <<sql-rebuild-index,`REBUILD INDEX`>>.
 
 [[geospatial-insert]]
-==== Inserting Geometries
+===== Inserting Geometries
 
 Store any valid WKT string in the indexed property.
 Pass it as a plain string literal or use the `geo.asText()` function to convert a geometry object back to WKT:
@@ -81,7 +81,7 @@ INSERT INTO Location SET name = 'Arc de Triomphe',
 Records with null or unparsable WKT values in the indexed property are silently skipped during indexing.
 
 [[geospatial-query]]
-==== Querying with Spatial Predicates
+===== Querying with Spatial Predicates
 
 Use any `geo.*` predicate in a `WHERE` clause.
 When a geospatial index exists on the referenced field, the query planner automatically uses it — no hint or special syntax is required.
@@ -105,7 +105,7 @@ NOTE: `geo.dWithin` and `geo.disjoint` always perform a full scan because their 
 All other predicates use the geospatial index automatically.
 
 [[geospatial-how-it-works]]
-==== How Index-Accelerated Queries Work
+===== How Index-Accelerated Queries Work
 
 . The SQL query planner detects a spatial predicate function implementing `IndexableSQLFunction` in the `WHERE` clause.
 . It calls `allowsIndexedExecution()`, which returns `true` when the first argument is a bare field reference and a `GEOSPATIAL` index exists on that field.
@@ -115,7 +115,7 @@ All other predicates use the geospatial index automatically.
 The result is correct — the index is a superset filter, and the exact predicate is always applied afterward.
 
 [[geospatial-functions]]
-==== geo.* Functions Reference
+===== geo.* Functions Reference
 
 Geospatial functions are organised into two groups: *constructor / accessor functions* (pure computation, no index) and *spatial predicate functions* (used in `WHERE` clauses, index-accelerated where possible).
 
@@ -123,7 +123,7 @@ All functions accept either WKT strings or geometry objects produced by other `g
 All predicate functions return `null` when either argument is `null` (SQL three-valued logic).
 
 [[geospatial-constructor-functions]]
-===== Constructor and Accessor Functions
+====== Constructor and Accessor Functions
 
 [[geo-geom-from-text]]
 ====== geo.geomFromText()
@@ -314,7 +314,7 @@ SELECT geo.y(geo.geomFromText('POINT(2.2945 48.8584)')) AS latitude
 ----
 
 [[geospatial-predicate-functions]]
-===== Spatial Predicate Functions
+====== Spatial Predicate Functions
 
 All predicate functions accept a field reference or WKT string as the first argument and a geometry (from any `geo.*` constructor) as the second.
 When a `GEOSPATIAL` index exists on the referenced field, the query planner uses it automatically.
@@ -488,9 +488,9 @@ WHERE geo.touches(boundary, geo.geomFromText(
 ----
 
 [[geospatial-examples]]
-==== Practical Examples
+===== Practical Examples
 
-===== Points of Interest Near a Landmark
+====== Points of Interest Near a Landmark
 
 [source,sql]
 ----
@@ -502,7 +502,7 @@ ORDER BY geo.distance(coords, geo.geomFromText('POINT(2.2945 48.8584)'))
 LIMIT 20
 ----
 
-===== Delivery Zones Containing an Address
+====== Delivery Zones Containing an Address
 
 [source,sql]
 ----
@@ -511,7 +511,7 @@ FROM DeliveryZone
 WHERE geo.contains(boundary, geo.geomFromText('POINT(2.3522 48.8566)')) = true
 ----
 
-===== Fleet Vehicles Inside a Geofence
+====== Fleet Vehicles Inside a Geofence
 
 [source,sql]
 ----
@@ -523,7 +523,7 @@ WHERE geo.within(last_position,
   AND last_seen > date('2026-01-01', 'yyyy-MM-dd')
 ----
 
-===== Building Envelopes Intersecting a Road Segment
+====== Building Envelopes Intersecting a Road Segment
 
 [source,sql]
 ----
@@ -534,7 +534,7 @@ WHERE geo.intersects(footprint, geo.geomFromText(
 )) = true
 ----
 
-===== Combining Geospatial and Graph Queries
+====== Combining Geospatial and Graph Queries
 
 Graph traversal and spatial predicates compose naturally in the same query:
 
@@ -548,7 +548,7 @@ WHERE geo.within(outV().location, geo.geomFromText(
 ----
 
 [[geospatial-notes]]
-==== Notes and Limitations
+===== Notes and Limitations
 
 * Geometries must be stored as WKT strings in `STRING` properties.
 No dedicated geometry column type is introduced; WKT is the only supported format at storage level.
