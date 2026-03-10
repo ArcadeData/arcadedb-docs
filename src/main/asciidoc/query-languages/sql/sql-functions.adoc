@@ -2177,6 +2177,844 @@ SELECT vectorVariance([1.0, 2.0, 3.0])
 '''
 
 [discrete]
+==== Vector Functions (Phase 1-6)
+
+The following comprehensive set of vector functions enables advanced vector operations for similarity search, embeddings processing, and vector analytics.
+All functions support multiple input formats: float arrays, object arrays, and lists.
+
+[discrete]
+===== Phase 1: Essential Vector Operations
+
+[discrete]
+[[vector-normalize]]
+====== vectorNormalize()
+
+Normalizes a vector to unit length using L2 normalization (Euclidean norm).
+The resulting vector has magnitude 1.0 and points in the same direction as the input.
+Uses JVector's SIMD-optimized operations for up to 7x performance improvement on Java 20+.
+
+Syntax: `vectorNormalize(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorNormalize([3, 4]) as normalized
+----
+
+Result: `[0.6, 0.8]`
+
+[source,sql]
+----
+SELECT vectorNormalize(embedding) as normalized_embedding FROM Document
+----
+
+'''
+
+[discrete]
+[[vector-magnitude]]
+====== vectorMagnitude()
+
+Calculates the magnitude (Euclidean length) of a vector.
+This is the L2 norm: sqrt(sum of squared components).
+Uses JVector's optimized dot product for improved performance.
+
+Syntax: `vectorMagnitude(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMagnitude([3, 4]) as magnitude
+----
+
+Result: `5.0`
+
+[source,sql]
+----
+SELECT vectorMagnitude(embedding) FROM Document
+----
+
+'''
+
+[discrete]
+[[vector-dims]]
+====== vectorDims()
+
+Returns the dimensionality of a vector (number of elements).
+
+Syntax: `vectorDims(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDims(embedding) as dimensions FROM Document
+----
+
+'''
+
+[discrete]
+[[vector-dot-product]]
+====== vectorDotProduct()
+
+Calculates the dot product (inner product) of two vectors.
+Result can be negative. Use vectorCosineSimilarity for normalized similarity.
+Uses JVector's SIMD-optimized operations for 7-8x performance improvement.
+
+Syntax: `vectorDotProduct(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDotProduct([1, 2, 3], [4, 5, 6]) as dot_product
+----
+
+Result: `32.0`
+
+'''
+
+[discrete]
+[[vector-cosine-similarity]]
+====== vectorCosineSimilarity()
+
+Returns cosine similarity between two vectors in the range [-1, 1].
+1 means identical direction, 0 means perpendicular, and -1 means opposite direction.
+Recommended for normalized vector comparison.
+
+Syntax: `vectorCosineSimilarity(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorCosineSimilarity(v1.embedding, v2.embedding) as similarity FROM Doc v1, Doc v2
+----
+
+'''
+
+[discrete]
+[[vector-l2-distance]]
+====== vectorL2Distance()
+
+Calculates the Euclidean (L2) distance between two vectors.
+Also known as straight-line distance in geometric space.
+
+Syntax: `vectorL2Distance(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorL2Distance(query, document.embedding) as distance FROM Document
+ORDER BY distance ASC LIMIT 10
+----
+
+'''
+
+[discrete]
+[[vector-inner-product]]
+====== vectorInnerProduct()
+
+Calculates the inner product of two vectors.
+Can be negative. Primarily used with normalized vectors where it equals cosine similarity * magnitude product.
+
+Syntax: `vectorInnerProduct(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorInnerProduct([1, 0], [1, 1]) as product
+----
+
+Result: `1.0`
+
+'''
+
+[discrete]
+===== Phase 2: Vector Arithmetic & Aggregations
+
+[discrete]
+[[vector-add]]
+====== vectorAdd()
+
+Performs element-wise addition of two vectors.
+
+Syntax: `vectorAdd(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorAdd([1, 2], [3, 4]) as sum
+----
+
+Result: `[4, 6]`
+
+'''
+
+[discrete]
+[[vector-subtract]]
+====== vectorSubtract()
+
+Performs element-wise subtraction of two vectors.
+Useful for calculating direction vectors between embeddings.
+
+Syntax: `vectorSubtract(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSubtract(destination.embedding, source.embedding) as direction FROM Locations
+----
+
+'''
+
+[discrete]
+[[vector-multiply]]
+====== vectorMultiply()
+
+Performs element-wise multiplication (Hadamard product) of two vectors.
+
+Syntax: `vectorMultiply(<vector1>, <vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMultiply([1, 2, 3], [4, 5, 6]) as product
+----
+
+Result: `[4, 10, 18]`
+
+'''
+
+[discrete]
+[[vector-scale]]
+====== vectorScale()
+
+Multiplies a vector by a scalar value.
+
+Syntax: `vectorScale(<vector>, <scalar>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorScale([1, 2, 3], 2.5) as scaled
+----
+
+Result: `[2.5, 5, 7.5]`
+
+[source,sql]
+----
+SELECT vectorScale(vectorAdd(v1, v2), 0.5) as average FROM Vectors
+----
+
+'''
+
+[discrete]
+[[vector-avg]]
+====== vectorAvg()
+
+Aggregate function that calculates element-wise mean of vectors across multiple records.
+Returns the centroid of a vector set.
+
+Syntax: `vectorAvg(<vector_column>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT category, vectorAvg(embedding) as centroid FROM Document GROUP BY category
+----
+
+'''
+
+[discrete]
+[[vector-sum]]
+====== vectorSum()
+
+Aggregate function that calculates element-wise sum of vectors across multiple records.
+
+Syntax: `vectorSum(<vector_column>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSum(embedding) as total_vector FROM Document WHERE active = true
+----
+
+'''
+
+[discrete]
+[[vector-min]]
+====== vectorMin()
+
+Aggregate function that calculates element-wise minimum across vectors.
+Returns the vector with smallest value at each dimension.
+
+Syntax: `vectorMin(<vector_column>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMin(embedding) as min_bounds FROM Document WHERE category = 'science'
+----
+
+'''
+
+[discrete]
+[[vector-max]]
+====== vectorMax()
+
+Aggregate function that calculates element-wise maximum across vectors.
+Returns the vector with largest value at each dimension.
+
+Syntax: `vectorMax(<vector_column>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMax(embedding) as max_bounds FROM Document WHERE category = 'science'
+----
+
+'''
+
+[discrete]
+===== Phase 3: Reranking & Hybrid Search
+
+[discrete]
+[[vector-rrf-score]]
+====== vectorRRFScore()
+
+Calculates Reciprocal Rank Fusion (RRF) score for result reranking.
+Combines multiple ranking signals into a single score.
+Formula: Σ(1 / (k + rank_i)) where k defaults to 60.
+
+Syntax: `vectorRRFScore(<rank1>, <rank2>, [<rank3>, ...], [<k>])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT id, vectorRRFScore(vectorRank, textRank, 60) as finalScore
+FROM (
+  SELECT id,
+    ROW_NUMBER() OVER (ORDER BY distance) as vectorRank,
+    ROW_NUMBER() OVER (ORDER BY relevance DESC) as textRank
+  FROM SearchResults
+)
+ORDER BY finalScore DESC LIMIT 10
+----
+
+'''
+
+[discrete]
+[[vector-normalize-scores]]
+====== vectorNormalizeScores()
+
+Normalizes an array of scores to range [0, 1] using min-max normalization.
+Formula: (value - min) / (max - min)
+
+Syntax: `vectorNormalizeScores(<scores_array>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorNormalizeScores([10, 20, 30, 40]) as normalized
+----
+
+Result: `[0.0, 0.333..., 0.666..., 1.0]`
+
+'''
+
+[discrete]
+[[vector-hybrid-score]]
+====== vectorHybridScore()
+
+Combines vector similarity and keyword search scores for hybrid search.
+Formula: (vector_score * alpha) + (keyword_score * (1 - alpha))
+
+Syntax: `vectorHybridScore(<vector_score>, <keyword_score>, <alpha>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT id, vectorHybridScore(vector_score, bm25_score, 0.7) as hybrid_score
+FROM SearchResults
+ORDER BY hybrid_score DESC LIMIT 20
+----
+
+'''
+
+[discrete]
+[[vector-score-transform]]
+====== vectorScoreTransform()
+
+Applies mathematical transformation to scores: LINEAR, SIGMOID, LOG, or EXP.
+Useful for rescaling scores to different ranges.
+
+Syntax: `vectorScoreTransform(<score>, <method>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'SIGMOID') as sigmoid_score
+----
+
+Result: `0.622...(logistic curve)`
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'LINEAR') as linear_score
+----
+
+Result: `0.5` (identity linear scaling)
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'LOG') as log_score
+----
+
+Result: `~-0.6931` (natural log: `ln(0.5)`; ensure input \(>0\) for LOG)
+
+[source,sql]
+----
+SELECT vectorScoreTransform(0.5, 'EXP') as exp_score
+----
+
+Result: `~1.6487` (exponential: `e^{0.5}`)
+'''
+
+[discrete]
+===== Phase 4: Sparse Vectors & Multi-Vector
+
+[discrete]
+[[sparse-vector-create]]
+====== vectorSparseCreate()
+
+Creates a sparse vector from indices and values arrays.
+Efficient representation for high-dimensional vectors with few non-zero elements.
+
+Syntax: `vectorSparseCreate(<indices>, <values>, [<dimensions>])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparseCreate([0, 3, 5], [1.0, 2.5, 0.3], 768) as sparse_embedding
+----
+
+'''
+
+[discrete]
+[[sparse-vector-dot]]
+====== vectorSparseDot()
+
+Calculates dot product of two sparse vectors efficiently.
+Only computes non-zero elements, skipping zeros.
+
+Syntax: `vectorSparseDot(<sparse_vector1>, <sparse_vector2>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparseDot(doc1.sparse_embedding, query.sparse_embedding) as similarity
+----
+
+'''
+
+[discrete]
+[[sparse-vector-to-dense]]
+====== vectorSparseToDense()
+
+Expands a sparse vector to dense representation.
+
+Syntax: `vectorSparseToDense(<sparse_vector>, <dimensions>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparseToDense(sparse_embedding, 768) as dense_embedding FROM Document
+----
+
+'''
+
+[discrete]
+[[dense-vector-to-sparse]]
+====== vectorDenseToSparse()
+
+Compresses a dense vector to sparse representation by filtering near-zero elements.
+
+Syntax: `vectorDenseToSparse(<vector>, [<threshold>])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDenseToSparse(embedding, 0.001) as sparse_embedding FROM Document
+----
+
+'''
+
+[discrete]
+[[multi-vector-score]]
+====== vectorMultiScore()
+
+Combines multiple scores using fusion methods: MAX, AVG, MIN, or WEIGHTED.
+Used for multi-vector search results (e.g., ColBERT).
+
+Syntax: `vectorMultiScore(<scores_array>, <method>, [<weights>])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorMultiScore([0.9, 0.8, 0.85], 'MAX') as best_score
+----
+
+Result: `0.9`
+
+[source,sql]
+----
+SELECT vectorMultiScore([0.9, 0.8, 0.85], 'WEIGHTED', [0.5, 0.3, 0.2]) as weighted_score
+----
+
+Result: `0.87`
+
+'''
+
+[discrete]
+===== Phase 5: Quantization & Optimization
+
+[discrete]
+[[vector-quantize-int8]]
+====== vectorQuantizeInt8()
+
+Quantizes a float vector to int8 (byte) representation using min-max scaling.
+Achieves 4x compression (4 bytes/value → 1 byte/value).
+Formula: quantized = round((value - min) / (max - min) * 255) - 128
+
+Syntax: `vectorQuantizeInt8(<vector>)`
+
+Returns object with: `quantized` (byte[]), `min` (float), `max` (float)
+
+*Examples*
+
+[source,sql]
+----
+INSERT INTO Document SET
+  content = 'example',
+  embedding = [0.1, 0.5, 0.9],
+  embedding_q = vectorQuantizeInt8([0.1, 0.5, 0.9])
+----
+
+'''
+
+[discrete]
+[[vector-quantize-binary]]
+====== vectorQuantizeBinary()
+
+Quantizes a float vector to binary representation using median threshold.
+Achieves 32x compression (4 bytes/float → 1 bit/value).
+Uses median value as threshold: bit = 1 if value >= median else 0
+
+Syntax: `vectorQuantizeBinary(<vector>)`
+
+Returns object with packed bits and metadata
+
+*Examples*
+
+[source,sql]
+----
+INSERT INTO Document SET
+  embedding_binary = vectorQuantizeBinary(embedding)
+----
+
+'''
+
+[discrete]
+[[vector-dequantize-int8]]
+====== vectorDequantizeInt8()
+
+Recovers approximate float[] from int8 quantized bytes.
+Inverse of vectorQuantizeInt8().
+Formula: value = ((byte_value + 128) / 255) * (max - min) + min
+
+NOTE: Dequantized values are approximations due to precision loss during quantization.
+Original vector cannot be perfectly recovered.
+
+Syntax: `vectorDequantizeInt8(<quantized_bytes>, <min>, <max>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorDequantizeInt8(embedding_q.quantized, embedding_q.min, embedding_q.max) as recovered
+FROM Document
+----
+
+'''
+
+[discrete]
+[[vector-approx-distance]]
+====== vectorApproxDistance()
+
+Calculates approximate distance between quantized vectors without full dequantization.
+Supports INT8 mode (L2 distance on bytes) and BINARY mode (Hamming distance).
+
+Syntax: `vectorApproxDistance(<quantized1>, <quantized2>, <type>)`
+
+Where type is 'INT8' or 'BINARY'
+
+*Examples*
+
+[source,sql]
+----
+SELECT * FROM Document
+WHERE vectorApproxDistance(embedding_q.quantized, query_q.quantized, 'INT8') < 0.5
+ORDER BY vectorApproxDistance(embedding_q.quantized, query_q.quantized, 'INT8')
+LIMIT 100
+----
+
+'''
+
+[discrete]
+===== Phase 6: Vector Analysis & Validation
+
+[discrete]
+[[vector-l1-norm]]
+====== vectorL1Norm()
+
+Calculates the L1 norm (Manhattan norm) of a vector.
+Sum of absolute values of all elements.
+Formula: L1 = Σ|x_i|
+
+Syntax: `vectorL1Norm(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorL1Norm([3, -4, 2]) as l1_norm
+----
+
+Result: `9.0`
+
+'''
+
+[discrete]
+[[vector-linf-norm]]
+====== vectorLInfNorm()
+
+Calculates the L∞ norm (Chebyshev norm) of a vector.
+Maximum absolute value of any element.
+Formula: L∞ = max(|x_i|)
+
+Syntax: `vectorLInfNorm(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorLInfNorm([3, -5, 2]) as linf_norm
+----
+
+Result: `5.0`
+
+'''
+
+[discrete]
+[[vector-variance]]
+====== vectorVariance()
+
+Calculates the variance of vector elements.
+Measures how spread out the values are from the mean.
+Formula: Variance = (1/n) * Σ(x_i - mean)^2
+
+Syntax: `vectorVariance(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorVariance([1, 2, 3, 4, 5]) as variance
+----
+
+Result: `2.0`
+
+'''
+
+[discrete]
+[[vector-std-dev]]
+====== vectorStdDev()
+
+Calculates the standard deviation of vector elements.
+Square root of variance.
+Formula: StdDev = sqrt((1/n) * Σ(x_i - mean)^2)
+
+Syntax: `vectorStdDev(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorStdDev([1, 2, 3, 4, 5]) as std_dev
+----
+
+Result: `1.414...`
+
+'''
+
+[discrete]
+[[vector-sparsity]]
+====== vectorSparsity()
+
+Calculates the sparsity of a vector.
+Returns the percentage (0-1) of elements with absolute value below threshold.
+Formula: Sparsity = (count of |x_i| < threshold) / n
+
+Syntax: `vectorSparsity(<vector>, <threshold>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorSparsity([0.01, 0.1, 0.05, 0.02], 0.06) as sparsity
+----
+
+Result: `0.75` (3 out of 4 values below threshold)
+
+'''
+
+[discrete]
+[[vector-is-normalized]]
+====== vectorIsNormalized()
+
+Checks if a vector is normalized (has unit length).
+Returns true if L2 norm equals 1.0 within tolerance.
+
+Syntax: `vectorIsNormalized(<vector>, [<tolerance>])`
+
+Default tolerance: 0.001
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorIsNormalized([0.6, 0.8]) as is_normalized
+----
+
+Result: `true` (norm = 1.0)
+
+'''
+
+[discrete]
+[[vector-has-nan]]
+====== vectorHasNaN()
+
+Checks if a vector contains any NaN (Not a Number) values.
+NaN values often result from invalid operations.
+
+Syntax: `vectorHasNaN(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorHasNaN([1.0, 2.0]) as has_nan
+----
+
+'''
+
+[discrete]
+[[vector-has-inf]]
+====== vectorHasInf()
+
+Checks if a vector contains any infinite values (±Infinity).
+Infinite values often result from overflow or division by zero.
+
+Syntax: `vectorHasInf(<vector>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorHasInf([1.0, 2.0, 3.0]) as has_inf
+----
+
+Result: `false`
+
+'''
+
+[discrete]
+[[vector-clip]]
+====== vectorClip()
+
+Clips (clamps) vector elements to a specified [min, max] range.
+Values below min become min, values above max become max.
+Formula: clipped[i] = max(min, min(max, value[i]))
+
+Syntax: `vectorClip(<vector>, <min>, <max>)`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorClip([1, 5, 10], 2, 8) as clipped
+----
+
+Result: `[2, 5, 8]`
+
+'''
+
+[discrete]
+[[vector-to-string]]
+====== vectorToString()
+
+Converts a vector to human-readable string representation.
+Supports multiple formats: COMPACT (default), PRETTY, PYTHON, MATLAB.
+
+Syntax: `vectorToString(<vector>, [<format>])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorToString([0.5, 0.25, 0.75]) as compact
+----
+
+Result: `[0.5, 0.25, 0.75]`
+
+[source,sql]
+----
+SELECT vectorToString([1, 2, 3], 'PRETTY') as pretty_format
+----
+
+Result:
+----
+[
+  1,
+  2,
+  3
+]
+----
+
+'''
+
+[discrete]
 [[version]]
 ===== version()
 
