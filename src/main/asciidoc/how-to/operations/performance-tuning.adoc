@@ -1,0 +1,131 @@
+[[performance-tuning]]
+==== Performance Tuning
+
+This guide covers common performance optimizations for ArcadeDB in production.
+
+===== Memory Configuration
+
+ArcadeDB uses both JVM heap and off-heap memory. Key settings:
+
+[source,properties]
+----
+# JVM heap (set via JAVA_OPTS or bin/server.sh)
+JAVA_OPTS="-Xms2g -Xmx4g"
+
+# Page cache size (default: dynamic based on available RAM)
+arcadedb.pageCacheSize=1073741824
+----
+
+TIP: Set `Xmx` to no more than 50% of available RAM, leaving room for OS file cache and off-heap structures.
+
+===== Index Selection
+
+ArcadeDB supports multiple index types. Choose based on your access pattern:
+
+[cols="1,2,2"]
+|===
+| Index Type | Best For | Trade-off
+
+| **LSM-Tree** (default) | Write-heavy workloads, range queries | Slower point lookups than Hash
+| **Hash** | Point lookups (`WHERE key = value`) | No range queries, slower writes
+| **LSM_VECTOR** | Vector similarity search | Specialized for ANN queries
+| **FULL_TEXT** | Text search (`SEARCH_INDEX()`) | Specialized for keyword search
+| **GEOSPATIAL** | Spatial queries (`geo.*()`) | Specialized for geometry
+|===
+
+Create appropriate indexes for your query patterns:
+
+[source,sql]
+----
+-- LSM-Tree for range queries (default)
+CREATE INDEX ON User (email) UNIQUE
+
+-- Hash for exact lookups
+CREATE INDEX ON Session (token) UNIQUE HASH
+
+-- Composite index for multi-column queries
+CREATE INDEX ON Order (customerId, orderDate)
+----
+
+===== Query Optimization
+
+Use `EXPLAIN` and `PROFILE` to understand query execution:
+
+[source,sql]
+----
+-- Show the query plan without executing
+EXPLAIN SELECT FROM User WHERE email = 'alice@example.com'
+
+-- Execute and show actual timings
+PROFILE SELECT FROM User WHERE email = 'alice@example.com'
+----
+
+Common optimizations:
+
+* **Add indexes** for `WHERE` clause predicates -- check `EXPLAIN` output for full scans
+* **Limit result sets** -- Use `LIMIT` to avoid fetching unnecessary records
+* **Project only needed fields** -- `SELECT name, email FROM User` is faster than `SELECT * FROM User`
+* **Use parameterized queries** -- Avoid SQL parsing overhead for repeated queries
+
+===== Bucket Configuration
+
+ArcadeDB distributes records across buckets for parallel access. The default number of buckets per type equals the CPU core count.
+
+For write-heavy types, increase the bucket count:
+
+[source,sql]
+----
+ALTER TYPE HighWriteType BUCKET +4
+----
+
+For read-heavy types with few writes, fewer buckets reduce overhead:
+
+[source,sql]
+----
+ALTER TYPE LookupTable BUCKET -2
+----
+
+===== Page Size Tuning
+
+The default page size (64KB) works well for most workloads. Adjust for specific patterns:
+
+[source,properties]
+----
+# Larger pages for sequential scan workloads (analytics)
+arcadedb.pageSize=131072
+
+# Smaller pages for random access workloads
+arcadedb.pageSize=32768
+----
+
+===== Connection Pool Settings
+
+For remote applications, tune connection pool size based on concurrency:
+
+[source,properties]
+----
+# Maximum concurrent connections
+arcadedb.serverHttpIncomingConnections=256
+
+# Async queue size
+arcadedb.asyncOperationsQueueSize=1024
+----
+
+===== Write Optimization
+
+* **Batch transactions** -- Group related writes in a single transaction to amortize commit overhead
+* **Async operations** -- Use the async API for non-blocking writes (<<async,Java Async API>>)
+* **Bulk loading** -- Use `BulkInsert` via gRPC or the Java embedded API for initial data loads
+
+===== Read Optimization
+
+* **Page cache** -- Increase `arcadedb.pageCacheSize` if cache hit rate is low
+* **Index coverage** -- Ensure queries hit indexes (check with `EXPLAIN`)
+* **Projections** -- Select only the fields you need
+* **Materialized views** -- Pre-compute expensive aggregations
+
+===== Further Reading
+
+* <<arcadedb-settings,Server Settings>> -- Complete list of all configuration parameters
+* <<howto-monitoring,Monitoring>> -- Track performance metrics with Prometheus
+* <<lsm-tree,LSM-Tree Architecture>> -- Understanding the storage engine

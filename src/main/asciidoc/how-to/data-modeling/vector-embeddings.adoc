@@ -1,0 +1,194 @@
+[[vector-embeddings-howto]]
+==== Vector Embeddings
+
+This guide covers practical decisions for working with vector embeddings in ArcadeDB: choosing dimensions, creating indexes, tuning parameters, and combining vector search with other query types.
+
+===== Choosing an Embedding Model
+
+Your embedding model determines the `dimensions` parameter for the index:
+
+[cols="2,1,2"]
+|===
+| Model | Dimensions | Notes
+
+| OpenAI `text-embedding-3-small` | 1536 | General purpose, high quality
+| OpenAI `text-embedding-3-large` | 3072 | Highest quality, largest memory footprint
+| Sentence Transformers `all-MiniLM-L6-v2` | 384 | Fast, open source, good quality
+| Sentence Transformers `all-mpnet-base-v2` | 768 | Better quality, slower
+| Cohere `embed-english-v3.0` | 1024 | Good balance of quality and size
+| CLIP (image + text) | 512 | Multi-modal image/text
+|===
+
+TIP: Start with 384 dimensions (MiniLM) for prototyping. Move to 768+ for production quality. Use quantization to manage memory at higher dimensions.
+
+===== Creating a Vector Index
+
+Basic index creation:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Document
+CREATE PROPERTY Document.content STRING
+CREATE PROPERTY Document.embedding LIST OF FLOAT
+
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE'
+}
+----
+
+Production-ready index with quantization:
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  maxConnections: 16,
+  beamWidth: 100
+}
+----
+
+===== Choosing a Similarity Function
+
+[cols="1,2,2"]
+|===
+| Function | Choose When | Avoid When
+
+| **COSINE** | Using text embedding models (most common). Vectors may have varying magnitudes. | Vectors represent absolute quantities (distances, counts).
+| **DOT_PRODUCT** | Vectors are already L2-normalized. You need maximum query speed. | Vectors are not normalized (results will be incorrect).
+| **EUCLIDEAN** | Working with spatial data, sensor readings, or continuous measurements. | Comparing text embeddings of different lengths.
+|===
+
+===== Quantization Trade-offs
+
+Use this decision tree:
+
+* **< 10K vectors**: Use `NONE` (memory is not a concern)
+* **10K - 1M vectors**: Use `INT8` (4x memory savings, < 2% accuracy loss)
+* **> 1M vectors**: Use `BINARY` for first-pass filtering, then rerank with full vectors
+
+[source,sql]
+----
+-- INT8: recommended for most production workloads
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE',
+  quantization: 'INT8'
+}
+----
+
+===== Tuning for Recall vs Speed
+
+Adjust `maxConnections` and `beamWidth` based on your priorities:
+
+[cols="1,1,1,2"]
+|===
+| Profile | maxConnections | beamWidth | Trade-off
+
+| **Default** | 16 | 100 | Balanced for most workloads
+| **High recall** | 32 | 200 | Better accuracy, 2-3x slower builds, 50% more memory
+| **Fast indexing** | 12 | 80 | 2x faster builds, 5-10% lower recall
+| **Memory constrained** | 8 | 60 | Minimal memory footprint
+|===
+
+For datasets over 100K vectors or with 1024+ dimensions, enable hierarchical mode:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 1536,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  addHierarchy: true,
+  maxConnections: 32,
+  beamWidth: 200
+}
+----
+
+===== Multi-Modal Embeddings
+
+Store multiple embeddings per record for different search modalities:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Product
+CREATE PROPERTY Product.imageEmbedding ARRAY_OF_FLOATS
+CREATE PROPERTY Product.textEmbedding  ARRAY_OF_FLOATS
+
+CREATE INDEX ON Product (imageEmbedding) LSM_VECTOR METADATA {dimensions: 512, similarity: 'COSINE'}
+CREATE INDEX ON Product (textEmbedding)  LSM_VECTOR METADATA {dimensions: 768, similarity: 'COSINE'}
+----
+
+Query each index independently:
+
+[source,sql]
+----
+-- Search by image similarity
+SELECT name FROM (
+  SELECT vectorNeighbors('Product[imageEmbedding]', $imageVector, 10) AS neighbors
+)
+
+-- Search by text similarity
+SELECT name FROM (
+  SELECT vectorNeighbors('Product[textEmbedding]', $textVector, 10) AS neighbors
+)
+----
+
+===== Hybrid Search: Vector + Full-Text
+
+Combine vector similarity with keyword matching for best results:
+
+[source,sql]
+----
+-- Step 1: Full-text search for keyword matches
+SELECT @rid, title, content FROM Document
+WHERE SEARCH_INDEX('Document[content]', 'machine learning')
+
+-- Step 2: Vector search for semantic matches
+SELECT @rid, title FROM (
+  SELECT vectorNeighbors('Document[embedding]', $queryVector, 20) AS neighbors
+)
+
+-- Combine scores using reciprocal rank fusion
+SELECT vectorRRFScore(keywordRank, vectorRank, 60) AS score
+----
+
+===== Batch Ingestion
+
+For bulk loading vectors, batch your inserts within transactions:
+
+[source,sql]
+----
+BEGIN
+
+CREATE VERTEX Document SET content = 'First document',  embedding = [0.1, 0.2, ...]
+CREATE VERTEX Document SET content = 'Second document', embedding = [0.3, 0.4, ...]
+-- ... more inserts ...
+
+COMMIT
+----
+
+TIP: For large bulk loads, increase `mutationsBeforeRebuild` to delay index rebuilds until after the load completes, then trigger a rebuild.
+
+===== Global Configuration
+
+Set database-wide defaults for vector index parameters:
+
+[source,sql]
+----
+ALTER DATABASE `arcadedb.vectorIndex.locationCacheSize` 100000
+ALTER DATABASE `arcadedb.vectorIndex.graphBuildCacheSize` 10000
+ALTER DATABASE `arcadedb.vectorIndex.mutationsBeforeRebuild` 100
+ALTER DATABASE `arcadedb.vectorIndex.storeVectorsInGraph` false
+----
+
+Per-index metadata overrides these global settings.
+
+===== Further Reading
+
+* <<vector-search-concepts,Vector Search Concepts>> -- Architecture and algorithm details
+* <<vector-search-tutorial,Vector Search Tutorial>> -- Step-by-step hands-on guide
+* <<java-vectors,Java Vector API>> -- Programmatic index management
+* <<sql-functions,SQL Vector Functions>> -- Complete function reference

@@ -1,0 +1,1374 @@
+[[cypher-match]]
+[discrete]
+===== MATCH
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/reference/cypher/cypher-clauses.adoc" float=right]
+
+The `MATCH` clause is used to search for patterns in the graph. It is the primary read operation in Cypher.
+
+*Syntax:*
+
+[source,cypher]
+----
+MATCH pattern [, pattern ...]
+[WHERE condition]
+----
+
+*Pattern Syntax:*
+
+* `(variable)` - Match any node
+* `(variable:Label)` - Match nodes with specific label
+* `(variable:Label {prop: value})` - Match nodes with properties
+* `(a)-[r]->(b)` - Match directed relationship
+* `(a)-[r]-(b)` - Match relationship in either direction
+* `(a)-[r:TYPE]->(b)` - Match relationship with specific type
+* `(a)-[r:TYPE1|TYPE2]->(b)` - Match relationship with multiple types
+* `(a)-[*min..max]->(b)` - Match variable-length path
+
+*Examples:*
+
+[source,cypher]
+----
+// Match all Person nodes
+MATCH (p:Person)
+RETURN p
+
+// Match with property filter
+MATCH (p:Person {name: 'Alice', age: 30})
+RETURN p
+
+// Match relationships
+MATCH (p:Person)-[r:KNOWS]->(friend:Person)
+RETURN p.name, friend.name
+
+// Match with relationship properties
+MATCH (p:Person)-[r:WORKS_AT {since: 2020}]->(c:Company)
+RETURN p.name, c.name
+
+// Variable-length paths
+MATCH (a:Person)-[:KNOWS*1..3]->(b:Person)
+WHERE a.name = 'Alice'
+RETURN b.name
+
+// Named paths
+MATCH path = (a:Person)-[:KNOWS*]->(b:Person)
+WHERE a.name = 'Alice'
+RETURN path
+
+// Comma-separated patterns (Cartesian product)
+MATCH (a:Person), (b:Company)
+RETURN a.name, b.name
+
+// Multiple MATCH clauses
+MATCH (a:Person {name: 'Alice'})
+MATCH (b:Person {name: 'Bob'})
+RETURN a, b
+----
+
+---
+
+[[cypher-optional-match]]
+[discrete]
+===== OPTIONAL MATCH
+
+`OPTIONAL MATCH` works like `MATCH`, but returns NULL values for missing parts of the pattern instead of filtering out rows. It behaves like a LEFT OUTER JOIN in SQL.
+
+*Syntax:*
+
+[source,cypher]
+----
+MATCH pattern
+OPTIONAL MATCH optional_pattern
+[WHERE condition]
+RETURN ...
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Find all people and their optional movies
+MATCH (p:Person)
+OPTIONAL MATCH (p)-[r:ACTED_IN]->(m:Movie)
+RETURN p.name, m.title
+
+// With WHERE clause scoped to OPTIONAL MATCH
+MATCH (p:Person)
+OPTIONAL MATCH (p)-[:KNOWS]->(friend:Person)
+WHERE friend.age > 30
+RETURN p.name, friend.name
+----
+
+NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
+
+---
+
+[[cypher-where]]
+[discrete]
+===== WHERE
+
+The `WHERE` clause filters results based on conditions.
+
+*Syntax:*
+
+[source,cypher]
+----
+WHERE condition
+----
+
+*Operators:*
+
+[%header,cols="2,3,3"]
+|===
+| Type | Operators | Example
+| Comparison | `=`, `<>`, `<`, `>`, `<=`, `>=` | `WHERE n.age >= 25`
+| Logical | `AND`, `OR`, `NOT` | `WHERE n.age > 25 AND n.city = 'NYC'`
+| Null check | `IS NULL`, `IS NOT NULL` | `WHERE n.email IS NOT NULL`
+| List | `IN` | `WHERE n.name IN ['Alice', 'Bob']`
+| String | `STARTS WITH`, `ENDS WITH`, `CONTAINS` | `WHERE n.name STARTS WITH 'A'`
+| Regex | `=~` | `WHERE n.email =~ '.*@gmail.com'`
+|===
+
+*Examples:*
+
+[source,cypher]
+----
+// Simple comparison
+MATCH (p:Person)
+WHERE p.age > 30
+RETURN p.name
+
+// Multiple conditions
+MATCH (p:Person)
+WHERE p.age >= 25 AND p.age <= 40 AND p.city = 'NYC'
+RETURN p
+
+// NULL checks
+MATCH (p:Person)
+WHERE p.email IS NOT NULL
+RETURN p.name, p.email
+
+// IN operator
+MATCH (p:Person)
+WHERE p.name IN ['Alice', 'Bob', 'Charlie']
+RETURN p
+
+// String matching
+MATCH (p:Person)
+WHERE p.name STARTS WITH 'A'
+RETURN p
+
+// Regular expression
+MATCH (p:Person)
+WHERE p.email =~ '.*@example.com'
+RETURN p
+
+// Parenthesized expressions
+MATCH (p:Person)
+WHERE (p.age < 25 OR p.age > 60) AND p.status = 'active'
+RETURN p
+
+// Pattern predicates
+MATCH (p:Person)
+WHERE (p)-[:KNOWS]->()
+RETURN p.name AS hasConnections
+----
+
+---
+
+[[cypher-return]]
+[discrete]
+===== RETURN
+
+The `RETURN` clause specifies what to include in the query result.
+
+*Syntax:*
+
+[source,cypher]
+----
+RETURN expression [AS alias] [, expression [AS alias] ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Return nodes
+MATCH (p:Person)
+RETURN p
+
+// Return properties
+MATCH (p:Person)
+RETURN p.name, p.age
+
+// Return with aliases
+MATCH (p:Person)
+RETURN p.name AS personName, p.age AS personAge
+
+// Return all: *
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+RETURN *
+
+// Return expressions
+MATCH (p:Person)
+RETURN p.name, toUpper(p.city) AS upperCity
+
+// Aggregations
+MATCH (p:Person)
+RETURN count(p) AS total, avg(p.age) AS avgAge
+
+// RETURN DISTINCT - removes duplicate rows
+MATCH (p:Person)
+RETURN DISTINCT p.city AS city
+
+// DISTINCT with multiple columns
+UNWIND [1, 2, 2, 3, 3, 3] AS n
+RETURN DISTINCT n
+
+// Aggregations with DISTINCT
+UNWIND [1, 1, 2, 3] AS n
+RETURN count(DISTINCT n) AS uniqueCount, sum(DISTINCT n) AS uniqueSum
+
+// Standalone expressions (no MATCH)
+RETURN abs(-42), sqrt(16), range(1, 5)
+----
+
+---
+
+[[cypher-create]]
+[discrete]
+===== CREATE
+
+The `CREATE` clause creates new nodes and relationships.
+
+*Syntax:*
+
+[source,cypher]
+----
+CREATE pattern [, pattern ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Create a node
+CREATE (p:Person {name: 'Alice', age: 30})
+
+// Create multiple nodes
+CREATE (a:Person {name: 'Bob'}), (b:Person {name: 'Charlie'})
+
+// Create a relationship between new nodes
+CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+
+// Create a relationship with properties
+CREATE (a:Person {name: 'Alice'})-[:WORKS_AT {since: 2020}]->(c:Company {name: 'ArcadeDB'})
+
+// Create relationship between existing nodes
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CREATE (a)-[:KNOWS {since: 2024}]->(b)
+
+// Create chained paths
+CREATE (a:Person {name: 'A'})-[:KNOWS]->(b:Person {name: 'B'})-[:KNOWS]->(c:Person {name: 'C'})
+----
+
+---
+
+[[cypher-merge]]
+[discrete]
+===== MERGE
+
+The `MERGE` clause creates nodes or relationships if they don't exist, or matches them if they do (upsert operation).
+
+*Syntax:*
+
+[source,cypher]
+----
+MERGE pattern
+[ON CREATE SET property = value [, property = value ...]]
+[ON MATCH SET property = value [, property = value ...]]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Find or create a node
+MERGE (p:Person {name: 'Alice'})
+
+// With ON CREATE action
+MERGE (p:Person {name: 'Bob'})
+ON CREATE SET p.created = true, p.timestamp = timestamp()
+
+// With ON MATCH action
+MERGE (p:Person {name: 'Alice'})
+ON MATCH SET p.lastSeen = timestamp(), p.visits = p.visits + 1
+
+// Both ON CREATE and ON MATCH
+MERGE (p:Person {name: 'Charlie'})
+ON CREATE SET p.created = true, p.count = 1
+ON MATCH SET p.count = p.count + 1, p.updated = true
+
+// Merge relationship between existing nodes
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+MERGE (a)-[r:KNOWS]->(b)
+ON CREATE SET r.since = 2024
+ON MATCH SET r.lastContact = timestamp()
+----
+
+---
+
+[[cypher-set]]
+[discrete]
+===== SET
+
+The `SET` clause updates properties on nodes and relationships.
+
+*Syntax:*
+
+[source,cypher]
+----
+SET property = value [, property = value ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Update a single property
+MATCH (p:Person {name: 'Alice'})
+SET p.age = 31
+
+// Update multiple properties
+MATCH (p:Person {name: 'Alice'})
+SET p.age = 31, p.city = 'Boston', p.updated = true
+
+// Update relationship property
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+WHERE a.name = 'Alice' AND b.name = 'Bob'
+SET r.strength = 10
+----
+
+---
+
+[[cypher-delete]]
+[discrete]
+===== DELETE
+
+The `DELETE` clause removes nodes and relationships from the graph.
+
+*Syntax:*
+
+[source,cypher]
+----
+DELETE variable [, variable ...]
+DETACH DELETE variable [, variable ...]
+----
+
+NOTE: A node cannot be deleted if it has relationships. Use `DETACH DELETE` to delete a node and all its relationships.
+
+*Examples:*
+
+[source,cypher]
+----
+// Delete a relationship
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+WHERE a.name = 'Alice' AND b.name = 'Bob'
+DELETE r
+
+// Delete a node (must have no relationships)
+MATCH (p:Person {name: 'TestNode'})
+DELETE p
+
+// Delete node with all its relationships
+MATCH (p:Person {name: 'Alice'})
+DETACH DELETE p
+
+// Delete multiple elements
+MATCH (a:Person)-[r:TEMP]->(b:Person)
+DELETE a, r, b
+----
+
+---
+
+[[cypher-with]]
+[discrete]
+===== WITH
+
+The `WITH` clause allows query chaining by passing results from one part of a query to another. It can project, filter, aggregate, and paginate intermediate results.
+
+*Syntax:*
+
+[source,cypher]
+----
+WITH expression [AS alias] [, expression [AS alias] ...]
+[WHERE condition]
+[ORDER BY expression [ASC|DESC]]
+[SKIP n]
+[LIMIT n]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Basic projection
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+RETURN name, age ORDER BY name
+
+// Filter after projection
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+WHERE age > 30
+RETURN name
+
+// Aggregation with WITH
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH m.title AS movie, count(p) AS actorCount
+WHERE actorCount > 2
+RETURN movie, actorCount
+
+// WITH DISTINCT
+MATCH (p:Person)
+WITH DISTINCT p.city AS city
+RETURN city ORDER BY city
+
+// Pagination with WITH
+MATCH (p:Person)
+WITH p.name AS name
+ORDER BY name
+SKIP 5
+LIMIT 10
+RETURN name
+
+// Multiple WITH clauses
+MATCH (p:Person)
+WITH p.name AS name, p.age AS age
+WHERE age > 25
+WITH name, age
+WHERE age < 50
+RETURN name ORDER BY name
+
+// WITH * (pass all variables)
+MATCH (p:Person)
+WITH *
+WHERE p.age > 30
+RETURN p.name
+----
+
+---
+
+[[cypher-unwind]]
+[discrete]
+===== UNWIND
+
+The `UNWIND` clause expands a list into individual rows.
+
+*Syntax:*
+
+[source,cypher]
+----
+UNWIND list AS variable
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Unwind a literal list
+UNWIND [1, 2, 3] AS x
+RETURN x
+
+// Unwind with range
+UNWIND range(1, 10) AS num
+RETURN num
+
+// Unwind property array
+MATCH (p:Person {name: 'Alice'})
+UNWIND p.hobbies AS hobby
+RETURN p.name, hobby
+
+// Create from list
+UNWIND ['Alice', 'Bob', 'Charlie'] AS name
+CREATE (p:Person {name: name})
+
+// Nested unwind
+UNWIND [[1, 2], [3, 4]] AS inner
+UNWIND inner AS num
+RETURN num
+
+// Combine with MATCH
+MATCH (p:Person)
+UNWIND p.skills AS skill
+RETURN p.name, skill
+----
+
+---
+
+[[cypher-order-by]]
+[discrete]
+===== ORDER BY
+
+The `ORDER BY` clause sorts the results.
+
+*Syntax:*
+
+[source,cypher]
+----
+ORDER BY expression [ASC|DESC] [, expression [ASC|DESC] ...]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Ascending order (default)
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+
+// Descending order
+MATCH (p:Person)
+RETURN p.name, p.age
+ORDER BY p.age DESC
+
+// Multiple sort keys
+MATCH (p:Person)
+RETURN p.name, p.age, p.city
+ORDER BY p.city ASC, p.age DESC, p.name ASC
+----
+
+---
+
+[[cypher-skip-limit]]
+[discrete]
+===== SKIP and LIMIT
+
+`SKIP` skips a number of results, and `LIMIT` restricts the maximum number of results returned. Used together for pagination.
+
+*Syntax:*
+
+[source,cypher]
+----
+SKIP number
+LIMIT number
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Limit results
+MATCH (p:Person)
+RETURN p.name
+LIMIT 10
+
+// Skip results
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+SKIP 20
+
+// Pagination (page 3, 10 items per page)
+MATCH (p:Person)
+RETURN p.name
+ORDER BY p.name
+SKIP 20
+LIMIT 10
+----
+
+---
+
+[[cypher-explain]]
+[discrete]
+===== EXPLAIN
+
+The `EXPLAIN` clause shows the query execution plan without actually executing the query. This is useful for understanding how the query optimizer processes your query and for performance tuning.
+
+*Syntax:*
+
+[source,cypher]
+----
+EXPLAIN query
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Show execution plan for a simple query
+EXPLAIN MATCH (p:Person) RETURN p
+
+// Show plan for a relationship traversal
+EXPLAIN MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' RETURN b
+
+// Show plan for a query with aggregation
+EXPLAIN MATCH (p:Person) RETURN p.city, count(p)
+----
+
+*Output:*
+
+The EXPLAIN output includes:
+
+* Whether the cost-based optimizer is being used
+* Physical operators in the execution plan (for optimized queries)
+* Estimated costs and row counts
+* Index usage information
+
+[source,text]
+----
+OpenCypher Native Execution Plan
+=================================
+
+Using Cost-Based Query Optimizer
+
+Physical Plan:
+NodeIndexSeek (Person.name = 'Alice')
+  ├── Estimated Cost: 10.00
+  └── Estimated Rows: 1
+
+Total Estimated Cost: 10.00
+Total Estimated Rows: 1
+----
+
+For queries that don't use the optimizer, EXPLAIN shows:
+
+[source,text]
+----
+OpenCypher Native Execution Plan
+=================================
+
+Using Traditional Execution (Non-Optimized)
+
+Reason: Query pattern not yet supported by optimizer
+Execution will use step-by-step interpretation
+----
+
+---
+
+[[cypher-profile]]
+[discrete]
+===== PROFILE
+
+The `PROFILE` clause executes the query and returns performance metrics along with the actual results. Unlike `EXPLAIN` which only shows the plan, `PROFILE` runs the query and provides real execution statistics.
+
+*Syntax:*
+
+[source,cypher]
+----
+PROFILE query
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Profile a simple query
+PROFILE MATCH (p:Person) RETURN p.name
+
+// Profile a relationship traversal
+PROFILE MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' RETURN b.name
+
+// Profile a query with aggregation
+PROFILE MATCH (p:Person) RETURN p.city, count(p) AS count
+----
+
+*Output:*
+
+The PROFILE output includes:
+
+* Execution time in milliseconds
+* Number of rows returned
+* Query execution plan details (when using optimizer)
+
+[source,text]
+----
+OpenCypher Query Profile
+=========================
+
+Execution Time: 15 ms
+Rows Returned: 42
+
+Physical Plan:
+NodeTypeScan (Person)
+  └── Estimated Rows: 50
+
+Actual Results Follow...
+----
+
+NOTE: The profile information is returned as the first row in the result set, followed by the actual query results.
+
+---
+
+[[cypher-union]]
+[discrete]
+===== UNION and UNION ALL
+
+The `UNION` clause combines the results of two or more queries into a single result set. `UNION` removes duplicate rows, while `UNION ALL` keeps all rows including duplicates.
+
+*Syntax:*
+
+[source,cypher]
+----
+query1
+UNION [ALL]
+query2
+[UNION [ALL]
+query3 ...]
+----
+
+IMPORTANT: All queries in a UNION must return the same column names.
+
+*Examples:*
+
+[source,cypher]
+----
+// UNION - removes duplicate results
+MATCH (p:Person) RETURN p.name AS name
+UNION
+MATCH (c:Company) RETURN c.name AS name
+
+// UNION ALL - keeps all results including duplicates
+MATCH (p:Person) RETURN p.name AS name
+UNION ALL
+MATCH (c:Company) RETURN c.name AS name
+
+// Multiple UNIONNs
+MATCH (p:Person) RETURN p.name AS name
+UNION
+MATCH (c:Company) RETURN c.name AS name
+UNION
+MATCH (l:Location) RETURN l.name AS name
+
+// UNION with WHERE clauses
+MATCH (p:Person) WHERE p.age > 30 RETURN p.name AS name, 'person' AS type
+UNION ALL
+MATCH (c:Company) WHERE c.employees > 100 RETURN c.name AS name, 'company' AS type
+----
+
+*Behavior:*
+
+* `UNION` removes duplicate rows from the combined result (like `SELECT DISTINCT` in SQL)
+* `UNION ALL` preserves all rows, including duplicates (more efficient when duplicates are acceptable)
+* Results are returned in the order they are produced by each query
+
+---
+
+[[cypher-call]]
+[discrete]
+===== CALL
+
+The `CALL` clause invokes procedures and functions. This includes built-in database procedures as well as custom functions defined via SQL's `DEFINE FUNCTION`.
+
+*Syntax:*
+
+[source,cypher]
+----
+CALL procedureName([arguments])
+[YIELD field [AS alias] [, field [AS alias] ...]]
+[WHERE condition]
+----
+
+*Built-in Procedures:*
+
+[%header,cols="2,3"]
+|===
+| Procedure | Description
+| `db.labels()` | Returns all vertex type names (labels)
+| `db.relationshipTypes()` | Returns all edge type names
+| `db.propertyKeys()` | Returns all property keys defined in the schema
+| `db.schema()` | Returns schema visualization data
+| `db.schema.visualization()` | Returns schema visualization data (alias)
+|===
+
+*Examples:*
+
+[source,cypher]
+----
+// List all vertex types (labels)
+CALL db.labels()
+
+// List all relationship types
+CALL db.relationshipTypes()
+
+// List all property keys
+CALL db.propertyKeys()
+
+// Get schema information
+CALL db.schema()
+----
+
+*Vector Search Procedures:*
+
+ArcadeDB provides built-in procedures for performing approximate nearest neighbor (ANN) vector search using HNSW indexes. These are accessible from Cypher via `CALL` and use the same high-performance index as SQL's `vector.neighbors()`.
+
+[%header,cols="2,3"]
+|===
+| Procedure | Description
+| `db.index.vector.queryNodes(indexSpec, k, vector)` | Neo4j-compatible vector search. Returns `node` (the document) and `score` (cosine similarity, higher is better)
+| `vector.neighbors(indexSpec, vector, k)` | ArcadeDB-native vector search. Returns document properties and `distance` (lower is better)
+|===
+
+NOTE: The `indexSpec` parameter uses ArcadeDB's `'Type[property]'` format (e.g., `'Document[embedding]'`).
+
+*Examples:*
+
+[source,cypher]
+----
+// Neo4j-compatible syntax — returns node and score (similarity)
+CALL db.index.vector.queryNodes('Document[embedding]', 10, $queryVector)
+YIELD node, score
+RETURN node.title AS title, score
+ORDER BY score DESC
+
+// ArcadeDB-native syntax — returns properties and distance
+CALL vector.neighbors('Document[embedding]', $queryVector, 10)
+YIELD name, distance
+RETURN name, distance
+ORDER BY distance
+
+// With parameters for k and vector
+CALL db.index.vector.queryNodes('Document[embedding]', $k, $vec)
+YIELD node, score
+RETURN node.title AS title, score
+
+// Search specific child type in an inheritance hierarchy
+CALL db.index.vector.queryNodes('EMBEDDING_IMAGE[vector]', 5, $vec)
+YIELD node, score
+RETURN node.name, score
+----
+
+IMPORTANT: These procedures use the HNSW vector index for fast approximate search (O(log n)). Do *not* use `vector.cosinesimilarity()` inside a `MATCH` loop — that performs a brute-force O(n) scan over all documents. Always use `CALL` with a vector index for production workloads.
+
+*Calling User Functions:*
+
+User functions defined via SQL's `DEFINE FUNCTION` statement can be called using the `CALL` clause with their namespace. Functions can be defined in SQL, JavaScript, OpenCypher, or Java and are callable from any query language.
+
+[source,sql]
+----
+// Define user functions in different languages
+DEFINE FUNCTION math.add "SELECT :a + :b AS result" PARAMETERS [a,b] LANGUAGE sql
+DEFINE FUNCTION js.multiply "return x * y" PARAMETERS [x,y] LANGUAGE js
+DEFINE FUNCTION cypher.double "RETURN $n * 2" PARAMETERS [n] LANGUAGE opencypher
+----
+
+[source,cypher]
+----
+// Call user functions from Cypher using CALL clause
+CALL math.add(3, 5)
+// Returns: {result: 8}
+
+CALL js.multiply(4, 2)
+// Returns: {result: 8}
+
+CALL cypher.double(5)
+// Returns: {result: 10}
+
+// Or call directly in expressions
+RETURN math.add(3, 5) AS sum,
+       js.multiply(4, 2) AS product,
+       cypher.double(5) AS doubled
+// Returns: {sum: 8, product: 8, doubled: 10}
+----
+
+See <<user-functions,User Functions>> for complete documentation on defining and using functions.
+
+*Using YIELD:*
+
+The `YIELD` clause filters and renames the columns returned by a procedure:
+
+[source,cypher]
+----
+// Get only the label column
+CALL db.labels() YIELD label
+
+// Rename the output column
+CALL db.labels() YIELD label AS vertexType
+
+// Filter results with WHERE
+CALL db.labels() YIELD label
+WHERE label STARTS WITH 'P'
+RETURN label
+
+// Yield all columns
+CALL db.propertyKeys() YIELD *
+----
+
+NOTE: When calling custom SQL functions, the result is wrapped in a `value` property. Built-in procedures like `db.labels()` return results with specific property names like `label`, `relationshipType`, or `propertyKey`.
+
+*Subqueries (CALL { ... }):*
+
+Cypher supports subqueries using the `CALL { ... }` syntax. Subqueries are enclosed in curly braces and can import variables from the outer scope using `WITH`.
+
+[source,cypher]
+----
+// Basic subquery with imported variable
+UNWIND [1, 2, 3] AS x
+CALL {
+  WITH x
+  RETURN x * 10 AS y
+}
+RETURN x, y
+
+// Subquery with MATCH
+MATCH (n:Item)
+CALL {
+  WITH n
+  RETURN n.value * 2 AS doubled
+}
+RETURN n.name, doubled
+
+// Multiple imported variables
+UNWIND [1, 2] AS a
+UNWIND [10, 20] AS b
+CALL {
+  WITH a, b
+  RETURN a + b AS sum
+}
+RETURN a, b, sum
+----
+
+Subqueries allow you to isolate complex query logic, perform computations on imported variables, and return results back to the outer query.
+
+*Subqueries IN TRANSACTIONS:*
+
+When importing large datasets (e.g., from LOAD CSV), you can use `CALL { ... } IN TRANSACTIONS` to commit changes in batches rather than accumulating all changes in a single transaction. This prevents running out of memory and allows progress to be committed incrementally.
+
+[source,cypher]
+----
+// Commit every 1000 rows (default batch size)
+LOAD CSV WITH HEADERS FROM 'file:///data.csv' AS row
+CALL {
+  WITH row
+  CREATE (n:Person {name: row.name, age: toInteger(row.age)})
+} IN TRANSACTIONS
+
+// Custom batch size
+LOAD CSV WITH HEADERS FROM 'file:///data.csv' AS row
+CALL {
+  WITH row
+  CREATE (n:Person {name: row.name})
+} IN TRANSACTIONS OF 500 ROWS
+----
+
+NOTE: `IN TRANSACTIONS` should not be used inside an already open explicit transaction. The subquery manages its own transaction boundaries.
+
+---
+
+[[cypher-foreach]]
+[discrete]
+===== FOREACH
+
+The `FOREACH` clause iterates over a list and executes write operations (CREATE, SET, DELETE, MERGE) for each element. Unlike other clauses, FOREACH does not modify the result set - it passes through the input rows unchanged.
+
+*Syntax:*
+
+[source,cypher]
+----
+FOREACH (variable IN list |
+  update_clause [update_clause ...]
+)
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Create multiple nodes from a list
+FOREACH (name IN ['Alice', 'Bob', 'Charlie'] |
+  CREATE (:Person {name: name})
+)
+
+// Create relationships in a loop
+CREATE (root:Root {name: 'Main'})
+FOREACH (i IN [1, 2, 3] |
+  CREATE (root)-[:HAS_ITEM]->(:Item {id: i})
+)
+
+// Use with MATCH context
+MATCH (p:Person)
+FOREACH (tag IN ['developer', 'tester'] |
+  CREATE (p)-[:HAS_TAG]->(:Tag {value: tag})
+)
+
+// Update properties with SET
+MATCH (item:Item)
+WITH collect(item) AS items
+FOREACH (item IN items |
+  SET item.status = 'processed', item.timestamp = timestamp()
+)
+
+// FOREACH passes through input rows
+CREATE (root:Root {name: 'test'})
+FOREACH (i IN [1, 2] |
+  CREATE (:Child {id: i})
+)
+RETURN root.name AS name
+// Returns: {name: 'test'}
+----
+
+*Important Notes:*
+
+* FOREACH can only contain write operations (CREATE, SET, DELETE, MERGE)
+* FOREACH does not modify the result set - it passes input rows through unchanged
+* Variables defined inside FOREACH are not visible outside the clause
+* FOREACH is useful for batch operations and creating multiple elements from lists
+
+---
+
+[[cypher-load-csv]]
+[discrete]
+===== LOAD CSV
+
+The `LOAD CSV` clause reads data from a CSV file (local or remote) and makes each row available as a variable for further query processing. This is the primary mechanism for bulk-importing data into ArcadeDB from CSV files.
+
+*Syntax:*
+
+[source,cypher]
+----
+LOAD CSV FROM <url> AS <variable>
+LOAD CSV WITH HEADERS FROM <url> AS <variable>
+LOAD CSV WITH HEADERS FROM <url> AS <variable> FIELDTERMINATOR <delimiter>
+----
+
+* **Without `WITH HEADERS`**: Each row is bound as a list of strings. Access fields by index: `row[0]`, `row[1]`, etc.
+* **With `WITH HEADERS`**: The first row is treated as column names. Each subsequent row is bound as a map. Access fields by name: `row.name`, `row['age']`, etc.
+* **FIELDTERMINATOR**: Specify a custom field delimiter (default is `,`). Example: `FIELDTERMINATOR ';'` for semicolon-separated files.
+
+*Basic Examples:*
+
+[source,cypher]
+----
+// Load CSV without headers (list access)
+LOAD CSV FROM 'file:///people.csv' AS row
+CREATE (:Person {name: row[0], age: toInteger(row[1])})
+
+// Load CSV with headers (map access)
+LOAD CSV WITH HEADERS FROM 'file:///people.csv' AS row
+CREATE (:Person {name: row.name, age: toInteger(row.age)})
+
+// Custom field delimiter
+LOAD CSV WITH HEADERS FROM 'file:///data.tsv' AS row FIELDTERMINATOR '\t'
+RETURN row.name, row.value
+
+// Load from HTTP URL
+LOAD CSV WITH HEADERS FROM 'https://example.com/data.csv' AS row
+CREATE (:Item {id: row.id, label: row.label})
+----
+
+*Bulk Import with CALL IN TRANSACTIONS:*
+
+For large files, combine `LOAD CSV` with `CALL { ... } IN TRANSACTIONS` to commit in batches and avoid memory issues:
+
+[source,cypher]
+----
+LOAD CSV WITH HEADERS FROM 'file:///large-dataset.csv' AS row
+CALL {
+  WITH row
+  CREATE (p:Person {name: row.name, email: row.email})
+} IN TRANSACTIONS OF 1000 ROWS
+----
+
+*Compressed Files:*
+
+LOAD CSV transparently decompresses `.gz` (gzip) and `.zip` files:
+
+[source,cypher]
+----
+// Gzip compressed
+LOAD CSV WITH HEADERS FROM 'file:///data.csv.gz' AS row
+RETURN row.name
+
+// ZIP compressed (reads the first entry in the archive)
+LOAD CSV WITH HEADERS FROM 'file:///data.csv.zip' AS row
+RETURN row.name
+----
+
+*CSV Quoting:*
+
+Quoted fields follow RFC 4180 and also support backslash escaping:
+
+* Fields containing the delimiter, newlines, or quotes must be enclosed in double quotes
+* Embedded quotes can be escaped as `""` (RFC 4180) or `\"` (backslash escaping)
+* Quoted fields can span multiple lines
+
+*Security Configuration:*
+
+LOAD CSV file access is controlled by two configuration settings:
+
+[%header,cols="3,1,4"]
+|===
+| Setting | Default | Description
+| `arcadedb.opencypher.loadCsv.allowFileUrls` | `true` | Allow access to local files via `file:///` URLs and bare file paths. Set to `false` in multi-tenant server deployments.
+| `arcadedb.opencypher.loadCsv.importDirectory` | (empty) | Root directory for file URLs. When set, file paths are resolved relative to this directory and path traversal (`../`) is blocked. Empty means no restriction.
+|===
+
+HTTP/HTTPS URLs are always allowed regardless of these settings.
+
+*Example — Restrict to import directory:*
+
+[source,java]
+----
+// In server configuration
+arcadedb.opencypher.loadCsv.importDirectory=/var/arcadedb/import
+----
+
+[source,cypher]
+----
+// This works (resolved to /var/arcadedb/import/data.csv)
+LOAD CSV FROM 'file:///data.csv' AS row RETURN row
+
+// This is blocked (path traversal)
+LOAD CSV FROM 'file:///../etc/passwd' AS row RETURN row
+----
+
+*Built-in Helper Functions:*
+
+Two special functions are available within LOAD CSV queries:
+
+* `file()` — Returns the URL of the currently loaded CSV file
+* `linenumber()` — Returns the current line number being processed (1-based)
+
+---
+
+[[cypher-create-constraint]]
+[discrete]
+===== CREATE CONSTRAINT
+
+The `CREATE CONSTRAINT` clause defines schema constraints on node or relationship properties. Constraints enforce data integrity rules such as uniqueness, mandatory (NOT NULL), and node keys.
+
+ArcadeDB maps Cypher constraints to its native schema features:
+
+* **IS UNIQUE** → Creates a unique LSM-Tree index on the specified properties
+* **IS NOT NULL** → Sets the property as mandatory in the schema
+* **IS NODE KEY** / **IS KEY** → Creates a unique index and sets the property as mandatory
+
+*Syntax:*
+
+[source,cypher]
+----
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS UNIQUE
+
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS NOT NULL
+
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS NODE KEY
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Unique constraint on a single property
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.email IS UNIQUE
+
+// Named constraint with IF NOT EXISTS (idempotent)
+CREATE CONSTRAINT unique_person_email IF NOT EXISTS
+FOR (p:Person) REQUIRE p.email IS UNIQUE
+
+// Composite unique constraint (multiple properties)
+CREATE CONSTRAINT FOR (p:Person) REQUIRE (p.firstName, p.lastName) IS UNIQUE
+
+// NOT NULL constraint (mandatory property)
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.name IS NOT NULL
+
+// Node key constraint (unique + mandatory)
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.id IS NODE KEY
+
+// Relationship constraint
+CREATE CONSTRAINT FOR ()-[r:KNOWS]-() REQUIRE r.since IS NOT NULL
+----
+
+NOTE: If the property does not already exist in the schema, ArcadeDB will automatically create it as a STRING type. For other types, define the property first using SQL (`ALTER TYPE Person CREATE PROPERTY email STRING`).
+
+NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple times will not cause an error if the constraint already exists.
+
+---
+
+[[cypher-drop-constraint]]
+[discrete]
+===== DROP CONSTRAINT
+
+The `DROP CONSTRAINT` clause removes a previously created constraint by its index name.
+
+*Syntax:*
+
+[source,cypher]
+----
+DROP CONSTRAINT constraintName [IF EXISTS]
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Drop a constraint by name
+DROP CONSTRAINT `Person[email]`
+
+// Drop only if it exists (no error if missing)
+DROP CONSTRAINT `Person[email]` IF EXISTS
+----
+
+NOTE: In ArcadeDB, constraint names correspond to index names. Use backtick escaping for names containing special characters like brackets.
+
+NOTE: `IF EXISTS` makes the operation safe to run even when the constraint does not exist.
+
+---
+
+[[cypher-show-users]]
+[discrete]
+===== SHOW USERS
+
+The `SHOW USERS` command lists all users configured on the server, along with the databases each user has access to.
+
+This command requires ArcadeDB to be running in **server mode** (it does not work in embedded mode). See <<users,Security - Users>> for more information about the ArcadeDB security model.
+
+NOTE: All user management commands are non-idempotent and require a POST request (command endpoint) when executed via the HTTP API.
+
+*Syntax:*
+
+[source,cypher]
+----
+SHOW USERS
+----
+
+*Result columns:*
+
+[%header,cols=2]
+|===
+| Column | Description
+| `user` | The user name
+| `databases` | The set of databases the user has access to (`*` means all databases)
+|===
+
+*Examples:*
+
+[source,cypher]
+----
+// List all users
+SHOW USERS
+----
+
+---
+
+[[cypher-show-current-user]]
+[discrete]
+===== SHOW CURRENT USER
+
+The `SHOW CURRENT USER` command returns information about the currently authenticated user executing the query.
+
+*Syntax:*
+
+[source,cypher]
+----
+SHOW CURRENT USER
+----
+
+*Result columns:*
+
+[%header,cols=2]
+|===
+| Column | Description
+| `user` | The current user name
+| `databases` | The set of databases the current user has access to
+|===
+
+*Examples:*
+
+[source,cypher]
+----
+// Show the currently authenticated user
+SHOW CURRENT USER
+----
+
+---
+
+[[cypher-create-user]]
+[discrete]
+===== CREATE USER
+
+The `CREATE USER` command creates a new user on the server with the specified password. The new user is assigned to the `admin` group on all databases (`*`) by default.
+
+*Syntax:*
+
+[source,cypher]
+----
+CREATE USER username SET PASSWORD 'password'
+
+CREATE USER username IF NOT EXISTS SET PASSWORD 'password'
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Create a new user
+CREATE USER bob SET PASSWORD 'SecurePass123!'
+
+// Create a user only if it doesn't already exist (idempotent)
+CREATE USER bob IF NOT EXISTS SET PASSWORD 'SecurePass123!'
+----
+
+NOTE: The password is stored hashed using PBKDF2 — it is never stored in plain text. See <<users,Security - Users>> for details on password storage.
+
+NOTE: `IF NOT EXISTS` makes the operation safe to run multiple times without error if the user already exists.
+
+---
+
+[[cypher-drop-user]]
+[discrete]
+===== DROP USER
+
+The `DROP USER` command removes a user from the server.
+
+*Syntax:*
+
+[source,cypher]
+----
+DROP USER username
+
+DROP USER username IF EXISTS
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Drop a user (error if user doesn't exist)
+DROP USER bob
+
+// Drop a user only if it exists (no error if missing)
+DROP USER bob IF EXISTS
+----
+
+NOTE: `IF EXISTS` makes the operation safe to run even when the user does not exist.
+
+---
+
+[[cypher-alter-user]]
+[discrete]
+===== ALTER USER
+
+The `ALTER USER` command changes the password of an existing user.
+
+*Syntax:*
+
+[source,cypher]
+----
+ALTER USER username SET PASSWORD 'newPassword'
+----
+
+*Examples:*
+
+[source,cypher]
+----
+// Change a user's password
+ALTER USER bob SET PASSWORD 'NewSecurePass456!'
+----
+
+NOTE: The user must already exist. If the user does not exist, an error is returned.

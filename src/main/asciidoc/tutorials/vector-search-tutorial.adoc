@@ -1,0 +1,169 @@
+[[vector-search-tutorial]]
+=== Vector Search Tutorial
+
+This tutorial walks you through building a semantic search system with ArcadeDB. You will create vector embeddings, index them, query by similarity, and combine vector search with graph traversal.
+
+==== What You Will Build
+
+A product catalog with semantic search: given a query like "portable computing device", find the most relevant products by embedding similarity rather than keyword matching.
+
+==== Prerequisites
+
+* ArcadeDB running (<<quick-start-docker,Docker>> or binary install)
+* A way to send queries (<<console-tutorial,Console>>, <<http-json-api,HTTP API>>, or a <<python-quickstart,Python>>/<<javascript-quickstart,JavaScript>> client)
+
+==== Step 1: Create the Schema
+
+Create a vertex type with a vector property:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Product
+CREATE PROPERTY Product.name STRING
+CREATE PROPERTY Product.category STRING
+CREATE PROPERTY Product.embedding LIST OF FLOAT
+----
+
+==== Step 2: Create a Vector Index
+
+Create an LSM_VECTOR index on the embedding property. Specify the number of dimensions and the similarity metric:
+
+[source,sql]
+----
+CREATE INDEX ON Product (embedding) LSM_VECTOR METADATA {
+  dimensions: 4,
+  similarity: 'COSINE'
+}
+----
+
+NOTE: In production, embeddings are typically 384-1536 dimensions. This tutorial uses 4 dimensions for simplicity.
+
+==== Step 3: Insert Data with Embeddings
+
+Insert products with pre-computed embedding vectors:
+
+[source,sql]
+----
+CREATE VERTEX Product SET name = 'Laptop',       category = 'Electronics', embedding = [0.9, 0.1, 0.8, 0.2]
+CREATE VERTEX Product SET name = 'Tablet',        category = 'Electronics', embedding = [0.85, 0.15, 0.75, 0.25]
+CREATE VERTEX Product SET name = 'Smartphone',    category = 'Electronics', embedding = [0.8, 0.2, 0.7, 0.3]
+CREATE VERTEX Product SET name = 'Headphones',    category = 'Electronics', embedding = [0.6, 0.4, 0.5, 0.5]
+CREATE VERTEX Product SET name = 'Novel',         category = 'Books',       embedding = [0.1, 0.9, 0.2, 0.8]
+CREATE VERTEX Product SET name = 'Textbook',      category = 'Books',       embedding = [0.2, 0.8, 0.3, 0.7]
+CREATE VERTEX Product SET name = 'Running Shoes', category = 'Sports',      embedding = [0.3, 0.5, 0.9, 0.1]
+CREATE VERTEX Product SET name = 'Yoga Mat',      category = 'Sports',      embedding = [0.25, 0.55, 0.85, 0.15]
+----
+
+TIP: In a real application, you would generate embeddings using an external model such as OpenAI's `text-embedding-3-small` (1536 dimensions) or Sentence Transformers' `all-MiniLM-L6-v2` (384 dimensions).
+
+==== Step 4: Query by Similarity
+
+Find the 3 products most similar to a query vector:
+
+[source,sql]
+----
+SELECT name, category FROM (
+  SELECT vectorNeighbors('Product[embedding]', [0.88, 0.12, 0.78, 0.22], 3) AS neighbors
+)
+----
+
+The query vector `[0.88, 0.12, 0.78, 0.22]` is close to the electronics cluster. The results should return Laptop, Tablet, and Smartphone -- the three most similar items by cosine similarity.
+
+==== Step 5: Add Graph Relationships
+
+Make the example more interesting by adding edges between products:
+
+[source,sql]
+----
+CREATE EDGE TYPE FREQUENTLY_BOUGHT_WITH
+CREATE EDGE TYPE SIMILAR_TO
+
+CREATE EDGE FREQUENTLY_BOUGHT_WITH
+  FROM (SELECT FROM Product WHERE name = 'Laptop')
+  TO (SELECT FROM Product WHERE name = 'Headphones')
+
+CREATE EDGE SIMILAR_TO
+  FROM (SELECT FROM Product WHERE name = 'Laptop')
+  TO (SELECT FROM Product WHERE name = 'Tablet')
+
+CREATE EDGE FREQUENTLY_BOUGHT_WITH
+  FROM (SELECT FROM Product WHERE name = 'Novel')
+  TO (SELECT FROM Product WHERE name = 'Textbook')
+----
+
+==== Step 6: Combine Vector Search with Graph Traversal
+
+Find similar products, then expand recommendations through graph relationships:
+
+[source,sql]
+----
+-- Step 1: Find top 3 by vector similarity
+SELECT name, category FROM (
+  SELECT vectorNeighbors('Product[embedding]', [0.88, 0.12, 0.78, 0.22], 3) AS neighbors
+)
+----
+
+Then traverse from those results to find related products:
+
+[source,sql]
+----
+-- Step 2: Get products frequently bought with the top match
+SELECT friend.name, friend.category
+FROM MATCH {type: Product, as: product, where: (name = 'Laptop')}
+     -FREQUENTLY_BOUGHT_WITH-> {type: Product, as: friend}
+----
+
+This two-step pattern -- vector search to find semantically similar items, then graph traversal to expand through relationships -- is the foundation of the <<use-case-graph-rag,Graph RAG>> and <<use-case-recommendation-engine,Recommendation Engine>> patterns.
+
+==== Step 7: Use Different Similarity Metrics
+
+Create additional indexes with different metrics for comparison:
+
+[source,sql]
+----
+-- Euclidean distance (absolute distance in vector space)
+CREATE PROPERTY Product.embedding_l2 LIST OF FLOAT
+CREATE INDEX ON Product (embedding_l2) LSM_VECTOR METADATA {
+  dimensions: 4,
+  similarity: 'EUCLIDEAN'
+}
+
+-- Dot product (fastest for normalized vectors)
+CREATE PROPERTY Product.embedding_dot LIST OF FLOAT
+CREATE INDEX ON Product (embedding_dot) LSM_VECTOR METADATA {
+  dimensions: 4,
+  similarity: 'DOT_PRODUCT'
+}
+----
+
+==== Step 8: Enable Quantization for Large Datasets
+
+For production datasets with many vectors, enable INT8 quantization to reduce memory by 75%:
+
+[source,sql]
+----
+CREATE VERTEX TYPE LargeProduct
+CREATE PROPERTY LargeProduct.embedding ARRAY_OF_FLOATS
+
+CREATE INDEX ON LargeProduct (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE',
+  quantization: 'INT8'
+}
+----
+
+Queries work exactly the same -- quantization is transparent:
+
+[source,sql]
+----
+SELECT name FROM (
+  SELECT vectorNeighbors('LargeProduct[embedding]', $queryVector, 10) AS neighbors
+)
+----
+
+==== Next Steps
+
+* <<vector-search-concepts,Vector Search Concepts>> -- Architecture, algorithms, and parameter tuning
+* <<vector-embeddings-howto,Vector Embeddings How-To>> -- Production best practices
+* <<use-case-recommendation-engine,Recommendation Engine>> -- Full use case with vector + graph + time-series
+* <<use-case-graph-rag,Graph RAG>> -- Vector + graph for LLM retrieval augmentation

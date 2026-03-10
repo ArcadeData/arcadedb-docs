@@ -1,0 +1,73 @@
+[[use-case-fraud-detection]]
+=== Fraud Detection
+
+Detect financial fraud by unifying four detection signals -- organized fraud rings, synthetic identities, velocity attacks, and behavioral anomalies -- in a single multi-model database that combines graph, vector, and time-series analysis.
+
+==== ArcadeDB Features Used
+
+* **<<graph-model,Graph Traversal>>** -- Fraud ring detection via shared identifier patterns (devices, phones, addresses)
+* **<<vector-model,Vector Similarity>>** -- Behavioral anomaly detection using `vectorCosineSimilarity()` on transaction embeddings
+* **<<timeseries,Time Series>>** -- Velocity attack detection via temporal transaction analysis
+* **<<document-model,Document Queries>>** -- Synthetic identity resolution via duplicate SSN detection
+
+==== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `Account`, `Customer`, `Device`, `Phone`, `Address`, `Email`, `Beneficiary`, `Transaction`
+| Edges | `USES_DEVICE`, `HAS_PHONE`, `HAS_ADDRESS`, `HAS_EMAIL`, `TRANSFERRED_TO`, `BENEFICIARY_OF`
+|===
+
+Accounts and customers connect through shared devices, phones, and addresses. Overlapping identifiers reveal fraud rings. Customers carry `profile_embedding` vectors and transactions carry `behavior_embedding` vectors for anomaly detection.
+
+==== Key Queries
+
+*Fraud Ring Detection* -- Identify accounts sharing devices or phones:
+
+[source,cypher]
+----
+MATCH (a1:Account)-[:USES_DEVICE]->(d:Device)<-[:USES_DEVICE]-(a2:Account)
+WHERE a1 <> a2
+RETURN a1.name, a2.name, d.deviceId AS sharedDevice
+----
+
+*Synthetic Identity Detection* -- Find accounts sharing SSNs:
+
+[source,sql]
+----
+SELECT a1.name, a2.name, a1.ssn
+FROM Account a1, Account a2
+WHERE a1.ssn = a2.ssn AND a1 != a2
+----
+
+*Behavioral Anomaly Detection* -- Compare transaction embeddings against baselines:
+
+[source,sql]
+----
+SELECT name, vectorCosineSimilarity(behavior_embedding, [0.1, 0.9, 0.1, 0.8]) AS similarity
+FROM Transaction
+WHERE vectorCosineSimilarity(behavior_embedding, [0.1, 0.9, 0.1, 0.8]) < 0.7
+----
+
+==== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/fraud-detection
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/fraud-detection[fraud-detection on GitHub]
+
+==== Related Documentation
+
+* <<graph-model,Graph Model>>
+* <<vector-model,Vector Search Concepts>>
+* <<timeseries,Time Series>>
+* <<cypher,Cypher Query Language>>
+* <<algo-louvain,Louvain Community Detection>> -- Identify fraud rings as communities
+* <<algo-cycle-detection,Cycle Detection>> -- Detect circular money flows
+* <<algo-dijkstra,Dijkstra Shortest Path>> -- Trace shortest paths between suspicious accounts
