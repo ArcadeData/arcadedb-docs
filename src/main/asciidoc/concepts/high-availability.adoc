@@ -5,9 +5,9 @@ ArcadeDB is designed for continuous operation.
 Its high availability (HA) architecture ensures that your database remains accessible even when individual servers fail, providing both fault tolerance and horizontal read scalability.
 
 This page explains the concepts behind ArcadeDB's HA architecture.
-For step-by-step setup instructions, see <<high-availability,HA Configuration>>.
+For step-by-step setup instructions, see <<howto-high-availability,HA Configuration>>.
 
-===== Leader-Replica Replication Model
+==== Leader-Replica Replication Model
 
 ArcadeDB uses a leader-replica replication model.
 At any point in time, a cluster has exactly one *leader* server and one or more *replica* servers.
@@ -19,7 +19,7 @@ Clients can connect to any server in the cluster.
 If a client sends a write request to a replica, the replica transparently forwards it to the leader.
 This means applications do not need to distinguish between leader and replica servers -- the cluster handles routing internally.
 
-===== Server Roles and Election
+==== Server Roles and Election
 
 Every server in the cluster operates in one of two roles:
 
@@ -35,7 +35,7 @@ ArcadeDB uses the https://raft.github.io/[RAFT consensus protocol] for leader el
 If the cluster already has a healthy leader, the new server simply joins as a replica.
 If no leader exists -- for example, during initial cluster formation or after a leader failure -- an election determines which server becomes the new leader.
 
-===== Replication and the Write-Ahead Journal
+==== Replication and the Write-Ahead Journal
 
 The leader replicates changes to replicas through a journal-based mechanism.
 Each server maintains its own journal (write-ahead log) that records all modifications.
@@ -50,7 +50,7 @@ When the leader processes a write operation, it:
 The journal also plays a critical role in recovery.
 When a server rejoins the cluster after a failure, it uses the journal to identify the most up-to-date replica and to realign any servers that fell behind.
 
-===== Write Quorum and Consistency
+==== Write Quorum and Consistency
 
 ArcadeDB uses a configurable *write quorum* to control the trade-off between consistency and availability.
 The quorum defines how many servers must acknowledge a write before it is considered committed.
@@ -70,7 +70,7 @@ This behavior protects data integrity by preventing partially committed writes.
 For more on how transactions interact with replication, see <<transactions,Transactions>>.
 For quorum and other cluster settings, see <<arcadedb-settings,Server Settings>>.
 
-===== Automatic Failover
+==== Automatic Failover
 
 ArcadeDB handles leader failure automatically.
 When replicas detect that the leader is no longer reachable, they initiate a new election using the RAFT protocol.
@@ -81,7 +81,7 @@ After a brief interruption during the election, clients reconnect to the new lea
 
 Common causes of leader unavailability include process termination, server shutdown or reboot, and network partitions that isolate the leader from the rest of the cluster.
 
-===== Split-Brain Protection
+==== Split-Brain Protection
 
 A *split-brain* occurs when a network partition divides a cluster into two or more groups, each believing it should operate independently.
 This can lead to conflicting writes and data divergence.
@@ -92,7 +92,7 @@ Any minority partition cannot elect a leader or commit writes, so it effectively
 
 This design guarantees that the cluster never produces conflicting committed data, even during network failures.
 
-===== Cluster Discovery and Configuration
+==== Cluster Discovery and Configuration
 
 Servers discover each other through a configured list of seed servers.
 At startup, each server contacts the addresses in this list to find and join an existing cluster, or to form a new one if no cluster exists yet.
@@ -100,4 +100,4 @@ At startup, each server contacts the addresses in this list to find and join an 
 By default, if no server list is configured, ArcadeDB uses auto-discovery to locate other servers on the local network.
 You can also run multiple independent clusters on the same network by assigning each cluster a unique name.
 
-For detailed configuration options and deployment instructions, see <<high-availability,HA Configuration>>.
+For detailed configuration options and deployment instructions, see <<howto-high-availability,HA Configuration>>.
