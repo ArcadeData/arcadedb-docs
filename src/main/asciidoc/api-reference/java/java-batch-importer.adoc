@@ -5,7 +5,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 NOTE: Available since ArcadeDB **26.4.1**.
 
 The `GraphBatchImporter` is a high-performance bulk graph loader designed for importing large volumes of edges into an ArcadeDB graph.
-It achieves **6-11x speedup** over the standard edge creation API by buffering edges in memory, sorting them by vertex for sequential I/O, and deferring incoming edge connection to a single optimized pass.
+It achieves **8-12x speedup** over the standard edge creation API by buffering edges in memory, sorting them by vertex for sequential I/O, parallel edge connection, and deferring incoming edge connection to a single optimized pass.
 
 ==== Quick Start
 
@@ -92,8 +92,8 @@ Property edges use a bulk record creation path that bypasses per-record overhead
 | Write-Ahead Logging during import. Disable for maximum speed; enable if crash recovery is needed.
 
 | `withCommitEvery(int)`
-| 50,000
-| Edges per transaction commit within a flush. Set to 0 to commit once per flush.
+| 0 (WAL off) / 50,000 (WAL on)
+| Edges per transaction commit within a flush. Set to 0 to commit once per flush. Auto-set to 0 when WAL is disabled.
 
 | `withEdgeListInitialSize(int)`
 | 2048
@@ -104,8 +104,8 @@ Property edges use a bulk record creation path that bypasses per-record overhead
 | Pre-allocate empty edge segments at vertex creation time, eliminating lazy allocation cost.
 
 | `withParallelFlush(boolean)`
-| `false`
-| Experimental: parallel edge connection partitioned by bucket.
+| `true`
+| Parallel edge connection partitioned by bucket. Uses the database async executor to connect edges across buckets concurrently.
 |===
 
 ==== Auto-Tuning Batch Size
@@ -159,27 +159,25 @@ Benchmark results on a single machine (500K edges, 50K vertices):
 | Method | Time (ms) | Edges/sec | Speedup
 
 | Standard API (tx batches of 1000)
-| 12,162
-| 41K
+| 11,933
+| 42K
 | 1.0x
 
 | **GraphBatchImporter (light edges)**
-| **2,031**
-| **246K**
-| **6.0x**
+| **1,028**
+| **486K**
+| **11.6x**
 
 | Standard API + properties (int + long)
-| 14,267
-| 35K
+| 13,385
+| 37K
 | 1.0x
 
 | **GraphBatchImporter + properties**
-| **2,149**
-| **233K**
-| **6.6x**
+| **1,584**
+| **316K**
+| **8.5x**
 |===
-
-With larger batch sizes (800K batch, 500K edges), throughput reaches **504K edges/sec (11.5x speedup)**.
 
 ==== Importing into an Existing Graph
 
