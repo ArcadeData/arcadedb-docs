@@ -1,10 +1,10 @@
 [[java-batch-importer]]
-=== Graph Batch Importer
+=== Graph Batch
 image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/api-reference/java/java-batch-importer.adoc" float=right]
 
 NOTE: Available since ArcadeDB **26.4.1**.
 
-The `GraphBatchImporter` is a high-performance bulk graph loader designed for importing large volumes of edges into an ArcadeDB graph.
+The `GraphBatch` is a high-performance bulk graph loader designed for importing large volumes of edges into an ArcadeDB graph.
 It achieves **8-12x speedup** over the standard edge creation API by buffering edges in memory, sorting them by vertex for sequential I/O, parallel edge connection, and deferring incoming edge connection to a single optimized pass.
 
 ==== Quick Start
@@ -17,16 +17,16 @@ db.transaction(() -> {
   db.getSchema().createEdgeType("KNOWS");
 });
 
-try (GraphBatchImporter importer = GraphBatchImporter.builder(db)
+try (GraphBatch batch = db.batch()
     .withExpectedEdgeCount(1_000_000)
     .build()) {
 
   // Phase 1: Create vertices in bulk
-  RID[] vertices = importer.createVertices("Person", 100_000);
+  RID[] vertices = batch.createVertices("Person", 100_000);
 
   // Phase 2: Buffer edges (auto-flushes when batch is full)
   for (int i = 0; i < edgeCount; i++)
-    importer.newEdge(vertices[src[i]], "KNOWS", vertices[dst[i]]);
+    batch.newEdge(vertices[src[i]], "KNOWS", vertices[dst[i]]);
 
 } // close() flushes remaining edges + connects all incoming edges
 ----
@@ -50,15 +50,15 @@ The importer supports edges with properties. Pass them as key-value pairs:
 
 [source,java]
 ----
-try (GraphBatchImporter importer = GraphBatchImporter.builder(db)
+try (GraphBatch batch = db.batch()
     .withExpectedEdgeCount(500_000)
     .withLightEdges(false)  // edges have properties
     .build()) {
 
-  RID[] vertices = importer.createVertices("Person", 50_000);
+  RID[] vertices = batch.createVertices("Person", 50_000);
 
   for (int i = 0; i < edgeCount; i++)
-    importer.newEdge(vertices[src[i]], "KNOWS", vertices[dst[i]],
+    batch.newEdge(vertices[src[i]], "KNOWS", vertices[dst[i]],
         "weight", weights[i], "timestamp", timestamps[i]);
 }
 ----
@@ -163,7 +163,7 @@ Benchmark results on a single machine (500K edges, 50K vertices):
 | 42K
 | 1.0x
 
-| **GraphBatchImporter (light edges)**
+| **GraphBatch (light edges)**
 | **1,028**
 | **486K**
 | **11.6x**
@@ -173,7 +173,7 @@ Benchmark results on a single machine (500K edges, 50K vertices):
 | 37K
 | 1.0x
 
-| **GraphBatchImporter + properties**
+| **GraphBatch + properties**
 | **1,584**
 | **316K**
 | **8.5x**
@@ -185,13 +185,13 @@ The importer can also connect edges to vertices that already exist in the databa
 
 [source,java]
 ----
-try (GraphBatchImporter importer = GraphBatchImporter.builder(db)
+try (GraphBatch batch = db.batch()
     .withExpectedEdgeCount(100_000)
     .build()) {
 
   // Use existing vertex RIDs from queries or lookups
   for (int i = 0; i < edgeCount; i++)
-    importer.newEdge(existingVertexRIDs[src[i]], "FOLLOWS", existingVertexRIDs[dst[i]]);
+    batch.newEdge(existingVertexRIDs[src[i]], "FOLLOWS", existingVertexRIDs[dst[i]]);
 }
 ----
 
@@ -201,20 +201,20 @@ The old `GraphImporter` class (in the integration module) is deprecated. To migr
 
 [cols="2,3"]
 |===
-| Old (GraphImporter) | New (GraphBatchImporter)
+| Old (GraphImporter) | New (GraphBatch)
 
 | `new GraphImporter(db, vertices, edges, Type.LONG)`
-| `GraphBatchImporter.builder(db).withExpectedEdgeCount(edges).build()`
+| `db.batch().withExpectedEdgeCount(edges).build()`
 
 | `importer.createVertex("Person", id, props)`
-| `importer.createVertices("Person", count)` (returns RID array)
+| `batch.createVertices("Person", count)` (returns RID array)
 
 | `importer.startImportingEdges()`
 | Not needed -- edges can be added immediately after vertices
 
 | `importer.createEdge(srcId, "KNOWS", dstId, ...)`
-| `importer.newEdge(srcRID, "KNOWS", dstRID, ...)`
+| `batch.newEdge(srcRID, "KNOWS", dstRID, ...)`
 
 | `importer.close()`
-| `importer.close()` (or use try-with-resources)
+| `batch.close()` (or use try-with-resources)
 |===
