@@ -22,6 +22,7 @@ image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/
 | <<http-begin,Begin a new transaction>>           | POST     | `/api/v1/begin/{database}`
 | <<http-commit,Commit a transaction>>             | POST     | `/api/v1/commit/{database}`
 | <<http-rollback,Rollback a transaction>>         | POST     | `/api/v1/rollback/{database}`
+| <<http-batch,Batch import vertices and edges>>   | POST     | `/api/v1/batch/{database}`
 |===
 
 *Overview Query & Command Parameters*
@@ -1038,4 +1039,235 @@ Example:
 $ curl -I -X POST http://localhost:2480/api/v1/rollback/school \
        -H "arcadedb-session-id: AS-ee056170-dc9b-4956-8d71-d7cfa01900d4" \
        --user root:arcadedb-password
+----
+
+[discrete]
+[[http-batch]]
+===== Batch import vertices and edges (POST)
+
+NOTE: Available since ArcadeDB **26.4.1**.
+
+High-performance bulk import of vertices and edges using the <<java-batch-importer,GraphBatch>> engine under the hood.
+Supports JSONL and CSV input formats with streaming parsing -- the server never loads the entire request body into memory, so you can push millions of records in a single request.
+
+URL Syntax: `/api/v1/batch/{database}`
+
+Where:
+
+- `database` is the database name
+
+The `Content-Type` header determines the input format:
+
+- `application/x-ndjson` or `application/jsonl` -- JSONL (newline-delimited JSON)
+- `text/csv` -- CSV
+
+IMPORTANT: All vertices must appear before edges in the request body.
+Edges reference vertices either by temporary ID or by existing database RID.
+
+====== JSONL Format
+
+Each line is a JSON object with the following meta fields:
+
+[cols="1,1,4"]
+|===
+| Field | Required | Description
+
+| `@type`
+| Yes
+| `"vertex"` (or `"v"`) for vertices, `"edge"` (or `"e"`) for edges
+
+| `@class`
+| Yes
+| The vertex or edge type name (must exist in schema)
+
+| `@id`
+| No
+| Client-assigned temporary ID for vertices. Used by edges to reference newly created vertices.
+
+| `@from`
+| Edges only
+| Source vertex reference: a temporary ID (e.g., `"t1"`) or an existing RID (e.g., `"#12:0"`)
+
+| `@to`
+| Edges only
+| Destination vertex reference: a temporary ID or an existing RID
+|===
+
+All other fields are treated as properties.
+
+Example:
+
+[source,json]
+----
+{"@type":"vertex","@class":"Person","@id":"t1","name":"Alice","age":30}
+{"@type":"vertex","@class":"Person","@id":"t2","name":"Bob","age":25}
+{"@type":"edge","@class":"KNOWS","@from":"t1","@to":"t2","since":2020}
+{"@type":"edge","@class":"KNOWS","@from":"#12:0","@to":"t2","weight":0.8}
+----
+
+====== CSV Format
+
+The first line is the column header. A `---` sentinel row separates the vertex section from the edge section, followed by a new header row for edges.
+
+Example:
+
+[source,csv]
+----
+@type,@class,@id,name,age
+vertex,Person,t1,Alice,30
+vertex,Person,t2,Bob,25
+---
+@type,@class,@from,@to,since
+edge,KNOWS,t1,t2,2020
+----
+
+CSV parsing supports RFC 4180 quoting (double-quote escaping). Numeric values are auto-detected as integers or floats. Boolean values (`true`/`false`) are also auto-detected.
+
+====== Query Parameters
+
+All parameters are optional and map directly to <<java-batch-importer,GraphBatch>> builder options:
+
+[cols="2,1,4"]
+|===
+| Parameter | Default | Description
+
+| `batchSize`
+| 100000
+| Maximum edges buffered before auto-flush
+
+| `lightEdges`
+| false
+| If true, property-less edges are stored as connectivity only (saves ~33% I/O)
+
+| `wal`
+| false
+| Enable Write-Ahead Logging for crash safety
+
+| `parallelFlush`
+| true
+| Parallelize edge connection across async threads
+
+| `preAllocateEdgeChunks`
+| true
+| Pre-allocate edge segments on vertex creation
+
+| `edgeListInitialSize`
+| 2048
+| Initial segment size in bytes (64-8192)
+
+| `bidirectional`
+| true
+| Connect both outgoing and incoming edges
+
+| `commitEvery`
+| 50000
+| Edges per sub-transaction within a flush
+
+| `expectedEdgeCount`
+| 0
+| Hint for auto-tuning batch size
+|===
+
+====== Response
+
+The response is a JSON object with import statistics:
+
+[source,json]
+----
+{
+  "verticesCreated": 2,
+  "edgesCreated": 1,
+  "elapsedMs": 42,
+  "idMapping": {
+    "t1": "#9:0",
+    "t2": "#9:1"
+  }
+}
+----
+
+The `idMapping` field is included only when temporary IDs (`@id`) were used. It maps each temporary ID to the actual RID assigned by the database.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, vertices after edges
+* https://httpstatuses.io/403[`403`] invalid credentials
+
+IMPORTANT: This endpoint is NOT atomic by design. The underlying GraphBatch commits internally in chunks for maximum throughput. The response tells you exactly how many records were committed. Treat it as a bulk-loading operation, not a transactional one.
+
+TIP: For maximum throughput, group vertices by type in the input. The endpoint batches consecutive same-type vertices into a single `createVertices()` call. Interleaving types forces smaller, less efficient batches.
+
+====== Examples
+
+JSONL import with light edges:
+
+[source,shell]
+----
+$ curl -X POST "http://localhost:2480/api/v1/batch/mydb?lightEdges=true" \
+       -H "Content-Type: application/x-ndjson" \
+       --data-binary @graph-data.jsonl \
+       --user root:arcadedb-password
+----
+
+CSV import:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/batch/mydb \
+       -H "Content-Type: text/csv" \
+       --data-binary @graph-data.csv \
+       --user root:arcadedb-password
+----
+
+Inline JSONL with WAL enabled:
+
+[source,shell]
+----
+$ curl -X POST "http://localhost:2480/api/v1/batch/mydb?wal=true" \
+       -H "Content-Type: application/x-ndjson" \
+       --user root:arcadedb-password \
+       -d '{"@type":"vertex","@class":"Person","@id":"p1","name":"Alice"}
+{"@type":"vertex","@class":"Person","@id":"p2","name":"Bob"}
+{"@type":"edge","@class":"KNOWS","@from":"p1","@to":"p2"}'
+----
+
+Python example:
+
+[source,python]
+----
+import requests
+
+data = (
+    '{"@type":"vertex","@class":"Person","@id":"p1","name":"Alice"}\n'
+    '{"@type":"vertex","@class":"Person","@id":"p2","name":"Bob"}\n'
+    '{"@type":"edge","@class":"KNOWS","@from":"p1","@to":"p2"}\n'
+)
+
+resp = requests.post(
+    "http://localhost:2480/api/v1/batch/mydb?lightEdges=true",
+    auth=("root", "arcadedb-password"),
+    headers={"Content-Type": "application/x-ndjson"},
+    data=data,
+)
+print(resp.json())
+# {'verticesCreated': 2, 'edgesCreated': 1, 'elapsedMs': 15, 'idMapping': {'p1': '#9:0', 'p2': '#9:1'}}
+----
+
+JavaScript (Node.js) example:
+
+[source,javascript]
+----
+const resp = await fetch("http://localhost:2480/api/v1/batch/mydb", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/x-ndjson",
+    "Authorization": "Basic " + btoa("root:arcadedb-password"),
+  },
+  body: [
+    '{"@type":"vertex","@class":"Person","@id":"p1","name":"Alice"}',
+    '{"@type":"vertex","@class":"Person","@id":"p2","name":"Bob"}',
+    '{"@type":"edge","@class":"KNOWS","@from":"p1","@to":"p2"}',
+  ].join("\n"),
+});
+console.log(await resp.json());
 ----
