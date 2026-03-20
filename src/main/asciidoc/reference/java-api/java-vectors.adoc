@@ -1,0 +1,1374 @@
+[[java-vectors]]
+==== Working with Vector Embeddings
+
+ArcadeDB provides robust support for vector embeddings through the LSMVectorIndex, a persistent vector index built on ArcadeDB's LSM Tree architecture and powered by the JVector 4.0.0 library. LSMVectorIndex offers efficient storage, retrieval, and similarity search for vector embeddings with full transaction support and automatic persistence.
+
+===== Key Features
+
+The LSMVectorIndex implementation provides:
+
+- *Persistent Storage*: Vector indexes are stored on disk with automatic page management and compaction
+- *Transaction Support*: Full ACID compliance with automatic persistence on transaction commit
+- *Multiple Similarity Functions*: Supports COSINE (default), DOT_PRODUCT, and EUCLIDEAN distance metrics
+- *SQL Integration*: Create and query vector indexes using SQL commands
+- *Automatic Compaction*: Efficiently reclaims disk space through automatic compaction of immutable pages
+- *High Performance*: Leverages LSM Tree benefits for write efficiency and space optimization at scale
+- *Configurable Parameters*: Tune maxConnections and beamWidth for optimal ANN search performance
+- *JVector Library*: Built on JVector 4.0.0 for state-of-the-art vector search capabilities
+
+===== Creating Vector Indexes with SQL
+
+The simplest way to create a vector index is through SQL. This approach is recommended for most use cases as it provides a declarative syntax and automatic schema management.
+
+====== Basic Vector Index Creation
+
+Create a basic LSMVectorIndex for similarity search:
+
+[source,sql]
+----
+-- Create vertex type and property
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.embedding LIST OF FLOAT;
+
+-- Create vector index with 384 dimensions using COSINE similarity
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE"
+};
+----
+
+====== Configuring Similarity Functions
+
+Choose the appropriate similarity function for your use case:
+
+*COSINE Similarity* (default) - Best for normalized vectors, commonly used with text embeddings:
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE"
+};
+----
+
+*DOT_PRODUCT* - Efficient for normalized vectors, faster than cosine:
+
+[source,sql]
+----
+CREATE INDEX ON Image (featureVector) LSM_VECTOR METADATA {
+  "dimensions": 512,
+  "similarity": "DOT_PRODUCT"
+};
+----
+
+*EUCLIDEAN* - Measures absolute distance, useful for spatial data:
+
+[source,sql]
+----
+CREATE INDEX ON Product (attributes) LSM_VECTOR METADATA {
+  "dimensions": 256,
+  "similarity": "EUCLIDEAN"
+};
+----
+
+====== Performance Tuning Parameters
+
+For large-scale deployments, tune performance parameters:
+
+[source,sql]
+----
+CREATE INDEX ON VectorVertex (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1024,
+  "similarity": "COSINE",
+  "maxConnections": 32,              -- Higher values improve recall but increase memory
+  "beamWidth": 200,                  -- Higher values improve accuracy but reduce speed
+  "neighborOverflowFactor": 1.2,     -- Candidate neighbor pool multiplier (default: 1.2)
+  "alphaDiversityRelaxation": 1.2,   -- Diversity vs distance trade-off (default: 1.2)
+  "addHierarchy": true               -- Enable HNSW hierarchical layers (default: false)
+};
+----
+
+*Parameter Guidelines:*
+
+- `dimensions`: Must match your embedding model's output dimension (required)
+- `similarity`: Choose based on your embedding model and use case (default: COSINE)
+- `maxConnections`: Maximum connections per node in HNSW graph (default: 16). Increase to 32-48 for better recall in large datasets
+- `beamWidth`: Search depth during index construction (default: 100). Increase to 200-400 for more accurate searches
+- `neighborOverflowFactor`: Controls how many extra candidate neighbors are considered during graph building (default: 1.2, range: 1.0-1.5). Higher values improve graph quality but increase build time
+- `alphaDiversityRelaxation`: Trade-off between strict distance ordering and diversity in graph connections (default: 1.2, range: 1.0-1.5). Higher values prioritize diversity, improving recall for complex queries
+- `addHierarchy`: Controls whether to build HNSW hierarchical layers on top of the base Vamana index (default: false). See <<hierarchy-configuration>> for detailed guidance
+
+[[hierarchy-configuration]]
+====== Hierarchical vs Flat Index Structure
+
+ArcadeDB's LSMVectorIndex uses JVector, which combines the hierarchical structure from HNSW (Hierarchical Navigable Small World) with the Vamana algorithm from DiskANN. The `addHierarchy` parameter determines whether to build a multi-layer hierarchical structure or use a flat single-layer graph.
+
+*How It Works*
+
+When `addHierarchy` is enabled:
+
+- *Multiple Layers*: Nodes are assigned to different hierarchy levels using HNSW's exponential decay sampling strategy
+- *Top-Down Search*: Searches start from higher abstraction levels and progressively narrow down to specific neighbors
+- *Fast Seeding*: Upper layers use in-memory adjacency lists for rapid navigation without disk I/O
+- *Base Layer*: The bottom layer remains disk-based with inline vector representations
+
+When `addHierarchy` is disabled (default):
+
+- *Single Layer*: All nodes exist at level 0 in a flat Vamana graph structure
+- *Direct Search*: Searches operate directly on the base layer without hierarchical navigation
+- *Simpler Structure*: Reduced complexity with fewer memory allocations during construction
+
+*When to Enable Hierarchy (addHierarchy=true)*
+
+Enable hierarchical layers when:
+
+1. *Challenging Search Scenarios*: Complex datasets with diverse cluster distributions or high-dimensional embeddings (1536+ dimensions)
+2. *Robustness Over Speed*: Applications where consistent search quality across different query patterns is critical
+3. *Large-Scale Deployments*: Datasets with 100K+ vectors where hierarchical navigation provides better scaling
+4. *Diverse Query Patterns*: Workloads with varying query characteristics that benefit from adaptive search depth
+
+[source,sql]
+----
+-- Recommended for large, complex datasets
+CREATE INDEX ON ComplexDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "maxConnections": 16,
+  "beamWidth": 100,
+  "addHierarchy": true  -- Enable for robustness
+};
+----
+
+*When to Keep Flat Structure (addHierarchy=false)*
+
+Use the default flat structure when:
+
+1. *Small to Medium Datasets*: Less than 100K vectors where flat search is efficient
+2. *Simple Distributions*: Well-clustered data where flat Vamana performs optimally
+3. *Memory Constraints*: Limited resources during index construction
+4. *Faster Build Times*: When index creation speed is prioritized over search robustness
+
+[source,sql]
+----
+-- Default for most use cases
+CREATE INDEX ON StandardDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 16,
+  "beamWidth": 100
+  -- addHierarchy defaults to false
+};
+----
+
+*Performance Trade-offs*
+
+[cols="2,1,1", options="header"]
+|===
+|Aspect |Flat (addHierarchy=false) |Hierarchical (addHierarchy=true)
+
+|Index Build Time
+|Faster (baseline)
+|10-20% slower
+
+|Memory During Build
+|Lower
+|15-25% higher
+
+|Index Size on Disk
+|Smaller (baseline)
+|5-15% larger
+
+|Search Robustness
+|Good for well-clustered data
+|**Excellent** for diverse patterns
+
+|Predictable Performance
+|May vary across query types
+|**More consistent** across queries
+
+|Recommended For
+|<100K vectors, simple distributions
+|100K+ vectors, complex patterns
+|===
+
+*Accuracy and Recall*
+
+Based on JVector documentation and benchmarks, the hierarchical structure provides improved robustness rather than raw speed improvements. Recall@10 typically remains similar between flat and hierarchical structures for well-behaved datasets, but hierarchical indexing shows **significant advantages** in:
+
+- *Edge Cases*: Queries far from cluster centers or in sparse regions
+- *Consistency*: More stable recall across different query distributions
+- *Challenging Scenarios*: High-dimensional spaces (1536+ dims) with complex manifold structures
+
+*Memory Impact Example*
+
+For 1 million vectors with 1536 dimensions:
+
+- *Flat Structure*: ~6.1 GB base layer
+- *Hierarchical Structure*: ~6.8 GB total (6.1 GB base + ~700 MB hierarchy layers)
+- *Memory Overhead*: ~11% additional disk space
+
+*Build Time Impact*
+
+Example build times for 100K vectors (1536 dimensions, maxConnections=16, beamWidth=100):
+
+- *Flat Structure*: ~45 seconds
+- *Hierarchical Structure*: ~52 seconds (~15% slower)
+
+*Practical Guidelines*
+
+1. *Start with Default (false)*: For most applications under 100K vectors, the flat structure provides excellent performance with faster build times
+
+2. *Enable for Scale*: When dataset exceeds 100K vectors or dimensionality exceeds 1024, consider enabling hierarchy for better robustness
+
+3. *Test Both Configurations*: Benchmark search quality on your specific dataset and query patterns. Enable hierarchy if you observe:
+   - Inconsistent recall across different query types
+   - Poor performance on queries far from training data
+   - Degraded search quality in sparse regions
+
+4. *Combine with Other Optimizations*: Hierarchy works well with quantization and graph storage:
+
+[source,sql]
+----
+-- Optimized large-scale configuration
+CREATE INDEX ON LargeDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "quantization": "INT8",            -- 4x memory reduction
+  "maxConnections": 16,
+  "beamWidth": 100,
+  "addHierarchy": true,              -- Robustness for large scale
+  "storeVectorsInGraph": true,       -- Fast co-located access
+  "locationCacheSize": 200000,
+  "mutationsBeforeRebuild": 1000
+};
+----
+
+This configuration provides:
+- Hierarchical robustness for complex search patterns
+- 4x memory reduction through INT8 quantization
+- Efficient vector access through graph storage
+- Total overhead: ~20% larger index size with 4x memory savings
+
+*Related JVector Documentation*
+
+For deeper technical details about the hierarchical structure, see:
+
+- https://github.com/datastax/jvector[JVector GitHub Repository^]
+- https://github.com/datastax/jvector/blob/main/jvector-base/src/main/java/io/github/jbellis/jvector/graph/GraphIndexBuilder.java[GraphIndexBuilder Source Code^]
+
+====== Advanced Tuning Profiles
+
+*Default Configuration* (recommended for most use cases):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 16,
+  "beamWidth": 100,
+  "neighborOverflowFactor": 1.2,
+  "alphaDiversityRelaxation": 1.2
+};
+----
+
+*High Recall Configuration* (accuracy-critical applications):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 32,
+  "beamWidth": 200,
+  "neighborOverflowFactor": 1.4,
+  "alphaDiversityRelaxation": 1.3,
+  "addHierarchy": true
+};
+----
+
+This configuration provides ~98% recall@10 with improved robustness across diverse query patterns, but requires 2-3x longer build time and ~50% more memory.
+
+*Fast Indexing Configuration* (real-time ingestion, large-scale ETL):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 12,
+  "beamWidth": 80,
+  "neighborOverflowFactor": 1.1,
+  "alphaDiversityRelaxation": 1.1
+};
+----
+
+This configuration provides 2x faster indexing with 5-10% lower recall.
+
+*Memory Constrained Configuration* (edge deployments, resource-limited servers):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 8,
+  "beamWidth": 100,
+  "neighborOverflowFactor": 1.2,
+  "alphaDiversityRelaxation": 1.2
+};
+----
+
+This configuration reduces memory usage while maintaining acceptable recall
+
+===== Memory and Performance Tuning
+
+ArcadeDB provides three global configuration settings to control memory consumption and performance of LSM Vector indexes. These settings can be configured globally via database settings or per-index through metadata.
+
+====== Configuration Parameters
+
+*Location Cache Size* (`locationCacheSize`)
+
+Controls the maximum number of vector location metadata entries cached in memory. Each entry uses approximately 56 bytes.
+
+- *Default*: `-1` (unlimited, backward compatible)
+- *Per-index metadata*: `"locationCacheSize": 100000`
+- *Global setting*: `arcadedb.vectorIndex.locationCacheSize`
+- *Recommended*: 100,000 for datasets with 1M+ vectors (~5.6 MB RAM)
+
+*Graph Build Cache Size* (`graphBuildCacheSize`)
+
+Controls the maximum number of vectors cached during HNSW graph construction. RAM usage = `cacheSize × (dimensions × 4 + 64)` bytes.
+
+- *Default*: `10000` (bounded cache)
+- *Per-index metadata*: `"graphBuildCacheSize": 5000`
+- *Global setting*: `arcadedb.vectorIndex.graphBuildCacheSize`
+- *Recommended*: 10,000 for 768-dim vectors (~30 MB RAM), scale based on dimensionality
+
+*Mutations Before Rebuild* (`mutationsBeforeRebuild`)
+
+Number of mutations (inserts/updates/deletes) before rebuilding the HNSW graph index. Higher values reduce rebuild cost but may return slightly stale results.
+
+- *Default*: `100` (balanced)
+- *Per-index metadata*: `"mutationsBeforeRebuild": 200`
+- *Global setting*: `arcadedb.vectorIndex.mutationsBeforeRebuild`
+- *Recommended*: 50-200 for read-heavy workloads, 200-500 for write-heavy workloads
+
+*Store Vectors in Graph* (`storeVectorsInGraph`)
+
+Controls whether vectors are stored inline within the JVector graph file (`.vecgraph`) alongside the HNSW topology. When enabled, vectors are co-located with graph data, eliminating expensive document lookups during search operations.
+
+- *Default*: `false` (vectors fetched from documents)
+- *Per-index metadata*: `"storeVectorsInGraph": true`
+- *Global setting*: `arcadedb.vectorIndex.storeVectorsInGraph`
+- *When to enable*: Large indexes (100K+ vectors), high search throughput requirements, RAM-constrained environments
+- *When to disable*: Small indexes (<10K vectors), frequent vector updates, datasets where document cache is effective
+
+*Performance Characteristics*:
+
+[cols="2,1,1,1", options="header"]
+|===
+|Index Size |storeVectorsInGraph=false |storeVectorsInGraph=true |Recommendation
+
+|Small (<10K vectors)
+|Fast (document cache effective)
+|Slower (I/O overhead dominates)
+|**Disable** - use document cache
+
+|Medium (10K-100K vectors)
+|Moderate (some cache misses)
+|Moderate (balanced I/O)
+|Test both configurations
+
+|Large (100K+ vectors)
+|Slow (cache thrashing, page faults)
+|Fast (co-located data, sequential reads)
+|**Enable** - reduces RAM pressure
+
+|===
+
+*Memory Trade-offs*:
+
+- *Disk Usage*: Enabling this option duplicates vectors on disk (stored in both documents and graph file)
+- *RAM Usage*: Significantly reduces RAM consumption by eliminating document page cache thrashing during search
+- *Search Latency*: Reduces latency for large indexes by avoiding RID lookups and document deserialization
+
+*Combining with Quantization*:
+
+When `storeVectorsInGraph=true` is combined with quantization, vectors are stored in their quantized form within the graph file:
+
+- `quantization=INT8` + `storeVectorsInGraph=true`: Vectors stored as int8 (1 byte per dimension)
+- `quantization=BINARY` + `storeVectorsInGraph=true`: Vectors stored as binary (1 bit per dimension)
+- `quantization=NONE` + `storeVectorsInGraph=true`: Vectors stored as float32 (4 bytes per dimension)
+
+This combination provides maximum benefit: reduced memory usage from quantization + fast access from co-location.
+
+*Metrics Tracking*:
+
+Three new metrics track vector fetch sources to help tune this setting:
+
+- `vectorFetchFromGraph`: Vectors read from `.vecgraph` file (when `storeVectorsInGraph=true`)
+- `vectorFetchFromDocuments`: Vectors read via RID lookups from documents
+- `vectorFetchFromQuantized`: Vectors read from quantized pages
+
+Access metrics via Java API:
+[source,java]
+----
+Map<String, Long> stats = lsmIndex.getStats();
+System.out.println("Fetched from graph: " + stats.get("vectorFetchFromGraph"));
+System.out.println("Fetched from docs: " + stats.get("vectorFetchFromDocuments"));
+----
+
+====== Memory Tuning Examples
+
+*Maximum Memory Efficiency* (Edge deployments, resource-constrained environments):
+
+[source,sql]
+----
+-- Configure globally for all vector indexes
+ALTER DATABASE `arcadedb.vectorIndex.locationCacheSize` 50000;
+ALTER DATABASE `arcadedb.vectorIndex.graphBuildCacheSize` 5000;
+ALTER DATABASE `arcadedb.vectorIndex.storeVectorsInGraph` false;
+
+-- Or configure per-index for small datasets
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 8,
+  "beamWidth": 100,
+  "locationCacheSize": 50000,        -- Limit location cache: ~2.8 MB
+  "graphBuildCacheSize": 5000,       -- Limit graph building: ~15 MB peak
+  "mutationsBeforeRebuild": 150,     -- Moderate rebuild frequency
+  "storeVectorsInGraph": false       -- Use document cache for small datasets
+};
+----
+
+*Memory Impact*: For 1M vectors with 768 dimensions:
+- Location cache: 50K entries = ~2.8 MB (vs ~56 MB unlimited)
+- Graph build cache: 5K vectors = ~15 MB (vs ~3 GB unlimited)
+- *Total savings: ~98.5% memory reduction during graph building*
+
+*Balanced Configuration* (Production workloads with moderate scale):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 16,
+  "beamWidth": 100,
+  "locationCacheSize": 100000,       -- Balance memory vs performance
+  "graphBuildCacheSize": 10000,      -- Default (30 MB for 768-dim)
+  "mutationsBeforeRebuild": 100,     -- Standard rebuild frequency
+  "storeVectorsInGraph": false       -- Use document cache for moderate scale
+};
+----
+
+*Memory Impact*: For 1M vectors with 768 dimensions:
+- Location cache: 100K entries = ~5.6 MB (90% reduction)
+- Graph build cache: 10K vectors = ~30 MB (99% reduction)
+
+*Large-Scale Configuration with Inline Vector Storage* (100K+ vectors, high-throughput search):
+
+[source,sql]
+----
+-- Optimal for large indexes: combine quantization + graph storage
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "quantization": "INT8",            -- 4x memory reduction
+  "maxConnections": 16,
+  "beamWidth": 100,
+  "locationCacheSize": 200000,       -- Larger cache for hot vectors
+  "graphBuildCacheSize": 10000,      -- Standard build cache
+  "mutationsBeforeRebuild": 1000,    -- Reduce rebuild frequency (vectors in graph)
+  "storeVectorsInGraph": true        -- Co-locate vectors with graph topology
+};
+----
+
+*Benefits for Large-Scale*:
+- Eliminates RID lookups during search (no document page cache thrashing)
+- Reduces RAM pressure by ~70-80% compared to document fetching at scale
+- Vectors co-located with graph topology (sequential reads, better I/O patterns)
+- Combined with INT8 quantization: 4x smaller graph file + fast access
+- Disk trade-off: Vectors duplicated (~6 GB for 1M × 1536-dim vectors)
+
+*When to Use*:
+- Index size: 100K+ vectors
+- Search workload: High QPS (queries per second)
+- RAM constraint: Limited memory for page cache
+- Update frequency: Moderate to low (vectors not frequently updated)
+
+*Maximum Performance* (Unlimited memory, prioritize speed):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 32,
+  "beamWidth": 200,
+  "locationCacheSize": -1,           -- Unlimited cache (no eviction)
+  "graphBuildCacheSize": 50000,      -- Large cache: ~150 MB for 768-dim
+  "mutationsBeforeRebuild": 50,      -- Frequent rebuilds for freshness
+  "storeVectorsInGraph": true        -- Enable for large indexes to reduce cache pressure
+};
+----
+
+*Performance Impact*: Best query performance with highest memory usage. For large indexes (100K+ vectors), enabling `storeVectorsInGraph` reduces document cache pressure even with unlimited location cache.
+
+====== Performance Tuning Examples
+
+*Write-Heavy Workload* (High ingestion rate, acceptable search latency):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 12,
+  "beamWidth": 80,
+  "locationCacheSize": 100000,
+  "graphBuildCacheSize": 10000,
+  "mutationsBeforeRebuild": 300,     -- Reduce rebuild frequency for write throughput
+  "storeVectorsInGraph": false       -- Disable: frequent updates make graph storage costly
+};
+----
+
+*Note*: For write-heavy workloads with frequent vector updates, keep `storeVectorsInGraph=false` to avoid expensive graph rebuilds. Each rebuild must rewrite all vectors when this option is enabled.
+
+*Read-Heavy Workload* (Search-intensive, prioritize freshness):
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "maxConnections": 24,
+  "beamWidth": 150,
+  "locationCacheSize": 200000,       -- Larger cache for hot vectors
+  "graphBuildCacheSize": 10000,
+  "mutationsBeforeRebuild": 50,      -- Frequent rebuilds for fresh results
+  "storeVectorsInGraph": true        -- Enable: search-heavy benefits from co-location
+};
+----
+
+*Note*: For search-intensive workloads with large indexes (100K+ vectors), enabling `storeVectorsInGraph` significantly reduces search latency by eliminating document lookups. The rebuild cost is amortized across many search operations.
+
+====== Global Configuration via SQL
+
+Set global defaults for all vector indexes in the database:
+
+[source,sql]
+----
+-- Configure global defaults
+ALTER DATABASE `arcadedb.vectorIndex.locationCacheSize` 100000;
+ALTER DATABASE `arcadedb.vectorIndex.graphBuildCacheSize` 10000;
+ALTER DATABASE `arcadedb.vectorIndex.mutationsBeforeRebuild` 100;
+ALTER DATABASE `arcadedb.vectorIndex.storeVectorsInGraph` false;
+
+-- View current settings
+SELECT FROM information_schema.settings
+WHERE name LIKE 'arcadedb.vectorIndex.%';
+----
+
+Per-index metadata settings override global defaults. Use global settings to establish baseline memory limits across all indexes, then tune individual indexes as needed. Set `storeVectorsInGraph=false` globally, then enable it selectively for large indexes (100K+ vectors).
+
+====== Memory Consumption Reference
+
+For 1 million vectors with 768 dimensions:
+
+[cols="2,1,1,1", options="header"]
+|===
+|Configuration |Location Cache |Graph Build Cache |Total Peak Memory
+
+|Unlimited (legacy)
+|~56 MB
+|~3 GB
+|~3.06 GB
+
+|Recommended (100K/10K)
+|~5.6 MB
+|~30 MB
+|~35.6 MB
+
+|Memory Constrained (50K/5K)
+|~2.8 MB
+|~15 MB
+|~17.8 MB
+
+|Savings vs Unlimited
+|90-95%
+|99%
+|98.8%
+|===
+
+*Formula for Graph Build Cache*:
+----
+RAM (MB) = cacheSize × (dimensions × 4 + 64) / 1024 / 1024
+----
+
+*Example*:
+- 10,000 vectors × 768 dimensions = 10,000 × (768 × 4 + 64) / 1024 / 1024 ≈ 30 MB
+- 10,000 vectors × 1536 dimensions = 10,000 × (1536 × 4 + 64) / 1024 / 1024 ≈ 59 MB
+
+====== Best Practices for Tuning
+
+1. *Start with Defaults*: Default settings (locationCacheSize=-1, graphBuildCacheSize=10000, mutationsBeforeRebuild=100, storeVectorsInGraph=false) work well for most use cases under 100K vectors.
+
+2. *Monitor Memory Usage*: For large-scale deployments (1M+ vectors), set explicit limits to prevent unbounded growth.
+
+3. *Scale Graph Build Cache with Dimensions*: Higher dimensionality requires proportionally more memory during graph building.
+
+4. *Balance Rebuild Frequency*: Lower `mutationsBeforeRebuild` provides fresher search results but increases CPU cost. Higher values improve write throughput at the cost of search staleness.
+
+5. *Per-Index Tuning*: Use global settings as baseline, then override for specific indexes based on workload characteristics.
+
+6. *Cache Hit Monitoring*: If queries become noticeably slower after setting `locationCacheSize` limits, increase the cache size or use `-1` (unlimited) for that index.
+
+7. *Write vs Read Trade-offs*: Write-heavy workloads benefit from higher `mutationsBeforeRebuild` (200-500), while read-heavy workloads benefit from lower values (50-100).
+
+8. *Enable Graph Storage for Large Indexes*: For indexes with 100K+ vectors and read-heavy workloads, enable `storeVectorsInGraph=true` to eliminate document lookups and reduce RAM pressure. Keep disabled for small indexes (<10K) and write-heavy workloads.
+
+9. *Combine Quantization + Graph Storage*: For maximum efficiency on large indexes, use `quantization=INT8` (or BINARY) with `storeVectorsInGraph=true`. This provides 4x-32x memory reduction plus fast co-located access.
+
+10. *Monitor Fetch Sources*: Use the metrics API to track `vectorFetchFromGraph`, `vectorFetchFromDocuments`, and `vectorFetchFromQuantized` to verify your configuration is working as expected. If `vectorFetchFromDocuments` remains high with `storeVectorsInGraph=true`, investigate graph loading issues.
+
+11. *Test Before Production*: Benchmark both `storeVectorsInGraph=true` and `storeVectorsInGraph=false` on your actual dataset and workload. Performance characteristics vary by scale, and what works for 1K vectors may differ significantly from 1M vectors.
+
+===== Vector Quantization
+
+Vector quantization compresses vector embeddings to reduce memory usage and improve search performance. ArcadeDB supports three quantization strategies, each offering different trade-offs between memory consumption, search speed, and accuracy.
+
+====== Quantization Options
+
+*NONE (No Quantization)*
+
+Full precision float32 vectors (4 bytes per dimension). This is the default and provides 100% accuracy but highest memory usage.
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE",
+  "quantization": "NONE"  -- Default, can be omitted
+};
+----
+
+*INT8 Quantization*
+
+8-bit integer quantization (1 byte per dimension). Provides 4x memory reduction with minimal accuracy loss.
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE",
+  "quantization": "INT8"  -- Recommended for production
+};
+----
+
+*BINARY Quantization*
+
+Binary quantization (1 bit per dimension). Provides 32x memory reduction for extreme compression scenarios.
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE",
+  "quantization": "BINARY"  -- Use when memory is severely constrained
+};
+----
+
+====== Performance and Accuracy Comparison
+
+The table below shows benchmark results for 100,000 vectors with 384 dimensions using COSINE similarity:
+
+[cols="2,1,1,1,1,2", options="header"]
+|===
+|Quantization |Memory Usage |Search Speed |Recall@10 |Recall@100 |Recommended Use Case
+
+|*NONE* (baseline)
+|1.0x (156 MB)
+|Baseline
+|100%
+|100%
+|Maximum accuracy required, unlimited memory
+
+|*INT8*
+|0.25x (39 MB)
+|10-15% faster
+|95-98%
+|98-99%
+|**Recommended for most production use cases**
+
+|*BINARY*
+|0.03x (5 MB)
+|15-20% faster
+|85-92%
+|90-95%
+|Memory severely constrained, approximate search acceptable
+|===
+
+*Memory Usage Calculation for 100K vectors*:
+
+- *384 dimensions*: NONE = 156 MB, INT8 = 39 MB (75% reduction), BINARY = 5 MB (97% reduction)
+- *1536 dimensions*: NONE = 624 MB, INT8 = 156 MB (75% reduction), BINARY = 19 MB (97% reduction)
+
+*Formula*: `Memory (MB) = numVectors × dimensions × bytesPerDim / 1024 / 1024`
+
+Where `bytesPerDim` = 4 (NONE), 1 (INT8), or 0.125 (BINARY)
+
+====== When to Use Each Quantization Type
+
+*Use NONE (No Quantization) when*:
+
+- Accuracy is critical (e.g., medical imaging, legal document similarity)
+- Dataset is small (<10K vectors) where memory is not a concern
+- You need exact nearest neighbor results
+- Memory budget is unlimited
+
+*Use INT8 Quantization when* (RECOMMENDED):
+
+- You need to balance memory usage with accuracy
+- Dataset is medium to large (10K-10M vectors)
+- 2-5% accuracy loss is acceptable
+- Production deployments with constrained resources
+- You want faster search performance with minimal quality degradation
+
+INT8 quantization is the **recommended default** for most production workloads. It provides:
+- 4x memory reduction
+- 10-15% faster searches (better CPU cache utilization)
+- 95-98% recall (excellent for most applications)
+- Transparent operation (no query changes needed)
+
+*Use BINARY Quantization when*:
+
+- Memory is severely constrained (edge devices, mobile, embedded systems)
+- Dataset is very large (10M+ vectors)
+- You can tolerate 8-15% accuracy loss
+- You're implementing two-stage search (binary pre-filter + full precision rerank)
+- Approximate results are acceptable
+
+====== Quantization Best Practices
+
+. *Start with INT8*: For most use cases, INT8 provides the best balance. Only use NONE if accuracy loss is unacceptable.
+
+. *Measure Recall on Your Data*: Quantization accuracy depends on your embedding model and data distribution. Always benchmark on representative queries:
+
+[source,java]
+----
+// Compare recall between NONE and INT8
+LSMVectorIndex indexNone = createIndex(quantization=NONE);
+LSMVectorIndex indexInt8 = createIndex(quantization=INT8);
+
+double recall = measureRecall(indexNone, indexInt8, testQueries, k=10);
+// Expect: recall > 0.95 for INT8
+----
+
+. *Combine with Graph Storage*: For large indexes (100K+ vectors), combine quantization with `storeVectorsInGraph=true`:
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "quantization": "INT8",           -- 4x memory reduction
+  "storeVectorsInGraph": true,      -- Fast co-located access
+  "locationCacheSize": 200000,
+  "mutationsBeforeRebuild": 1000
+};
+----
+
+This combination provides maximum benefit:
+- INT8: 4x smaller vectors (624 MB → 156 MB for 100K × 1536-dim)
+- Graph storage: Eliminates document lookup overhead
+- Result: ~87% total RAM reduction compared to NONE + document fetching
+
+. *Monitor Fetch Sources*: Use metrics to verify quantization is working:
+
+[source,java]
+----
+Map<String, Long> stats = index.getStats();
+System.out.println("Fetched from quantized: " + stats.get("vectorFetchFromQuantized"));
+System.out.println("Fetched from documents: " + stats.get("vectorFetchFromDocuments"));
+// Should see: vectorFetchFromQuantized > 0, vectorFetchFromDocuments = 0
+----
+
+. *Quantization is Transparent*: Vectors are automatically quantized on insert and dequantized on retrieval. No query changes needed:
+
+[source,sql]
+----
+-- Same query works for all quantization types
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+----
+
+. *Two-Stage Search with BINARY*: For very large datasets, use BINARY quantization as a fast pre-filter, then rerank with full precision:
+
+[source,java]
+----
+// Stage 1: Fast binary search (top 100)
+List<RID> candidates = binaryIndex.findNeighborsFromVector(query, 100);
+
+// Stage 2: Rerank with full precision (top 10)
+List<Result> finalResults = rerankWithFullPrecision(candidates, query, 10);
+----
+
+====== Expected Performance Improvements
+
+Based on benchmarks with 100,000 vectors (384 dimensions, COSINE similarity):
+
+*Search Latency (k=10)*:
+
+- NONE: 1,234 µs (baseline)
+- INT8: 1,050 µs (15% faster)
+- BINARY: 980 µs (21% faster)
+
+*Memory Usage*:
+
+- NONE: 156 MB (baseline)
+- INT8: 39 MB (75% reduction)
+- BINARY: 5 MB (97% reduction)
+
+*Accuracy*:
+
+- NONE: 100% recall (baseline)
+- INT8: 96.2% recall@10, 98.5% recall@100
+- BINARY: 88.4% recall@10, 92.1% recall@100
+
+*Speedup Explanation*: Quantization improves search speed despite being computationally simpler operations because:
+
+1. *Better CPU cache utilization*: Smaller vectors fit better in L1/L2 cache
+2. *Reduced memory bandwidth*: 4x-32x less data to transfer from RAM
+3. *Faster distance calculations*: Integer arithmetic (INT8) and bit operations (BINARY) are faster than floating-point
+
+====== Configuration Examples by Use Case
+
+*Small Dataset (<10K vectors) - No Quantization Needed*:
+
+[source,sql]
+----
+CREATE INDEX ON SmallDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE"
+  -- quantization defaults to NONE (full precision)
+};
+----
+
+*Medium Dataset (10K-100K vectors) - INT8 Recommended*:
+
+[source,sql]
+----
+CREATE INDEX ON MediumDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 768,
+  "similarity": "COSINE",
+  "quantization": "INT8"  -- 4x memory reduction, minimal accuracy loss
+};
+----
+
+*Large Dataset (100K-1M vectors) - INT8 + Graph Storage*:
+
+[source,sql]
+----
+CREATE INDEX ON LargeDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "quantization": "INT8",
+  "storeVectorsInGraph": true,     -- Co-locate vectors with graph
+  "locationCacheSize": 200000,     -- Cache hot vectors
+  "mutationsBeforeRebuild": 1000   -- Reduce rebuild frequency
+};
+----
+
+*Very Large Dataset (1M+ vectors) - BINARY for Pre-filtering*:
+
+[source,sql]
+----
+-- Create both indexes: BINARY for fast pre-filter, NONE for reranking
+CREATE INDEX ON MassiveDoc (embeddingBinary) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "quantization": "BINARY",         -- 32x compression for fast search
+  "storeVectorsInGraph": true
+};
+
+CREATE INDEX ON MassiveDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE",
+  "quantization": "NONE"            -- Full precision for reranking
+};
+----
+
+Then implement two-stage search in your application.
+
+*Edge/Mobile Deployment - BINARY + Aggressive Caching*:
+
+[source,sql]
+----
+CREATE INDEX ON EdgeDoc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE",
+  "quantization": "BINARY",         -- Extreme compression (32x)
+  "maxConnections": 8,              -- Reduce graph size
+  "beamWidth": 100,
+  "locationCacheSize": 50000,       -- Limit cache
+  "graphBuildCacheSize": 5000,      -- Limit build cache
+  "storeVectorsInGraph": true       -- Reduce I/O
+};
+----
+
+====== Benchmarking Quantization
+
+To measure quantization performance on your specific dataset:
+
+1. *Create test indexes with different quantization types*
+2. *Run representative queries*
+3. *Compare recall, latency, and memory usage*
+
+Example benchmark:
+
+[source,java]
+----
+// Create indexes with different quantization
+LSMVectorIndex indexNone = createIndex("NONE", 1536);
+LSMVectorIndex indexInt8 = createIndex("INT8", 1536);
+LSMVectorIndex indexBinary = createIndex("BINARY", 1536);
+
+// Generate test queries
+List<float[]> testQueries = generateTestQueries(100);
+
+// Measure recall against NONE baseline
+for (float[] query : testQueries) {
+  List<RID> groundTruth = indexNone.findNeighborsFromVector(query, 10);
+  List<RID> int8Results = indexInt8.findNeighborsFromVector(query, 10);
+  List<RID> binaryResults = indexBinary.findNeighborsFromVector(query, 10);
+
+  double int8Recall = calculateRecall(int8Results, groundTruth);
+  double binaryRecall = calculateRecall(binaryResults, groundTruth);
+
+  System.out.printf("Query recall - INT8: %.2f%%, BINARY: %.2f%%\n",
+                    int8Recall * 100, binaryRecall * 100);
+}
+
+// Measure memory usage
+Map<String, Long> statsNone = indexNone.getStats();
+Map<String, Long> statsInt8 = indexInt8.getStats();
+Map<String, Long> statsBinary = indexBinary.getStats();
+
+System.out.println("Memory estimates:");
+System.out.println("  NONE:   " + statsNone.get("estimatedMemoryBytes") / 1024 / 1024 + " MB");
+System.out.println("  INT8:   " + statsInt8.get("estimatedMemoryBytes") / 1024 / 1024 + " MB");
+System.out.println("  BINARY: " + statsBinary.get("estimatedMemoryBytes") / 1024 / 1024 + " MB");
+----
+
+For detailed benchmarking methodology, see the JMH benchmark implementation at:
+`engine/src/test/java/com/arcadedb/index/vector/LSMVectorIndexStorageJMHBenchmark.java`
+
+===== Querying Vector Indexes with SQL
+
+Use the `vectorNeighbors()` function to perform similarity searches:
+
+====== Basic Similarity Search
+
+Find the 10 most similar documents to a query vector:
+
+[source,sql]
+----
+-- Returns rows with .record (full document) and .distance
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+----
+
+The `vectorNeighbors()` function takes the *index name* (format: `'TypeName[propertyName]'`) as its first argument and returns an array of `{record, distance}` objects. Use `expand()` to flatten the array into individual result rows. The `distance` semantics depend on the similarity metric (for COSINE: 0 = identical, higher = more different). Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
+
+====== Combining with Other Filters
+
+Perform a vector search and filter results client-side, or use a subquery:
+
+[source,sql]
+----
+-- Find the 10 nearest neighbors
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+----
+
+NOTE: Vector search returns `{record, distance}` objects. To filter by additional properties (e.g., `source`), apply filters in your application code after retrieving the nearest neighbors.
+
+====== Multi-Modal Vector Search
+
+Create and query multiple vector indexes for multi-modal data:
+
+[source,sql]
+----
+-- Create multi-modal schema
+CREATE VERTEX TYPE MultiModalRecord;
+CREATE PROPERTY MultiModalRecord.imageEmbedding LIST OF FLOAT;
+CREATE PROPERTY MultiModalRecord.textEmbedding LIST OF FLOAT;
+
+-- Create separate indexes
+CREATE INDEX ON MultiModalRecord (imageEmbedding) LSM_VECTOR METADATA {
+  dimensions: 512,
+  similarity: 'COSINE'
+};
+
+CREATE INDEX ON MultiModalRecord (textEmbedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE'
+};
+
+-- Query by image modality
+SELECT expand(vectorNeighbors('MultiModalRecord[imageEmbedding]', [0.1, 0.2, ...], 5))
+
+-- Query by text modality
+SELECT expand(vectorNeighbors('MultiModalRecord[textEmbedding]', [0.2, 0.3, ...], 5))
+----
+
+====== Retrieving Neighbor Details
+
+Get detailed information about nearest neighbors:
+
+[source,sql]
+----
+-- Returns array of objects with distance and keys
+SELECT vectorNeighbors('Document[embedding]', $queryVector, 10) AS neighbors;
+----
+
+*Note*: The first argument to `vectorNeighbors()` must always be the *index name* in `'TypeName[propertyName]'` format (e.g., `'Document[embedding]'`). The function returns an array of `{record, distance}` objects — use `expand()` to flatten the results into individual rows.
+
+====== Type-Specific Search with Inheritance
+
+When a vector index is created on a parent type, ArcadeDB automatically creates sub-indexes for each bucket, including buckets of child types. This enables powerful filtering capabilities:
+
+*Use Case: Multi-Modal Embeddings*
+
+Imagine a system storing embeddings for different content types (images, documents, audio) that all extend a common parent type:
+
+[source,sql]
+----
+-- Create parent type with vector index
+CREATE VERTEX TYPE Embedding;
+CREATE PROPERTY Embedding.vector ARRAY_OF_FLOATS;
+CREATE INDEX ON Embedding (vector) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE'
+};
+
+-- Create specialized child types
+CREATE VERTEX TYPE ImageEmbedding EXTENDS Embedding;
+CREATE VERTEX TYPE DocumentEmbedding EXTENDS Embedding;
+CREATE VERTEX TYPE AudioEmbedding EXTENDS Embedding;
+----
+
+*Class-Specific Search*: Find the top 50 closest IMAGE embeddings only:
+
+[source,sql]
+----
+SELECT vectorNeighbors('ImageEmbedding[vector]', $queryVector, 50) AS neighbors
+FROM ImageEmbedding LIMIT 1;
+----
+
+All results will be of type `ImageEmbedding` - records from `DocumentEmbedding` and `AudioEmbedding` are excluded.
+
+*Cross-Class Search*: Find the top 50 closest embeddings across ALL types:
+
+[source,sql]
+----
+SELECT vectorNeighbors('Embedding[vector]', $queryVector, 50) AS neighbors
+FROM Embedding LIMIT 1;
+----
+
+Results may include records from any child type (`ImageEmbedding`, `DocumentEmbedding`, `AudioEmbedding`) based on similarity.
+
+This approach is efficient because:
+
+* Only one index is created and maintained (on the parent type)
+* Child type searches use the same underlying index, filtering by bucket
+* No need to create separate indexes for each child type
+
+===== Using the Java API
+
+For programmatic control and embedded applications, use the Java API to create and manage vector indexes.
+
+====== Creating LSMVectorIndex Programmatically
+
+[source,java]
+----
+import com.arcadedb.database.Database;
+import com.arcadedb.schema.Schema;
+import com.arcadedb.schema.Type;
+import com.arcadedb.index.lsm.LSMVectorIndex;
+import com.arcadedb.index.lsm.LSMVectorIndexBuilder;
+import com.arcadedb.index.vector.VectorSimilarityFunction;
+
+// Get or create schema
+final Schema schema = database.getSchema();
+if (!schema.existsType("Document")) {
+  schema.createVertexType("Document");
+}
+
+// Create vector property
+if (!schema.existsProperty("Document", "embedding")) {
+  schema.createProperty("Document", "embedding", Type.ARRAY_OF_FLOATS);
+}
+
+// Create LSMVectorIndex with builder pattern
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .withDimensions(768)
+    .withSimilarity(VectorSimilarityFunction.COSINE)
+    .withMaxConnections(16)
+    .withBeamWidth(100)
+    .withIdProperty("id")
+    .withAddHierarchy(false)          // Enable for large/complex datasets (100K+)
+    .withStoreVectorsInGraph(false);  // Enable for large indexes (100K+)
+
+final LSMVectorIndex index = builder.create();
+----
+
+====== Adding Vectors to the Index
+
+[source,java]
+----
+// Get existing index
+final LSMVectorIndex index = (LSMVectorIndex) database.getSchema()
+    .getIndexByName("Document[embedding]");
+
+// Add vectors with callback
+index.addAll(embeddings, (vertex, item, total) -> {
+  // Optional callback for handling vertex creation
+  // Useful for cascading operations like creating relationships
+  if (vertex != null) {
+    // Create relationships, update metadata, etc.
+    System.out.println("Indexed vertex " + vertex.getIdentity() +
+                      " (" + item + "/" + total + ")");
+  }
+});
+----
+
+The callback in the `addAll()` method is useful when you have a graph structure connected to the indexed vertices. For example, when indexing a book, you might calculate embeddings per statement and then create relationships between statements and paragraphs.
+
+====== Configuring from JSON Metadata
+
+Load configuration from JSON metadata:
+
+[source,java]
+----
+import com.arcadedb.utility.JSONObject;
+
+final JSONObject metadata = new JSONObject()
+    .put("dimensions", 768)
+    .put("similarity", "COSINE")
+    .put("maxConnections", 16)
+    .put("beamWidth", 100)
+    .put("idPropertyName", "id")
+    .put("addHierarchy", false)         // Enable for large/complex datasets (100K+)
+    .put("storeVectorsInGraph", false)  // Enable for large indexes (100K+)
+    .put("locationCacheSize", 100000)   // Optional: limit cache size
+    .put("graphBuildCacheSize", 10000)  // Optional: limit build cache
+    .put("mutationsBeforeRebuild", 100); // Optional: rebuild frequency
+
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .fromMetadata(metadata);
+
+final LSMVectorIndex index = builder.create();
+----
+
+====== Querying Vectors from Java
+
+[source,java]
+----
+import com.arcadedb.query.sql.executor.ResultSet;
+
+// Define an example query vector. Replace with your actual vector.
+float[] queryVector = new float[] {0.1f, 0.2f, 0.3f}; // Vector must match index dimensions
+
+// Perform similarity search using SQL
+final ResultSet resultSet = database.query("sql",
+    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
+    queryVector);
+
+while (resultSet.hasNext()) {
+  final Result result = resultSet.next();
+  // Each result has .record (the document) and .distance
+  System.out.println("Similar document: " + result.toJSON());
+}
+----
+
+====== Transaction Support
+
+LSMVectorIndex fully supports transactions with automatic persistence:
+
+[source,java]
+----
+database.transaction(() -> {
+  // Create vertices with embeddings
+  final MutableVertex vertex = database.newVertex("Document");
+  vertex.set("content", "Sample text");
+
+  // In a real application, this vector would be generated by an embedding model
+  // and should match the dimensions of the index.
+  float[] embeddingVector = new float[] {0.5f, 0.6f, 0.7f};
+  vertex.set("embedding", embeddingVector);
+  vertex.save();
+
+  // Index is automatically updated on transaction commit
+});
+----
+
+===== Migration from HnswVectorIndexRAM
+
+If you're migrating from the older HnswVectorIndexRAM approach, note the following differences:
+
+[cols="1,1,1", options="header"]
+|===
+|Feature |HnswVectorIndexRAM |LSMVectorIndex
+
+|Persistence
+|Requires explicit conversion
+|Automatic with transactions
+
+|SQL Support
+|Limited
+|Full SQL CREATE INDEX and queries
+
+|Transaction Support
+|Manual management
+|Automatic ACID compliance
+
+|Compaction
+|Manual
+|Automatic
+
+|Recommended For
+|Bulk loading scenarios
+|All production use cases
+|===
+
+====== Legacy Bulk Loading Pattern
+
+For backwards compatibility, the HnswVectorIndexRAM bulk loading pattern is still available for initial large-scale imports:
+
+[source,java]
+----
+import com.arcadedb.index.vector.HnswVectorIndexRAM;
+import com.arcadedb.index.vector.VectorSimilarityFunction;
+import com.arcadedb.index.vector.Item;
+import com.arcadedb.schema.Type;
+import java.util.Collection;
+import java.util.List;
+
+// For bulk loading only - use LSMVectorIndex for production
+String indexName = "Document[embedding]";
+if (!database.getSchema().existsIndex(indexName)) {
+  // Define parameters for the index
+  int dimensions = 768;
+  VectorSimilarityFunction distanceFunction = VectorSimilarityFunction.COSINE;
+  int m = 16;
+  int ef = 200;
+  int efConstruction = 200;
+  // Example embeddings. In a real scenario, this would be a large collection.
+  Collection<Item<Object, float[]>> embeddings = List.of(
+      new Item<>("doc1", new float[]{0.1f, 0.2f}),
+      new Item<>("doc2", new float[]{0.3f, 0.4f})
+  );
+
+  // Step 1: Load into RAM-based index
+  final HnswVectorIndexRAM<Object, float[], Item<Object, float[]>, Float> hnswIndex =
+      HnswVectorIndexRAM.newBuilder(dimensions, distanceFunction, 100_000)
+          .withM(m)
+          .withEf(ef)
+          .withEfConstruction(efConstruction)
+          .build();
+
+  hnswIndex.addAll(embeddings,
+                   Runtime.getRuntime().availableProcessors(), null);
+
+  // Step 2: Create persistent index
+  hnswIndex.createPersistentIndex(database)
+      .withVertexType("Document")
+      .withEdgeType("Proximity")
+      .withVectorProperty("embedding", Type.ARRAY_OF_FLOATS)
+      .withIdProperty("id")
+      .create();
+}
+----
+
+NOTE: For most use cases, directly creating an LSMVectorIndex via SQL or the Java API is simpler and provides better transaction support. The HnswVectorIndexRAM approach is only recommended for specific bulk loading scenarios with millions of vectors.
+
+===== Best Practices
+
+1. *Choose the Right Similarity Function*: Use COSINE for normalized embeddings (most common), DOT_PRODUCT for performance with normalized vectors, or EUCLIDEAN for spatial data.
+
+2. *Normalize Your Vectors*: For COSINE and DOT_PRODUCT similarity, ensure vectors are normalized to unit length for best results.
+
+3. *Tune Performance Parameters*: Start with defaults (maxConnections=16, beamWidth=100) and increase for better recall if needed.
+
+4. *Use Transactions*: Always insert vectors within transactions for data consistency and automatic index updates.
+
+5. *Batch Insertions*: For large datasets, batch your insertions in reasonably-sized transactions (1000-10000 records) for optimal performance.
+
+6. *Monitor Index Size*: Vector indexes can be large. Monitor disk usage and consider the dimensions parameter carefully.
+
+7. *SQL for Simplicity*: Prefer SQL for index creation and queries unless you need programmatic control.
+
+===== Common Use Cases
+
+====== Semantic Document Search
+
+[source,sql]
+----
+-- Create index for document embeddings
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.content STRING;
+CREATE PROPERTY Document.embedding LIST OF FLOAT;
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE"
+};
+
+-- Query for the 10 nearest documents
+SELECT expand(vectorNeighbors('Document[embedding]', $queryEmbedding, 10))
+----
+
+====== Image Similarity Search
+
+[source,sql]
+----
+-- Create index for image feature vectors
+CREATE VERTEX TYPE Image;
+CREATE PROPERTY Image.url STRING;
+CREATE PROPERTY Image.features LIST OF FLOAT;
+CREATE INDEX ON Image (features) LSM_VECTOR METADATA {
+  dimensions: 512,
+  similarity: 'COSINE'
+};
+
+-- Find the 5 most similar images
+SELECT expand(vectorNeighbors('Image[features]', $imageFeatures, 5))
+----
+
+====== Recommendation System
+
+[source,sql]
+----
+-- Create index for user/item embeddings
+CREATE VERTEX TYPE Product;
+CREATE PROPERTY Product.embedding LIST OF FLOAT;
+CREATE INDEX ON Product (embedding) LSM_VECTOR METADATA {
+  "dimensions": 128,
+  "similarity": "COSINE"
+};
+
+-- Find the 20 most similar products for recommendations
+SELECT expand(vectorNeighbors('Product[embedding]', $userPreferenceVector, 20))
+----
+
+For more information, see:
+
+* <<indexes, Indexes>>
+* <<sql-create-index, CREATE INDEX>>
+* <<vector-neighbors-ext, vectorNeighbors()>>

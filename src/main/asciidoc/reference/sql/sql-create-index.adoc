@@ -1,0 +1,369 @@
+[[sql-create-index]]
+[discrete]
+===== SQL - `CREATE INDEX`
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/reference/sql/sql-create-index.adoc" float=right]
+
+Creates a new index.
+Indexes can be:
+
+- *Unique* Where they don't allow duplicates (LSM Tree).
+- *Not Unique* Where they allow duplicates (LSM Tree).
+- *Unique Hash* O(1) equality lookups, no duplicates (Hash Index).
+- *Not Unique Hash* O(1) equality lookups, allows duplicates (Hash Index).
+- *Full Text* Where they index any single word of text.
+- *Geospatial* Where they index WKT geometry strings for spatial queries.
+- *HNSW* (Hierarchical Navigable Small World) vector index.
+- *LSMVectorIndex* LSM Tree-based vector index for persistent similarity search.
+
+____
+
+There are several index algorithms available to determine how ArcadeDB indexes your database.
+For more information on these, see <<indexes,Indexes>>.
+
+____
+
+*Syntax*
+
+[source,sql]
+----
+CREATE INDEX [<manual-index-name>]
+[ IF NOT EXISTS ]
+[ ON <type> (<property> [BY KEY|VALUE|ITEM][,]*) ]
+<index-type> [<key-type>]
+[ NULL_STRATEGY SKIP|ERROR|INDEX]
+
+----
+
+* *`&lt;manual-index-name&gt;`* Only for manual indexes, defines the logical name for the index.
+For automatic indexes, the index name is assigned automatically by ArcadeDB at creation as `&lt;type&gt;[&lt;property&gt;[,]*]`.
+For example, the index created on type Friend, properties "firstName" and "lastName", it will be named "Friend[firstName,lastName]"
+* *`IF NOT EXISTS`* Specifying this option, the index creation will just be ignored if the index already exists (instead of failing with an error)
+* *`&lt;type&gt;`* Defines the type to create an automatic index for.
+The type must already exist.
+* *`&lt;property&gt;`* Defines the property you want to automatically index.
+The property must already exist.
+** `BY KEY` index by key names for map properties.
+** `BY VALUE` index by values for map properties.
+** `BY ITEM` index by values for list elements.
+* *`&lt;index-type&gt;`* Defines the index type you want to use:
+** `UNIQUE` does not allow duplicate keys (LSM Tree),
+** `NOTUNIQUE` allows duplicate keys (LSM Tree),
+** `UNIQUE_HASH` does not allow duplicate keys (Hash Index — O(1) equality lookups, no range queries),
+** `NOTUNIQUE_HASH` allows duplicate keys (Hash Index — O(1) equality lookups, no range queries),
+** `FULL_TEXT` based on any single word of text.
+Uses https://lucene.apache.org[Apache Lucene] for tokenization and supports configurable analyzers, multi-property indexing, and advanced query syntax.
+See <<full-text-index>> for full documentation.
+** `GEOSPATIAL` indexes WKT geometry strings stored in `STRING` properties, enabling spatial queries via the `geo.*` SQL function namespace.
+See <<geospatial>> for full documentation.
+** `HNSW` vector index (Hierarchical Navigable Small World).
+** `LSMVECTORINDEX` LSM Tree-based vector index.
+* *`&lt;key-type&gt;`* Defines the key type.
+With automatic indexes, the key type is automatically selected when the database reads the target schema property.
+For manual indexes, when not specified, it selects the key at run-time during the first insertion by reading the type of the type.
+In creating composite indexes, it uses a comma-separated list of types.
+
+To create an automatic index bound to the schema property, use the `ON` clause.
+In order to create an index, the schema must already exist in your database.
+
+In the event that the `ON` and `&lt;key-type&gt;` clauses both exist, the database validates the specified property types.
+If the property types don't equal those specified in the key type list, it throws an exception.
+
+The `NULL_STRATEGY` determines how null values are indexed:
+
+* `SKIP` (default) excludes null values from the index,
+* `ERROR` throws an error in case a null value is found during indexing,
+* `INDEX` adds null values to the index.
+
+NOTE: A unique index does not regard derived types or embedded documents of the indexed type.
+
+____
+
+You can use list key types when creating manual composite indexes, but bear in mind that such indexes are not yet fully supported.
+
+____
+
+*Examples*
+
+* Create an automatic index bound to the new property `id` in the type `User`:
+
+----
+ArcadeDB> CREATE PROPERTY User.id BINARY
+ArcadeDB> CREATE INDEX ON User (id) UNIQUE
+----
+
+* Create a series automatic indexes for the `thumbs` property in the type `Movie`:
+
+----
+ArcadeDB> CREATE INDEX ON Movie (thumbs) UNIQUE
+ArcadeDB> CREATE INDEX ON Movie (thumbs BY KEY) UNIQUE
+ArcadeDB> CREATE INDEX ON Movie (thumbs BY VALUE) UNIQUE
+----
+
+* Create a index for the `actors` list property  in the type `Movie`:
+
+----
+ArcadeDB> CREATE INDEX ON Movie (actors BY ITEM) NOTUNIQUE
+----
+
+* Create a index for the `actors.name` list of embedded document (or map) property in the type `Movie`:
+
+----
+ArcadeDB> CREATE INDEX ON Movie (actors.name BY ITEM) NOTUNIQUE
+----
+
+* Create a series of properties and on them create a composite index:
+
+----
+ArcadeDB> CREATE PROPERTY Book.author STRING
+ArcadeDB> CREATE PROPERTY Book.title STRING
+ArcadeDB> CREATE PROPERTY Book.publicationYears LIST
+ArcadeDB> CREATE INDEX ON Book (author, title, publicationYears) UNIQUE
+----
+
+* Create an index on an edge's date range:
+
+----
+ArcadeDB> CREATE VERTEX TYPE File
+ArcadeDB> CREATE EDGE TYPE Has
+ArcadeDB> CREATE PROPERTY Has.started DATETIME
+ArcadeDB> CREATE PROPERTY Has.ended DATETIME
+ArcadeDB> CREATE INDEX ON Has (started, ended) NOTUNIQUE
+----
+
+NOTE: You can create indexes on edge types only if they contain the begin and end date range of validity.
+This is use case is very common with historical graphs, such as the example above.
+
+* Using the above index, retrieve all the edges that existed in the year 2014:
+
+----
+ArcadeDB> SELECT FROM Has WHERE started >= '2014-01-01 00:00:00.000' AND
+            ended < '2015-01-01 00:00:00.000'
+----
+
+* Using the above index, retrieve all edges that existed in 2014 and write them to the parent file:
+
+----
+ArcadeDB> SELECT outV() FROM Has WHERE started >= '2014-01-01 00:00:00.000'
+            AND ended < '2015-01-01 00:00:00.000'
+----
+
+* Using the above index, retrieve all the 2014 edges and connect them to children files:
+
+----
+ArcadeDB> SELECT inV() FROM Has WHERE started >= '2014-01-01 00:00:00.000'
+            AND ended < '2015-01-01 00:00:00.000'
+----
+
+* Create an index that includes null values.
+
+By default, indexes ignore null values.
+Queries against null values that use an index returns no entries.
+To return an error in case of null values, append `NULL_STRATEGY ERROR` when you create the index.
+
+----
+ArcadeDB> CREATE INDEX ON Employee (address) NOTUNIQUE NULL_STRATEGY ERROR
+----
+
+* Create a unique hash index for O(1) primary key lookups:
+
+----
+ArcadeDB> CREATE PROPERTY User.email STRING
+ArcadeDB> CREATE INDEX ON User (email) UNIQUE_HASH
+----
+
+* Create a non-unique hash index for fast equality lookups:
+
+----
+ArcadeDB> CREATE PROPERTY Order.status STRING
+ArcadeDB> CREATE INDEX ON Order (status) NOTUNIQUE_HASH
+----
+
+NOTE: Hash indexes use <<hash-index,extendable hashing>> and provide O(1) equality lookups — significantly faster than LSM Tree for point queries (`WHERE key = value`). However, they do not support range scans (`<`, `>`, `BETWEEN`) or ordered iteration (`ORDER BY`). Use `UNIQUE`/`NOTUNIQUE` (LSM Tree) when you need range queries or ordering.
+
+* Create a full-text index and search it using `SEARCH_INDEX()`:
+
+----
+ArcadeDB> CREATE INDEX ON Employee (address) FULL_TEXT
+----
+
+[source,sql]
+----
+SELECT * FROM Employee
+WHERE SEARCH_INDEX('Employee[address]', 'New York')
+----
+
+NOTE: `LIKE` and `ILIKE` do not use full-text indexes.
+See <<full-text-index>> for analyzer configuration, Lucene query syntax, relevance scoring, and More Like This.
+
+* Create a manual index to store dates:
+
+----
+ArcadeDB> CREATE INDEX `mostRecentRecords` UNIQUE DATE
+----
+
+* Create a basic LSMVectorIndex for similarity search on vector embeddings:
+
+----
+ArcadeDB> CREATE VERTEX TYPE Doc
+ArcadeDB> CREATE PROPERTY Doc.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {dimensions: 100, similarity: 'COSINE'}
+----
+
+* Create an LSMVectorIndex with DOT_PRODUCT similarity metric:
+
+----
+ArcadeDB> CREATE VERTEX TYPE Image
+ArcadeDB> CREATE PROPERTY Image.featureVector ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON Image (featureVector) LSM_VECTOR METADATA {dimensions: 512, similarity: 'DOT_PRODUCT'}
+----
+
+* Create an LSMVectorIndex with EUCLIDEAN distance metric and custom performance parameters:
+
+----
+ArcadeDB> CREATE VERTEX TYPE Product
+ArcadeDB> CREATE PROPERTY Product.attributes ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON Product (attributes) LSM_VECTOR METADATA {dimensions: 256, similarity: 'EUCLIDEAN', maxConnections: 32, beamWidth: 200}
+----
+
+* Create an LSMVectorIndex with minimal metadata:
+
+----
+ArcadeDB> CREATE VERTEX TYPE CompactDoc
+ArcadeDB> CREATE PROPERTY CompactDoc.vec ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX IF NOT EXISTS ON CompactDoc (vec) LSM_VECTOR METADATA {dimensions: 4, similarity: 'COSINE'}
+----
+
+* Create an LSMVectorIndex with tuned performance parameters for large-scale indexing:
+
+----
+ArcadeDB> CREATE VERTEX TYPE VectorVertex
+ArcadeDB> CREATE PROPERTY VectorVertex.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX IF NOT EXISTS ON VectorVertex (embedding) LSM_VECTOR METADATA {dimensions: 1024, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
+----
+
+* Create an LSMVectorIndex on embeddings with metadata about source:
+
+----
+ArcadeDB> CREATE VERTEX TYPE Doc
+ArcadeDB> CREATE PROPERTY Doc.content STRING
+ArcadeDB> CREATE PROPERTY Doc.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE PROPERTY Doc.source STRING
+ArcadeDB> CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {dimensions: 384, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
+----
+
+Then query for similar documents:
+
+----
+ArcadeDB> SELECT expand(vectorNeighbors('Doc[embedding]', [0.1, 0.2, 0.3], 10))
+----
+
+* Create multiple LSMVectorIndexes on different properties in the same type (multi-modal embeddings):
+
+----
+ArcadeDB> CREATE VERTEX TYPE MultiModalRecord
+ArcadeDB> CREATE PROPERTY MultiModalRecord.imageEmbedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE PROPERTY MultiModalRecord.textEmbedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON MultiModalRecord (imageEmbedding) LSM_VECTOR METADATA {dimensions: 512, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
+ArcadeDB> CREATE INDEX ON MultiModalRecord (textEmbedding) LSM_VECTOR METADATA {dimensions: 768, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
+----
+
+Query for similar records using the image embedding:
+
+----
+ArcadeDB> SELECT expand(vectorNeighbors('MultiModalRecord[imageEmbedding]', [0.1, 0.2, 0.3], 5))
+----
+
+* Create an LSMVectorIndex with tuned parameters for high-dimensional data:
+
+----
+ArcadeDB> CREATE VERTEX TYPE Word
+ArcadeDB> CREATE PROPERTY Word.vector ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON Word (vector) LSM_VECTOR METADATA {dimensions: 100, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
+----
+
+* Create an LSMVectorIndex with INT8 quantization for 4x memory savings:
+
+----
+ArcadeDB> CREATE VERTEX TYPE LargeCorpus
+ArcadeDB> CREATE PROPERTY LargeCorpus.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON LargeCorpus (embedding) LSM_VECTOR METADATA {dimensions: 1536, similarity: 'COSINE', quantization: 'INT8'}
+----
+
+The index will automatically quantize vectors on insert and dequantize on retrieval, reducing memory usage by 75% with minimal accuracy loss (<2%).
+
+* Create an LSMVectorIndex with BINARY quantization for extreme compression (32x memory savings):
+
+----
+ArcadeDB> CREATE VERTEX TYPE MassiveDataset
+ArcadeDB> CREATE PROPERTY MassiveDataset.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON MassiveDataset (embedding) LSM_VECTOR METADATA {dimensions: 1536, similarity: 'COSINE', quantization: 'BINARY'}
+----
+
+Binary quantization compresses each dimension to 1 bit, achieving 97% memory reduction. Suitable for approximate search with reranking.
+
+NOTE: Quantization types: `NONE` (default, no compression), `INT8` (4x compression, <2% accuracy loss), `BINARY` (32x compression, approximate search). Quantization is transparent - vectors are stored compressed but queries work the same way.
+
+* Create an LSMVectorIndex with inline vector storage for large-scale deployments (100K+ vectors):
+
+----
+ArcadeDB> CREATE VERTEX TYPE LargeScale
+ArcadeDB> CREATE PROPERTY LargeScale.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON LargeScale (embedding) LSM_VECTOR METADATA {
+  dimensions: 1536,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  storeVectorsInGraph: true,
+  mutationsBeforeRebuild: 1000
+}
+----
+
+The `storeVectorsInGraph` option stores vectors inline within the JVector graph file, eliminating expensive document lookups during search operations. This dramatically reduces RAM pressure for large indexes (100K+ vectors) by avoiding document page cache thrashing.
+
+*When to use `storeVectorsInGraph`*:
+
+- *Enable* (`true`) for: Large indexes (100K+ vectors), high search throughput, read-heavy workloads, RAM-constrained environments
+- *Disable* (`false`, default) for: Small indexes (<10K vectors), frequent vector updates, write-heavy workloads
+
+*Trade-offs*:
+
+- *Benefit*: 70-80% RAM reduction for large indexes by co-locating vectors with graph topology
+- *Cost*: Vectors duplicated on disk (stored in both documents and graph file)
+- *Best with*: Combine with `quantization=INT8` or `BINARY` for maximum efficiency (reduced disk + reduced RAM)
+
+*Example - optimal large-scale configuration*:
+
+----
+ArcadeDB> CREATE INDEX ON LargeScale (embedding) LSM_VECTOR METADATA {
+  dimensions: 1536,
+  similarity: 'COSINE',
+  quantization: 'INT8',              -- 4x memory reduction
+  storeVectorsInGraph: true,         -- Fast co-located access
+  maxConnections: 16,
+  beamWidth: 100,
+  locationCacheSize: 200000,         -- Cache hot vectors
+  mutationsBeforeRebuild: 1000       -- Reduce rebuild frequency
+}
+----
+
+* Create a geospatial index on a WKT property and query it:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Location
+CREATE PROPERTY Location.coords STRING
+CREATE INDEX ON Location (coords) GEOSPATIAL
+
+INSERT INTO Location SET name = 'Eiffel Tower', coords = 'POINT(2.2945 48.8584)'
+
+SELECT name FROM Location
+WHERE geo.within(coords, geo.geomFromText(
+  'POLYGON((2.28 48.84, 2.42 48.84, 2.42 48.90, 2.28 48.90, 2.28 48.84))'
+)) = true
+----
+
+See <<geospatial>> for full documentation on geometry formats, predicate functions, and precision configuration.
+
+For more information, see:
+
+* <<sql-drop-index, `DROP INDEX`>>
+* <<indexes, `Indexes`>>

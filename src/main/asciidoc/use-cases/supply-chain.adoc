@@ -1,0 +1,65 @@
+[[use-case-supply-chain]]
+=== Supply Chain
+
+Achieve multi-tier supply chain visibility in a single database by combining <<graph-model,graph traversal>> for multi-tier supplier discovery, blast radius analysis, and end-to-end batch traceability via variable-length path queries, <<vector-model,vector similarity>> for alternative supplier sourcing using capability embeddings with `vectorNeighbors()`, <<timeseries,time-series>> analysis for delivery disruption detection via metric aggregation, and the <<postgres-driver,PostgreSQL wire protocol>> for JavaScript connectivity.
+
+==== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `Supplier`, `Component`, `Product`, `Warehouse`, `Customer`, `ShippingRoute`, `RawMaterial`
+| Edges | `SUPPLIES`, `CONTAINS`, `STORED_AT`, `SHIPS_VIA`, `SHIPPED_TO`, `ALTERNATIVE_FOR`, `ASSEMBLED_FROM`
+| Documents | `DeliveryMetric` (supplierId, deliveryTime, qualityScore, timestamp)
+|===
+
+Suppliers carry 4-dimensional capability vectors. Components flow through a multi-tier graph from raw materials through assembly to distribution. Delivery metrics track supplier performance over time.
+
+==== Key Queries
+
+*Multi-Tier Supplier Discovery* -- Find all suppliers up to 3 tiers deep:
+
+[source,cypher]
+----
+MATCH path = (p:Product)-[:CONTAINS*1..3]->(c:Component)<-[:SUPPLIES]-(s:Supplier)
+WHERE p.name = 'SmartWatch Pro'
+RETURN s.name, c.name, length(path) AS tier
+----
+
+*Blast Radius Analysis* -- Assess impact of a supplier going offline:
+
+[source,cypher]
+----
+MATCH (s:Supplier {name: 'ChipCorp'})-[:SUPPLIES]->(c:Component)<-[:CONTAINS]-(p:Product)
+OPTIONAL MATCH (alt:Supplier)-[:SUPPLIES]->(c)
+WHERE alt <> s
+RETURN p.name, c.name, collect(alt.name) AS alternatives
+----
+
+*Alternative Supplier Sourcing* -- Find suppliers with similar capabilities by embedding:
+
+[source,sql]
+----
+SELECT name, region FROM (
+  SELECT vectorNeighbors('Supplier[capability_vec]', [0.9, 0.8, 0.7, 0.6], 5) AS neighbors
+)
+----
+
+==== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/supply-chain
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/supply-chain[supply-chain on GitHub]
+
+==== Related Documentation
+
+* <<graph-model,Graph Model>>
+* <<vector-model,Vector Search Concepts>>
+* <<timeseries,Time Series>>
+* <<postgres-driver,PostgreSQL Protocol>>
