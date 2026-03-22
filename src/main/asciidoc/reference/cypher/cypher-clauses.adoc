@@ -66,6 +66,77 @@ RETURN a, b
 
 ---
 
+[[cypher-path-mode]]
+[discrete]
+===== Path Mode (WALK, TRAIL, ACYCLIC)
+image:../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/reference/cypher/cypher-clauses.adoc" float=right]
+
+_Available since version 26.4.1._
+
+Path modes control how variable-length traversals handle cycles. They are placed after the optional path variable assignment and before the pattern.
+
+*Syntax:*
+
+[source,cypher]
+----
+MATCH [variable =] [WALK | TRAIL | ACYCLIC] (a)-[*min..max]->(b)
+----
+
+*Modes:*
+
+[%header,cols="1,3,2"]
+|===
+| Mode | Behavior | Default?
+| `TRAIL` | Edges must be unique per path. Vertices *can* repeat. | Yes (default)
+| `ACYCLIC` | No vertex repeated per path (strongest restriction). Implies edge uniqueness. |
+| `WALK` | No restrictions — vertices and edges can be revisited. Requires an explicit max hop bound. |
+|===
+
+[NOTE]
+====
+`TRAIL` is the default path mode per the GQL/Cypher 25 standard. If no mode is specified, `TRAIL` semantics apply.
+====
+
+*Examples:*
+
+[source,cypher]
+----
+// TRAIL (default): edges unique, vertices can repeat.
+// On a cycle A→B→C→D→A, this can traverse the full cycle.
+MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..5]->(b)
+RETURN b.name
+
+// ACYCLIC: no vertex revisited — stops before completing a cycle.
+MATCH ACYCLIC (a:Person {name: 'Alice'})-[:KNOWS*1..5]->(b)
+RETURN b.name
+
+// WALK: no restrictions. Edges and vertices can be reused.
+// Requires explicit max hops to prevent infinite traversal.
+MATCH WALK (a:Person {name: 'Alice'})-[:KNOWS*1..6]->(b)
+RETURN b.name
+
+// Path mode with named path variable
+MATCH p = TRAIL (a:Person)-[:KNOWS*1..4]->(b)
+RETURN p, length(p)
+----
+
+*Comparison on a cyclic graph* (A→B→C→D→A):
+
+[%header,cols="1,3"]
+|===
+| Mode | Reachable from A with *1..5 hops
+| `TRAIL` | B, C, D, *A* (vertex A revisited after full cycle — edges stay unique)
+| `ACYCLIC` | B, C, D (stops — cannot revisit A)
+| `WALK` | B, C, D, A, B, C, ... (repeats edges and vertices up to max hops)
+|===
+
+[WARNING]
+====
+`WALK` mode without an explicit maximum hop bound will throw an error. Always specify an upper bound, e.g., `+[*1..10]+`.
+====
+
+---
+
 [[cypher-optional-match]]
 [discrete]
 ===== OPTIONAL MATCH
