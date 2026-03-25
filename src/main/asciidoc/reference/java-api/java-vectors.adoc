@@ -101,6 +101,17 @@ CREATE INDEX ON VectorVertex (embedding) LSM_VECTOR METADATA {
 - `neighborOverflowFactor`: Controls how many extra candidate neighbors are considered during graph building (default: 1.2, range: 1.0-1.5). Higher values improve graph quality but increase build time
 - `alphaDiversityRelaxation`: Trade-off between strict distance ordering and diversity in graph connections (default: 1.2, range: 1.0-1.5). Higher values prioritize diversity, improving recall for complex queries
 - `addHierarchy`: Controls whether to build HNSW hierarchical layers on top of the base Vamana index (default: false). See <<hierarchy-configuration>> for detailed guidance
+- `buildGraphNow`: When creating the index via SQL, controls whether the HNSW graph is built immediately (default: `true`). Set to `false` to defer graph construction to the first search. This is a creation-time directive only -- it is not persisted as index metadata.
+
+When using the Java API directly, you can call `buildVectorGraphNow()` on any `LSMVectorIndex` instance to trigger an immediate graph build at any time:
+
+[source,java]
+----
+LSMVectorIndex vectorIndex = (LSMVectorIndex) database.getSchema().getIndexByName("MyType[embedding]");
+vectorIndex.buildVectorGraphNow();
+----
+
+This is lightweight compared to `REBUILD INDEX` -- it only rebuilds the HNSW graph topology from already-indexed vectors, without dropping or re-scanning the underlying index data.
 
 [[hierarchy-configuration]]
 ====== Hierarchical vs Flat Index Structure

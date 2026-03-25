@@ -219,6 +219,24 @@ COMMIT
 
 TIP: For large bulk loads, increase `mutationsBeforeRebuild` to delay index rebuilds until after the load completes, then trigger a rebuild.
 
+If you create the index _before_ inserting data (e.g., during schema setup), set `buildGraphNow: false` to skip the initial (empty) graph build. The graph will be built lazily on the first search:
+
+[source,sql]
+----
+-- Schema setup phase: defer graph build since no data exists yet
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  buildGraphNow: false
+}
+
+-- Bulk load data...
+-- Graph is built automatically on first vectorNeighbors() query
+----
+
+If you create the index _after_ data is already loaded, leave `buildGraphNow` at its default (`true`) so the index is immediately ready to query.
+
 ===== Global Configuration
 
 Set database-wide defaults for vector index parameters:
