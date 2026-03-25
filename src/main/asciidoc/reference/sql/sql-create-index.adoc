@@ -28,7 +28,7 @@ ____
 ----
 CREATE INDEX [<manual-index-name>]
 [ IF NOT EXISTS ]
-[ ON <type> (<property> [BY KEY|VALUE|ITEM][,]*) ]
+[ ON <type> (<property> [BY KEY|VALUE|ITEM] [COLLATE CI][,]*) ]
 <index-type> [<key-type>]
 [ NULL_STRATEGY SKIP|ERROR|INDEX]
 
@@ -45,6 +45,10 @@ The property must already exist.
 ** `BY KEY` index by key names for map properties.
 ** `BY VALUE` index by values for map properties.
 ** `BY ITEM` index by values for list elements.
+** `COLLATE CI` enables case-insensitive collation for this property.
+Values are stored in lowercase internally, so lookups match regardless of case.
+Can be specified independently for each property in a composite index.
+See <<case-insensitive-indexes>> for details.
 * *`&lt;index-type&gt;`* Defines the index type you want to use:
 ** `UNIQUE` does not allow duplicate keys (LSM Tree),
 ** `NOTUNIQUE` allows duplicate keys (LSM Tree),
@@ -163,6 +167,36 @@ To return an error in case of null values, append `NULL_STRATEGY ERROR` when you
 ----
 ArcadeDB> CREATE INDEX ON Employee (address) NOTUNIQUE NULL_STRATEGY ERROR
 ----
+
+* Create a case-insensitive index on a string property:
+
+----
+ArcadeDB> CREATE PROPERTY Product.Name STRING
+ArcadeDB> CREATE INDEX ON Product (Name COLLATE CI) NOTUNIQUE
+----
+
+Queries like `SELECT FROM Product WHERE Name = 'Hello World'` will now match `"Hello World"`, `"HELLO WORLD"`, `"hello world"`, etc.
+
+* Create a case-insensitive unique index to prevent duplicate entries ignoring case:
+
+----
+ArcadeDB> CREATE PROPERTY User.username STRING
+ArcadeDB> CREATE INDEX ON User (username COLLATE CI) UNIQUE
+----
+
+This prevents inserting both `"Admin"` and `"admin"`, since they are treated as the same key.
+
+* Create a composite index with case-insensitive collation on some properties only:
+
+----
+ArcadeDB> CREATE PROPERTY Product.Name STRING
+ArcadeDB> CREATE PROPERTY Product.Code STRING
+ArcadeDB> CREATE INDEX ON Product (Name COLLATE CI, Code) UNIQUE
+----
+
+In this example, `Name` uses case-insensitive collation while `Code` uses the default (case-sensitive) collation.
+
+NOTE: When a `COLLATE CI` index exists on a property, the query optimizer also recognizes queries that use `.toLowerCase()` (e.g., `WHERE Name.toLowerCase() = 'hello world'`) and will use the case-insensitive index for these queries.
 
 * Create a unique hash index for O(1) primary key lookups:
 

@@ -76,6 +76,54 @@ ArcadeDB's Hash Index uses https://en.wikipedia.org/wiki/Extendible_hashing[exte
 - *Supports unique and non-unique*: Both `UNIQUE_HASH` and `NOTUNIQUE_HASH` modes are available.
 - *Null strategy*: Supports the same `NULL_STRATEGY` options as LSM Tree (`SKIP`, `ERROR`, `INDEX`).
 
+[[case-insensitive-indexes]]
+==== Case-Insensitive Indexes (COLLATE CI)
+
+By default, ArcadeDB indexes are case-sensitive: `"Hello"` and `"hello"` are treated as different keys.
+You can create case-insensitive indexes by using the `COLLATE CI` clause in the `CREATE INDEX` statement.
+
+When `COLLATE CI` is specified for a property, the index stores values internally in lowercase (using the root locale).
+This means:
+
+- *Equality lookups are case-insensitive*: `WHERE Name = 'Hello World'` matches `"Hello World"`, `"HELLO WORLD"`, `"hello world"`, etc.
+- *Range queries are case-insensitive*: `WHERE Name > 'a'` uses the lowercased form for comparison.
+- *Unique constraints are case-insensitive*: A `UNIQUE` index with `COLLATE CI` prevents inserting both `"Admin"` and `"admin"`.
+- *Original values are preserved*: The document still stores the original cased value; only the index key is lowercased.
+
+===== Syntax
+
+[source,sql]
+----
+CREATE INDEX ON <type> (<property> COLLATE CI) <index-type>
+----
+
+In composite indexes, `COLLATE CI` can be specified independently per property:
+
+[source,sql]
+----
+CREATE INDEX ON Product (Name COLLATE CI, Code) UNIQUE
+----
+
+Here `Name` is case-insensitive while `Code` remains case-sensitive.
+
+===== Query optimizer support
+
+The query optimizer automatically recognizes queries that use `.toLowerCase()` on a property with a `COLLATE CI` index.
+For example:
+
+[source,sql]
+----
+SELECT FROM Product WHERE Name.toLowerCase() = 'hello world'
+----
+
+This query will use the case-insensitive index on `Name` instead of performing a full scan, avoiding the overhead of calling `toLowerCase()` on every record.
+
+===== When to use
+
+- *User-facing lookups*: Usernames, email addresses, product names — where the end user expects case-insensitive matching.
+- *Deduplication*: When you want a unique constraint that ignores case differences.
+- *Replacing `toLowerCase()` patterns*: If your queries already use `.toLowerCase()` for case-insensitive matching, a `COLLATE CI` index is more efficient because the conversion happens once at insert time, not on every query.
+
 ==== Index Property Types
 
 ArcadeDB indexes can index property fields in various ways:
