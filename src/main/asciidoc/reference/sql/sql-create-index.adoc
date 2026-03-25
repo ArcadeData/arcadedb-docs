@@ -241,6 +241,14 @@ ArcadeDB> CREATE PROPERTY VectorVertex.embedding ARRAY_OF_FLOATS
 ArcadeDB> CREATE INDEX IF NOT EXISTS ON VectorVertex (embedding) LSM_VECTOR METADATA {dimensions: 1024, similarity: 'COSINE', maxConnections: 16, beamWidth: 100}
 ----
 
+* Create an LSMVectorIndex with a custom efSearch for consistent high recall:
+
+----
+ArcadeDB> CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {dimensions: 768, similarity: 'COSINE', quantization: 'INT8', efSearch: 200}
+----
+
+When `efSearch` is set in the index metadata, all queries on this index use the specified beam width by default. Individual queries can still override it by passing efSearch as the 4th argument to `vectorNeighbors()`.
+
 * Create an LSMVectorIndex on embeddings with metadata about source:
 
 ----
@@ -301,7 +309,17 @@ ArcadeDB> CREATE INDEX ON MassiveDataset (embedding) LSM_VECTOR METADATA {dimens
 
 Binary quantization compresses each dimension to 1 bit, achieving 97% memory reduction. Suitable for approximate search with reranking.
 
-NOTE: Quantization types: `NONE` (default, no compression), `INT8` (4x compression, <2% accuracy loss), `BINARY` (32x compression, approximate search). Quantization is transparent - vectors are stored compressed but queries work the same way.
+* Create an LSMVectorIndex with PRODUCT quantization for zero-disk-I/O graph construction on large datasets:
+
+----
+ArcadeDB> CREATE VERTEX TYPE BigDataset
+ArcadeDB> CREATE PROPERTY BigDataset.embedding ARRAY_OF_FLOATS
+ArcadeDB> CREATE INDEX ON BigDataset (embedding) LSM_VECTOR METADATA {dimensions: 1024, similarity: 'COSINE', quantization: 'PRODUCT'}
+----
+
+Product quantization builds the graph using compact PQ codes that stay in memory, eliminating disk I/O during construction. Most effective on large datasets (100K+ vectors).
+
+NOTE: Quantization types: `NONE` (default, no compression), `INT8` (recommended, 4x compression, <2% accuracy loss), `BINARY` (32x compression, approximate search), `PRODUCT` (16-64x compression, zero-disk-I/O graph build). Quantization is transparent - vectors are stored compressed but queries work the same way.
 
 * Create an LSMVectorIndex with inline vector storage for large-scale deployments (100K+ vectors):
 
@@ -336,8 +354,9 @@ The `storeVectorsInGraph` option stores vectors inline within the JVector graph 
 ArcadeDB> CREATE INDEX ON LargeScale (embedding) LSM_VECTOR METADATA {
   dimensions: 1536,
   similarity: 'COSINE',
-  quantization: 'INT8',              -- 4x memory reduction
+  quantization: 'INT8',              -- 4x memory reduction (recommended)
   storeVectorsInGraph: true,         -- Fast co-located access
+  efSearch: 200,                     -- Consistent high recall
   maxConnections: 16,
   beamWidth: 100,
   locationCacheSize: 200000,         -- Cache hot vectors

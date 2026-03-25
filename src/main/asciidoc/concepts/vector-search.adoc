@@ -64,20 +64,44 @@ Quantization reduces memory usage by compressing vector components at the cost o
 | Type | Memory Reduction | Speed | Recall | Use Case
 
 | **NONE** | Baseline | Baseline | 100% | Small datasets (< 10K vectors), maximum accuracy
-| **INT8** | 4x (75% savings) | 10-15% faster | 95-98% | Production recommended for most workloads
+| **INT8** (recommended) | 4x (75% savings) | 10-15% faster | 95-98% | Best balance of speed and accuracy for most workloads
 | **BINARY** | 32x (97% savings) | 15-20% faster | 85-92% | Massive datasets, approximate search with reranking
+| **PRODUCT** | 16-64x | Approximate | Varies | Very large datasets (100K+), enables zero-disk-I/O graph construction
 |===
+
+TIP: **Use INT8 quantization for most use cases.** It provides 4x memory savings with minimal accuracy loss and significantly faster search. Only use NONE for very small datasets where maximum precision matters.
+
+[[quantization-performance]]
+===== Why INT8 is faster
+
+Quantization doesn't just save memory -- it fundamentally changes how vectors are read during search.
+
+Without quantization (`NONE`), each node visited during graph traversal requires a full document lookup: read the record from disk, deserialize it, and extract the vector property. With INT8, vectors are stored in compact contiguous index pages and read directly -- no document deserialization needed.
+
+In benchmarks with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2` embedding model), INT8 reduces search latency by **2.5x** compared to NONE:
+
+[cols="1,1,1,1"]
+|===
+| Quantization | Mean latency | p95 latency | Vector fetch path
+
+| NONE | 3.50 ms | 4.36 ms | Document lookup (random I/O)
+| **INT8** | **1.59 ms** | **1.94 ms** | Index pages (sequential I/O)
+|===
+
+The difference becomes even more significant under memory pressure. With NONE quantization, vector data is 4x larger, evicting more data from memory caches and forcing real disk I/O. INT8 keeps the working set small enough to stay in memory even with constrained resources.
 
 Quantization is transparent -- queries work identically regardless of quantization setting. The index automatically quantizes on insert and dequantizes on retrieval.
 
-.Memory example: 100K vectors with 384 dimensions
-[cols="1,1"]
-|===
-| Quantization | Memory
+When using PRODUCT quantization, the graph build uses Product Quantization scores instead of exact vector distances. PQ codes are compact and stay in memory, eliminating disk I/O during graph construction. This is most effective on large datasets (100K+ vectors) where PQ quality is sufficient.
 
-| NONE | 156 MB
-| INT8 | 39 MB
-| BINARY | 5 MB
+.Memory and performance example: 100K vectors with 384 dimensions
+[cols="1,1,1"]
+|===
+| Quantization | Vector memory | Search speed
+
+| NONE | 156 MB | Baseline
+| INT8 | 39 MB | ~2.5x faster
+| BINARY | 5 MB | ~3x faster (lower recall)
 |===
 
 ==== Key Parameters
@@ -88,12 +112,57 @@ Quantization is transparent -- queries work identically regardless of quantizati
 
 | `dimensions` | (required) | Must match your embedding model output size
 | `similarity` | `COSINE` | Distance metric: COSINE, DOT_PRODUCT, or EUCLIDEAN
-| `quantization` | `NONE` | Compression: NONE, INT8, or BINARY
+| `quantization` | `NONE` | Compression: NONE, INT8, BINARY, or PRODUCT. INT8 is recommended for most use cases.
+| `efSearch` | adaptive | Search beam width at query time. Controls recall vs speed trade-off. See <<adaptive-efsearch>>.
 | `maxConnections` | 16 | Connections per node. Higher = better recall, more memory
 | `beamWidth` | 100 | Search depth during build. Higher = better index quality, slower builds
 | `addHierarchy` | false | Enable multi-layer HNSW for large/complex datasets
 | `storeVectorsInGraph` | false | Co-locate vectors in graph file for faster retrieval at large scale
 |===
+
+[[adaptive-efsearch]]
+==== efSearch and Adaptive Search
+
+The `efSearch` parameter controls how many candidate nodes the search explores in the vector graph. Higher values find more accurate results but take longer.
+
+When `efSearch` is not explicitly set (either on the index or per-query), ArcadeDB uses an **adaptive two-pass strategy**:
+
+1. **First pass** -- Uses a moderate beam width (`2 × k`), which is sufficient for most queries on well-clustered data.
+2. **Second pass** -- If the first pass returns insufficient results, the search automatically widens the beam to `10 × k`.
+
+For small indexes (< 10K vectors), the full default efSearch is always used since the cost is negligible.
+
+This adaptive behavior gives you fast queries on easy lookups while still maintaining recall on harder queries -- without requiring any tuning.
+
+===== Setting efSearch
+
+You can set efSearch at three levels:
+
+*Per-query* (highest priority) -- pass as the 4th argument to `vectorNeighbors()`:
+
+[source,sql]
+----
+-- Higher efSearch for a critical query that needs maximum recall
+SELECT vectorNeighbors('Doc[embedding]', [...], 10, 500)
+
+-- Lower efSearch for a latency-sensitive query
+SELECT vectorNeighbors('Doc[embedding]', [...], 10, 30)
+----
+
+*Per-index* -- set in the index metadata at creation time:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 1024,
+  similarity: 'COSINE',
+  efSearch: 200
+}
+----
+
+*Adaptive* (default) -- when neither per-query nor per-index efSearch is specified, the adaptive strategy described above is used.
+
+TIP: For most workloads, the adaptive default works well. Only set efSearch explicitly if you need consistently high recall regardless of query difficulty, or if you have strict latency requirements.
 
 ==== Multi-Modal Search
 

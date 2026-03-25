@@ -36,7 +36,7 @@ CREATE INDEX ON Product (embedding) LSM_VECTOR METADATA {
 }
 ----
 
-NOTE: In production, embeddings are typically 384-1536 dimensions. This tutorial uses 4 dimensions for simplicity.
+NOTE: In production, embeddings are typically 384-1536 dimensions. This tutorial uses 4 dimensions for simplicity. For production workloads, add `quantization: 'INT8'` for significantly better search performance -- see <<quantization-performance>> below.
 
 ==== Step 3: Insert Data with Embeddings
 
@@ -136,7 +136,21 @@ CREATE INDEX ON Product (embedding_dot) LSM_VECTOR METADATA {
 }
 ----
 
-==== Step 8: Enable Quantization for Large Datasets
+==== Step 8: Control Search Quality with efSearch
+
+By default, ArcadeDB uses an adaptive search strategy that works well for most queries. You can override it per-query by passing efSearch as the 4th argument:
+
+[source,sql]
+----
+-- Higher efSearch for better recall (useful for critical queries)
+SELECT name, category FROM (
+  SELECT vectorNeighbors('Product[embedding]', [0.88, 0.12, 0.78, 0.22], 3, 200) AS neighbors
+)
+----
+
+See <<adaptive-efsearch,Adaptive efSearch>> for details on how the default strategy works.
+
+==== Step 9: Enable Quantization for Large Datasets
 
 For production datasets with many vectors, enable INT8 quantization to reduce memory by 75%:
 

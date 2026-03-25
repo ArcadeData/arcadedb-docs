@@ -23,7 +23,7 @@ TIP: Start with 384 dimensions (MiniLM) for prototyping. Move to 768+ for produc
 
 ===== Creating a Vector Index
 
-Basic index creation:
+Recommended index creation with INT8 quantization:
 
 [source,sql]
 ----
@@ -33,11 +33,14 @@ CREATE PROPERTY Document.embedding LIST OF FLOAT
 
 CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
   dimensions: 384,
-  similarity: 'COSINE'
+  similarity: 'COSINE',
+  quantization: 'INT8'
 }
 ----
 
-Production-ready index with quantization:
+INT8 quantization is recommended for all production workloads. It provides 2.5x faster search and 4x lower memory usage with negligible accuracy loss (see <<quantization-performance>>). Only omit quantization for very small datasets (< 10K vectors) where maximum precision matters.
+
+Production-ready index with additional tuning:
 
 [source,sql]
 ----
@@ -63,19 +66,27 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 
 ===== Quantization Trade-offs
 
-Use this decision tree:
+Use INT8 quantization for most use cases. It provides 4x memory savings with minimal accuracy loss and significantly faster ingestion and search:
 
-* **< 10K vectors**: Use `NONE` (memory is not a concern)
-* **10K - 1M vectors**: Use `INT8` (4x memory savings, < 2% accuracy loss)
-* **> 1M vectors**: Use `BINARY` for first-pass filtering, then rerank with full vectors
+* **< 10K vectors**: `NONE` is fine, but `INT8` works well too
+* **10K - 1M vectors**: Use `INT8` (4x memory savings, < 2% accuracy loss) -- **recommended**
+* **> 1M vectors**: Use `INT8` for general use, or `PRODUCT` for zero-disk-I/O graph construction on very large datasets
+* **Extreme compression**: Use `BINARY` for first-pass filtering, then rerank with full vectors
 
 [source,sql]
 ----
--- INT8: recommended for most production workloads
+-- INT8: recommended for most workloads
 CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
   dimensions: 768,
   similarity: 'COSINE',
   quantization: 'INT8'
+}
+
+-- PRODUCT: for very large datasets, enables in-memory graph build
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 1024,
+  similarity: 'COSINE',
+  quantization: 'PRODUCT'
 }
 ----
 
@@ -104,6 +115,42 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
   addHierarchy: true,
   maxConnections: 32,
   beamWidth: 200
+}
+----
+
+===== Tuning efSearch
+
+The `efSearch` parameter controls how many candidates the search explores at query time. By default, ArcadeDB uses an <<adaptive-efsearch,adaptive strategy>> that works well for most workloads. You only need to tune efSearch if you have specific recall or latency requirements.
+
+[cols="1,1,2"]
+|===
+| Profile | efSearch | Trade-off
+
+| **Adaptive** (default) | auto | Two-pass: fast first pass (`2×k`), wider retry (`10×k`) if needed
+| **High recall** | 200-500 | Consistent high accuracy, higher latency
+| **Low latency** | 20-50 | Fast responses, lower recall on hard queries
+|===
+
+You can override efSearch per-query without changing the index:
+
+[source,sql]
+----
+-- High recall for a critical search
+SELECT vectorNeighbors('Doc[embedding]', $queryVector, 10, 500)
+
+-- Low latency for autocomplete/typeahead
+SELECT vectorNeighbors('Doc[embedding]', $queryVector, 5, 30)
+----
+
+Or set a default on the index:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  efSearch: 200
 }
 ----
 
