@@ -994,7 +994,7 @@ Find the 10 most similar documents to a query vector:
 SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
 ----
 
-The `vectorNeighbors()` function takes the *index name* (format: `'TypeName[propertyName]'`) as its first argument and returns an array of `{record, distance}` objects. Use `expand()` to flatten the array into individual result rows. The `distance` semantics depend on the similarity metric (for COSINE: 0 = identical, higher = more different). Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
+The `vectorNeighbors()` function takes the *index name* (format: `'TypeName[propertyName]'`) as its first argument and returns a list of maps. Each map contains all document properties (e.g., `name`, `title`), plus `distance` (the similarity score), `@rid`, `@type`, and `record` (the full document object). Use `expand()` to flatten the list into individual result rows so you can access these fields directly (e.g., `SELECT name, distance FROM (SELECT expand(...))`). The `distance` semantics depend on the similarity metric (for COSINE: 0 = identical, higher = more different). Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
 
 ====== Combining with Other Filters
 
@@ -1006,7 +1006,7 @@ Perform a vector search and filter results client-side, or use a subquery:
 SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
 ----
 
-NOTE: Vector search returns `{record, distance}` objects. To filter by additional properties (e.g., `source`), apply filters in your application code after retrieving the nearest neighbors.
+NOTE: After `expand()`, each row contains the document's properties and a `distance` field. You can filter with a WHERE clause in the outer query (e.g., `SELECT ... FROM (SELECT expand(...)) WHERE source = 'wiki'`) or in your application code.
 
 ====== Multi-Modal Vector Search
 
@@ -1047,7 +1047,7 @@ Get detailed information about nearest neighbors:
 SELECT vectorNeighbors('Document[embedding]', $queryVector, 10) AS neighbors;
 ----
 
-*Note*: The first argument to `vectorNeighbors()` must always be the *index name* in `'TypeName[propertyName]'` format (e.g., `'Document[embedding]'`). The function returns an array of `{record, distance}` objects — use `expand()` to flatten the results into individual rows.
+*Note*: The first argument to `vectorNeighbors()` must always be the *index name* in `'TypeName[propertyName]'` format (e.g., `'Document[embedding]'`). Without `expand()`, you get a single row with the `neighbors` field containing the entire list. Use `expand()` to flatten the results into individual rows where you can access document properties and `distance` directly.
 
 ====== Type-Specific Search with Inheritance
 
@@ -1077,8 +1077,7 @@ CREATE VERTEX TYPE AudioEmbedding EXTENDS Embedding;
 
 [source,sql]
 ----
-SELECT vectorNeighbors('ImageEmbedding[vector]', $queryVector, 50) AS neighbors
-FROM ImageEmbedding LIMIT 1;
+SELECT expand(vectorNeighbors('ImageEmbedding[vector]', $queryVector, 50))
 ----
 
 All results will be of type `ImageEmbedding` - records from `DocumentEmbedding` and `AudioEmbedding` are excluded.
@@ -1087,8 +1086,7 @@ All results will be of type `ImageEmbedding` - records from `DocumentEmbedding` 
 
 [source,sql]
 ----
-SELECT vectorNeighbors('Embedding[vector]', $queryVector, 50) AS neighbors
-FROM Embedding LIMIT 1;
+SELECT expand(vectorNeighbors('Embedding[vector]', $queryVector, 50))
 ----
 
 Results may include records from any child type (`ImageEmbedding`, `DocumentEmbedding`, `AudioEmbedding`) based on similarity.

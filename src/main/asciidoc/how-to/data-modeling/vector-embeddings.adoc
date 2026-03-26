@@ -136,10 +136,10 @@ You can override efSearch per-query without changing the index:
 [source,sql]
 ----
 -- High recall for a critical search
-SELECT vectorNeighbors('Doc[embedding]', $queryVector, 10, 500)
+SELECT expand(vectorNeighbors('Doc[embedding]', $queryVector, 10, 500))
 
 -- Low latency for autocomplete/typeahead
-SELECT vectorNeighbors('Doc[embedding]', $queryVector, 5, 30)
+SELECT expand(vectorNeighbors('Doc[embedding]', $queryVector, 5, 30))
 ----
 
 Or set a default on the index:
@@ -173,13 +173,13 @@ Query each index independently:
 [source,sql]
 ----
 -- Search by image similarity
-SELECT name FROM (
-  SELECT vectorNeighbors('Product[imageEmbedding]', $imageVector, 10) AS neighbors
+SELECT name, distance FROM (
+  SELECT expand(vectorNeighbors('Product[imageEmbedding]', $imageVector, 10))
 )
 
 -- Search by text similarity
-SELECT name FROM (
-  SELECT vectorNeighbors('Product[textEmbedding]', $textVector, 10) AS neighbors
+SELECT name, distance FROM (
+  SELECT expand(vectorNeighbors('Product[textEmbedding]', $textVector, 10))
 )
 ----
 
@@ -194,8 +194,8 @@ SELECT @rid, title, content FROM Document
 WHERE SEARCH_INDEX('Document[content]', 'machine learning')
 
 -- Step 2: Vector search for semantic matches
-SELECT @rid, title FROM (
-  SELECT vectorNeighbors('Document[embedding]', $queryVector, 20) AS neighbors
+SELECT @rid, title, distance FROM (
+  SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 20))
 )
 
 -- Combine scores using reciprocal rank fusion
