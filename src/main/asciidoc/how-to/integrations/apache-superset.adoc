@@ -1,0 +1,77 @@
+[[bi-apache-superset]]
+==== Apache Superset
+image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/integrations/apache-superset.adoc" float=right]
+
+https://superset.apache.org[Apache Superset] is the most popular open-source BI and data exploration platform.
+It connects to ArcadeDB via the PostgreSQL wire protocol using SQLAlchemy and psycopg2.
+
+===== Setup
+
+. In Superset, go to **Settings > Database Connections > + Database**.
+. Select **PostgreSQL**.
+. Enter the connection details:
++
+[cols="1,3"]
+|===
+| Host | `localhost` (or your ArcadeDB server host)
+| Port | `5432`
+| Database | Your ArcadeDB database name
+| Username | Your ArcadeDB username
+| Password | Your ArcadeDB password
+|===
++
+Or use the SQLAlchemy URI:
++
+[source]
+----
+postgresql+psycopg2://root:arcadedb@localhost:5432/mydb
+----
+
+. In the **Advanced** tab, add the following to **Extra** to disable SSL:
++
+[source,json]
+----
+{
+  "connect_args": {
+    "sslmode": "disable"
+  }
+}
+----
+
+. Click **Test Connection**, then **Connect**.
+
+===== Usage
+
+Use **SQL Lab** to run queries:
+
+[source,sql]
+----
+SELECT name, age, city FROM Person LIMIT 100
+----
+
+Graph traversals work via ArcadeDB SQL:
+
+[source,sql]
+----
+SELECT name, out('FriendOf').size() AS friends
+FROM Person
+WHERE out('FriendOf').size() > 3
+----
+
+Cypher queries work with the language prefix:
+
+[source,sql]
+----
+{cypher}MATCH (p:Person)-[:FRIEND_OF]->(f:Person)
+RETURN p.name AS person, f.name AS friend LIMIT 50
+----
+
+Charts and dashboards can be created from SQL Lab results or by selecting an ArcadeDB type as a table in the chart builder.
+
+===== Known Limitations
+
+* Schema introspection is partial - Superset may not discover all types or columns automatically
+* Language prefixes (`{cypher}`, `{gremlin}`) work in SQL Lab but not in the visual chart builder
+* Some ArcadeDB SQL extensions (e.g., `out()`, `in()`) may confuse Superset's query parser in the visual builder
+* SSL is not supported - the `sslmode=disable` setting is required
+* No graph visualization (Superset does not have a network chart type)
