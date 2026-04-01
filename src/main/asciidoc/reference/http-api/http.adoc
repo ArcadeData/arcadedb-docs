@@ -338,6 +338,10 @@ The following commands are available:
 * `connect cluster <address>` connects this server to a cluster with `address`
 * `disconnect cluster` disconnects this server from a cluster
 * `align database <dbname>` aligns database `<dbname>`, see the associated <<sql-align-database,SQL command>>
+* `restore database <dbname> <url>` restores a database from a backup file. The URL can be a local path (`file://`), HTTP/HTTPS URL, or classpath resource. The database must not already exist. See <<restore>>.
+* `import database <dbname> <url>` creates a new database and imports data from the given URL (OrientDB export, GraphML, GraphSON, CSV, JSON). Combines `create database` and `IMPORT DATABASE` in a single command.
+
+Both `restore database` and `import database` support **SSE progress streaming**: send `Accept: text/event-stream` in the request headers to receive real-time progress events instead of waiting for the response.
 
 NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed.
 
@@ -429,6 +433,36 @@ Return:
 ----
 $ curl -X POST http://localhost:2480/api/v1/server \
        -d '{"command": "close database mydatabase"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{"result": "ok"}
+----
+
+[discrete]
+====== Restore database
+
+Restores a database from a backup file (local or remote). This is the fastest way to provision a database from a backup archive.
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "restore database mydatabase https://example.com/backups/mydatabase.zip"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Restoring from a local file:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "restore database mydatabase file:///path/to/mydatabase-backup.zip"}' \
        -H "Content-Type: application/json" \
        --user root:arcadedb-password
 ----
