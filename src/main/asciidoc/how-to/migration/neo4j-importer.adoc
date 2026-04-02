@@ -6,8 +6,19 @@ ArcadeDB is able to import a database exported from Neo4j in JSONL format (one j
 To export a Neo4j database follow the instructions in https://neo4j.com/labs/apoc/4.3/export/json/[Export in JSON].
 The resulting file contains one json per line.
 
+===== Performance
+
+The Neo4j importer uses the high-performance `GraphBatch` API internally:
+
+* **Vertices** are created with pre-allocated edge segments, eliminating lazy allocation during edge creation.
+* **Edges** are buffered in flat primitive arrays and flushed sorted by source vertex, converting random I/O into sequential I/O. Light edges (no edge record on disk) are used when an edge has no properties.
+* **WAL is disabled** during import for maximum throughput.
+* **ID mapping** uses a primitive `long[]`-based hash map when Neo4j IDs are numeric (the common case with APOC exports), using only ~24 bytes per vertex. For non-numeric IDs, the importer automatically falls back to a standard `HashMap`. This makes it possible to import databases with hundreds of millions of vertices within a few gigabytes of heap.
+
+===== Multi-label handling
+
 Neo4j supports multiple labels per node, while in ArcadeDB a node (vertex) must have only one type.
-The Neo4j importer will simulate multiple labels by creating new types with the following name: `<label1>[_<labelN>]*`.
+The Neo4j importer will simulate multiple labels by creating new types with the following name: `<label1>[~<labelN>]*`.
 Example:
 
 [source,json]
@@ -15,33 +26,19 @@ Example:
 {"type":"node","id":"1","labels":["User", "Administrator"],"properties":{"name":"Jim","age":42}}
 ----
 
-This vertex will be created in ArcadeDB with type "Administrator_User" (the labels are always sorted alphabetically) that extends both "Administrator" and "User" types.
+This vertex will be created in ArcadeDB with type "Administrator~User" (the labels are always sorted alphabetically) that extends both "Administrator" and "User" types.
 
 [graphviz,Neo4jInheritance,svg]
 ----
 graph g {
-    "Administrator_User" -- "Administrator"
-    "Administrator_User" -- "User"
+    "Administrator~User" -- "Administrator"
+    "Administrator~User" -- "User"
 }
 ----
 
 In this way you can use the polymorphism of ArcadeDB to retrieve all the nodes of type "User" and the record of User and all its subtypes will be returned.
 
-**Example**
-
-Example of importing the following mini graph exported from Neo4j.
-This is the example taken from Neo4j documentation about Export to JSON.
-
-[source,json]
-----
-{"type":"node","id":"0","labels":["User"],"properties":{"born":"2015-07-04T19:32:24","name":"Adam","place":{"crs":"wgs-84","latitude":33.46789,"longitude":13.1,"height":null},"age":42,"male":true,"kids":["Sam","Anna","Grace"]}}
-{"type":"node","id":"1","labels":["User"],"properties":{"name":"Jim","age":42}}
-{"type":"node","id":"2","labels":["User"],"properties":{"age":12}}
-{"id":"0","type":"relationship","label":"KNOWS","properties":{"since":1993,"bffSince":"P5M1DT12H"},"start":{"id":"0","labels":["User"]},"end":{"id":"1","labels":["User"]}}
-----
-
-As you can see, the file contains one json per line.
-First all the nodes (vertices), then the relationships (edges).
+===== Importing via SQL
 
 To import a database use the <<sql-import-database,Import Database>> command from API, Studio or Console. Below you can find an example of importing the Neo4j's PanamaPapers database by using ArcadeDB <<console,Console>>.
 
@@ -55,23 +52,62 @@ To import a database use the <<sql-import-database,Import Database>> command fro
 ----
 ArcadeDB {revnumber} - Neo4j Importer
 Importing Neo4j database from file 'panama-papers-neo4j.jsonl' to 'databases/PanamaPapers'
-Creation of the schema: types, properties and indexes
+- Creation of the schema: types, properties and indexes
 - Creation of vertices started
 - Creation of vertices completed: created 3 vertices, skipped 1 edges (0 vertices/sec elapsed=0 secs)
+- ID mapping mode: numeric (primitive long[])
 - Creation of edges started: creating edges between vertices
-- Creation of edged completed: created 1 edges, (0 edges/sec elapsed=0 secs)
-**********************************************************************************************
+- Creation of edges completed: created 1 edges, (0 edges/sec elapsed=0 secs)
+***************************************************************************************************
 Import of Neo4j database completed in 0 secs with 0 errors and 0 warnings.
-
-SUMMARY
-
-- Vertices.............: 0
--- User                : 3
-- Edges................: 0
--- KNOWS               : 1
-- Total attributes.....: 9
-**********************************************************************************************
-
-NOTES:
-- you can find your new ArcadeDB database in 'databases/PanamaPapers'
 ----
+
+===== Importing via command line
+
+The Neo4j importer can also be used directly from the command line:
+
+[source,shell]
+----
+java -cp lib/* com.arcadedb.integration.importer.Neo4jImporter -i <input-file> -d <database-path> [options]
+----
+
+**Options:**
+
+[%header,cols="25,15,~"]
+|===
+| Option | Default | Description
+| `-i <file>` | | Path to the Neo4j JSONL export file (required)
+| `-d <path>` | | Path where the ArcadeDB database will be created (required)
+| `-o` | false | Overwrite the database if it already exists
+| `-b <size>` | 10,000 | Number of records per transaction batch
+| `-decimalType <type>` | DECIMAL | Type for decimal values: FLOAT, DOUBLE, or DECIMAL
+| `-bucketBits <n>` | 10 | Bits allocated for bucket IDs in the internal RID packing. The default supports up to 1,023 buckets, which is sufficient for most databases. Increase this value only if you have a very large number of types and buckets (e.g. `-bucketBits 16` supports up to 65,535 buckets)
+|===
+
+**Example:**
+
+[source,shell]
+----
+java -cp lib/* com.arcadedb.integration.importer.Neo4jImporter \
+  -i /data/neo4j-export.jsonl -d /data/arcadedb/mydb -o -decimalType double
+----
+
+===== Memory considerations
+
+For large imports (hundreds of millions of vertices), the main memory consumer is the ID mapping table that translates Neo4j node IDs to ArcadeDB record IDs. The table size depends on the ID format:
+
+[%header,cols="30,20,~"]
+|===
+| ID format | Memory per vertex | Example: 100M vertices
+| Numeric (e.g. "0", "12345") | ~24 bytes | ~2.2 GB
+| String (e.g. "node-abc") | ~140 bytes | ~13 GB
+|===
+
+Neo4j APOC exports use numeric IDs by default, so most imports will use the compact primitive map. If the importer encounters a non-numeric ID, it automatically migrates to the string-based map and logs a message:
+
+[source]
+----
+- Non-numeric Neo4j ID detected, switching to string-based ID mapping
+----
+
+TIP: For very large imports, allocate enough heap memory. For example, to import a database with 500M vertices using numeric IDs, you would need approximately 12 GB for the ID mapping table alone, plus memory for ArcadeDB's internal buffers. A setting of `-Xmx24G` or more is recommended.
