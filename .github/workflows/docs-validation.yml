@@ -6,9 +6,14 @@ on:
       - main
     paths:
       - 'src/main/asciidoc/**/*.adoc'
+      - 'pom.xml'
   pull_request:
     paths:
       - 'src/main/asciidoc/**/*.adoc'
+      - 'pom.xml'
+
+permissions:
+  contents: write
 
 jobs:
   validate-docs:
@@ -62,5 +67,20 @@ jobs:
               --ignore 'amzn-kf8' 'not allowed as child of element "div"'
           else
             echo "No generated docs found"
+            exit 1
+          fi
+
+      - name: Publish PDF manual
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if [ -f "target/generated-docs/ArcadeDB-Manual.pdf" ]; then
+            cp target/generated-docs/ArcadeDB-Manual.pdf ArcadeDB-Manual.pdf
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add ArcadeDB-Manual.pdf
+            git diff --cached --quiet || git commit -m "Update ArcadeDB-Manual.pdf"
+            git push
+          else
+            echo "PDF not found, skipping publish"
             exit 1
           fi
