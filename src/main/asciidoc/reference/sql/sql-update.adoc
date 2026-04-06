@@ -15,7 +15,7 @@ UPDATE <type>|BUCKET:<bucket>|<recordID>
   [APPLY DEFAULTS]
   [RETURN <returning> [<returning-expression>]]
   [WHERE <conditions>]
-  [LIMIT <max-records>] [TIMEOUT <MilliSeconds>]
+  [LIMIT <max-records>] [BATCH <batch-size>] [TIMEOUT <MilliSeconds>]
 
 ----
 
@@ -33,6 +33,7 @@ Practically `UPSERT` means: `UPDATE` if the `WHERE` condition is fulfilled, othe
 ** `AFTER` Return the records after the update.
 * <<filtering,`WHERE`>> Defines the subset of records to be updated.
 * `LIMIT` Defines the maximum number of records to update.
+* `BATCH` Defines the number of records to update in each transaction batch. When set, the command commits the current transaction every `<batch-size>` records and begins a new one. This is essential for updating large datasets (e.g., millions of records) that would otherwise consume too much memory in a single transaction.
 * `TIMEOUT` Defines the time you want to allow the update run before it times out.
 
 *Examples*
@@ -115,6 +116,12 @@ ArcadeDB> UPDATE Account SET address={ "street": "Melrose Avenue", "city": {
 
 ----
 ArcadeDB> UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL LIMIT 20
+----
+
+* Update millions of records in batches of 10,000 to avoid loading all records into a single transaction:
+
+----
+ArcadeDB> UPDATE Profile SET verified = true WHERE verified IS NULL BATCH 10000
 ----
 
 * Update a record or insert if it doesn't already exist:
