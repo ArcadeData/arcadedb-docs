@@ -146,6 +146,41 @@ In this case, the auto-recovery phase starts which rolls back all pending transa
 
 ArcadeDB has different levels of durability based on storage type, configuration and settings.
 
+[[wal-flush-durability]]
+[discrete]
+===== WAL Flush and Durability
+
+ArcadeDB uses a Write-Ahead Log (WAL) to guarantee transaction durability.
+The `arcadedb.txWalFlush` setting controls whether the WAL is flushed (fsynced) to disk at commit time:
+
+[%header,cols="1,2,2"]
+|===
+| Value | Behavior | Durability guarantee
+| `0` (default) | No flush. WAL is written to the OS page cache but not fsynced. | Safe against process crashes (OS page cache survives). *Not safe against power loss or OS crash* - committed transactions may be lost.
+| `1` | Flush without metadata (`fdatasync`). WAL content is fsynced to the storage device. | Safe against power loss. Recommended for production.
+| `2` | Full flush (`fsync`). WAL content and filesystem metadata (timestamps, file size) are fsynced. | Maximum durability guarantee. Slightly slower than `1`, but ensures all metadata is consistent.
+|===
+
+IMPORTANT: In `production` server mode (`arcadedb.server.mode=production`), ArcadeDB automatically sets `txWalFlush=1` if you have not explicitly configured it.
+This ensures that production deployments are durable by default.
+If you explicitly set `txWalFlush=0` in production mode, a warning is logged at startup.
+
+The WAL flush setting can also be changed per-database or per-transaction via the Java API:
+
+[source,java]
+----
+// Per-database
+database.setWALFlush(WALFile.FlushType.YES_NOMETADATA);
+
+// Per-transaction
+database.getTransaction().setWALFlush(WALFile.FlushType.YES_FULL);
+
+// Per async executor
+database.async().setTransactionSync(WALFile.FlushType.YES_NOMETADATA);
+----
+
+TIP: If your storage hardware has battery-backed write cache (BBU/BBWC) or power-loss protection (common in enterprise SSDs and cloud block storage like AWS EBS), `txWalFlush=0` is safe even in production because the hardware guarantees that buffered writes reach persistent storage on power loss.
+
 [discrete]
 ==== Optimistic Transaction
 
