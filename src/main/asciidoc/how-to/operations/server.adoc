@@ -119,21 +119,39 @@ $ export ARCADEDB_HOME=/path/to/arcadedb
 [[server-modes]]
 ===== Server modes
 
-The server can be started in one of three modes, which affect the studio and logging:
+The server can be started in one of three modes, which affect the studio, logging, and security defaults:
 
-[%header,cols=4]
+[%header,cols=5]
 |===
-| Mode | Studio | Logging | WAL Flush
-| `development` | Yes | Detailed | No flush (`0`)
-| `test` | Yes | Brief | No flush (`0`)
-| `production` | No | Brief | Auto-set to `1` if not configured
+| Mode | Studio | Logging | WAL Flush | LOAD CSV file access
+| `development` | Yes | Detailed | No flush (`0`) | Enabled
+| `test` | Yes | Brief | No flush (`0`) | Enabled
+| `production` | No | Brief | Auto-set to `1` if not configured | Auto-disabled if not configured
 |===
 
 The mode is controlled by the <<setting-table,`server.mode`>> setting with a default mode `development`.
 
-In `production` mode, if `arcadedb.txWalFlush` has not been explicitly set, it is automatically changed from `0` (no flush) to `1` (flush without metadata) to ensure transaction durability on power loss.
-If you explicitly set `arcadedb.txWalFlush=0` in production mode, a warning is logged.
-See <<wal-flush-durability>> for details.
+[[production-mode-defaults]]
+====== Production mode defaults
+
+When the server starts in `production` mode, ArcadeDB automatically applies safe defaults for settings that have not been explicitly configured:
+
+* **WAL flush** (`arcadedb.txWalFlush`): set to `1` (flush without metadata) for transaction durability. If you explicitly set it to `0`, a warning is logged. See <<wal-flush-durability>> for details.
+* **LOAD CSV file access** (`arcadedb.opencypher.loadCsv.allowFileUrls`): disabled to prevent Cypher queries from reading local files on the server. Set to `true` explicitly if needed.
+
+These defaults are only applied when the setting has not been explicitly configured by the user (via system property, environment variable, or API call). Explicit settings are always respected.
+
+At startup, a production checklist is logged summarizing the security-relevant configuration:
+
+[source,log]
+----
+INFO  Production checklist:
+INFO  - WAL flush: 1 (flush without metadata) [OK]
+INFO  - SSL: disabled. Consider enabling for encrypted connections
+INFO  - High availability: disabled. Consider enabling for fault tolerance
+INFO  - LOAD CSV file access: disabled [OK]
+INFO  - Backup support: enabled [OK]
+----
 
 ===== Create default database(s)
 
