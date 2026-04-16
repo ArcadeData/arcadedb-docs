@@ -2770,14 +2770,30 @@ SELECT vector.clip([1.0, 5.0, 10.0], 2.0, 8.0)
 
 Returns k nearest neighbors from a vector index.
 
-*Syntax:* `vector.neighbors(<index-spec>, <query-vector>, <k> [, <efSearch>])`
+*Syntax:*
+
+[source,sql]
+----
+vector.neighbors(<index-spec>, <query-vector>, <k>)
+vector.neighbors(<index-spec>, <query-vector>, <k>, <efSearch>)
+vector.neighbors(<index-spec>, <query-vector>, <k>, { <option>: <value>, ... })
+----
 
 *Parameters:*
 
 * `index-spec` - Index specification as `'TypeName[propertyName]'`
 * `query-vector` - Query vector or key to look up
 * `k` - Number of neighbors to return
-* `efSearch` - (optional) Search beam width. Controls the trade-off between recall and speed. Higher values improve recall but increase latency. When omitted, the index uses <<adaptive-efsearch,adaptive efSearch>>.
+* `efSearch` - (optional, positional) Search beam width. Controls the trade-off between recall and speed. Higher values improve recall but increase latency. When omitted, the index uses <<adaptive-efsearch,adaptive efSearch>>.
+
+*Options map* (optional, alternative to the positional `efSearch` argument):
+
+[%header,cols="1,1,3"]
+|===
+| Key | Type | Description
+| `efSearch` | Integer | Same semantics as the positional form.
+| `filter`   | List of RIDs or RID strings | Restricts the search to the provided set of records. Useful to combine a vector search with a logical filter: first select the candidate RIDs, then pass them as `filter`. Unknown keys are rejected.
+|===
 
 *Returns:* List - Nearest neighbors with distances
 
@@ -2786,9 +2802,28 @@ Returns k nearest neighbors from a vector index.
 -- Default (adaptive efSearch)
 SELECT vector.neighbors('Document[embedding]', [0.1, 0.2, 0.3], 5)
 
--- Explicit efSearch for higher recall
+-- Explicit efSearch for higher recall (positional form, backward compatible)
 SELECT vector.neighbors('Document[embedding]', [0.1, 0.2, 0.3], 5, 500)
+
+-- Options map form (named, extensible)
+SELECT vector.neighbors('Document[embedding]', [0.1, 0.2, 0.3], 5, { efSearch: 500 })
+
+-- Combine a vector search with a logical filter on the same type
+SELECT vector.neighbors(
+         'Document[embedding]',
+         [0.1, 0.2, 0.3],
+         10,
+         { filter: (SELECT @rid FROM Document WHERE tenantId = 'acme' AND category = 'finance') }
+       )
+
+-- Using a parameter binding for the RID list
+SELECT vector.neighbors('Document[embedding]', :queryVector, 10, { efSearch: 300, filter: :allowedRids })
 ----
+
+[NOTE]
+====
+The options map rejects unknown keys with a descriptive error to catch typos, for example passing `{ efsearch: 500 }` (lowercase) will fail. Keys are case sensitive.
+====
 
 *Cypher Usage:*
 

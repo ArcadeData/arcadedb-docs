@@ -139,15 +139,18 @@ This adaptive behavior gives you fast queries on easy lookups while still mainta
 
 You can set efSearch at three levels:
 
-*Per-query* (highest priority) -- pass as the 4th argument to `vectorNeighbors()`:
+*Per-query* (highest priority) -- pass as the 4th argument to `vectorNeighbors()`, either positionally or via the named options map:
 
 [source,sql]
 ----
--- Higher efSearch for a critical query that needs maximum recall
+-- Higher efSearch for a critical query that needs maximum recall (positional)
 SELECT expand(vectorNeighbors('Doc[embedding]', [...], 10, 500))
 
--- Lower efSearch for a latency-sensitive query
+-- Lower efSearch for a latency-sensitive query (positional)
 SELECT expand(vectorNeighbors('Doc[embedding]', [...], 10, 30))
+
+-- Options map form (extensible; also supports `filter`)
+SELECT expand(vectorNeighbors('Doc[embedding]', [...], 10, { efSearch: 500 }))
 ----
 
 *Per-index* -- set in the index metadata at creation time:
@@ -164,6 +167,25 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
 *Adaptive* (default) -- when neither per-query nor per-index efSearch is specified, the adaptive strategy described above is used.
 
 TIP: For most workloads, the adaptive default works well. Only set efSearch explicitly if you need consistently high recall regardless of query difficulty, or if you have strict latency requirements.
+
+==== Filtered Search
+
+Vector search can be combined with a logical filter on the same type by passing a `filter` option containing the allowed RIDs. The HNSW traversal restricts itself to that set, so non-matching vectors are skipped without decoding.
+
+[source,sql]
+----
+-- Find the 10 most similar documents within a specific tenant and category
+SELECT vectorNeighbors(
+         'Document[embedding]',
+         :queryVector,
+         10,
+         { filter: (SELECT @rid FROM Document WHERE tenantId = 'acme' AND category = 'finance') }
+       )
+----
+
+The `filter` value accepts a list of RIDs, RID strings, or any `Identifiable`. It can be produced by a subquery, a query parameter, or built programmatically.
+
+TIP: Very selective filters (only a tiny fraction of records match) can starve the HNSW beam; combine `filter` with a higher `efSearch` to preserve recall.
 
 ==== Multi-Modal Search
 
