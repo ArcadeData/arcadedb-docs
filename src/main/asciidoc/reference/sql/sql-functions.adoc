@@ -2195,15 +2195,33 @@ SELECT version()
 
 '''
 
+[NOTE]
+====
+*Full-Text Function Namespace*
+
+The four full-text search functions live under the `fulltext.*` namespace. The original snake_case names remain available as aliases for backward compatibility.
+
+[%header,cols="2,2"]
+|===
+| Legacy alias | Canonical name
+| `search_fields()`       | `fulltext.searchFields()`
+| `search_index()`        | `fulltext.searchIndex()`
+| `search_fields_more()`  | `fulltext.searchFieldsMore()`
+| `search_index_more()`   | `fulltext.searchIndexMore()`
+|===
+
+Both forms dispatch to the same implementation. The namespaced form is recommended for new code.
+====
+
 [discrete]
 [[search-index-fn]]
-====== SEARCH_INDEX()
+====== fulltext.searchIndex()
 
 Searches a named full-text index using Lucene query syntax.
 Returns `true` for matching documents; use `$score` to rank results.
 See <<full-text-index-searching>> for full documentation, Lucene syntax, and examples.
 
-Syntax: `SEARCH_INDEX(indexName, query)`
+Syntax: `fulltext.searchIndex(indexName, query)` (alias: `search_index`)
 
 *Examples*
 
@@ -2211,7 +2229,7 @@ Syntax: `SEARCH_INDEX(indexName, query)`
 ----
 SELECT title, $score
 FROM Article
-WHERE SEARCH_INDEX('Article[content]', '+java +spring')
+WHERE `fulltext.searchIndex`('Article[content]', '+java +spring')
 ORDER BY $score DESC
 ----
 
@@ -2219,13 +2237,13 @@ ORDER BY $score DESC
 
 [discrete]
 [[search-fields-fn]]
-====== SEARCH_FIELDS()
+====== fulltext.searchFields()
 
 Searches a full-text index resolved automatically from field names.
-Equivalent to `SEARCH_INDEX` but without needing to know the index name.
+Equivalent to `fulltext.searchIndex` but without needing to know the index name.
 See <<full-text-index-searching>> for full documentation.
 
-Syntax: `SEARCH_FIELDS(fieldNames, query)`
+Syntax: `fulltext.searchFields(fieldNames, query)` (alias: `search_fields`)
 
 *Examples*
 
@@ -2233,7 +2251,7 @@ Syntax: `SEARCH_FIELDS(fieldNames, query)`
 ----
 SELECT title, $score
 FROM Article
-WHERE SEARCH_FIELDS(['title', 'body'], 'database tutorial')
+WHERE `fulltext.searchFields`(['title', 'body'], 'database tutorial')
 ORDER BY $score DESC
 ----
 
@@ -2241,13 +2259,23 @@ ORDER BY $score DESC
 
 [discrete]
 [[search-index-more-fn]]
-====== SEARCH_INDEX_MORE()
+====== fulltext.searchIndexMore()
 
 Finds documents similar to one or more source documents ("More Like This").
-Use `$similarity` (0.0–1.0) to rank results.
+Use `$similarity` (0.0-1.0) to rank results.
 See <<full-text-index-mlt>> for full documentation including configuration options.
 
-Syntax: `SEARCH_INDEX_MORE(indexName, sourceRIDs [, config])`
+Syntax:
+
+[source,sql]
+----
+fulltext.searchIndexMore(indexName, sourceRIDs)
+fulltext.searchIndexMore(indexName, sourceRIDs, { <option>: <value>, ... })
+----
+
+Alias: `search_index_more`.
+
+The optional trailing argument is a map of tuning options. Accepted keys: `minTermFreq`, `minDocFreq`, `maxDocFreqPercent`, `maxQueryTerms`, `minWordLen`, `maxWordLen`, `boostByScore`, `excludeSource`, `maxSourceDocs`. Unknown keys are rejected with a descriptive error.
 
 *Examples*
 
@@ -2255,7 +2283,7 @@ Syntax: `SEARCH_INDEX_MORE(indexName, sourceRIDs [, config])`
 ----
 SELECT title, $similarity
 FROM Article
-WHERE SEARCH_INDEX_MORE('Article[content]', [#10:3])
+WHERE `fulltext.searchIndexMore`('Article[content]', [#10:3], { minTermFreq: 1, boostByScore: true })
 ORDER BY $similarity DESC
 LIMIT 5
 ----
@@ -2264,12 +2292,20 @@ LIMIT 5
 
 [discrete]
 [[search-fields-more-fn]]
-====== SEARCH_FIELDS_MORE()
+====== fulltext.searchFieldsMore()
 
-Same as `SEARCH_INDEX_MORE` but resolves the full-text index automatically from field names.
+Same as `fulltext.searchIndexMore` but resolves the full-text index automatically from field names.
 See <<full-text-index-mlt>> for full documentation.
 
-Syntax: `SEARCH_FIELDS_MORE(fieldNames, sourceRIDs [, config])`
+Syntax:
+
+[source,sql]
+----
+fulltext.searchFieldsMore(fieldNames, sourceRIDs)
+fulltext.searchFieldsMore(fieldNames, sourceRIDs, { <option>: <value>, ... })
+----
+
+Alias: `search_fields_more`. Options map keys are the same as `fulltext.searchIndexMore`.
 
 *Examples*
 
@@ -2277,7 +2313,7 @@ Syntax: `SEARCH_FIELDS_MORE(fieldNames, sourceRIDs [, config])`
 ----
 SELECT title, $similarity
 FROM Article
-WHERE SEARCH_FIELDS_MORE(['content'], [#10:3])
+WHERE `fulltext.searchFieldsMore`(['content'], [#10:3], { minTermFreq: 1, excludeSource: true })
 ORDER BY $similarity DESC
 ----
 

@@ -4944,6 +4944,8 @@ The following algorithms are also available as SQL functions that return a list 
 [source,sql]
 ----
 dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direction>])
+dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>,
+         { direction: <string>, edgeTypeNames: [...], maxDepth: <long>, emptyIfMaxDepth: <bool> })
 ----
 
 *Parameters*
@@ -4955,8 +4957,10 @@ dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <directio
 | `sourceVertex` | Vertex / RID | Yes | — | Source vertex
 | `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
 | `weightEdgeFieldName` | String | Yes | — | Edge property name for weights
-| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
 |===
+
+The 4th argument can also be an options map with keys `direction`, `edgeTypeNames`, `maxDepth`, `emptyIfMaxDepth`. Unknown keys are rejected with a descriptive error.
 
 *Return Value*
 
@@ -4966,11 +4970,15 @@ dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <directio
 
 SQL function equivalent of `algo.dijkstra`. Internally delegates to the A* implementation with no heuristic. Returns a `LinkedList` of vertex RIDs.
 
-*Example*
+*Examples*
 
 [source,sql]
 ----
+-- Positional form (backward compatible)
 SELECT dijkstra(#12:0, #12:5, 'weight', 'OUT') AS path
+
+-- Options map form
+SELECT dijkstra(#12:0, #12:5, 'weight', { direction: 'OUT', maxDepth: 20 }) AS path
 ----
 
 See also: <<dijkstra,dijkstra()>> in SQL Functions reference and <<algo-dijkstra>> for the Cypher procedure variant.
@@ -4994,6 +5002,7 @@ See also: <<dijkstra,dijkstra()>> in SQL Functions reference and <<algo-dijkstra
 [source,sql]
 ----
 bellmanFord(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direction>])
+bellmanFord(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, { direction: <string> })
 ----
 
 *Parameters*
@@ -5005,7 +5014,7 @@ bellmanFord(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direc
 | `sourceVertex` | Vertex / RID | Yes | — | Source vertex
 | `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
 | `weightEdgeFieldName` | String | Yes | — | Edge property name for weights (may be negative)
-| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
 |===
 
 *Return Value*
@@ -5021,6 +5030,7 @@ SQL function equivalent of `algo.bellmanford`. Supports negative edge weights an
 [source,sql]
 ----
 SELECT bellmanFord(#12:0, #12:5, 'cost') AS path
+SELECT bellmanFord(#12:0, #12:5, 'cost', { direction: 'OUT' }) AS path
 ----
 
 See also: <<algo-bellman-ford>> for the Cypher procedure variant.
@@ -5043,7 +5053,10 @@ See also: <<algo-bellman-ford>> for the Cypher procedure variant.
 
 [source,sql]
 ----
-shortestPath(<sourceVertex>, <destinationVertex> [, <direction> [, <edgeType>]])
+shortestPath(<sourceVertex>, <destinationVertex>)
+shortestPath(<sourceVertex>, <destinationVertex>, <direction>, <edgeType>, { maxDepth, edge })
+shortestPath(<sourceVertex>, <destinationVertex>,
+             { direction: <string>, edgeType | edgeTypeNames: <string|list>, maxDepth: <int>, edge: <bool> })
 ----
 
 *Parameters*
@@ -5054,9 +5067,13 @@ shortestPath(<sourceVertex>, <destinationVertex> [, <direction> [, <edgeType>]])
 
 | `sourceVertex` | Vertex / RID | Yes | — | Source vertex
 | `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
-| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
-| `edgeType` | String | No | all types | Edge type name to restrict traversal
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Positional or map key.
+| `edgeType` | String / List | No | all types | Edge type(s) to restrict traversal. Positional or map key (`edgeType` or `edgeTypeNames`).
+| `maxDepth` | Int | No | unlimited | Stop after this many hops. Options-map only (or via the trailing map in the positional form).
+| `edge` | Bool | No | `false` | Include edge RIDs in the result. Options-map only.
 |===
+
+The 3rd argument can be a direction string (backward compatible) OR an options map consolidating all knobs. Unknown keys are rejected with a descriptive error.
 
 *Return Value*
 
@@ -5064,13 +5081,17 @@ shortestPath(<sourceVertex>, <destinationVertex> [, <direction> [, <edgeType>]])
 
 *Description*
 
-Finds the unweighted shortest path (minimum hop count) between two vertices using bidirectional BFS (meets in the middle), which can be significantly faster than single-direction BFS for large graphs. Optionally accepts a map parameter with `maxDepth` and `edge` flags.
+Finds the unweighted shortest path (minimum hop count) between two vertices using bidirectional BFS (meets in the middle), which can be significantly faster than single-direction BFS for large graphs.
 
-*Example*
+*Examples*
 
 [source,sql]
 ----
+-- Positional form (backward compatible)
 SELECT shortestPath(#12:0, #12:9, 'BOTH', 'KNOWS') AS path
+
+-- Options map form
+SELECT shortestPath(#12:0, #12:9, { direction: 'BOTH', edgeTypeNames: ['KNOWS'], maxDepth: 6 }) AS path
 ----
 
 *References*

@@ -280,18 +280,23 @@ LIMIT 10
 "More Like This" finds documents similar to one or more source documents.
 It extracts representative terms from the sources, then searches for other documents sharing those terms.
 
+[NOTE]
+====
+The four full-text search functions (`searchIndex`, `searchFields`, `searchIndexMore`, `searchFieldsMore`) are registered under the `fulltext.*` namespace. The legacy snake_case names (`search_index`, `search_fields`, `search_index_more`, `search_fields_more`) remain available as aliases for backward compatibility. Both forms dispatch to the same implementation.
+====
+
 [[search-index-more]]
-====== SEARCH_INDEX_MORE()
+====== fulltext.searchIndexMore()
 
 [source,sql]
 ----
 SELECT title, $score, $similarity
 FROM Article
-WHERE SEARCH_INDEX_MORE('Article[content]', [#10:3])
+WHERE `fulltext.searchIndexMore`('Article[content]', [#10:3])
 ORDER BY $similarity DESC
 ----
 
-*Signature:* `SEARCH_INDEX_MORE(indexName, sourceRIDs [, config])`
+*Signature:* `fulltext.searchIndexMore(indexName, sourceRIDs [, options])` (alias: `search_index_more`)
 
 [%header,cols="1,1,3"]
 |===
@@ -305,25 +310,25 @@ ORDER BY $similarity DESC
 | array of RIDs
 | One or more source documents
 
-| `config`
-| JSON object
-| Optional MLT parameters (see <<full-text-index-mlt-config>>)
+| `options`
+| map
+| Optional MLT tuning options (see <<full-text-index-mlt-config>>). Unknown keys are rejected.
 |===
 
 [[search-fields-more]]
-====== SEARCH_FIELDS_MORE()
+====== fulltext.searchFieldsMore()
 
-Same as `SEARCH_INDEX_MORE` but resolves the full-text index automatically from field names:
+Same as `fulltext.searchIndexMore` but resolves the full-text index automatically from field names:
 
 [source,sql]
 ----
 SELECT title, $similarity
 FROM Article
-WHERE SEARCH_FIELDS_MORE(['content'], [#10:3])
+WHERE `fulltext.searchFieldsMore`(['content'], [#10:3])
 ORDER BY $similarity DESC
 ----
 
-*Signature:* `SEARCH_FIELDS_MORE(fieldNames, sourceRIDs [, config])`
+*Signature:* `fulltext.searchFieldsMore(fieldNames, sourceRIDs [, options])` (alias: `search_fields_more`)
 
 [%header,cols="1,1,3"]
 |===
@@ -337,9 +342,9 @@ ORDER BY $similarity DESC
 | array of RIDs
 | One or more source documents
 
-| `config`
-| JSON object
-| Optional MLT parameters (see <<full-text-index-mlt-config>>)
+| `options`
+| map
+| Optional MLT tuning options (see <<full-text-index-mlt-config>>). Unknown keys are rejected.
 |===
 
 ====== Multiple Source Documents
@@ -371,17 +376,17 @@ LIMIT 5
 [[full-text-index-mlt-config]]
 ====== More Like This Configuration
 
-Pass an optional JSON object to tune the algorithm:
+Pass an optional map of tuning options. Unknown keys are rejected with a descriptive error to catch typos; keys are case sensitive.
 
 [source,sql]
 ----
 SELECT title, $similarity
 FROM Article
-WHERE SEARCH_FIELDS_MORE(['title', 'content'], [#10:3], {
-  "minTermFreq": 1,
-  "minDocFreq": 3,
-  "maxQueryTerms": 50,
-  "excludeSource": false
+WHERE `fulltext.searchFieldsMore`(['title', 'content'], [#10:3], {
+  minTermFreq: 1,
+  minDocFreq: 3,
+  maxQueryTerms: 50,
+  excludeSource: false
 })
 ----
 
