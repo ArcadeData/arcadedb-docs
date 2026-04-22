@@ -2,58 +2,41 @@
 ==== High Availability
 image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/operations/ha.adoc" float="right"]
 
-ArcadeDB supports a High Availability mode where multiple servers share the same database via replication.
+ArcadeDB supports a High Availability (HA) mode where multiple servers share the same databases via Raft-based replication.
+All servers of a cluster serve the same set of databases.
 
-NOTE: All servers of a cluster serve the same databases.
+NOTE: Starting with v26.4.1, HA is powered by https://ratis.apache.org/[Apache Ratis], a production-grade implementation of the https://raft.github.io/[Raft consensus protocol].
+The old custom replication protocol has been removed.
+For the underlying concepts, see <<ha-concepts,High Availability Concepts>>.
 
-In order to start an ArcadeDB server with the support for replication, you need to:
+===== Quick Start
 
-1. Enable the HA module by setting the configuration `arcadedb.ha.enabled` to `true`
-2. Define the servers that are part of the clusters (if you are using Kubernetes, look at <<kubernetes,Kubernetes>> paragraph).
-To setup the server list, define the `arcadedb.ha.serverList` setting by separating the servers with commas (`,`) and using the following format for servers: `<hostname/ip-address[:port]>`.
-The default port is `2424` if not specified.
-3. Define the local server name by setting the `arcadedb.server.name` configuration.
-Each node must have a unique name.
-If not specified, the default server name is `ArcadeDB_0`.
+To start an ArcadeDB server with HA enabled, at minimum you need to:
 
-Example:
+1. Set `arcadedb.ha.enabled` to `true`.
+2. Define the list of peers in the cluster via `arcadedb.ha.serverList` (if you are deploying on Kubernetes, see <<kubernetes,Kubernetes>>).
+   The value is a comma-separated list of entries in the format `host:raftPort:httpPort[:priority]`.
+3. Optionally set the local server name via `arcadedb.server.name`. Each node must have a unique name.
+   If not specified, the default is `ArcadeDB_0`.
 
-[source,shell]
-----
-$ bin/server.sh -Darcadedb.ha.enabled=true
-                -Darcadedb.server.name=FloridaServer
-                -Darcadedb.ha.serverList=192.168.0.2,192.168.0.1:2424,japan-server:8888
-----
-
-The log should look like this:
+Example starting a 3-node cluster on a single host (different ports):
 
 [source,shell]
 ----
-[HttpServer] <FloridaServer> - HTTP Server started (host=0.0.0.0 port=2480)
-[LeaderNetworkListener] <ArcadeDB_0> Listening for replication connections on 127.0.0.1:2424 (protocol v.-1)
-[HAServer] <FloridaServer> Unable to find any Leader, start election (cluster=arcadedb configuredServers=1 majorityOfVotes=1)
-[HAServer] <FloridaServer> Change election status from DONE to VOTING_FOR_ME
-[HAServer] <FloridaServer> Starting election of local server asking for votes from [] (turn=1 retry=0 lastReplicationMessage=-1 configuredServers=1 majorityOfVotes=1)
-[HAServer] <FloridaServer> Current server elected as new Leader (turn=1 totalVotes=1 majority=1)
-[HAServer] <FloridaServer> Change election status from VOTING_FOR_ME to LEADER_WAITING_FOR_QUORUM
-[HAServer] <FloridaServer> Contacting all the servers for the new leadership (turn=1)...
+$ bin/server.sh -Darcadedb.ha.enabled=true \
+                -Darcadedb.server.name=node1 \
+                -Darcadedb.ha.serverList=localhost:2434:2480,localhost:2435:2481,localhost:2436:2482
 ----
 
-At startup, the ArcadeDB server will look for an existent cluster to join based on the configured list of servers, otherwise a new cluster will be created.
-In this example we set the server name to `FloridaServer`.
+The Raft gRPC port is `2434` by default and is configurable via `arcadedb.ha.raftPort`.
+The HTTP port in each entry is required so that replicas can forward non-idempotent requests to the leader over HTTP.
 
-Every time a server joins a cluster, it starts the process to elect the new leader.
-If the cluster exists and already contains a Leader, then the existent leader is kept.
-Every time a server leaves the cluster (because it becomes unreachable), the election process is started again.
-To know more about the RAFT election process, look at https://raft.github.io/[RAFT protocol].
-
-NOTE: The cluster name by default is "arcadedb", but you can have multiple clusters in the same network.
-To specify a custom name, set the configuration `arcadedb.ha.clusterName=<name>`.
-Example: `bin/server.sh -Darcadedb.ha.clusterName=projectB`
+NOTE: The cluster name is `arcadedb` by default; set `arcadedb.ha.clusterName=<name>` to run multiple independent clusters on the same network.
 
 ===== Architecture
 
-ArcadeDB has a Leader/Replica model by using RAFT consensus for election and replication.
+ArcadeDB uses a leader/replica model with Raft consensus.
+At any time one server holds leadership and accepts writes; the others are replicas that serve reads and stand by for failover.
 
 .Cluster of Servers
 [d2,ha-architecture]
@@ -80,33 +63,33 @@ ArcadeDB_2: {
   label: "ArcadeDB_2\nReplica"
 }
 
-Journal_1: {
+RaftLog_1: {
   shape: rectangle
-  label: "Journal\n{d}"
+  label: "Raft Log\n{d}"
 }
 
-Journal_0: {
+RaftLog_0: {
   shape: rectangle
-  label: "Journal\n{d}"
+  label: "Raft Log\n{d}"
 }
 
-Journal_2: {
+RaftLog_2: {
   shape: rectangle
-  label: "Journal\n{d}"
+  label: "Raft Log\n{d}"
 }
 
-ArcadeDB_0 -> ArcadeDB_1
-ArcadeDB_0 -> ArcadeDB_2
-ArcadeDB_1 -> Journal_1
-ArcadeDB_0 -> Journal_0
-ArcadeDB_2 -> Journal_2
+ArcadeDB_0 -> ArcadeDB_1: "append entries (gRPC)"
+ArcadeDB_0 -> ArcadeDB_2: "append entries (gRPC)"
+ArcadeDB_1 -> RaftLog_1
+ArcadeDB_0 -> RaftLog_0
+ArcadeDB_2 -> RaftLog_2
 ....
 
-Each server has its own journal.
-The journal is used in case of recovery of the cluster to get the most updated replica and to align the other nodes.
-All the write operations must be coordinated by the leader node.
+Each server persists its own Raft log segments under `<rootPath>/raft-storage/`.
+The log is used for recovery after restart and to replicate state to peers that fall behind.
 
-Any read operation, like a query, can be executed by any server in the cluster, while write operations can be executed only by the leader server.
+Any read (query) can execute on any server in the cluster.
+All writes must go through the leader: a replica that receives a write transparently forwards it to the current leader via HTTP.
 
 .Read request executed on a replica
 [d2,ha-replica-read]
@@ -129,16 +112,10 @@ ArcadeDB_1_Replica: {
 }
 
 ClientA -> ArcadeDB_1_Replica: {label: "(1) read request"}
-ArcadeDB_1_Replica -> ClientA: {label: "(2) send result\nto the client"}
+ArcadeDB_1_Replica -> ClientA: {label: "(2) result"}
 ....
 
-ArcadeDB doesn't mandate the clients to be connected directly to the leader to execute write operations, but will use the replica server to forward the write request to the leader server.
-Everything is transparent for the end user where both leader and replica servers can read and write, but internally only the read requests are executed on the connected server.
-All the write requests will be transparently forwarded to the leader.
-
-Look at the picture below where the client `Client A` is connected to the replica server `ArcadeDB_1` where it executes a write request.
-
-.Write Request executed on a Replica
+.Write request executed on a replica (proxied to leader)
 [d2,ha-replica-forward]
 ....
 vars: {
@@ -164,81 +141,287 @@ ArcadeDB_0_Leader: {
 }
 
 ClientA_Forward -> ArcadeDB_1_Forward: {label: "(1) write request"}
-ArcadeDB_1_Forward -> ArcadeDB_0_Leader: {label: "(2) forward"}
-ArcadeDB_0_Leader -> ArcadeDB_1_Forward: {label: "(3) execute write request\n(4) replicate to all servers\n(including ArcadeDB_1)"}
-ArcadeDB_1_Forward -> ClientA_Forward: {label: "(5) Send result back to the\nrequesting server\n(6) send result to the client"}
+ArcadeDB_1_Forward -> ArcadeDB_0_Leader: {label: "(2) HTTP proxy"}
+ArcadeDB_0_Leader -> ArcadeDB_1_Forward: {label: "(3) 3-phase commit\n(4) replicate via Raft"}
+ArcadeDB_0_Leader -> ArcadeDB_1_Forward: {label: "(5) response"}
+ArcadeDB_1_Forward -> ClientA_Forward: {label: "(6) response"}
 ....
 
-===== Auto fail-over
+Internally, every committed write follows a *replicate-first, commit-after* three-phase commit:
 
-ArcadeDB cluster uses a quorum to assure the integrity of the database is maintained across all the servers forming the cluster.
-The quorum is set by default to `MAJORITY`, that means the majority of the servers in the cluster must return the same result to be considered accepted and propagated to all the servers.
+. Phase 1 (read lock): capture the WAL pages produced by the transaction.
+. Phase 2 (no lock): append the payload to the Raft log and wait for quorum acknowledgment.
+. Phase 3 (read lock): apply the pages to the local database and return to the client.
 
-NOTE: The quorum is `MAJORITY` by default.
-You can specify a different quorum by setting the number of servers or `none` to have no quorum and `all` to wait the response from all the servers.
-Set the configuration `arcadedb.ha.quorum=<quorum>`.
-Example: `bin/server.sh -Darcadedb.ha.quorum=all`
+If Phase 2 times out or fails, Phase 3 never runs: no local writes, no divergence.
+Multiple concurrent transactions are batched into fewer Raft round-trips via group commit (`HA_RAFT_GROUP_COMMIT_BATCH_SIZE`).
 
-If the configured quorum is not met, the transaction is rollback on all the servers, the database returns to the previous state and a transaction error is thrown to the client.
+===== Write Quorum
 
-ArcadeDB manages the fail-over automatically in most of the cases.
+A *quorum* is the number of peers that must acknowledge a write before it commits.
+Configure it via `arcadedb.ha.quorum`:
 
-====== Server unreachable
+* `majority` (default) -- a majority of peers must acknowledge (standard Raft).
+* `all` -- every configured peer must acknowledge.
 
-A server can become unreachable for many reasons:
+If the configured quorum is not met within `arcadedb.ha.quorumTimeout` milliseconds, the transaction is rolled back and an error is returned to the client.
 
-- The ArcadeDB server process has been terminated
-- The physical or virtual server hosting the ArcadeDB server process has been shut off or is rebooting
-- The physical or virtual server hosting the ArcadeDB server process has network issues and can't reach one or more of the other servers
-- Network issues that prevent the ArcadeDB server to communicate with the rest of the servers in the cluster
+[IMPORTANT]
+====
+Starting with v26.4.1, the legacy quorum values `none`, `one`, `two`, `three` are *no longer supported* and will cause a startup error.
+If you were using any of those values, update your configuration to `majority` or `all` before upgrading.
+====
 
-===== Auto balancing clients
+===== Read Consistency (from v26.4.1)
 
-More coming soon.
+When a read runs on a replica, ArcadeDB offers three consistency levels, configurable per-server via `arcadedb.ha.readConsistency`:
+
+[%header,cols="20%,80%"]
+|===
+| Level | Behavior
+| `eventual`
+| Read locally without waiting. Fastest, but may return data that was committed on the leader after the replica's last apply.
+| `read_your_writes` (default)
+| The replica waits until the Raft log index corresponding to the client's most recent write has been applied locally before serving the read.
+| `linearizable`
+| The replica issues a Raft `ReadIndex` request to the leader and waits until its local applied index reaches the leader's committed index for that request. Strongest guarantee, highest latency.
+|===
+
+Clients communicate the consistency contract through three HTTP headers:
+
+[%header,cols="30%,12%,58%"]
+|===
+| Header | Direction | Purpose
+
+| `X-ArcadeDB-Read-Consistency`
+| request
+| Overrides the server default for this request. Accepts `eventual`, `read_your_writes`, or `linearizable`.
+
+| `X-ArcadeDB-Read-After`
+| request
+| Client-supplied bookmark: the Raft commit index the replica must have applied before serving the read. Used to implement read-your-writes across connections.
+
+| `X-ArcadeDB-Commit-Index`
+| response
+| Current last-applied commit index, echoed on every response. Clients capture this value and send it back as `X-ArcadeDB-Read-After` on subsequent reads.
+|===
+
+NOTE: Older clients that sent `X-ArcadeDB-Commit-Index` on requests are still accepted as a backward-compatible fallback.
+
+===== Load Shedding and Backpressure (from v26.4.1)
+
+The Raft group-commit queue is bounded (`arcadedb.ha.groupCommitQueueSize`, default 10000 pending transactions).
+When a write arrives but the queue is full, the server waits up to `arcadedb.ha.groupCommitOfferTimeout` ms (default 100) for a slot, and if still full throws `ReplicationQueueFullException` -- a `NeedRetryException` that clients automatically retry with backoff.
+This protects the server from OOM under sustained write overload and lets clients back off gracefully.
+
+===== Witness / Read-Scale Nodes (from v26.4.1)
+
+Set `arcadedb.ha.serverRole=replica` to pin a node as a permanent replica.
+The node's Raft priority is set to 0 at startup so it is never elected leader, while still receiving all writes and serving reads.
+Useful for read-scale deployments or for cross-DC witnesses that should not take over as leader.
+
+===== Automatic Failover
+
+If the leader becomes unreachable, replicas start a new Raft election.
+A replica with an up-to-date log is elected as the new leader and the cluster resumes serving writes.
+Pre-vote prevents partitioned nodes from triggering disruptive elections.
+
+Common causes of leader unavailability include:
+
+- The ArcadeDB server process has been terminated.
+- The physical or virtual host has been shut down or rebooted.
+- Network issues prevent the leader from reaching a majority of peers.
+
+When a replica rejoins after being offline, it catches up via the Raft log automatically; if it has fallen behind past the log purge boundary, the leader streams a full database snapshot over HTTP and the replica installs it atomically.
+
+[[howto-ha-rest]]
+===== Cluster Management REST API (from v26.4.1)
+
+Cluster membership and leadership can be changed at runtime through dedicated REST endpoints.
+All endpoints require authentication as the `root` user.
+
+[%header,cols="10%,35%,55%"]
+|===
+|Method |Path |Description
+
+|GET
+|`/api/v1/cluster`
+|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, and per-follower replication lag.
+
+|POST
+|`/api/v1/cluster/peer`
+|Add a peer to the running cluster. Body: `{"peerId":"<name>","address":"host:raftPort:httpPort"}`. The new peer is seeded with the current user list so authentication works immediately.
+
+|DELETE
+|`/api/v1/cluster/peer/{peerId}`
+|Remove a peer from the cluster.
+
+|POST
+|`/api/v1/cluster/leader`
+|Transfer leadership. Body: `{"peerId":"<target>","timeoutMs":30000}`. If `peerId` is omitted, Raft picks a new leader automatically.
+
+|POST
+|`/api/v1/cluster/stepdown`
+|Make the current leader step down. The cluster elects a new leader.
+
+|POST
+|`/api/v1/cluster/leave`
+|Gracefully remove this server from the cluster. If the local server is the leader, leadership is transferred first. This endpoint is used by the Kubernetes `preStop` hook.
+
+|POST
+|`/api/v1/cluster/verify/{database}`
+|Compare component file checksums for the given database across all peers. Useful to confirm that all nodes have converged.
+
+|GET
+|`/api/v1/ha/snapshot/{database}`
+|Leader-only: stream a ZIP of the database for follower catch-up. Requires the cluster token and is used internally by snapshot recovery.
+|===
+
+Example: add a new peer at runtime.
+
+[source,shell]
+----
+$ curl -u root:<password> \
+       -X POST http://leader:2480/api/v1/cluster/peer \
+       -H 'Content-Type: application/json' \
+       -d '{"peerId":"node4","address":"10.0.0.4:2434:2480"}'
+----
+
+===== Studio Cluster Dashboard (from v26.4.1)
+
+ArcadeDB Studio exposes a *Cluster* tab (visible when HA is enabled) that displays the current leader, peer roles, Raft term and commit index, per-follower replication lag, and provides buttons for leadership transfer, peer add/remove, and database verification.
+See <<studio,Studio>>.
+
+===== Security
+
+*Cluster token*:: Inter-node HTTP forwarding (replica -> leader proxy, snapshot downloads) is authenticated with a shared *cluster token* sent as the `X-ArcadeDB-Cluster-Token` HTTP header.
+If `arcadedb.ha.clusterToken` is not set explicitly, the token is auto-generated on first startup and persisted under `raft-storage/`; all subsequent nodes must start with the same token (or with `HA_CLUSTER_TOKEN` unset so they can read it from the same storage).
+Set it explicitly for production deployments to coordinate the token across nodes.
+
+*Peer allowlist*:: Inbound Raft gRPC connections are filtered against the DNS-resolved hosts in `arcadedb.ha.serverList`; connections from other addresses are rejected.
+This closes the "any host that knows the port can inject log entries" vector.
+It is *not* a substitute for mTLS: deploy HA behind a private network, NetworkPolicy, or service mesh on untrusted networks.
+
+===== Kubernetes
+
+ArcadeDB supports the standard StatefulSet + Headless Service pattern for Raft deployments (similar to etcd, Apache Ozone, CockroachDB).
+The official Helm chart pre-computes the full server list from `replicaCount` and injects it via environment variables.
+
+Minimal configuration:
+
+[source,properties]
+----
+arcadedb.ha.enabled=true
+arcadedb.ha.k8s=true
+arcadedb.ha.k8sSuffix=.arcadedb.default.svc.cluster.local
+arcadedb.ha.serverList=arcadedb-0.arcadedb.default.svc.cluster.local:2434:2480,arcadedb-1.arcadedb.default.svc.cluster.local:2434:2480,arcadedb-2.arcadedb.default.svc.cluster.local:2434:2480
+----
+
+*Auto-join on scale-up (from v26.4.1)*:: When `arcadedb.ha.k8s=true` and a new pod starts without an existing Raft storage directory, the server automatically joins the existing cluster via the Raft `SetConfiguration(ADD)` admin API.
+This enables zero-downtime scale-up: `kubectl scale statefulset arcadedb --replicas=5` adds new pods that join the existing cluster without restarting the existing peers.
+
+*Auto-leave on scale-down*:: The Helm chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so the terminating pod cleanly transfers leadership (if it holds it) and is removed from the Raft group before shutdown.
 
 ===== Troubleshooting
 
 ====== Performance: insertion is slow
 
-ArcadeDB uses an optimistic lock approach: if two threads try to update the same page, the first thread wins, the second thread throws a `ConcurrentModificationException` and forces the client to retry the transaction or fail after a certain number of retries (configurable).
-Often this fail/retry mechanism is totally hidden to the developer that executes a transaction via HTTP or via the Java API:
+ArcadeDB uses an optimistic concurrency model: if two threads try to update the same page, the first wins, the second throws a `ConcurrentModificationException` and the client retries (configurable number of times).
+In HA mode the retry window is wider because file locks are held during the Raft round-trip.
 
-[source,java]
-----
-db.transaction( ()-> {
-  // MY TRANSACTION CODE
-});
-----
-
-If you are inserting a lot of record in parallel (by using the server, or just via API multi-thread), you could benefit by allocating the bucket per thread. Example to change the bucket selection strategy for the vertex type "User" via SQL:
+If you are inserting many records in parallel, allocate one bucket per thread to eliminate contention.
+Example for the vertex type `User`:
 
 [source,sql]
 ----
 ALTER TYPE User BucketSelectionStrategy `thread`
 ----
 
-With the command above, in insertion ArcadeDB will select the physical bucket based on the thread the request is coming from. If you have enough buckets (created by default when you create a new type, but you can manually adjust it) insertions can go truly in parallel with zero contentions in pages, meaning zero exception and retries.
+With enough buckets, parallel insertions avoid page contention entirely and do not hit the retry path.
+
+====== Verbose HA logging
+
+Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
+
+* `0` -- off (default).
+* `1` -- basic: elections, leader changes, peer membership.
+* `2` -- detailed: commands, WAL replication, schema.
+* `3` -- trace: every state machine apply.
 
 ===== HA Settings
 
-The following <<settings-sql,settings>> are used by the High Availability module:
+The following <<settings-sql,settings>> control HA behavior.
+A complete list of all HA parameters is available in <<arcadedb-settings,Server Settings>>.
 
 [%header,cols=3]
 |===
 |Setting|Description|Default Value
-|`+arcadedb.ha.clusterName+`|Cluster name.
-Useful in case of multiple clusters in the same network|arcadedb
-|`+arcadedb.ha.serverList+`|Servers in the cluster as a list of <hostname/ip-address:port> items separated by comma.
-Example: 192.168.0.1:2424,192.168.0.2:2424. If not specified, auto-discovery is enabled|NOT DEFINED (auto discovery is enabled by default)
-|`+arcadedb.ha.serverRole+`|Enforces a role in a cluster, either "any" or "replica"|"any"
-|`+arcadedb.ha.quorum+`|Default quorum between 'none', 1, 2, 3, 'majority' and 'all' servers|MAJORITY
-|`+arcadedb.ha.quorumTimeout+`|Timeout waiting for the quorum|10000
-|`+arcadedb.ha.k8s+`|The server is running inside Kubernetes|false
-|`+arcadedb.ha.k8sSuffix+`|When running inside Kubernetes use this suffix to reach the other servers.
-Example: `+arcadedb.default.svc.cluster.local+`|
-|`+arcadedb.ha.replicationQueueSize+`|Queue size for replicating messages between servers| 512
-|`+arcadedb.ha.replicationFileMaxSize+`|Maximum file size for replicating messages between servers|1GB
-|`+arcadedb.ha.replicationChunkMaxSize+`|Maximum channel chunk size for replicating messages between servers|16777216
-|`+arcadedb.ha.replicationIncomingHost+`|TCP/IP host name used for incoming replication connections|localhost
-|`+arcadedb.ha.replicationIncomingPorts+`|TCP/IP port number (range) used for incoming replication connections|2424-2433
+
+|`+arcadedb.ha.enabled+`
+|Enables HA for this server
+|false
+
+|`+arcadedb.ha.clusterName+`
+|Cluster name. Useful when running multiple clusters in the same network
+|arcadedb
+
+|`+arcadedb.ha.serverList+`
+|Comma-separated list of peers in the format `host:raftPort:httpPort[:priority]`. The optional priority (integer, default 0) prefers higher-valued nodes during elections. Example: `localhost:2434:2480:10,192.168.0.1:2434:2480:0`
+|(empty)
+
+|`+arcadedb.ha.raftPort+`
+|Default Raft gRPC port used when an entry in `serverList` does not specify one
+|2434
+
+|`+arcadedb.ha.quorum+`
+|Write quorum: `majority` or `all`
+|majority
+
+|`+arcadedb.ha.quorumTimeout+`
+|Timeout in ms waiting for the quorum acknowledgment
+|10000
+
+|`+arcadedb.ha.readConsistency+`
+|Default read consistency for follower reads: `eventual`, `read_your_writes`, `linearizable`
+|read_your_writes
+
+|`+arcadedb.ha.electionTimeoutMin+` / `+arcadedb.ha.electionTimeoutMax+`
+|Minimum and maximum Raft election timeout in ms. Increase for WAN clusters
+|2000 / 5000
+
+|`+arcadedb.ha.serverRole+`
+|Node role: `any` (default) or `replica` (pinned follower, never elected leader)
+|any
+
+|`+arcadedb.ha.snapshotThreshold+`
+|Number of Raft log entries after which the leader takes a snapshot
+|100000
+
+|`+arcadedb.ha.groupCommitQueueSize+` / `+arcadedb.ha.groupCommitOfferTimeout+`
+|Bounded queue size and offer timeout (ms) for Raft group-commit backpressure
+|10000 / 100
+
+|`+arcadedb.ha.raftPersistStorage+`
+|If true, the Raft storage directory is preserved across restarts, enabling rejoin without a full snapshot resync
+|false
+
+|`+arcadedb.ha.stopServerOnReplicationFailure+`
+|If true, the JVM exits after exhausting step-down retries on a phase-2 replication failure. Default false keeps the server up and logs CRITICAL
+|false
+
+|`+arcadedb.ha.clusterToken+`
+|Shared secret for inter-node authentication. If empty, auto-generated at first startup and persisted under `raft-storage/`
+|(empty)
+
+|`+arcadedb.ha.logVerbose+`
+|Verbose HA logging: 0=off, 1=basic, 2=detailed, 3=trace
+|0
+
+|`+arcadedb.ha.k8s+`
+|The server is running inside Kubernetes (enables auto-join)
+|false
+
+|`+arcadedb.ha.k8sSuffix+`
+|DNS suffix used to reach the other servers in Kubernetes, e.g. `.arcadedb.default.svc.cluster.local`
+|(empty)
 |===

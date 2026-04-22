@@ -116,20 +116,54 @@ The following plugins are available for ArcadeDB Server:
 |===
 |Name|Description|Type|Default Value
 |`backup.enabled`|State of backup lock. Disable for increased performance of massive insertions.|Boolean|True
-|`ha.clusterName`|Cluster name. By default is 'arcadedb'. Useful in case of multiple clusters in the same network|String|arcadedb
+|`ha.appendBufferSize`|AppendEntries batch byte limit for replication (e.g. '4MB'). _Since v26.4.1_|String|4MB
+|`ha.clientElectionRetryCount`|Number of retries performed by RemoteDatabase after receiving HTTP 503 NeedRetryException during an election. _Since v26.4.1_|Integer|3
+|`ha.clientElectionRetryDelayMs`|Delay in ms between RemoteDatabase election retries. _Since v26.4.1_|Long|2000
+|`ha.clusterName`|Cluster name. Useful in case of multiple clusters in the same network|String|arcadedb
+|`ha.clusterToken`|Shared secret for inter-node authentication. If empty, auto-generated at first startup and persisted under `raft-storage/`. _Since v26.4.1_|String|
+|`ha.electionTimeoutMin`|Minimum Raft election timeout in ms. Increase for high-latency WAN clusters. _Since v26.4.1_|Integer|2000
+|`ha.electionTimeoutMax`|Maximum Raft election timeout in ms. Increase for high-latency WAN clusters. _Since v26.4.1_|Integer|5000
 |`ha.enabled`|True if HA is enabled for the current server|Boolean|false
-|`ha.errorRetries`|Number of automatic retries in case of IO errors with a specific server. If replica servers are configured, the operation will be retried a specific amount of times on the next server in the list. 0 (default) is to retry against all the configured servers|Integer|0
-|`ha.k8s`|The server is running inside Kubernetes|Boolean|false
+|`ha.errorRetries`|Number of automatic retries in case of IO errors with a specific server. 0 (default) is to retry against all the configured servers|Integer|0
+|`ha.grpcAllowlistRefreshMs`|Rate-limiting interval in ms for DNS re-resolution in the gRPC peer address allowlist filter. _Since v26.4.1_|Long|30000
+|`ha.grpcFlowControlWindow`|gRPC flow control window size in bytes for Raft AppendEntries traffic. Larger values help catch-up replication after partitions. _Since v26.4.1_|Long|4194304
+|`ha.groupCommitBatchSize`|Maximum number of Raft log entries to batch in a single group commit flush. Higher values improve throughput under concurrent load. _Since v26.4.1_|Integer|500
+|`ha.groupCommitOfferTimeout`|Timeout in ms waiting for space in the group-commit queue before throwing ReplicationQueueFullException. _Since v26.4.1_|Integer|100
+|`ha.groupCommitQueueSize`|Maximum pending transactions allowed in the Raft group-commit queue. When full, the server sheds load by throwing ReplicationQueueFullException (NeedRetryException). _Since v26.4.1_|Integer|10000
+|`ha.healthCheckInterval`|Interval in ms for the Raft health monitor to check for CLOSED/EXCEPTION state and auto-recover. 0 disables. _Since v26.4.1_|Long|3000
+|`ha.idempotencyCacheMaxEntries`|Maximum number of entries in the HTTP idempotency cache. _Since v26.4.1_|Integer|10000
+|`ha.idempotencyCacheTtlMs`|Time-to-live in ms for entries in the HTTP idempotency cache. _Since v26.4.1_|Long|60000
+|`ha.k8s`|The server is running inside Kubernetes (enables auto-join on scale-up)|Boolean|false
 |`ha.k8sSuffix`|When running inside Kubernetes use this suffix to reach the other servers. Example: arcadedb.default.svc.cluster.local|String|
-|`ha.quorum`|Default quorum between 'none', 1, 2, 3, 'majority' and 'all' servers. Default is majority|String|majority
-|`ha.quorumTimeout`|Timeout waiting for the quorum|Long|10000
-|`ha.replicationChunkMaxSize`|Maximum channel chunk size for replicating messages between servers. Default is 16777216|Integer|16777216
-|`ha.replicationFileMaxSize`|Maximum file size for replicating messages between servers. Default is 1GB|Long|1073741824
-|`ha.replicationIncomingHost`|TCP/IP host name used for incoming replication connections. By default is 0.0.0.0 (listens to all the configured network interfaces)|String|0.0.0.0
-|`ha.replicationIncomingPorts`|TCP/IP port number used for incoming replication connections|String|2424-2433
-|`ha.replicationQueueSize`|Queue size for replicating messages between servers|Integer|512
-|`ha.serverList`|Servers in the cluster as a list of <hostname/ip-address:port> items separated by comma. Example: 192.168.0.1:2424,192.168.0.2:2424|String|
-|`ha.serverRole`|Enforces a role in a cluster, either "any" or "replica"|String|"any"
+|`ha.logPurgeGap`|Number of Raft log entries retained after a snapshot as a buffer for slightly lagging followers. Lower values free disk faster but raise the chance a slow follower needs a full snapshot resync. _Since v26.4.1_|Integer|1024
+|`ha.logPurgeUptoSnapshot`|When true, deletes old Raft log segments after each snapshot to bound disk growth. Set to false to retain full log history for debugging/auditing. _Since v26.4.1_|Boolean|true
+|`ha.logSegmentSize`|Maximum Raft log segment size (e.g. '64MB', '128MB'). _Since v26.4.1_|String|64MB
+|`ha.logVerbose`|Verbose HA logging: 0=off, 1=basic (elections), 2=detailed (replication), 3=trace (every state machine apply). _Since v26.4.1_|Integer|0
+|`ha.peerAllowlist.enabled`|Reject inbound Raft gRPC connections whose remote address does not resolve to a host in `ha.serverList`. Loopback is always allowed. Not a substitute for mTLS on untrusted networks. _Since v26.4.1_|Boolean|true
+|`ha.proxyConnectTimeout`|Connect timeout in ms for the leader proxy (replica-to-leader forwarding). _Since v26.4.1_|Long|5000
+|`ha.proxyMaxBodySize`|Maximum request body size in bytes the leader proxy will buffer and forward. _Since v26.4.1_|Integer|16777216
+|`ha.proxyReadTimeout`|Read timeout in ms for the leader proxy. Covers long-running queries forwarded from a replica. _Since v26.4.1_|Long|30000
+|`ha.quorum`|Write quorum: `majority` or `all`. _Legacy values `none`, `one`, `two`, `three` removed in v26.4.1_|String|majority
+|`ha.quorumTimeout`|Timeout in ms waiting for the quorum acknowledgment|Long|10000
+|`ha.raftPort`|TCP/IP port for Raft gRPC communication. Used as the default when HA_SERVER_LIST entries do not specify an explicit port. _Since v26.4.1_|Integer|2434
+|`ha.raftPersistStorage`|If true, the Raft storage directory is preserved across restarts, enabling node rejoin without a full snapshot resync. _Since v26.4.1_|Boolean|false
+|`ha.ratisRestartMaxRetries`|Maximum consecutive Ratis restart attempts by the health monitor before the server shuts down for cluster-level recovery. _Since v26.4.1_|Integer|10
+|`ha.readConsistency`|Default read consistency for replica reads: `eventual`, `read_your_writes`, `linearizable`. _Since v26.4.1_|String|read_your_writes
+|`ha.replicationChunkMaxSize`|Maximum channel chunk size for replicating messages between servers|Integer|16777216
+|`ha.replicationLagWarning`|Raft log index gap threshold for replication lag warnings. 0 to disable. _Since v26.4.1_|Long|1000
+|`ha.serverList`|Servers in the cluster as a list of `<host:raftPort:httpPort[:priority]>` items separated by comma. The httpPort is required for replica-to-leader HTTP forwarding. The optional priority (default 0) prefers higher-valued nodes during elections. Example: `localhost:2434:2480:10,192.168.0.1:2434:2480:0`|String|
+|`ha.serverRole`|Node role in the cluster: `any` (default, eligible for leader election) or `replica` (never elected leader; Raft priority set to 0). Useful for witness/read-scale nodes. _Since v26.4.1_|String|any
+|`ha.snapshotDownloadTimeout`|Read timeout in ms for downloading a database snapshot from the leader during follower resync. _Since v26.4.1_|Integer|300000
+|`ha.snapshotGapTolerance`|Maximum acceptable gap between the snapshot index and persisted applied index before triggering a snapshot download. _Since v26.4.1_|Long|10
+|`ha.snapshotInstallRetries`|Maximum retry attempts for snapshot download from the leader during snapshot installation. _Since v26.4.1_|Integer|3
+|`ha.snapshotInstallRetryBaseMs`|Base delay in ms for exponential backoff between snapshot download retries. Actual delay is baseMs * 2^attempt. _Since v26.4.1_|Long|5000
+|`ha.snapshotMaxConcurrent`|Maximum number of concurrent snapshot downloads served by the leader. Requests over this limit receive HTTP 503. _Since v26.4.1_|Integer|2
+|`ha.snapshotMaxEntrySize`|Maximum uncompressed size in bytes for a single entry in a snapshot ZIP. Decompression-bomb guard. _Since v26.4.1_|Long|10737418240
+|`ha.snapshotThreshold`|Number of Raft log entries after which the leader automatically takes a snapshot. _Since v26.4.1_|Long|100000
+|`ha.snapshotWatchdogTimeout`|Delay in ms before the snapshot-gap watchdog triggers a download. Floored at 4x `ha.electionTimeoutMax`. _Since v26.4.1_|Long|30000
+|`ha.snapshotWriteTimeout`|Timeout in ms for writing a snapshot to a follower. If the transfer stalls beyond this duration, the connection is force-closed. _Since v26.4.1_|Long|300000
+|`ha.stopServerOnReplicationFailure`|After a phase-2 replication failure, step-down is attempted first. If every step-down fails and this flag is true, the JVM exits so an orchestrator can restart. Default is false: the server keeps running and logs CRITICAL. _Since v26.4.1_|Boolean|false
+|`ha.writeBufferSize`|Raft log write buffer size (e.g. '8MB'). Must be at least `ha.appendBufferSize` + 8 bytes; otherwise the server fails to start with ConfigurationException. _Since v26.4.1_|String|8MB
 |`network.sameServerErrorRetry`|Number of automatic retries in case of IO errors with a specific server. If replica servers are configured, look also at `HA_ERROR_RETRY` setting. 0 (default) = no retry|Integer|0
 |`network.socketTimeout`|TCP/IP Socket timeout (in ms)|Integer|30000
 |`ssl.keyStore`|Path where the SSL certificates are stored|String|null

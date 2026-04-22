@@ -7,17 +7,20 @@ Its high availability (HA) architecture ensures that your database remains acces
 This page explains the concepts behind ArcadeDB's HA architecture.
 For step-by-step setup instructions, see <<howto-high-availability,HA Configuration>>.
 
+NOTE: Starting with v26.4.1, ArcadeDB's HA is powered by https://ratis.apache.org/[Apache Ratis], a battle-tested implementation of the https://raft.github.io/[Raft consensus protocol] also used by Apache Ozone, Apache IoTDB, and Alluxio.
+The change is transparent to clients: the HTTP API, drivers, and query languages are unchanged.
+
 ==== Leader-Replica Replication Model
 
 ArcadeDB uses a leader-replica replication model.
-At any point in time, a cluster has exactly one *leader* server and one or more *replica* servers.
+At any point in time, a cluster has exactly one *leader* server and zero or more *replica* servers.
 
-* The **leader** coordinates all write operations and distributes changes to replicas.
+* The **leader** coordinates all write operations and distributes changes to replicas through the Raft log.
 * **Replicas** serve read requests (queries) independently, allowing the cluster to scale read throughput horizontally.
 
 Clients can connect to any server in the cluster.
-If a client sends a write request to a replica, the replica transparently forwards it to the leader.
-This means applications do not need to distinguish between leader and replica servers -- the cluster handles routing internally.
+If a client sends a write request to a replica, the replica transparently forwards it to the leader over HTTP.
+Applications do not need to distinguish between leader and replica servers -- the cluster handles routing internally.
 
 ==== Server Roles and Election
 
@@ -29,55 +32,74 @@ Only one leader exists at any time.
 REPLICA:: A server that maintains a copy of the data and serves read requests.
 Replicas receive changes from the leader and can be promoted to leader if the current leader fails.
 
-When a server starts, it joins the cluster as a replica and participates in an election process.
-ArcadeDB uses the https://raft.github.io/[RAFT consensus protocol] for leader election, which guarantees that the cluster agrees on exactly one leader at all times.
+When a server starts, it joins the cluster and participates in a Raft election.
+Raft guarantees that the cluster agrees on exactly one leader at all times.
+Apache Ratis implements the full Raft protocol, including *pre-vote* (prevents disrupted elections from partitioned nodes), *leader lease*, and *parallel voting* for fast convergence.
 
-If the cluster already has a healthy leader, the new server simply joins as a replica.
+If the cluster already has a healthy leader, the new server simply joins as a replica and catches up via the Raft log or, if it has fallen too far behind, a full snapshot download.
 If no leader exists -- for example, during initial cluster formation or after a leader failure -- an election determines which server becomes the new leader.
 
-==== Replication and the Write-Ahead Journal
+==== Replication and the Raft Log
 
-The leader replicates changes to replicas through a journal-based mechanism.
-Each server maintains its own journal (write-ahead log) that records all modifications.
+The leader replicates changes to replicas through the Raft log, which combines a write-ahead log with distributed consensus.
+Each server maintains its own local copy of the Raft log.
 
-When the leader processes a write operation, it:
+When the leader processes a write operation, ArcadeDB uses a *replicate-first, commit-after* three-phase commit:
 
-1. Records the change in its local journal.
-2. Sends the change to all replica servers.
-3. Waits for a quorum of replicas to acknowledge the change (see below).
-4. Commits the transaction and returns the result to the client.
+1. **Phase 1** -- the leader captures the write-ahead log (WAL) pages produced by the transaction.
+2. **Phase 2** -- the captured payload is appended to the Raft log and replicated to followers.
+   The commit is acknowledged only after a quorum of nodes has persisted the entry.
+3. **Phase 3** -- the leader applies the pages locally and returns success to the client.
 
-The journal also plays a critical role in recovery.
-When a server rejoins the cluster after a failure, it uses the journal to identify the most up-to-date replica and to realign any servers that fell behind.
+If replication fails at Phase 2, no local writes are applied: the transaction is rolled back and no divergence can occur between the leader and the followers.
 
-==== Write Quorum and Consistency
+Multiple concurrent transactions are automatically batched into a single Raft round-trip via *group commit*, dramatically increasing throughput under concurrent load.
 
-ArcadeDB uses a configurable *write quorum* to control the trade-off between consistency and availability.
+==== Write Quorum
+
+ArcadeDB uses a configurable *write quorum* to control the trade-off between durability and availability.
 The quorum defines how many servers must acknowledge a write before it is considered committed.
 
-The default quorum is `MAJORITY`, meaning more than half of the servers in the cluster must confirm the write.
-This default provides a strong balance: it ensures data durability across multiple servers while tolerating the failure of a minority of nodes.
+The default quorum is `MAJORITY` -- more than half of the servers in the cluster must confirm the write.
+This is the standard Raft quorum and provides a strong balance between durability and availability: data is stored on a majority of nodes while tolerating the failure of any minority.
 
-Other quorum options include:
+Two quorum modes are supported:
 
-* `none` -- the leader commits immediately without waiting for any replica (fastest, least durable).
-* A specific number (`1`, `2`, `3`, etc.) -- waits for exactly that many acknowledgments.
-* `all` -- waits for every server in the cluster to acknowledge (strongest durability, highest latency).
+`majority` (default):: A standard Raft quorum. Writes are committed as soon as a majority of peers acknowledge, so the cluster keeps serving writes as long as a majority is alive.
+`all`:: Every configured peer must acknowledge the write. Strongest durability, but a single unavailable peer stops writes.
 
-If the quorum cannot be met -- for example, because too many replicas are unavailable -- the transaction is rolled back on all servers and an error is returned to the client.
-This behavior protects data integrity by preventing partially committed writes.
+[IMPORTANT]
+====
+In v26.4.1, the legacy values `none`, `one`, `two`, `three` are *no longer supported* and will cause a startup error.
+They were part of the old custom HA protocol; with Raft only `majority` and `all` are meaningful.
+If you were using a granular quorum value, update your configuration before upgrading.
+====
+
+If the quorum cannot be met -- for example, because too many peers are unavailable -- the transaction is rolled back and an error is returned to the client.
+This prevents partially committed writes.
 
 For more on how transactions interact with replication, see <<transactions,Transactions>>.
 For quorum and other cluster settings, see <<arcadedb-settings,Server Settings>>.
 
+[[ha-read-consistency]]
+==== Read Consistency (from v26.4.1)
+
+When a client sends a read request to a replica, ArcadeDB supports three consistency levels that trade latency for freshness:
+
+`eventual`:: The replica reads locally without waiting. Fastest, but may return slightly stale data.
+`read_your_writes` (default):: The replica waits until the Raft log index corresponding to the client's most recent write has been applied locally before serving the read. This ensures the client always observes its own writes, even when those writes went to the leader and the read goes to a replica.
+`linearizable`:: The replica issues a Ratis `ReadIndex` request to the leader and waits until its local applied index reaches the leader's committed index at the time of the request. This is the strongest guarantee and survives leader changes without serving stale data, at the cost of higher latency.
+
+The default is set via `arcadedb.ha.readConsistency`. Clients can also override it per request with the `X-ArcadeDB-Read-Consistency` HTTP header.
+For read-your-writes, the client includes the commit index returned by its last write via the `X-ArcadeDB-Commit-Index` header so the replica waits only for that index.
+
 ==== Automatic Failover
 
 ArcadeDB handles leader failure automatically.
-When replicas detect that the leader is no longer reachable, they initiate a new election using the RAFT protocol.
-The replica with the most up-to-date journal is elected as the new leader, and the cluster resumes normal operation.
+When replicas stop receiving heartbeats from the leader, they initiate a new election using the Raft protocol.
+A replica with an up-to-date log is elected as the new leader, and the cluster resumes normal operation.
 
-This failover process is transparent to clients.
-After a brief interruption during the election, clients reconnect to the new leader and continue operating without manual intervention.
+This failover process is transparent to clients: after a brief interruption during the election, clients reconnect (or are proxied) to the new leader and continue operating without manual intervention.
 
 Common causes of leader unavailability include process termination, server shutdown or reboot, and network partitions that isolate the leader from the rest of the cluster.
 
@@ -86,18 +108,33 @@ Common causes of leader unavailability include process termination, server shutd
 A *split-brain* occurs when a network partition divides a cluster into two or more groups, each believing it should operate independently.
 This can lead to conflicting writes and data divergence.
 
-ArcadeDB prevents split-brain scenarios through its majority quorum requirement.
+ArcadeDB prevents split-brain scenarios through the Raft majority quorum requirement.
 Because a leader must receive acknowledgment from a majority of servers to commit writes, at most one partition can ever hold a majority.
 Any minority partition cannot elect a leader or commit writes, so it effectively becomes read-only until the network heals.
+Pre-vote further prevents a partitioned node from forcing a disruptive election when it regains connectivity.
 
 This design guarantees that the cluster never produces conflicting committed data, even during network failures.
 
+==== Snapshots and Catch-Up
+
+As the Raft log grows, ArcadeDB periodically takes a snapshot of the database state.
+The snapshot allows old log segments to be compacted, preventing unbounded disk growth.
+
+When a replica falls too far behind the leader (for example, after a long network partition), ArcadeDB automatically transfers a fresh snapshot: the follower downloads a ZIP of the database from the leader over HTTP and installs it atomically.
+Once the snapshot is installed, the follower resumes normal log-based replication from the snapshot index.
+
+==== Dynamic Membership (from v26.4.1)
+
+Cluster membership can be changed at runtime without restarting the cluster.
+Operators can add peers, remove peers, transfer leadership, or have a node gracefully leave the cluster through the <<howto-ha-rest,cluster REST API>>.
+On Kubernetes, scaling a StatefulSet up or down automatically adds and removes peers.
+
 ==== Cluster Discovery and Configuration
 
-Servers discover each other through a configured list of seed servers.
-At startup, each server contacts the addresses in this list to find and join an existing cluster, or to form a new one if no cluster exists yet.
+Servers discover each other through a configured list of peers (`arcadedb.ha.serverList`).
+Each entry has the form `host:raftPort:httpPort`, where the Raft gRPC port (default `2434`) is used for consensus and the HTTP port is used for command forwarding.
 
-By default, if no server list is configured, ArcadeDB uses auto-discovery to locate other servers on the local network.
-You can also run multiple independent clusters on the same network by assigning each cluster a unique name.
+You can run multiple independent clusters on the same network by assigning each cluster a unique name via `arcadedb.ha.clusterName`.
+Inter-node communication is authenticated with a shared *cluster token* automatically derived from the cluster name and the root password.
 
 For detailed configuration options and deployment instructions, see <<howto-high-availability,HA Configuration>>.
