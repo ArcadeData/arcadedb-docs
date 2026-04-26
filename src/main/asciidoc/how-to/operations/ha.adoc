@@ -15,7 +15,8 @@ To start an ArcadeDB server with HA enabled, at minimum you need to:
 
 1. Set `arcadedb.ha.enabled` to `true`.
 2. Define the list of peers in the cluster via `arcadedb.ha.serverList` (if you are deploying on Kubernetes, see <<kubernetes,Kubernetes>>).
-   The value is a comma-separated list of entries in the format `host:raftPort:httpPort[:priority]`.
+   The value is a comma-separated list of entries in the format `[name@]host:raftPort:httpPort[:priority]`.
+   The optional `name@` prefix is described in <<ha-named-peers,Named Peers>>.
 3. Optionally set the local server name via `arcadedb.server.name`. Each node must have a unique name.
    If not specified, the default is `ArcadeDB_0`.
 
@@ -32,6 +33,32 @@ The Raft gRPC port is `2434` by default and is configurable via `arcadedb.ha.raf
 The HTTP port in each entry is required so that replicas can forward non-idempotent requests to the leader over HTTP.
 
 NOTE: The cluster name is `arcadedb` by default; set `arcadedb.ha.clusterName=<name>` to run multiple independent clusters on the same network.
+
+[[ha-named-peers]]
+===== Named Peers (from v26.5.1)
+
+By default, each node identifies its slot in `arcadedb.ha.serverList` from the numeric suffix of `arcadedb.server.name` (for example, `ArcadeDB_0` maps to the first entry, `ArcadeDB_1` to the second, and so on).
+Display names shown in logs and Studio are then synthesized from the local node's prefix.
+This positional convention works well for Kubernetes StatefulSets but is awkward when nodes have human-readable names such as `frankfurt`, `london`, `nyc`.
+
+You can add an optional `name@` prefix to any entry in `arcadedb.ha.serverList` to give each peer a stable, human-readable name:
+
+[source,shell]
+----
+$ bin/server.sh -Darcadedb.ha.enabled=true \
+                -Darcadedb.server.name=frankfurt \
+                -Darcadedb.ha.serverList=frankfurt@10.0.0.1:2434:2480,london@10.0.0.2:2434:2480,nyc@10.0.0.3:2434:2480
+----
+
+When peer names are configured, each node identifies its slot by matching `arcadedb.server.name` against the configured peer names first; if no match is found, it falls back to the legacy `prefix_N` / `prefix-N` suffix resolution.
+This means:
+
+* Server names no longer require a numeric suffix when peer names are used.
+* Display names shown in logs and Studio reflect the configured peer name (e.g. `frankfurt (10.0.0.1:2480)` instead of `ArcadeDB_0 (10.0.0.1:2480)`).
+* Mixed clusters work: entries with `name@` get their explicit name; entries without it fall back to the existing positional synthesis.
+* Peer names must be unique within the cluster.
+
+The Raft peer ID is still derived from the address (e.g. `10.0.0.1_2434`), so changing or omitting peer names does not affect Raft identity stability.
 
 ===== Architecture
 
@@ -250,7 +277,7 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/peer`
-|Add a peer to the running cluster. Body: `{"peerId":"<name>","address":"host:raftPort:httpPort"}`. The new peer is seeded with the current user list so authentication works immediately.
+|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>"}`. The optional `name` is the human-readable display name shown in logs and Studio. The new peer is seeded with the current user list so authentication works immediately.
 
 |DELETE
 |`/api/v1/cluster/peer/{peerId}`
@@ -285,6 +312,16 @@ $ curl -u root:<password> \
        -X POST http://leader:2480/api/v1/cluster/peer \
        -H 'Content-Type: application/json' \
        -d '{"peerId":"node4","address":"10.0.0.4:2434:2480"}'
+----
+
+Adding a peer with a human-readable name (from v26.5.1):
+
+[source,shell]
+----
+$ curl -u root:<password> \
+       -X POST http://leader:2480/api/v1/cluster/peer \
+       -H 'Content-Type: application/json' \
+       -d '{"peerId":"10.0.0.4_2434","address":"10.0.0.4:2434:2480","name":"frankfurt"}'
 ----
 
 ===== Studio Cluster Dashboard (from v26.4.1)
@@ -366,7 +403,7 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |arcadedb
 
 |`+arcadedb.ha.serverList+`
-|Comma-separated list of peers in the format `host:raftPort:httpPort[:priority]`. The optional priority (integer, default 0) prefers higher-valued nodes during elections. Example: `localhost:2434:2480:10,192.168.0.1:2434:2480:0`
+|Comma-separated list of peers in the format `[name@]host:raftPort:httpPort[:priority]`. The optional `name@` prefix (since v26.5.1) gives the peer a human-readable name used in logs and Studio; see <<ha-named-peers,Named Peers>>. The optional priority (integer, default 0) prefers higher-valued nodes during elections. Example: `frankfurt@localhost:2434:2480:10,london@192.168.0.1:2434:2480:0`
 |(empty)
 
 |`+arcadedb.ha.raftPort+`
