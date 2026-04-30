@@ -42,7 +42,7 @@ NAV_STRUCTURE: list[dict] = [
         "title": "Documentation",
         "intro": [("index.adoc", "Welcome")],
         "groups": [
-            ("Get Started", [
+            (("get-started.adoc", "Get Started"), [
                 "tutorials/what-is-arcadedb.adoc",
                 "tutorials/run.adoc",
                 ("how-to/operations/docker.adoc", "Quick Start with Docker"),
@@ -315,7 +315,17 @@ def render_nav(spec: dict, listed: set[str]) -> str:
         listed.add(path)
         lines.append(f"* xref:{path}[{title}]")
     for group_title, items in spec["groups"]:
-        lines.append(f"* {group_title}")
+        # Group header is either a plain string label (no link) or a
+        # (path, label) tuple — in which case the header itself is a
+        # clickable xref to a section landing page.
+        if isinstance(group_title, tuple):
+            header_path, header_label = group_title
+            header_page = PAGES / header_path
+            header_title = header_label or first_heading(header_page) or header_path
+            listed.add(header_path)
+            lines.append(f"* xref:{header_path}[{header_title}]")
+        else:
+            lines.append(f"* {group_title}")
         for entry in items:
             path, label = normalize(entry)
             page = PAGES / path

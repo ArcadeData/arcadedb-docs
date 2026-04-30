@@ -39,6 +39,9 @@ cp -R "$SRC"/images/. "$DEST_IMAGES"/
 echo "==> Writing landing index.adoc"
 cp "$REPO"/scripts/templates/index.adoc "$DEST_PAGES"/index.adoc
 
+echo "==> Writing Get Started landing"
+cp "$REPO"/scripts/templates/get-started.adoc "$DEST_PAGES"/get-started.adoc
+
 echo "==> Stripping include:: directives from chapter aggregators"
 python3 scripts/strip-includes.py
 
