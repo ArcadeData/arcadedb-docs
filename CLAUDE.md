@@ -34,6 +34,23 @@ npm run build      # build/site/
 npm run serve      # http://localhost:8080
 ```
 
+### Enable Algolia DocSearch (after approval)
+
+DocSearch is wired into the UI but stays hidden until credentials are
+provisioned. When the application is approved:
+
+1. Add three secrets to the GitHub repo (Settings → Secrets → Actions):
+   - `ALGOLIA_APP_ID`
+   - `ALGOLIA_API_KEY` (the **search-only** key, not the admin key)
+   - `ALGOLIA_INDEX_NAME` (defaults to `arcadedb` in `antora-playbook.yml`)
+2. Re-run the `Antora Preview` workflow. The search box appears in the
+   navbar; pressing Cmd/Ctrl+K opens the DocSearch modal.
+
+The CI step in `.github/workflows/antora-preview.yml` detects whether
+`ALGOLIA_APP_ID` is set and conditionally passes `--key
+site.keys.algolia_*=...` to Antora. Locally, set the same env vars
+plus `SITE_SEARCH_PROVIDER=algolia` if you want to preview search.
+
 ### Serve documentation locally
 ```shell
 mvn jetty:run
