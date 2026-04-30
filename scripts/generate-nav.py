@@ -232,9 +232,7 @@ NAV_STRUCTURE: list[dict] = [
             (("reference/graphql/graphql.adoc", "GraphQL"), []),
             (("reference/mongodb-ql/mongo.adoc", "MongoDB QL"), []),
             (("reference/redis-ql/redis.adoc", "Redis"), []),
-            ("Graph Algorithms", [
-                ("reference/graph-algorithms/algorithms.adoc", "Algorithms Reference"),
-            ]),
+            (("reference/graph-algorithms/algorithms.adoc", "Graph Algorithms"), []),
             ("Vector Functions", [
                 ("reference/vector-functions/distance-similarity.adoc", "Distance & Similarity"),
                 ("reference/vector-functions/manipulation.adoc", "Manipulation"),
