@@ -1,0 +1,29 @@
+[[time-series-reference]]
+= Time Series Reference
+
+ArcadeDB's native time series engine is documented in the xref:concepts/timeseries.adoc#timeseries[Time Series Concepts] section, which covers:
+
+* **Schema** -- `CREATE TIMESERIES TYPE` syntax with all options (timestamp precision, tags, fields, shards, retention, compaction, block size)
+* **Ingestion** -- Four ingestion methods: InfluxDB Line Protocol, Prometheus remote_write, SQL INSERT, Java Embedded API
+* **SQL Functions** -- `ts.timeBucket()`, `ts.rate()`, `ts.percentile()`, `ts.interpolate()`, `ts.delta()`, `ts.movingAvg()`, `ts.correlate()`, `ts.lag()`, `ts.lead()`, `ts.rowNumber()`, `ts.rank()`
+* **PromQL** -- Native PromQL parser and evaluator with HTTP endpoints for instant queries, range queries, and label discovery
+* **Continuous Aggregates** -- Watermark-based incremental refresh with `CREATE CONTINUOUS AGGREGATE`
+* **Retention & Downsampling** -- Automatic data lifecycle management with multi-tier downsampling
+* **Grafana Integration** -- DataFrame-compatible endpoints for the Infinity datasource plugin
+* **HTTP API** -- 13 REST endpoints for ingestion, querying, PromQL, and Grafana
+
+== Quick Reference
+
+[cols="1,2"]
+|===
+| Create a type | `CREATE TIMESERIES TYPE SensorReading TIMESTAMP ts TAGS (sensor_id STRING) FIELDS (temperature DOUBLE)`
+| Ingest (Line Protocol) | `POST /api/v1/ts/{db}/write` with `SensorReading,sensor_id=s1 temperature=22.5 1708430400000000000`
+| Ingest (SQL) | `INSERT INTO SensorReading SET ts = '2026-02-20T10:00:00Z', sensor_id = 's1', temperature = 22.5`
+| Query (SQL) | `SELECT ts.timeBucket('1h', ts) AS hour, avg(temperature) FROM SensorReading GROUP BY hour`
+| Query (PromQL) | `GET /ts/{db}/prom/api/v1/query?query=avg(SensorReading{sensor_id="s1"})`
+| Retention | `CREATE TIMESERIES TYPE ... RETENTION 90 DAYS`
+| Downsampling | `ALTER TIMESERIES TYPE ... ADD DOWNSAMPLING POLICY AFTER 7 DAYS GRANULARITY 1 MINUTES`
+| Continuous aggregate | `CREATE CONTINUOUS AGGREGATE hourly_temps AS SELECT ts.timeBucket('1h', ts) AS hour, avg(temperature) FROM SensorReading GROUP BY hour`
+|===
+
+See xref:concepts/timeseries.adoc#timeseries[Time Series Concepts] for full documentation, examples, and architecture details.

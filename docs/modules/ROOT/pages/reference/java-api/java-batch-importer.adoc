@@ -1,0 +1,209 @@
+[[java-batch-importer]]
+= Graph Batch
+
+NOTE: Available since ArcadeDB **26.4.1**.
+
+The `GraphBatch` is a high-performance bulk graph loader designed for importing large volumes of edges into an ArcadeDB graph.
+It achieves **8-12x speedup** over the standard edge creation API by buffering edges in memory, sorting them by vertex for sequential I/O, parallel edge connection, and deferring incoming edge connection to a single optimized pass.
+
+== Quick Start
+
+[source,java]
+----
+Database db = new DatabaseFactory("mydb").create();
+db.transaction(() -> {
+  db.getSchema().createVertexType("Person");
+  db.getSchema().createEdgeType("KNOWS");
+});
+
+try (GraphBatch batch = db.batch()
+    .withExpectedEdgeCount(1_000_000)
+    .build()) {
+
+  // Phase 1: Create vertices in bulk
+  RID[] vertices = batch.createVertices("Person", 100_000);
+
+  // Phase 2: Buffer edges (auto-flushes when batch is full)
+  for (int i = 0; i < edgeCount; i++)
+    batch.newEdge(vertices[src[i]], "KNOWS", vertices[dst[i]]);
+
+} // close() flushes remaining edges + connects all incoming edges
+----
+
+All edges (both outgoing and incoming) are fully connected when `close()` returns.
+
+== How It Works
+
+The importer operates in phases for maximum throughput:
+
+1. **Buffer**: Edges are stored in flat primitive arrays (minimal GC pressure)
+2. **Sort**: On flush, outgoing edges are sorted by source vertex, converting random I/O into sequential page access
+3. **Connect OUT**: Outgoing edges are connected to source vertices in sorted order, using vectorized segment writes
+4. **Accumulate IN**: Incoming edges are deferred to an in-memory buffer across flushes
+5. **Connect IN at close()**: All deferred incoming edges are sorted by destination vertex and connected in a single pass
+6. **Batch vertex update**: All vertex head-chunk pointers are updated in one final sorted pass
+
+== Edges with Properties
+
+The importer supports edges with properties. Pass them as key-value pairs:
+
+[source,java]
+----
+try (GraphBatch batch = db.batch()
+    .withExpectedEdgeCount(500_000)
+    .withLightEdges(false)  // edges have properties
+    .build()) {
+
+  RID[] vertices = batch.createVertices("Person", 50_000);
+
+  for (int i = 0; i < edgeCount; i++)
+    batch.newEdge(vertices[src[i]], "KNOWS", vertices[dst[i]],
+        "weight", weights[i], "timestamp", timestamps[i]);
+}
+----
+
+Property edges use a bulk record creation path that bypasses per-record overhead, achieving nearly the same throughput as light edges.
+
+== Builder Options
+
+[cols="3,1,5"]
+|===
+| Method | Default | Description
+
+| `withExpectedEdgeCount(int)`
+| --
+| Auto-tunes the batch size to `edgeCount` (clamped to 100K-5M). A single flush is optimal for most workloads.
+
+| `withBatchSize(int)`
+| 100,000
+| Maximum edges buffered before auto-flush. Overrides auto-tuning if both are set.
+
+| `withLightEdges(boolean)`
+| `false`
+| If true, edges without properties are created as light edges (no record stored, only connectivity pointers).
+
+| `withBidirectional(boolean)`
+| `true`
+| If true, incoming edges are also connected. Set to false for unidirectional graphs.
+
+| `withWAL(boolean)`
+| `false`
+| Write-Ahead Logging during import. Disable for maximum speed; enable if crash recovery is needed.
+
+| `withCommitEvery(int)`
+| 0 (WAL off) / 50,000 (WAL on)
+| Edges per transaction commit within a flush. Set to 0 to commit once per flush. Auto-set to 0 when WAL is disabled.
+
+| `withEdgeListInitialSize(int)`
+| 2048
+| Initial size in bytes for edge segments. Larger values reduce segment splits for high-degree vertices.
+
+| `withPreAllocateEdgeChunks(boolean)`
+| `true`
+| Pre-allocate empty edge segments at vertex creation time, eliminating lazy allocation cost.
+
+| `withParallelFlush(boolean)`
+| `true`
+| Parallel edge connection partitioned by bucket. Uses the database async executor to connect edges across buckets concurrently.
+|===
+
+== Auto-Tuning Batch Size
+
+The `withExpectedEdgeCount()` method automatically selects the optimal batch size based on benchmarks. A single flush (batch size = edge count) delivers the best throughput, so the batch size is set to `edgeCount`, clamped between 100K and 5M:
+
+[cols="2,2,2"]
+|===
+| Expected Edges | Auto-tuned Batch | Approx. RAM
+
+| < 100K
+| 100K (minimum)
+| ~200MB
+
+| 100K - 5M
+| = edge count (single flush)
+| ~300MB-1GB
+
+| > 5M
+| 5M (maximum)
+| ~1GB
+|===
+
+You can always override with `withBatchSize()` if you know your workload characteristics.
+
+== Key Methods
+
+[cols="3,5"]
+|===
+| Method | Description
+
+| `createVertices(typeName, count)`
+| Creates vertices in bulk within a single transaction. Returns an array of RIDs for use with `newEdge()`.
+
+| `newEdge(srcRID, edgeType, dstRID, properties...)`
+| Buffers an edge for batch processing. Automatically triggers a flush when the batch size is reached.
+
+| `flush()`
+| Manually flushes all buffered edges. Outgoing edges are sorted and connected; incoming edges are deferred.
+
+| `close()`
+| Flushes remaining edges, connects all deferred incoming edges in a single sorted pass, and batch-updates vertex head-chunk pointers.
+|===
+
+== Performance
+
+Benchmark results on a single machine (500K edges, 50K vertices):
+
+[cols="3,2,2,1"]
+|===
+| Method | Time (ms) | Edges/sec | Speedup
+
+| Standard API (tx batches of 1000)
+| 11,933
+| 42K
+| 1.0x
+
+| **GraphBatch (light edges)**
+| **1,028**
+| **486K**
+| **11.6x**
+
+| Standard API + properties (int + long)
+| 13,385
+| 37K
+| 1.0x
+
+| **GraphBatch + properties**
+| **1,584**
+| **316K**
+| **8.5x**
+|===
+
+== Importing into an Existing Graph
+
+The importer can also connect edges to vertices that already exist in the database (not just vertices created by `createVertices()`). Simply pass existing vertex RIDs to `newEdge()`:
+
+[source,java]
+----
+try (GraphBatch batch = db.batch()
+    .withExpectedEdgeCount(100_000)
+    .build()) {
+
+  // Use existing vertex RIDs from queries or lookups
+  for (int i = 0; i < edgeCount; i++)
+    batch.newEdge(existingVertexRIDs[src[i]], "FOLLOWS", existingVertexRIDs[dst[i]]);
+}
+----
+
+== HTTP Batch Endpoint
+
+GraphBatch is also available over HTTP for non-Java clients.
+The xref:reference/http-api/http.adoc#http-batch[POST /api/v1/batch] endpoint accepts JSONL or CSV input and uses GraphBatch under the hood, with all builder options exposed as query parameters.
+See xref:reference/http-api/http.adoc#http-batch[HTTP Batch Import] for full details and examples in curl, Python, and JavaScript.
+
+== Relationship with GraphImporter
+
+The xref:how-to/migration/graph-importer.adoc#graph-importer[GraphImporter] is a declarative, JSON-driven graph importer built on top of `GraphBatch`.
+It adds file parsing (XML, CSV, JSONL), schema auto-creation, foreign key resolution, and xref:how-to/migration/graph-importer.adoc#graph-importer-post-import-commands[post-import commands].
+
+Use `GraphBatch` directly when you need full programmatic control over vertex and edge creation.
+Use `GraphImporter` when you want to import graph data from files using a JSON configuration.

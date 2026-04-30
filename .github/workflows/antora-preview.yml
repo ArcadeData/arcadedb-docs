@@ -1,0 +1,53 @@
+name: Antora Preview
+
+on:
+  push:
+    branches:
+      - 'feat/antora'
+      - 'feat/antora-**'
+  pull_request:
+    branches:
+      - 'feat/antora'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  build-and-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate docs/modules/ROOT from src/main/asciidoc
+        run: bash scripts/migrate.sh
+
+      - name: Build site with Antora
+        env:
+          # When ALGOLIA_APP_ID is set as a repo secret, scripts/inject-algolia-keys.js
+          # populates site.keys and SITE_SEARCH_PROVIDER turns on the search UI.
+          SITE_SEARCH_PROVIDER: ${{ secrets.ALGOLIA_APP_ID != '' && 'algolia' || '' }}
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_API_KEY: ${{ secrets.ALGOLIA_API_KEY }}
+          ALGOLIA_INDEX_NAME: ${{ secrets.ALGOLIA_INDEX_NAME }}
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages preview
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy build/site --project-name=arcadedb-docs --branch=antora-preview

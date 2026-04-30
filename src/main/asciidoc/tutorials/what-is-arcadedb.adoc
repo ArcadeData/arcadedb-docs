@@ -1,44 +1,324 @@
+[[what-is-arcadedb]]
 === What is ArcadeDB?
 
-image:../../images/edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/tutorials/what-is-arcadedb.adoc" float="right"]
+ArcadeDB is a *multi-model database management system*: graph, document, key/value, time-series, vector, and geospatial data live on the *same storage* and inside the *same transaction*. One process, one schema, one query language of your choice — instead of a separate database for each shape of data.
 
-ArcadeDB is the a generation of DBMS (DataBase Management System) that runs pretty much on every hardware/software configuration.
-ArcadeDB is multi-model, which means it can work with graphs, documents as well as other models of data,
-and doing so extremely fast.
+If you've ever stitched together PostgreSQL, MongoDB, Neo4j, Elasticsearch, and a vector database to back a single application, this page explains why ArcadeDB collapses that stack into one engine, and why we believe the *graph model* (more on that below) is a better default than people realise.
 
 [discrete]
-==== How can it be so fast?
+==== TL;DR
 
-ArcadeDB is written in LLJ ("Low-Level-Java"), that means it's written in Java (Java21+), but without using a high-level API.
-The result is that ArcadeDB does not allocate many objects at run-time on the heap, so the garbage collection does not need to act regularly, only rarely.
-At the same time, it is highly portable and leverages the hyper optimized Java Virtual Machine*.
-Furthermore, the kernel is built to be efficient on multi-core CPUs by using novel mechanical sympathy techniques.
+* Six data models — graph, document, key/value, full-text, vector, time-series — share the same storage and transaction.
+* Six query languages — SQL, Cypher, Gremlin, GraphQL, MongoDB QL, Redis — read and write the same records.
+* Native graph: edges are physical pointers between records, every traversal hop is O(1).
+* Embeddable in any JVM (16 MB heap minimum) or run as a server with Docker / Kubernetes.
+* Apache 2.0 — free for commercial use, no copyleft, no Enterprise edition gate.
 
-ArcadeDB is a native graph database:
+==== The problem with running many databases
 
-- No more "Joins": relationships are physical links to records
-- Traverses parts of, or entire trees and graphs of records in milliseconds
-- Traversing speed is independent from the database size
+Most teams that need to combine relationships, JSON, full-text search and vector similarity end up with *polyglot persistence*: PostgreSQL for transactional data, Neo4j for the graph, Elasticsearch for search, MongoDB for flexible documents, Pinecone or Qdrant for embeddings. Each system brings:
+
+* a separate deployment, backup strategy, security model, and failure mode;
+* an ETL pipeline (or change-data-capture queue) to keep data in sync — every sync introduces lag, complexity, and bugs;
+* a learning curve per database for every developer on the team;
+* a multiplier on infrastructure cost and operational headcount.
+
+A single user request often turns into a chain of sequential calls across these systems: query Postgres, then Neo4j, then Elasticsearch, then stitch the results together in the application layer. The total response time is the *sum* of every hop, plus the cost of serializing data three times.
+
+++++
+<svg class="ppd-svg" viewBox="0 0 1200 520"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Polyglot persistence stacks sequential database calls; ArcadeDB makes one call.">
+  <defs>
+    <linearGradient id="ppd-warn-accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%"   stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#EF4444"/>
+    </linearGradient>
+    <linearGradient id="ppd-good-accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%"   stop-color="#0066CC"/>
+      <stop offset="50%"  stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+
+  <text x="600" y="22" class="ppd-section-label" text-anchor="middle">POLYGLOT PERSISTENCE — sequential round-trips</text>
+
+  <g class="ppd-app">
+    <rect x="60" y="70" width="180" height="80" rx="10"/>
+    <text x="150" y="105" text-anchor="middle" class="ppd-app-title">Your App</text>
+    <text x="150" y="128" text-anchor="middle" class="ppd-app-sub">single request</text>
+  </g>
+
+  <g class="ppd-db ppd-db-pg">
+    <rect x="950" y="60" width="190" height="46" rx="8"/>
+    <text x="1045" y="90" text-anchor="middle">PostgreSQL</text>
+    <text x="1175" y="90" class="ppd-latency" text-anchor="end">+15 ms</text>
+  </g>
+  <g class="ppd-db ppd-db-mongo">
+    <rect x="950" y="120" width="190" height="46" rx="8"/>
+    <text x="1045" y="150" text-anchor="middle">MongoDB</text>
+    <text x="1175" y="150" class="ppd-latency" text-anchor="end">+20 ms</text>
+  </g>
+  <g class="ppd-db ppd-db-neo4j">
+    <rect x="950" y="180" width="190" height="46" rx="8"/>
+    <text x="1045" y="210" text-anchor="middle">Neo4j</text>
+    <text x="1175" y="210" class="ppd-latency" text-anchor="end">+12 ms</text>
+  </g>
+
+  <path id="ppd-pg-out"     d="M 240 102 C 500 102 700 90  950 84"  class="ppd-conn ppd-conn-pg"/>
+  <path id="ppd-pg-back"    d="M 950 96  C 700 96  500 110 240 116" class="ppd-conn ppd-conn-pg ppd-conn-back"/>
+  <path id="ppd-mongo-out"  d="M 240 110 C 500 130 700 145 950 144" class="ppd-conn ppd-conn-mongo"/>
+  <path id="ppd-mongo-back" d="M 950 156 C 700 158 500 138 240 122" class="ppd-conn ppd-conn-mongo ppd-conn-back"/>
+  <path id="ppd-neo4j-out"  d="M 240 118 C 500 160 700 200 950 204" class="ppd-conn ppd-conn-neo4j"/>
+  <path id="ppd-neo4j-back" d="M 950 216 C 700 200 500 160 240 130" class="ppd-conn ppd-conn-neo4j ppd-conn-back"/>
+
+  <circle r="6" class="ppd-dot ppd-dot-pg" opacity="0">
+    <set attributeName="opacity" to="1" begin="0s; ppd-leg6.end+0.6s"/>
+    <animateMotion id="ppd-leg1" begin="0s; ppd-leg6.end+0.6s" dur="0.5s" fill="freeze">
+      <mpath href="#ppd-pg-out"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-leg1.end"/>
+  </circle>
+  <circle r="6" class="ppd-dot ppd-dot-pg" opacity="0">
+    <set attributeName="opacity" to="1" begin="ppd-leg1.end"/>
+    <animateMotion id="ppd-leg2" begin="ppd-leg1.end" dur="0.5s" fill="freeze">
+      <mpath href="#ppd-pg-back"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-leg2.end"/>
+  </circle>
+  <circle r="6" class="ppd-dot ppd-dot-mongo" opacity="0">
+    <set attributeName="opacity" to="1" begin="ppd-leg2.end"/>
+    <animateMotion id="ppd-leg3" begin="ppd-leg2.end" dur="0.5s" fill="freeze">
+      <mpath href="#ppd-mongo-out"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-leg3.end"/>
+  </circle>
+  <circle r="6" class="ppd-dot ppd-dot-mongo" opacity="0">
+    <set attributeName="opacity" to="1" begin="ppd-leg3.end"/>
+    <animateMotion id="ppd-leg4" begin="ppd-leg3.end" dur="0.5s" fill="freeze">
+      <mpath href="#ppd-mongo-back"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-leg4.end"/>
+  </circle>
+  <circle r="6" class="ppd-dot ppd-dot-neo4j" opacity="0">
+    <set attributeName="opacity" to="1" begin="ppd-leg4.end"/>
+    <animateMotion id="ppd-leg5" begin="ppd-leg4.end" dur="0.5s" fill="freeze">
+      <mpath href="#ppd-neo4j-out"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-leg5.end"/>
+  </circle>
+  <circle r="6" class="ppd-dot ppd-dot-neo4j" opacity="0">
+    <set attributeName="opacity" to="1" begin="ppd-leg5.end"/>
+    <animateMotion id="ppd-leg6" begin="ppd-leg5.end" dur="0.5s" fill="freeze">
+      <mpath href="#ppd-neo4j-back"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-leg6.end"/>
+  </circle>
+
+  <g class="ppd-total ppd-total-bad">
+    <rect x="950" y="246" width="190" height="36" rx="8"/>
+    <text x="1045" y="269" text-anchor="middle">Total ≈ 47 ms+</text>
+  </g>
+  <text x="600" y="262" class="ppd-caption" text-anchor="middle">three calls + three serializations + wait, wait, wait</text>
+
+  <line x1="40" y1="306" x2="1160" y2="306" class="ppd-divider"/>
+
+  <text x="600" y="338" class="ppd-section-label" text-anchor="middle">ARCADEDB — one call, every model</text>
+
+  <g class="ppd-app">
+    <rect x="60" y="386" width="180" height="80" rx="10"/>
+    <text x="150" y="421" text-anchor="middle" class="ppd-app-title">Your App</text>
+    <text x="150" y="444" text-anchor="middle" class="ppd-app-sub">single request</text>
+  </g>
+
+  <g class="ppd-arcade">
+    <rect x="950" y="376" width="190" height="100" rx="10"/>
+    <rect x="950" y="376" width="190" height="6"  rx="3" fill="url(#ppd-good-accent)"/>
+    <text x="1045" y="416" text-anchor="middle" class="ppd-arcade-title">ArcadeDB</text>
+    <text x="1045" y="438" text-anchor="middle" class="ppd-arcade-sub">graph + document + vector</text>
+    <text x="1045" y="458" text-anchor="middle" class="ppd-arcade-sub">in one transaction</text>
+  </g>
+
+  <path id="ppd-arcade-out"  d="M 240 416 C 500 416 700 410 950 410" class="ppd-conn ppd-conn-arcade"/>
+  <path id="ppd-arcade-back" d="M 950 442 C 700 442 500 448 240 448" class="ppd-conn ppd-conn-arcade ppd-conn-back"/>
+
+  <circle r="6" class="ppd-dot ppd-dot-arcade" opacity="0">
+    <set attributeName="opacity" to="1" begin="0s; ppd-arcade-back-leg.end+0.5s"/>
+    <animateMotion id="ppd-arcade-out-leg" begin="0s; ppd-arcade-back-leg.end+0.5s" dur="0.4s" fill="freeze">
+      <mpath href="#ppd-arcade-out"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-arcade-out-leg.end"/>
+  </circle>
+  <circle r="6" class="ppd-dot ppd-dot-arcade" opacity="0">
+    <set attributeName="opacity" to="1" begin="ppd-arcade-out-leg.end"/>
+    <animateMotion id="ppd-arcade-back-leg" begin="ppd-arcade-out-leg.end" dur="0.4s" fill="freeze">
+      <mpath href="#ppd-arcade-back"/>
+    </animateMotion>
+    <set attributeName="opacity" to="0" begin="ppd-arcade-back-leg.end"/>
+  </circle>
+
+  <g class="ppd-total ppd-total-good">
+    <rect x="950" y="486" width="190" height="36" rx="8"/>
+    <text x="1045" y="509" text-anchor="middle">Total ≈ 5 ms</text>
+  </g>
+  <text x="600" y="500" class="ppd-caption" text-anchor="middle">one call, zero chaining, no serialization between systems</text>
+</svg>
+++++
+
+The animation runs faster than reality, but the proportions hold: by the time the polyglot scenario finishes one round of three sequential calls, ArcadeDB has completed several full transactions. The numbers below match the animation:
+
+[cols="3,2,1", options="header"]
+|===
+| Polyglot persistence (sequential) | Database | Latency
+| Your app -> PostgreSQL | Relational | ~15 ms
+| then ... -> MongoDB | Document | ~20 ms
+| then ... -> Neo4j | Graph | ~12 ms
+3+| *Total: ~47 ms+* (sum of calls + serialization overhead)
+|===
+
+[cols="3,2,1", options="header"]
+|===
+| ArcadeDB (single call) | Engine | Latency
+| Your app -> ArcadeDB (graph + document + search in one query) | Multi-model | ~5 ms
+3+| *Total: ~5 ms* (one call, zero chaining, no serialization)
+|===
+
+==== One engine, every model
+
+ArcadeDB collapses the polyglot stack into a single engine. A single ACID transaction can:
+
+* create a JSON document,
+* connect it as a vertex in a graph,
+* index its embedding for vector similarity,
+* and append a time-series sample for it,
+
+— atomically. There is no replication lag *between models*, because there is no replication: the data exists once, on one storage layer.
+
+The consequences run deeper than just lower latency:
+
+* *Lower latency* — one network round-trip, no waiting on the slowest database in the chain.
+* *One operational model* — one backup, one HA topology, one monitoring dashboard, one upgrade path.
+* *One learning curve* — your team learns ArcadeDB once, not five products.
+* *Real cross-model queries* — a SQL statement can traverse a graph, filter on document fields, and rank by vector similarity in a single pass:
+
+[source,sql]
+----
+SELECT FROM (
+  MATCH {type: User, as: u} -Follows-> {type: User, as: f}
+  RETURN f
+) WHERE vectorCosineSimilarity(f.embedding, ?) > 0.8
+----
+
+The graph traversal and the vector comparison run against the same records in the same transaction. No cross-database join, no eventual consistency, no glue code.
+
+==== The graph model is our core — and it's native
+
+ArcadeDB is a *native graph database*. That phrase carries weight, so let's unpack it.
+
+In a relational database, a relationship between two rows is a foreign key — a value in one table that *matches* a value in another. To follow it, the database engine must look the other side up, typically via an index. The cost grows with the size of the joined tables: a `JOIN` on millions of rows forces the planner to choose between hash join, merge join, or nested loop, and none of those are free. As your data grows, your queries slow down.
+
+In a native graph, *edges are physical links between records.* Following an edge dereferences a pointer; the database does not scan, does not probe an index, does not build a hash table. Every traversal hop is *O(1) regardless of database size.* This is called *index-free adjacency*, and it changes the kind of question you can ask:
+
+* "Friends of friends of friends of Alice" — three pointer hops, milliseconds, no matter how many users you have.
+* "Every person within 4 degrees of someone who bought product X in the last hour" — a traversal, not a query plan with three nested joins.
+* "Shortest path between two arbitrary entities in a 100-million-vertex graph" — feasible.
+
+In ArcadeDB, edges are first-class records: a `Follows` edge can carry properties like `since`, `weight`, `label`. Lightweight edges exist for relationships with no properties (zero per-edge storage). Both are stored as physical links — there are no join tables, no adjacency lists bolted onto a relational schema, no LINKBAG-style indirection.
+
+This is also why we recommend the graph model as the *default* even for "non-graph" applications. Anything you can model as parent/child, owner/owned, follower/followee, before/after, or "belongs to" is naturally a graph. Modelling it as a graph means a `JOIN` becomes a single-pointer dereference, and your query keeps the same speed when the table grows from a thousand rows to a billion.
+
+* xref:concepts/graphs.adoc[Graph database concepts]
+* xref:reference/sql/sql-match.adoc[SQL `MATCH`]
+* xref:reference/cypher/cypher-overview.adoc[Cypher (openCypher)]
+* xref:reference/gremlin/gremlin.adoc[Apache TinkerPop Gremlin]
+
+==== The other models you get
 
 [discrete]
-==== Cloud DBMS
+===== Documents
 
-ArcadeDB was born in the cloud.
-Even though you can run ArcadeDB as <<embedded-server,embedded>> and in an on-premise setup, you can spin an ArcadeDB server/cluster in a few seconds with Docker, Kubernetes, Amazon AWS (coming soon), or Microsoft Azure (coming soon).
+Documents are JSON-like records with nested properties, lists, and maps. Document types can be *schema-full* (every property declared with a type and constraints), *schema-less* (no validation, free-form), or *schema-hybrid* (some properties enforced, others free-form). Types support inheritance — a `Customer` type can extend `Person` and inherit its properties, indexes, and constraints.
 
-[discrete]
-==== Is ArcadeDB FREE?
-
-ArcadeDB Community Edition is really FREE for any purpose and thus released under the https://spdx.org/licenses/Apache-2.0.html[Apache 2.0 license].
-We love to know about your project with ArcadeDB and any contributions back to ArcadeDB's open community (reports, patches, test cases, documentations, etc) are welcome.
-
-Ask yourself: which is more likely to have better quality?
-A DBMS created and tested by a handful of developers in isolation, or one tested by thousands of developers globally?
-When code is public, everyone can scrutinize, test, report and resolve issues.
-All things open source moves faster compared to the proprietary world.
+* xref:concepts/basics.adoc[Records, documents, vertices, edges]
+* xref:concepts/schema.adoc[Schema modes]
 
 [discrete]
-==== Professional Support
+===== Key-value
 
-For mission-critical deployments, ArcadeDB offers professional support plans with guaranteed response times and SLA coverage.
-Visit the https://arcadedb.com/pricing.html[Pricing] page for available plans and the https://arcadedb.com/sla.html[SLA] page for service level details.
+Every record has a Record ID (RID); fetching by RID is O(1). Buckets can also act as dedicated key/value namespaces — useful for caching, session storage, and configuration without a type schema.
+
+[discrete]
+===== Full-text search
+
+Built-in Lucene engine with fuzzy matching, integrated into the query languages. No external Elasticsearch deployment required for typical search workloads.
+
+* xref:how-to/data-modeling/full-text-index.adoc[Full-text index]
+
+[discrete]
+===== Time-series
+
+Columnar storage with Gorilla XOR compression for floats and Delta-of-Delta for timestamps — 0.4 to 1.4 bytes per sample. Ingestion via the InfluxDB Line Protocol (works with Telegraf, Grafana Agent, etc.); query with PromQL or SQL analytical functions like `ts.timeBucket`, `ts.rate`, `ts.percentile`.
+
+* xref:concepts/timeseries.adoc[Time-series concepts]
+
+[discrete]
+===== Vector
+
+JVector indexes (HNSW or Vamana / DiskANN) with COSINE, DOT_PRODUCT, and EUCLIDEAN similarity, and INT8 / BINARY quantisation for memory savings. Vector indexes participate in ACID transactions and integrate directly into SQL through `vectorNeighbors()` and `vectorCosineSimilarity()`.
+
+* xref:concepts/vector-search.adoc[Vector search]
+
+[discrete]
+===== Geospatial
+
+Built-in geometric and geographic functions over points, polygons, and bounding boxes — distance queries, containment, intersections — all in the same SQL planner as the rest of the data.
+
+* xref:how-to/data-modeling/geospatial.adoc[Geospatial]
+
+==== Pick the query language your team already knows
+
+ArcadeDB speaks the languages your team is comfortable with. They all read and write the *same* records on the *same* storage:
+
+* xref:reference/sql/sql-introduction.adoc[*SQL*] — extended with graph traversal, full-text, vector, and time-series functions
+* xref:reference/cypher/cypher-overview.adoc[*Cypher (openCypher)*] — drop-in replacement for Neo4j Cypher, 97.8% TCK compliant
+* xref:reference/gremlin/gremlin.adoc[*Gremlin*] — Apache TinkerPop graph traversal
+* xref:reference/graphql/graphql.adoc[*GraphQL*] — schema-driven queries over HTTP
+* xref:reference/mongodb-ql/mongo.adoc[*MongoDB QL*] — document-oriented queries via the MongoDB protocol
+* xref:reference/redis-ql/redis.adoc[*Redis commands*] — key/value access via the Redis wire protocol
+
+A record created through SQL is immediately visible to a Gremlin traversal, and an edge created through Cypher can be queried through GraphQL.
+
+==== Embedded or server, your choice
+
+ArcadeDB runs in two modes:
+
+* *Embedded* — link the JAR into a JVM application and run the database in-process. No separate server, no network hop, no IPC overhead. Footprint starts at ~16 MB of heap. Apache 2.0; no Enterprise edition required.
+* *Server* — run as a process and connect from any language over HTTP/REST, the PostgreSQL wire protocol, the Neo4j Bolt protocol, MongoDB drivers, Redis clients, the gRPC API, or MCP for AI agents.
+
+Many ArcadeDB deployments mix both: an embedded engine inside a hot-path service plus a server cluster for analytics and external clients, all sharing the same database files.
+
+==== Why it's so fast
+
+ArcadeDB is written in *Low-Level Java* — Java 21+, but without high-level abstractions on the hot path. Few objects are allocated at run time, so the garbage collector rarely needs to act. The kernel uses cache-line-aware data layouts, lock-free reads where possible, and other mechanical-sympathy techniques to make the JVM behave more like a hand-tuned native binary.
+
+The storage engine is an LSM-tree with bucket partitioning, page caching, and a write-ahead log. On the LDBC Graphalytics benchmark, ArcadeDB outperforms popular graph databases by 5×–80× on PageRank, BFS, and weakly-connected-components workloads.
+
+* xref:reference/storage.adoc[Storage internals]
+* xref:reference/lsm-tree.adoc[LSM-tree algorithm]
+* xref:appendix/neo4j-differences.adoc[Performance comparison vs. Neo4j]
+
+==== Apache 2.0, free for commercial use
+
+ArcadeDB Community Edition is released under the https://spdx.org/licenses/Apache-2.0.html[Apache 2.0 license] — free for any purpose, commercial use included, no copyleft. You can embed it in proprietary products without publishing your source.
+
+When code is public, anyone can scrutinize, test, report, and resolve issues. Open source moves faster than the proprietary world, and the trust comes from being able to read the code rather than a marketing page.
+
+For mission-critical production deployments, https://arcadedb.com/pricing.html[professional support] is available with guaranteed response times and SLA coverage. See the https://arcadedb.com/sla.html[SLA] page for service-level details.
+
+==== Where to next
+
+* xref:tutorials/run.adoc[Run ArcadeDB] — install with Docker, native binaries, or Kubernetes
+* xref:tutorials/multimodel.adoc[Multi-model walkthrough] — combine all six models in one transaction
+* xref:tutorials/java-tutorial.adoc[10-minute Java tutorial] — embedded mode quickstart
+* xref:tutorials/python-quickstart.adoc[Python quickstart] — connect via PostgreSQL or HTTP
+* https://arcadedb.com/academy.html[ArcadeDB Academy] — free, self-paced courses with certification

@@ -1,0 +1,170 @@
+[[python-quickstart]]
+= Python Quickstart
+
+This tutorial shows how to connect to ArcadeDB from Python using the PostgreSQL wire protocol. You will create a graph, run queries, and use vector search -- all from a Python script.
+
+== Prerequisites
+
+* ArcadeDB running with PostgreSQL protocol enabled (default port 5432)
+* Python 3.10+
+* `psycopg` library
+
+[source,bash]
+----
+pip install "psycopg[binary]>=3.1,<4"
+----
+
+== Connect to ArcadeDB
+
+ArcadeDB speaks the PostgreSQL wire protocol, so you can use standard PostgreSQL drivers. No special SDK is needed.
+
+[source,python]
+----
+import psycopg
+
+conn = psycopg.connect(
+    host='localhost',
+    port=5432,
+    dbname='mydb',
+    user='root',
+    password='arcadedb',
+    autocommit=True,
+)
+print('Connected to ArcadeDB')
+----
+
+== Create a Schema
+
+Use SQL to create vertex and edge types:
+
+[source,python]
+----
+with conn.cursor() as cur:
+    # Create vertex types
+    cur.execute("CREATE VERTEX TYPE Person IF NOT EXISTS")
+    cur.execute("CREATE VERTEX TYPE Movie IF NOT EXISTS")
+
+    # Create edge type
+    cur.execute("CREATE EDGE TYPE Acted IF NOT EXISTS")
+
+    # Insert data
+    cur.execute("CREATE VERTEX Person SET name = 'Alice', age = 30")
+    cur.execute("CREATE VERTEX Person SET name = 'Bob', age = 25")
+    cur.execute("CREATE VERTEX Movie SET title = 'The Matrix', year = 1999")
+    cur.execute("""
+        CREATE EDGE Acted FROM (SELECT FROM Person WHERE name = 'Alice')
+                           TO (SELECT FROM Movie WHERE title = 'The Matrix')
+                           SET role = 'Trinity'
+    """)
+----
+
+== Query with SQL
+
+[source,python]
+----
+with conn.cursor() as cur:
+    cur.execute("""
+        SELECT person.name, movie.title, acted.role
+        FROM MATCH {type: Person, as: person}
+             -Acted-> {type: Movie, as: movie}
+    """)
+    for row in cur.fetchall():
+        print(f'{row[0]} acted in {row[1]} as {row[2]}')
+----
+
+== Query with Cypher
+
+ArcadeDB supports Cypher queries through the same connection:
+
+[source,python]
+----
+with conn.cursor() as cur:
+    cur.execute("{cypher} MATCH (p:Person)-[a:Acted]->(m:Movie) RETURN p.name, m.title, a.role")
+    for row in cur.fetchall():
+        print(f'{row[0]} acted in {row[1]} as {row[2]}')
+----
+
+NOTE: Prefix Cypher queries with `\{cypher}` when using the PostgreSQL protocol.
+
+== Vector Search
+
+ArcadeDB supports vector similarity search. Add embeddings to your data and query by similarity:
+
+[source,python]
+----
+with conn.cursor() as cur:
+    # Create a type with a vector property
+    cur.execute("CREATE VERTEX TYPE Product IF NOT EXISTS")
+    cur.execute("CREATE PROPERTY Product.embedding IF NOT EXISTS LIST")
+    cur.execute("CREATE INDEX ON Product (embedding) VECTOR (4, COSINE, LSM_VECTOR)")
+
+    # Insert products with embeddings
+    cur.execute("CREATE VERTEX Product SET name = 'Laptop', embedding = [0.9, 0.1, 0.8, 0.2]")
+    cur.execute("CREATE VERTEX Product SET name = 'Tablet', embedding = [0.8, 0.2, 0.7, 0.3]")
+    cur.execute("CREATE VERTEX Product SET name = 'Phone',  embedding = [0.7, 0.3, 0.6, 0.4]")
+    cur.execute("CREATE VERTEX Product SET name = 'Book',   embedding = [0.1, 0.9, 0.2, 0.8]")
+
+    # Find the 3 most similar products to a query vector
+    cur.execute("""
+        SELECT name, distance FROM (
+            SELECT expand(vectorNeighbors('Product[embedding]', [0.85, 0.15, 0.75, 0.25], 3))
+        )
+    """)
+    print('Similar products:')
+    for row in cur.fetchall():
+        print(f'  {row[0]}')
+----
+
+== Full Example
+
+Here is a complete script that connects, creates data, and queries:
+
+[source,python]
+----
+#!/usr/bin/env python3
+"""ArcadeDB Python quickstart -- graph + vector search."""
+
+import psycopg
+
+def main():
+    conn = psycopg.connect(
+        host='localhost', port=5432, dbname='mydb',
+        user='root', password='arcadedb', autocommit=True,
+    )
+
+    with conn.cursor() as cur:
+        # Create schema
+        cur.execute("CREATE VERTEX TYPE Person IF NOT EXISTS")
+        cur.execute("CREATE VERTEX TYPE Movie IF NOT EXISTS")
+        cur.execute("CREATE EDGE TYPE Acted IF NOT EXISTS")
+
+        # Insert data
+        cur.execute("CREATE VERTEX Person SET name = 'Alice', age = 30")
+        cur.execute("CREATE VERTEX Movie SET title = 'The Matrix', year = 1999")
+        cur.execute("""
+            CREATE EDGE Acted FROM (SELECT FROM Person WHERE name = 'Alice')
+                               TO (SELECT FROM Movie WHERE title = 'The Matrix')
+                               SET role = 'Trinity'
+        """)
+
+        # Query with SQL MATCH
+        cur.execute("""
+            SELECT person.name, movie.title, acted.role
+            FROM MATCH {type: Person, as: person}
+                 -Acted-> {type: Movie, as: movie}
+        """)
+        for row in cur.fetchall():
+            print(f'{row[0]} acted in {row[1]} as {row[2]}')
+
+    conn.close()
+
+if __name__ == '__main__':
+    main()
+----
+
+== Next Steps
+
+* xref:use-cases/iam.adoc#use-case-iam[IAM Use Case] -- Full Python implementation with 7 query patterns
+* xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL Protocol Reference]
+* xref:reference/sql/chapter.adoc#sql[SQL Reference]
+* xref:reference/cypher/chapter.adoc#cypher[Cypher Reference]

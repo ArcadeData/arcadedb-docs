@@ -1,0 +1,98 @@
+[[bi-grafana]]
+= Grafana
+
+https://grafana.com[Grafana] is the leading open-source platform for monitoring and observability.
+ArcadeDB provides two integration paths: a dedicated Grafana plugin (recommended) and a fallback via the built-in PostgreSQL data source.
+
+== ArcadeDB Grafana Plugin (Recommended)
+
+The https://github.com/ArcadeData/arcadedb-grafana-datasource[ArcadeDB Grafana plugin] provides a native integration with dedicated query editors, time series visual builder, and graph visualization via Grafana's Node Graph panel.
+
+*Features:*
+
+* **Time Series mode** - visual query builder with auto-discovered types, fields, tags, and aggregation functions (SUM, AVG, MIN, MAX, COUNT)
+* **SQL mode** - ArcadeDB SQL with macro expansion (`$__timeFrom`, `$__timeTo`, `$__timeFilter(col)`, `$__interval`)
+* **Cypher mode** - OpenCypher queries with optional Node Graph visualization
+* **Gremlin mode** - Apache Gremlin traversals with optional Node Graph visualization
+* **Alerting** - full Grafana alerting support via the Go backend
+* **Template variables** - dashboard variables populated from ArcadeDB queries
+
+*Installation:*
+
+[source,shell]
+----
+grafana-cli plugins install arcadedb-arcadedb-datasource
+----
+
+For self-hosted Grafana with unsigned plugins, add to `grafana.ini`:
+
+[source,ini]
+----
+[plugins]
+allow_loading_unsigned_plugins = arcadedb-arcadedb-datasource
+----
+
+*Configuration:*
+
+. Go to **Connections > Data Sources > Add data source** and search for **ArcadeDB**.
+. Set the **URL** to your ArcadeDB HTTP API (e.g., `http://localhost:2480`).
+. Enable **Basic Auth** and enter your ArcadeDB credentials.
+. Set the **Database** name in the ArcadeDB section.
+. Click **Save & Test**.
+
+*Time Series query example:*
+
+. Select **Time Series** mode.
+. Choose a type (e.g., `cpu_metrics`), fields (e.g., `usage`), and optional tag filters.
+. Add an aggregation: AVG on `usage` with a bucket interval or leave it to auto-calculate.
+
+*SQL query example:*
+
+[source,sql]
+----
+SELECT ts, temperature FROM weather
+WHERE $__timeFilter(ts)
+ORDER BY ts
+----
+
+*Cypher query with Node Graph:*
+
+Enable the **Node Graph** toggle, then:
+
+[source,cypher]
+----
+MATCH (p:Person)-[r:FRIEND_OF]->(f:Person)
+RETURN p, r, f LIMIT 100
+----
+
+The result renders as an interactive graph in Grafana's Node Graph panel.
+
+== PostgreSQL Data Source (Fallback)
+
+If you cannot install the ArcadeDB plugin, use Grafana's built-in PostgreSQL data source with ArcadeDB's xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL wire protocol].
+
+. Go to **Connections > Data Sources > Add data source** and select **PostgreSQL**.
+. Set **Host** to `localhost:5432`, enter the **Database** name and credentials.
+. Set **TLS/SSL Mode** to `disable`.
+. Click **Save & Test**.
+
+In panels, switch to **Code** mode and write SQL:
+
+[source,sql]
+----
+SELECT name, age FROM Person LIMIT 100
+----
+
+Use the `{cypher}` prefix for Cypher queries:
+
+[source,sql]
+----
+{cypher}MATCH (p:Person) RETURN p.name, p.age LIMIT 100
+----
+
+NOTE: The PostgreSQL fallback does not support the time series visual builder, Node Graph visualization, ArcadeDB-specific macros, or alerting optimizations. Use the dedicated plugin for the full experience.
+
+== Grafana Time Series Endpoints
+
+ArcadeDB also provides native Grafana DataFrame-compatible HTTP endpoints for time series data.
+See xref:concepts/timeseries.adoc#timeseries[Time Series] for full documentation of the `/grafana/health`, `/grafana/metadata`, and `/grafana/query` endpoints, as well as the PromQL-compatible endpoints.

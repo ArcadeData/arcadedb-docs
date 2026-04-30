@@ -4,16 +4,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is the ArcadeDB documentation repository, which generates HTML and PDF documentation from AsciiDoc source files using Maven and the Asciidoctor toolchain.
+This is the ArcadeDB documentation repository, which generates HTML and PDF documentation from AsciiDoc source files. **A migration to [Antora](https://antora.org/) is in progress on the `feat/antora` branch** — see "Documentation Pipeline" below.
+
+## Documentation Pipeline (transitional state)
+
+The repo currently runs two HTML pipelines in parallel:
+
+- **Legacy (production)**: `mvn generate-resources` → single-page HTML + `ArcadeDB-Manual.pdf`. Source: `src/main/asciidoc/`. Deployed to `docs.arcadedb.com` via `.github/workflows/cloudflare-deploy.yml`.
+- **Antora (preview, `feat/antora` branch only)**: `npm run build` → multi-page site at `build/site/`. Source: `docs/modules/ROOT/{pages,images}/`, **regenerated from `src/main/asciidoc/` by `scripts/migrate.sh`**. Deployed to a Cloudflare Pages preview branch via `.github/workflows/antora-preview.yml`.
+
+**Where to edit content**: `src/main/asciidoc/` remains the canonical source. After editing, run `scripts/migrate.sh` to refresh `docs/modules/ROOT/` (or rely on CI to do it). The migration is end-to-end re-runnable — it wipes and rebuilds `docs/modules/ROOT/{pages,images}` on every invocation.
+
+The PDF build is unchanged — it still reads from `src/main/asciidoc/`.
 
 ## Building and Serving Documentation
 
-### Generate documentation
+### Generate legacy HTML + PDF
 ```shell
 mvn generate-resources
 ```
 
 Output is generated in `target/generated-docs/`
+
+### Build the Antora site
+```shell
+npm ci
+bash scripts/migrate.sh
+npm run build      # build/site/
+npm run serve      # http://localhost:8080
+```
+
+### Enable Algolia DocSearch (after approval)
+
+DocSearch is wired into the UI but stays hidden until credentials are
+provisioned. When the application is approved:
+
+1. Add three secrets to the GitHub repo (Settings → Secrets → Actions):
+   - `ALGOLIA_APP_ID`
+   - `ALGOLIA_API_KEY` (the **search-only** key, not the admin key)
+   - `ALGOLIA_INDEX_NAME` (defaults to `arcadedb` in `antora-playbook.yml`)
+2. Re-run the `Antora Preview` workflow. The search box appears in the
+   navbar; pressing Cmd/Ctrl+K opens the DocSearch modal.
+
+The CI step in `.github/workflows/antora-preview.yml` detects whether
+`ALGOLIA_APP_ID` is set and conditionally passes `--key
+site.keys.algolia_*=...` to Antora. Locally, set the same env vars
+plus `SITE_SEARCH_PROVIDER=algolia` if you want to preview search.
 
 ### Serve documentation locally
 ```shell

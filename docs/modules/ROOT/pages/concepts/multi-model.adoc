@@ -1,0 +1,133 @@
+[[multi-model]]
+= Multi-Model Architecture
+
+ArcadeDB is a multi-model database that natively supports documents, graphs, key-value, time series, and vector search within a single engine.
+All models share the same storage layer, the same transaction manager, and the same query infrastructure.
+This design eliminates the need for polyglot persistence -- the practice of running separate specialized databases for different data models -- and the operational complexity that comes with it.
+
+== Why Multi-Model Matters
+
+Traditional architectures often pair a relational database with a graph database, a document store, a time series backend, and a vector index.
+Each system brings its own deployment, its own backup strategy, its own security model, and its own failure modes.
+Keeping data consistent across these systems requires ETL pipelines, message queues, or change-data-capture infrastructure that adds latency and introduces synchronization bugs.
+
+ArcadeDB collapses this stack into one process.
+A single ACID transaction can create a document, connect it as a vertex in a graph, and index its embedding for vector similarity -- atomically.
+There is no replication lag between models because there is no replication; the data exists once.
+
+== The Latency Problem with Multiple Databases
+
+With polyglot persistence, a single user request often triggers a **chain of sequential calls** across different databases.
+Each call adds network latency, serialization overhead, and wait time.
+The total response time is the _sum_ of all calls.
+
+[cols="3,2,1", options="header"]
+|===
+| Polyglot Persistence (Sequential Calls) | Database | Latency
+| Your App -> MySQL        | Relational | ~15ms
+| Wait... -> MongoDB       | Document   | ~20ms
+| Wait... -> Neo4j         | Graph      | ~12ms
+3+| **Total: ~47ms+** (sum of all calls + serialization overhead)
+|===
+
+[cols="3,2,1", options="header"]
+|===
+| ArcadeDB (Single Call) | Engine | Latency
+| Your App -> ArcadeDB (graph + doc + search in one query) | Multi-Model | ~5ms
+3+| **Total: ~5ms** (one call, zero chaining, no serialization)
+|===
+
+With a multi-model database, your application makes a **single call** that can query graphs, documents, and full-text search at the same time.
+No chaining, no waiting, no redundant serialization.
+The result? Dramatically lower latency and simpler application code.
+
+ArcadeDB natively supports **six data models**: Graph, Document, Key-Value, Full-Text Search, Vector, and Time-Series -- all within a single, embeddable database engine.
+
+== Supported Data Models
+
+[discrete]
+=== Documents
+
+xref:tutorials/multimodel.adoc#document-model[Documents] are the foundational record type.
+They store data as JSON-like structures with nested properties, lists, and maps.
+Types can operate in schema-full mode (all properties declared), schema-less mode (no schema constraints), or xref:concepts/schema.adoc#schema[schema-hybrid] mode where some properties are enforced while others remain free-form.
+Document types support xref:concepts/inheritance.adoc#inheritance[inheritance], allowing a subtype to extend a parent type and inherit its properties.
+
+[discrete]
+=== Graph
+
+The xref:concepts/graphs.adoc#graph-database[graph model] represents data as vertices and edges with properties.
+Edges are first-class citizens stored in their own types -- not join tables or adjacency lists bolted onto a relational schema.
+ArcadeDB supports two kinds of edges: **lightweight edges** for simple relationships that carry no properties, and **regular edges** for relationships that need their own attributes such as weight, timestamp, or label.
+Graph traversal operates at O(1) complexity per hop through index-free adjacency.
+
+[discrete]
+=== Key-Value
+
+Every record in ArcadeDB is accessible by its xref:concepts/basics.adoc#rid[Record ID (RID)] at O(1) complexity, making the entire database function as a key-value store.
+Buckets can also serve as dedicated key-value namespaces where records are inserted and retrieved by RID without requiring a type schema.
+This model is useful for caching, session storage, and any scenario where direct access by identifier is the primary pattern.
+
+[discrete]
+=== Time Series
+
+The xref:concepts/timeseries.adoc#timeseries[time series] engine provides columnar storage with Gorilla XOR compression for floats and Delta-of-Delta encoding for timestamps, achieving 0.4 to 1.4 bytes per sample.
+Ingestion supports the InfluxDB Line Protocol, making it compatible with Telegraf, Grafana Agent, and hundreds of collection agents.
+Queries use PromQL for monitoring workloads or SQL analytical functions such as `ts.timeBucket`, `ts.rate`, and `ts.percentile` for custom analysis.
+
+[discrete]
+=== Vector Search
+
+xref:concepts/vector-search.adoc#vector-search-concepts[Vector search] enables similarity-based retrieval using the LSMVectorIndex.
+The index implements both HNSW and Vamana (DiskANN) algorithms from JVector, supports COSINE, DOT_PRODUCT, and EUCLIDEAN similarity functions, and offers INT8 and BINARY quantization for memory reduction.
+Vector indexes participate in ACID transactions and integrate directly into SQL queries through functions like `vectorNeighbors()`.
+
+== Unified Query Layer
+
+All data models are accessible through multiple query languages that operate on the same underlying records:
+
+* **SQL** -- The primary query language, extended with graph traversal, time series aggregation, and vector similarity functions
+* **Cypher** -- Pattern-matching queries for graph traversal
+* **Gremlin** -- Imperative graph traversal language (Apache TinkerPop)
+* **GraphQL** -- Schema-driven queries over HTTP
+* **MongoDB Query Language** -- Document-oriented queries for migration compatibility
+* **Redis Protocol** -- Key-value operations over the Redis wire protocol
+
+Because all languages read from and write to the same storage, a record created through SQL is immediately visible to a Gremlin traversal, and an edge created through Cypher can be queried with GraphQL.
+
+== Type Inheritance Across Models
+
+ArcadeDB types follow an object-oriented xref:concepts/inheritance.adoc#inheritance[inheritance] model.
+A type can extend another type, inheriting all of its properties, indexes, and constraints.
+This applies uniformly to document types, vertex types, and edge types.
+
+For example, a `Person` vertex type can serve as the parent for both `Employee` and `Customer` types.
+A query against `Person` automatically includes records from all subtypes, while a query against `Employee` returns only employees.
+This polymorphic behavior works identically regardless of which query language is used.
+
+== Schema Flexibility
+
+ArcadeDB supports three xref:concepts/schema.adoc#schema[schema modes] that can be mixed within the same database:
+
+* **Schema-full** -- Every property is declared with a type and optional constraints. Attempts to store undeclared properties are rejected.
+* **Schema-less** -- No schema is defined. Records accept arbitrary properties with no validation.
+* **Schema-hybrid** -- Some properties are declared and enforced, while additional properties can be added freely.
+
+This flexibility allows different types in the same database to use different schema strategies.
+A `Transaction` type might enforce strict schema-full validation, while a `Metadata` type might operate schema-less to accommodate evolving requirements.
+
+== Cross-Model Queries
+
+The most powerful consequence of the multi-model architecture is the ability to combine models in a single query.
+A SQL statement can traverse graph edges, filter on document properties, aggregate time series data, and rank results by vector similarity -- all in one pass, within one transaction.
+
+[source,sql]
+----
+SELECT FROM (
+  MATCH {type: User, as: u}-Follows->{type: User, as: f}
+  RETURN f
+) WHERE vectorCosineSimilarity(f.embedding, ?) > 0.8
+----
+
+This query traverses the `Follows` graph to find users connected to a starting set, then filters the results to only those whose embedding vectors are semantically similar to a target.
+No ETL, no cross-database joins, no eventual consistency -- the graph traversal and the vector comparison execute against the same records in the same transaction.

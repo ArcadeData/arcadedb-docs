@@ -1,0 +1,78 @@
+[[bi-analytics-integration]]
+= BI and Analytics Integration
+
+Most modern BI tools speak SQL over PostgreSQL — and so does ArcadeDB. The PostgreSQL wire protocol on port 5432 lets virtually any Postgres-compatible tool connect to ArcadeDB without a custom driver, an ODBC bridge, or middleware. For tools that need richer integration than ANSI SQL provides, ArcadeDB also ships native plugins (Grafana today, more on the roadmap).
+
+== Connection paths
+
+There are two ways a BI tool talks to ArcadeDB. Pick the one your tool supports:
+
+[cols="1,2,3", options="header"]
+|===
+| Path | What it is | When to use
+
+| *Native plugin / data source*
+| A tool-specific extension that ArcadeData publishes (or that the tool ships out of the box) which knows ArcadeDB-specific features — graph queries, multiple query languages, time-series macros, graph visualization.
+| Use whenever ArcadeDB ships a native plugin (today: Grafana). Always preferred over the generic Postgres path because it surfaces graph-aware visualizations, multi-language queries, and time-series-aware query builders.
+
+| *PostgreSQL wire protocol*
+| ArcadeDB exposes port 5432 as a Postgres-compatible endpoint. Any tool with a built-in PostgreSQL connector — or any Java tool that loads the standard https://jdbc.postgresql.org/[PostgreSQL JDBC driver] — points at that endpoint and runs ArcadeDB SQL exactly as it would against Postgres.
+| Use for tools that already speak Postgres natively: Apache Superset, Metabase, Tableau, Power BI, DBeaver, dbt, Looker, and so on.
+|===
+
+ArcadeDB does not ship its own JDBC driver. Tools that require a JDBC URL connect through the standard PostgreSQL JDBC driver (`org.postgresql:postgresql`); the connection target is ArcadeDB's port 5432 instead of a real PostgreSQL server. Functionally it is the same wire-level path as the built-in Postgres connectors — same protocol, same auth, same query surface — and the same set of language prefixes works (see "Sending non-SQL queries" below).
+
+== Supported tools
+
+[cols="1,2,3", options="header"]
+|===
+| Tool | Connection path | ArcadeDB-specific features
+
+| xref:how-to/integrations/grafana.adoc#bi-grafana[Grafana]
+| Native plugin (recommended); Postgres data source fallback
+| Visual time-series query builder, ArcadeDB SQL with `$__timeFilter` macros, OpenCypher with Node-Graph visualization, Gremlin traversals, full alerting support.
+
+| xref:how-to/integrations/apache-superset.adoc#bi-apache-superset[Apache Superset]
+| PostgreSQL wire protocol (SQLAlchemy + psycopg2)
+| ArcadeDB SQL through Superset's SQL Lab and dashboards. Cross-database joins via Superset's virtual datasets.
+
+| xref:how-to/integrations/metabase.adoc#bi-metabase[Metabase]
+| Built-in PostgreSQL JDBC connector
+| ArcadeDB SQL through Metabase's question editor and dashboards.
+
+| xref:how-to/integrations/tableau.adoc#bi-tableau[Tableau]
+| Built-in PostgreSQL connector
+| ArcadeDB SQL via Tableau's PostgreSQL data source. Live or extract mode.
+
+| xref:how-to/integrations/power-bi.adoc#bi-power-bi[Power BI]
+| Built-in PostgreSQL connector
+| ArcadeDB SQL via Power BI's PostgreSQL connector. Import or DirectQuery mode.
+|===
+
+== Setting up the Postgres endpoint
+
+The Postgres protocol plugin is bundled with the standard distribution; you only need to enable it. See xref:how-to/connectivity/postgres.adoc#postgres-driver[Postgres Protocol Plugin] for the exact server-side configuration. Once enabled, ArcadeDB listens on port 5432 (TLS optional) and the tool sees it as a regular PostgreSQL server — same hostname/port/database/username/password fields you already know.
+
+For Java tools that connect via JDBC, drop the standard https://jdbc.postgresql.org/download/[PostgreSQL JDBC driver] (`org.postgresql:postgresql`) on the classpath and use a JDBC URL of the form:
+
+[source]
+----
+jdbc:postgresql://<host>:5432/<database>
+----
+
+with `<database>` being your ArcadeDB database name. There is no ArcadeDB-specific driver to install — the wire protocol is what carries the connection.
+
+== Sending non-SQL queries from a Postgres-only tool
+
+The PostgreSQL connection lets you send any ArcadeDB SQL query, including graph traversals (`MATCH`, `TRAVERSE`) and vector functions. To send *Cypher*, *Gremlin*, *GraphQL*, *MongoDB QL*, or a multi-statement *SQL Script* from a tool that only speaks SQL, prefix the query with the language tag:
+
+[source,sql]
+----
+{cypher} MATCH (m:Movie)<-[a:ACTED_IN]-(p:Person) WHERE id(m) = '#1:0' RETURN *
+----
+
+The `{cypher}` prefix tells ArcadeDB to route the query to the OpenCypher engine instead of the SQL planner. The same pattern works for `{gremlin}`, `{graphql}`, `{mongo}`, and `{sqlscript}`. The result set is returned over the Postgres protocol like any other query, so the BI tool can chart it without knowing it came from a non-SQL engine.
+
+== Suggesting a missing tool
+
+If your favourite BI or analytics tool is not in the list above and it supports PostgreSQL, it almost certainly works against ArcadeDB out of the box — try it and let us know how it goes on https://github.com/ArcadeData/arcadedb/discussions[GitHub Discussions]. If the tool needs a dedicated plugin or has rough edges over the Postgres protocol, open an issue at https://github.com/ArcadeData/arcadedb/issues — community-driven plugin work is very welcome.

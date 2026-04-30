@@ -1,0 +1,215 @@
+[[vector-model]]
+[[vector-search-concepts]]
+= Vector Search
+
+ArcadeDB includes a native vector search engine for similarity-based retrieval of embeddings. Vector indexes are fully integrated into the SQL query engine and support ACID transactions, persistent storage, and automatic compaction.
+
+== How Vector Search Works
+
+Vector search finds the nearest neighbors to a query vector in high-dimensional space. Instead of exact matching (like SQL `WHERE`), it finds the most _similar_ items based on a distance or similarity metric.
+
+Typical workflow:
+
+1. Generate embeddings from your data using an external model (OpenAI, Sentence Transformers, etc.)
+2. Store embeddings as vector properties on vertices or documents
+3. Create a vector index on the property
+4. Query with `vectorNeighbors()` to find the k most similar items
+
+== LSMVectorIndex Architecture
+
+ArcadeDB's vector index is built on two foundations:
+
+* **LSM Tree storage** -- ArcadeDB's proven LSM Tree architecture provides persistent, crash-safe storage with automatic compaction
+* **JVector 4.0.0** -- A high-performance vector search library that implements both HNSW (Hierarchical Navigable Small World) and Vamana (DiskANN) graph algorithms
+
+The index stores vectors as a navigable graph where each node connects to its approximate nearest neighbors. Searches traverse this graph, narrowing in on the closest matches efficiently -- typically in O(log n) time rather than O(n) brute-force scanning.
+
+== Flat vs Hierarchical Structure
+
+The index supports two graph structures:
+
+[cols="1,1,1"]
+|===
+| | Flat (default) | Hierarchical
+
+| **Algorithm** | Single-layer Vamana graph | Multi-layer HNSW with exponential decay
+| **Build speed** | Faster | 10-20% slower
+| **Disk usage** | Baseline | 5-15% larger
+| **Best for** | < 100K vectors, well-clustered data | 100K+ vectors, 1024+ dimensions, diverse queries
+|===
+
+Enable hierarchical mode with `addHierarchy: true` in the index metadata.
+
+== Similarity Functions
+
+Three distance metrics are available:
+
+[cols="1,2,1"]
+|===
+| Function | When to Use | Value Range
+
+| **COSINE** (default) | Text embeddings (BERT, GPT, Sentence Transformers). Direction matters, magnitude does not. | -1 to 1
+| **DOT_PRODUCT** | Normalized vectors where speed matters. 10-15% faster than COSINE. | Unbounded
+| **EUCLIDEAN** | Spatial data, point clouds, continuous measurements. Absolute distance matters. | 0 to infinity
+|===
+
+TIP: If your embeddings are already L2-normalized (unit vectors), use DOT_PRODUCT for best performance -- it produces the same ranking as COSINE but skips the normalization step.
+
+== Quantization
+
+Quantization reduces memory usage by compressing vector components at the cost of slight accuracy loss:
+
+[cols="1,1,1,1,1"]
+|===
+| Type | Memory Reduction | Speed | Recall | Use Case
+
+| **NONE** | Baseline | Baseline | 100% | Small datasets (< 10K vectors), maximum accuracy
+| **INT8** (recommended) | 4x (75% savings) | 10-15% faster | 95-98% | Best balance of speed and accuracy for most workloads
+| **BINARY** | 32x (97% savings) | 15-20% faster | 85-92% | Massive datasets, approximate search with reranking
+| **PRODUCT** | 16-64x | Approximate | Varies | Very large datasets (100K+), enables zero-disk-I/O graph construction
+|===
+
+TIP: **Use INT8 quantization for most use cases.** It provides 4x memory savings with minimal accuracy loss and significantly faster search. Only use NONE for very small datasets where maximum precision matters.
+
+[[quantization-performance]]
+=== Why INT8 is faster
+
+Quantization doesn't just save memory -- it fundamentally changes how vectors are read during search.
+
+Without quantization (`NONE`), each node visited during graph traversal requires a full document lookup: read the record from disk, deserialize it, and extract the vector property. With INT8, vectors are stored in compact contiguous index pages and read directly -- no document deserialization needed.
+
+In benchmarks with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2` embedding model), INT8 reduces search latency by **2.5x** compared to NONE:
+
+[cols="1,1,1,1"]
+|===
+| Quantization | Mean latency | p95 latency | Vector fetch path
+
+| NONE | 3.50 ms | 4.36 ms | Document lookup (random I/O)
+| **INT8** | **1.59 ms** | **1.94 ms** | Index pages (sequential I/O)
+|===
+
+The difference becomes even more significant under memory pressure. With NONE quantization, vector data is 4x larger, evicting more data from memory caches and forcing real disk I/O. INT8 keeps the working set small enough to stay in memory even with constrained resources.
+
+Quantization is transparent -- queries work identically regardless of quantization setting. The index automatically quantizes on insert and dequantizes on retrieval.
+
+When using PRODUCT quantization, the graph build uses Product Quantization scores instead of exact vector distances. PQ codes are compact and stay in memory, eliminating disk I/O during graph construction. This is most effective on large datasets (100K+ vectors) where PQ quality is sufficient.
+
+.Memory and performance example: 100K vectors with 384 dimensions
+[cols="1,1,1"]
+|===
+| Quantization | Vector memory | Search speed
+
+| NONE | 156 MB | Baseline
+| INT8 | 39 MB | ~2.5x faster
+| BINARY | 5 MB | ~3x faster (lower recall)
+|===
+
+== Key Parameters
+
+[cols="1,1,2"]
+|===
+| Parameter | Default | Purpose
+
+| `dimensions` | (required) | Must match your embedding model output size
+| `similarity` | `COSINE` | Distance metric: COSINE, DOT_PRODUCT, or EUCLIDEAN
+| `quantization` | `NONE` | Compression: NONE, INT8, BINARY, or PRODUCT. INT8 is recommended for most use cases.
+| `efSearch` | adaptive | Search beam width at query time. Controls recall vs speed trade-off. See <<adaptive-efsearch>>.
+| `maxConnections` | 16 | Connections per node. Higher = better recall, more memory
+| `beamWidth` | 100 | Search depth during build. Higher = better index quality, slower builds
+| `addHierarchy` | false | Enable multi-layer HNSW for large/complex datasets
+| `storeVectorsInGraph` | false | Co-locate vectors in graph file for faster retrieval at large scale
+| `buildGraphNow` | true | Build the HNSW graph immediately at index creation time. Set to `false` for deferred (lazy) building on first search.
+|===
+
+[[adaptive-efsearch]]
+== efSearch and Adaptive Search
+
+The `efSearch` parameter controls how many candidate nodes the search explores in the vector graph. Higher values find more accurate results but take longer.
+
+When `efSearch` is not explicitly set (either on the index or per-query), ArcadeDB uses an **adaptive two-pass strategy**:
+
+1. **First pass** -- Uses a moderate beam width (`2 × k`), which is sufficient for most queries on well-clustered data.
+2. **Second pass** -- If the first pass returns insufficient results, the search automatically widens the beam to `10 × k`.
+
+For small indexes (< 10K vectors), the full default efSearch is always used since the cost is negligible.
+
+This adaptive behavior gives you fast queries on easy lookups while still maintaining recall on harder queries -- without requiring any tuning.
+
+=== Setting efSearch
+
+You can set efSearch at three levels:
+
+*Per-query* (highest priority) -- pass as the 4th argument to `vectorNeighbors()`, either positionally or via the named options map:
+
+[source,sql]
+----
+-- Higher efSearch for a critical query that needs maximum recall (positional)
+SELECT expand(vectorNeighbors('Doc[embedding]', [...], 10, 500))
+
+-- Lower efSearch for a latency-sensitive query (positional)
+SELECT expand(vectorNeighbors('Doc[embedding]', [...], 10, 30))
+
+-- Options map form (extensible; also supports `filter`)
+SELECT expand(vectorNeighbors('Doc[embedding]', [...], 10, { efSearch: 500 }))
+----
+
+*Per-index* -- set in the index metadata at creation time:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 1024,
+  similarity: 'COSINE',
+  efSearch: 200
+}
+----
+
+*Adaptive* (default) -- when neither per-query nor per-index efSearch is specified, the adaptive strategy described above is used.
+
+TIP: For most workloads, the adaptive default works well. Only set efSearch explicitly if you need consistently high recall regardless of query difficulty, or if you have strict latency requirements.
+
+== Filtered Search
+
+Vector search can be combined with a logical filter on the same type by passing a `filter` option containing the allowed RIDs. The HNSW traversal restricts itself to that set, so non-matching vectors are skipped without decoding.
+
+[source,sql]
+----
+-- Find the 10 most similar documents within a specific tenant and category
+SELECT vectorNeighbors(
+         'Document[embedding]',
+         :queryVector,
+         10,
+         { filter: (SELECT @rid FROM Document WHERE tenantId = 'acme' AND category = 'finance') }
+       )
+----
+
+The `filter` value accepts a list of RIDs, RID strings, or any `Identifiable`. It can be produced by a subquery, a query parameter, or built programmatically.
+
+TIP: Very selective filters (only a tiny fraction of records match) can starve the HNSW beam; combine `filter` with a higher `efSearch` to preserve recall.
+
+== Multi-Modal Search
+
+A single vertex type can have multiple vector indexes on different properties:
+
+[source,sql]
+----
+CREATE INDEX ON Product (imageEmbedding) LSM_VECTOR METADATA {dimensions: 512, similarity: 'COSINE'}
+CREATE INDEX ON Product (textEmbedding)  LSM_VECTOR METADATA {dimensions: 768, similarity: 'COSINE'}
+----
+
+Query each index independently to search by image similarity, text similarity, or combine scores.
+
+== Integration with Other Models
+
+Vector search combines naturally with ArcadeDB's other data models:
+
+* **Graph + Vectors** -- Find similar items, then traverse relationships to discover connected context (xref:use-cases/graph-rag.adoc#use-case-graph-rag[Graph RAG pattern])
+* **Full-text + Vectors** -- Hybrid search combining keyword matching with semantic similarity (xref:use-cases/knowledge-graph.adoc#use-case-knowledge-graph[Knowledge Graph pattern])
+* **Time Series + Vectors** -- Detect behavioral anomalies by comparing embedding patterns over time (xref:use-cases/fraud-detection.adoc#use-case-fraud-detection[Fraud Detection pattern])
+
+== Further Reading
+
+* xref:tutorials/vector-search-tutorial.adoc#vector-search-tutorial[Vector Search Tutorial] -- Step-by-step hands-on guide
+* xref:how-to/data-modeling/vector-embeddings.adoc#vector-embeddings-howto[Vector Embeddings How-To] -- Index creation, tuning, and best practices
+* xref:reference/java-api/java-vectors.adoc#java-vectors[Java Vector API] -- Programmatic vector index management
+* xref:reference/sql/sql-functions.adoc#sql-functions[SQL Vector Functions] -- All 40+ vector SQL functions

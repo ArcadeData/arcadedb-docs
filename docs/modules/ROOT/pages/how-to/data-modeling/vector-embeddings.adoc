@@ -1,0 +1,262 @@
+[[vector-embeddings-howto]]
+= Vector Embeddings
+
+This guide covers practical decisions for working with vector embeddings in ArcadeDB: choosing dimensions, creating indexes, tuning parameters, and combining vector search with other query types.
+
+== Choosing an Embedding Model
+
+Your embedding model determines the `dimensions` parameter for the index:
+
+[cols="2,1,2"]
+|===
+| Model | Dimensions | Notes
+
+| OpenAI `text-embedding-3-small` | 1536 | General purpose, high quality
+| OpenAI `text-embedding-3-large` | 3072 | Highest quality, largest memory footprint
+| Sentence Transformers `all-MiniLM-L6-v2` | 384 | Fast, open source, good quality
+| Sentence Transformers `all-mpnet-base-v2` | 768 | Better quality, slower
+| Cohere `embed-english-v3.0` | 1024 | Good balance of quality and size
+| CLIP (image + text) | 512 | Multi-modal image/text
+|===
+
+TIP: Start with 384 dimensions (MiniLM) for prototyping. Move to 768+ for production quality. Use quantization to manage memory at higher dimensions.
+
+== Creating a Vector Index
+
+Recommended index creation with INT8 quantization:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Document
+CREATE PROPERTY Document.content STRING
+CREATE PROPERTY Document.embedding LIST OF FLOAT
+
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE',
+  quantization: 'INT8'
+}
+----
+
+INT8 quantization is recommended for all production workloads. It provides 2.5x faster search and 4x lower memory usage with negligible accuracy loss (see xref:concepts/vector-search.adoc#quantization-performance[]). Only omit quantization for very small datasets (< 10K vectors) where maximum precision matters.
+
+Production-ready index with additional tuning:
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  maxConnections: 16,
+  beamWidth: 100
+}
+----
+
+== Choosing a Similarity Function
+
+[cols="1,2,2"]
+|===
+| Function | Choose When | Avoid When
+
+| **COSINE** | Using text embedding models (most common). Vectors may have varying magnitudes. | Vectors represent absolute quantities (distances, counts).
+| **DOT_PRODUCT** | Vectors are already L2-normalized. You need maximum query speed. | Vectors are not normalized (results will be incorrect).
+| **EUCLIDEAN** | Working with spatial data, sensor readings, or continuous measurements. | Comparing text embeddings of different lengths.
+|===
+
+== Quantization Trade-offs
+
+Use INT8 quantization for most use cases. It provides 4x memory savings with minimal accuracy loss and significantly faster ingestion and search:
+
+* **< 10K vectors**: `NONE` is fine, but `INT8` works well too
+* **10K - 1M vectors**: Use `INT8` (4x memory savings, < 2% accuracy loss) -- **recommended**
+* **> 1M vectors**: Use `INT8` for general use, or `PRODUCT` for zero-disk-I/O graph construction on very large datasets
+* **Extreme compression**: Use `BINARY` for first-pass filtering, then rerank with full vectors
+
+[source,sql]
+----
+-- INT8: recommended for most workloads
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE',
+  quantization: 'INT8'
+}
+
+-- PRODUCT: for very large datasets, enables in-memory graph build
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 1024,
+  similarity: 'COSINE',
+  quantization: 'PRODUCT'
+}
+----
+
+== Tuning for Recall vs Speed
+
+Adjust `maxConnections` and `beamWidth` based on your priorities:
+
+[cols="1,1,1,2"]
+|===
+| Profile | maxConnections | beamWidth | Trade-off
+
+| **Default** | 16 | 100 | Balanced for most workloads
+| **High recall** | 32 | 200 | Better accuracy, 2-3x slower builds, 50% more memory
+| **Fast indexing** | 12 | 80 | 2x faster builds, 5-10% lower recall
+| **Memory constrained** | 8 | 60 | Minimal memory footprint
+|===
+
+For datasets over 100K vectors or with 1024+ dimensions, enable hierarchical mode:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 1536,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  addHierarchy: true,
+  maxConnections: 32,
+  beamWidth: 200
+}
+----
+
+== Tuning efSearch
+
+The `efSearch` parameter controls how many candidates the search explores at query time. By default, ArcadeDB uses an xref:concepts/vector-search.adoc#adaptive-efsearch[adaptive strategy] that works well for most workloads. You only need to tune efSearch if you have specific recall or latency requirements.
+
+[cols="1,1,2"]
+|===
+| Profile | efSearch | Trade-off
+
+| **Adaptive** (default) | auto | Two-pass: fast first pass (`2×k`), wider retry (`10×k`) if needed
+| **High recall** | 200-500 | Consistent high accuracy, higher latency
+| **Low latency** | 20-50 | Fast responses, lower recall on hard queries
+|===
+
+You can override efSearch per-query without changing the index:
+
+[source,sql]
+----
+-- High recall for a critical search
+SELECT expand(vectorNeighbors('Doc[embedding]', $queryVector, 10, 500))
+
+-- Low latency for autocomplete/typeahead
+SELECT expand(vectorNeighbors('Doc[embedding]', $queryVector, 5, 30))
+----
+
+Or set a default on the index:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  dimensions: 768,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  efSearch: 200
+}
+----
+
+== Multi-Modal Embeddings
+
+Store multiple embeddings per record for different search modalities:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Product
+CREATE PROPERTY Product.imageEmbedding ARRAY_OF_FLOATS
+CREATE PROPERTY Product.textEmbedding  ARRAY_OF_FLOATS
+
+CREATE INDEX ON Product (imageEmbedding) LSM_VECTOR METADATA {dimensions: 512, similarity: 'COSINE'}
+CREATE INDEX ON Product (textEmbedding)  LSM_VECTOR METADATA {dimensions: 768, similarity: 'COSINE'}
+----
+
+Query each index independently:
+
+[source,sql]
+----
+-- Search by image similarity
+SELECT name, distance FROM (
+  SELECT expand(vectorNeighbors('Product[imageEmbedding]', $imageVector, 10))
+)
+
+-- Search by text similarity
+SELECT name, distance FROM (
+  SELECT expand(vectorNeighbors('Product[textEmbedding]', $textVector, 10))
+)
+----
+
+== Hybrid Search: Vector + Full-Text
+
+Combine vector similarity with keyword matching for best results:
+
+[source,sql]
+----
+-- Step 1: Full-text search for keyword matches
+SELECT @rid, title, content FROM Document
+WHERE SEARCH_INDEX('Document[content]', 'machine learning')
+
+-- Step 2: Vector search for semantic matches
+SELECT @rid, title, distance FROM (
+  SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 20))
+)
+
+-- Combine scores using reciprocal rank fusion
+SELECT vectorRRFScore(keywordRank, vectorRank, 60) AS score
+----
+
+== Batch Ingestion
+
+For bulk loading vectors, batch your inserts within transactions:
+
+[source,sql]
+----
+BEGIN
+
+CREATE VERTEX Document SET content = 'First document',  embedding = [0.1, 0.2, ...]
+CREATE VERTEX Document SET content = 'Second document', embedding = [0.3, 0.4, ...]
+-- ... more inserts ...
+
+COMMIT
+----
+
+TIP: For large bulk loads, increase `mutationsBeforeRebuild` to delay index rebuilds until after the load completes, then trigger a rebuild.
+
+NOTE: When vectors are inserted below the rebuild threshold, an inactivity timer ensures the graph is still rebuilt after a period of no new mutations (default: 15 seconds). This prevents buffered vectors from remaining in the brute-force delta buffer indefinitely during low-volume ingestion. Configure via `inactivityRebuildTimeoutMs` (per-index metadata or `arcadedb.vectorIndex.inactivityRebuildTimeoutMs` globally). Set to 0 to disable.
+
+If you create the index _before_ inserting data (e.g., during schema setup), set `buildGraphNow: false` to skip the initial (empty) graph build. The graph will be built lazily on the first search:
+
+[source,sql]
+----
+-- Schema setup phase: defer graph build since no data exists yet
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE',
+  quantization: 'INT8',
+  buildGraphNow: false
+}
+
+-- Bulk load data...
+-- Graph is built automatically on first vectorNeighbors() query
+----
+
+If you create the index _after_ data is already loaded, leave `buildGraphNow` at its default (`true`) so the index is immediately ready to query.
+
+== Global Configuration
+
+Set database-wide defaults for vector index parameters:
+
+[source,sql]
+----
+ALTER DATABASE `arcadedb.vectorIndex.locationCacheSize` 100000
+ALTER DATABASE `arcadedb.vectorIndex.graphBuildCacheSize` 10000
+ALTER DATABASE `arcadedb.vectorIndex.mutationsBeforeRebuild` 100
+ALTER DATABASE `arcadedb.vectorIndex.inactivityRebuildTimeoutMs` 15000
+ALTER DATABASE `arcadedb.vectorIndex.storeVectorsInGraph` false
+----
+
+Per-index metadata overrides these global settings.
+
+== Further Reading
+
+* xref:concepts/vector-search.adoc#vector-search-concepts[Vector Search Concepts] -- Architecture and algorithm details
+* xref:tutorials/vector-search-tutorial.adoc#vector-search-tutorial[Vector Search Tutorial] -- Step-by-step hands-on guide
+* xref:reference/java-api/java-vectors.adoc#java-vectors[Java Vector API] -- Programmatic index management
+* xref:reference/sql/sql-functions.adoc#sql-functions[SQL Vector Functions] -- Complete function reference
