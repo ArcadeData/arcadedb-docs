@@ -51,6 +51,9 @@ python3 scripts/fix-image-paths.py
 echo "==> Rewriting cross-page xrefs"
 python3 scripts/rewrite-xrefs.py
 
+echo "==> Enriching chapter landing pages"
+python3 scripts/enrich-chapters.py
+
 echo "==> Generating nav.adoc"
 python3 scripts/generate-nav.py
 
