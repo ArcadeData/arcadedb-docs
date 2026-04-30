@@ -226,18 +226,12 @@ NAV_STRUCTURE: list[dict] = [
                 ("reference/cypher/cypher-expressions.adoc", "Expressions"),
                 ("reference/cypher/cypher-compatibility.adoc", "Compatibility"),
             ]),
-            ("Gremlin", [
-                ("reference/gremlin/gremlin.adoc", "Apache TinkerPop Gremlin"),
-            ]),
-            ("GraphQL", [
-                "reference/graphql/graphql.adoc",
-            ]),
-            ("MongoDB QL", [
-                ("reference/mongodb-ql/mongo.adoc", "MongoDB Query Language"),
-            ]),
-            ("Redis", [
-                ("reference/redis-ql/redis.adoc", "Redis Commands"),
-            ]),
+            # Single-page languages — collapsed from "<Lang> > <single child>"
+            # to a single clickable entry that lands directly on the page.
+            (("reference/gremlin/gremlin.adoc", "Gremlin"), []),
+            (("reference/graphql/graphql.adoc", "GraphQL"), []),
+            (("reference/mongodb-ql/mongo.adoc", "MongoDB QL"), []),
+            (("reference/redis-ql/redis.adoc", "Redis"), []),
             ("Graph Algorithms", [
                 ("reference/graph-algorithms/algorithms.adoc", "Algorithms Reference"),
             ]),
