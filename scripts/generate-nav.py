@@ -145,7 +145,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("tools/swaggerui.adoc", "Swagger UI"),
                 ("tools/tools.adoc", "Other Tools"),
             ]),
-            ("BI & Analytics", [
+            (("how-to/integrations/chapter.adoc", "BI & Analytics"), [
                 ("how-to/integrations/apache-superset.adoc", "Apache Superset"),
                 ("how-to/integrations/grafana.adoc", "Grafana"),
                 "how-to/integrations/metabase.adoc",
