@@ -184,6 +184,29 @@ def has_meaningful_intro(body: str) -> bool:
     return bool(re.search(r"^(==+\s|\|===|\[NOTE\]|\* )", body, re.M))
 
 
+def body_already_lists_children(text: str, children: list[Path]) -> bool:
+    """Return True if the chapter body already cross-references its
+    children — typically a hand-written bullet list of `xref:foo.adoc`
+    entries — so the auto-cards block would just duplicate them.
+
+    Uses a per-child filename check rather than a count, so a chapter
+    with three children and three matching xrefs still triggers the
+    skip, while a chapter with fifteen children and one stray xref
+    does not."""
+    if not children:
+        return False
+    matched = 0
+    for child in children:
+        # Match xref:.../<basename>[...] anywhere in the body — child
+        # paths in the source still use forward slashes.
+        # An xref to a child looks like xref:path/to/foo.adoc[label] or
+        # xref:path/to/foo.adoc#anchor[label]; the `#anchor` is optional.
+        pattern = rf"xref:[^\[\s]*{re.escape(child.name)}(?:#[^\[\s]*)?\["
+        if re.search(pattern, text):
+            matched += 1
+    return matched >= max(3, (len(children) + 1) // 2)
+
+
 def process(chapter: Path) -> bool:
     rel = chapter.relative_to(PAGES).as_posix()
     src_chapter = SRC / rel
@@ -209,6 +232,14 @@ def process(chapter: Path) -> bool:
     text = chapter.read_text(encoding="utf-8")
     text = strip_existing_block(text)
     text = strip_orphan_subheadings(text)
+
+    # If the chapter already lists its children via xref:, the cards
+    # would be redundant and the link targets often clash with the
+    # hand-curated path-relative bullet list. Save the cleaned text
+    # without re-emitting the cards block.
+    if body_already_lists_children(text, children):
+        chapter.write_text(text, encoding="utf-8")
+        return False
 
     section = rel.split("/", 1)[0]
     blurb = CHAPTER_DESCRIPTIONS.get(section)
