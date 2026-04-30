@@ -18,6 +18,11 @@ REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src" / "main" / "asciidoc"
 PAGES = REPO / "docs" / "modules" / "ROOT" / "pages"
 NAV = REPO / "docs" / "modules" / "ROOT" / "nav.adoc"
+NAV_API = REPO / "docs" / "modules" / "ROOT" / "nav-api.adoc"
+
+# Top-level chapter directories that go in the API Reference sidebar tab.
+# Everything else falls into the Documentation tab.
+API_REFERENCE_DIRS = {"reference"}
 
 INCLUDE_RE = re.compile(r"^include::([^\[]+\.adoc)\[", re.MULTILINE)
 HEADING_RE = re.compile(r"^=+\s+(.+?)\s*$")
@@ -78,20 +83,31 @@ def main() -> int:
         print(f"ERROR: {SRC / 'content.adoc'} not found", file=sys.stderr)
         return 1
 
-    lines: list[str] = ["* xref:index.adoc[Welcome]", ""]
+    doc_lines: list[str] = [
+        ".Documentation",
+        "* xref:index.adoc[Welcome]",
+        "",
+    ]
+    api_lines: list[str] = [
+        ".API Reference",
+        "",
+    ]
     seen: set[Path] = set()
 
     for chapter in iter_includes(SRC / "content.adoc"):
         if chapter.name in {"footer.adoc", "web-footer.adoc"}:
             continue
-        before = len(lines)
-        walk(chapter, 1, lines, seen)
-        if len(lines) > before:
-            lines.append("")
+        target_dir = chapter.relative_to(SRC).parts[0]
+        target = api_lines if target_dir in API_REFERENCE_DIRS else doc_lines
+        before = len(target)
+        walk(chapter, 1, target, seen)
+        if len(target) > before:
+            target.append("")
 
-    NAV.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    print(f"Wrote {NAV.relative_to(REPO)}")
-    print(f"  Entries: {sum(1 for line in lines if line.startswith('*'))}")
+    NAV.write_text("\n".join(doc_lines).rstrip() + "\n", encoding="utf-8")
+    NAV_API.write_text("\n".join(api_lines).rstrip() + "\n", encoding="utf-8")
+    print(f"Wrote {NAV.relative_to(REPO)} ({sum(1 for l in doc_lines if l.startswith('*'))} entries)")
+    print(f"Wrote {NAV_API.relative_to(REPO)} ({sum(1 for l in api_lines if l.startswith('*'))} entries)")
     return 0
 
 
