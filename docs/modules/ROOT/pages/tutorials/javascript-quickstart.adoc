@@ -1,0 +1,175 @@
+[[javascript-quickstart]]
+= JavaScript / TypeScript Quickstart
+
+This tutorial shows how to connect to ArcadeDB from Node.js using the PostgreSQL wire protocol. You will create a graph, run queries, and use vector search -- all from JavaScript.
+
+== Prerequisites
+
+* ArcadeDB running with PostgreSQL protocol enabled (default port 5432)
+* Node.js 18+
+* `pg` library
+
+[source,bash]
+----
+npm install pg
+----
+
+== Connect to ArcadeDB
+
+ArcadeDB speaks the PostgreSQL wire protocol, so you can use the standard `pg` client. No special SDK is needed.
+
+[source,javascript]
+----
+const { Client } = require('pg');
+
+const client = new Client({
+  host: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  user: 'root',
+  password: 'arcadedb',
+});
+
+await client.connect();
+console.log('Connected to ArcadeDB');
+----
+
+== Create a Schema
+
+Use SQL to create vertex and edge types:
+
+[source,javascript]
+----
+// Create vertex types
+await client.query('CREATE VERTEX TYPE Person IF NOT EXISTS');
+await client.query('CREATE VERTEX TYPE Movie IF NOT EXISTS');
+
+// Create edge type
+await client.query('CREATE EDGE TYPE Acted IF NOT EXISTS');
+
+// Insert data
+await client.query("CREATE VERTEX Person SET name = 'Alice', age = 30");
+await client.query("CREATE VERTEX Person SET name = 'Bob', age = 25");
+await client.query("CREATE VERTEX Movie SET title = 'The Matrix', year = 1999");
+await client.query(`
+  CREATE EDGE Acted FROM (SELECT FROM Person WHERE name = 'Alice')
+                     TO (SELECT FROM Movie WHERE title = 'The Matrix')
+                     SET role = 'Trinity'
+`);
+----
+
+== Query with SQL
+
+[source,javascript]
+----
+const result = await client.query(`
+  SELECT person.name, movie.title, acted.role
+  FROM MATCH {type: Person, as: person}
+       -Acted-> {type: Movie, as: movie}
+`);
+
+for (const row of result.rows) {
+  console.log(`${row.name} acted in ${row.title} as ${row.role}`);
+}
+----
+
+== Query with Cypher
+
+ArcadeDB supports Cypher queries through the same connection:
+
+[source,javascript]
+----
+const result = await client.query(
+  '{cypher} MATCH (p:Person)-[a:Acted]->(m:Movie) RETURN p.name, m.title, a.role'
+);
+
+for (const row of result.rows) {
+  console.log(`${row['p.name']} acted in ${row['m.title']} as ${row['a.role']}`);
+}
+----
+
+NOTE: Prefix Cypher queries with `\{cypher}` when using the PostgreSQL protocol.
+
+== Vector Search
+
+Add embeddings to your data and query by similarity:
+
+[source,javascript]
+----
+// Create a type with a vector property
+await client.query('CREATE VERTEX TYPE Product IF NOT EXISTS');
+await client.query('CREATE PROPERTY Product.embedding IF NOT EXISTS LIST');
+await client.query('CREATE INDEX ON Product (embedding) VECTOR (4, COSINE, LSM_VECTOR)');
+
+// Insert products with embeddings
+await client.query("CREATE VERTEX Product SET name = 'Laptop', embedding = [0.9, 0.1, 0.8, 0.2]");
+await client.query("CREATE VERTEX Product SET name = 'Tablet', embedding = [0.8, 0.2, 0.7, 0.3]");
+await client.query("CREATE VERTEX Product SET name = 'Phone',  embedding = [0.7, 0.3, 0.6, 0.4]");
+await client.query("CREATE VERTEX Product SET name = 'Book',   embedding = [0.1, 0.9, 0.2, 0.8]");
+
+// Find the 3 most similar products to a query vector
+const similar = await client.query(`
+  SELECT name, distance FROM (
+    SELECT expand(vectorNeighbors('Product[embedding]', [0.85, 0.15, 0.75, 0.25], 3))
+  )
+`);
+console.log('Similar products:');
+for (const row of similar.rows) {
+  console.log(`  ${row.name}`);
+}
+----
+
+== Full Example
+
+[source,javascript]
+----
+#!/usr/bin/env node
+/**
+ * ArcadeDB JavaScript quickstart -- graph + vector search.
+ */
+
+const { Client } = require('pg');
+
+async function main() {
+  const client = new Client({
+    host: 'localhost', port: 5432, database: 'mydb',
+    user: 'root', password: 'arcadedb',
+  });
+  await client.connect();
+
+  // Create schema
+  await client.query('CREATE VERTEX TYPE Person IF NOT EXISTS');
+  await client.query('CREATE VERTEX TYPE Movie IF NOT EXISTS');
+  await client.query('CREATE EDGE TYPE Acted IF NOT EXISTS');
+
+  // Insert data
+  await client.query("CREATE VERTEX Person SET name = 'Alice', age = 30");
+  await client.query("CREATE VERTEX Movie SET title = 'The Matrix', year = 1999");
+  await client.query(`
+    CREATE EDGE Acted FROM (SELECT FROM Person WHERE name = 'Alice')
+                       TO (SELECT FROM Movie WHERE title = 'The Matrix')
+                       SET role = 'Trinity'
+  `);
+
+  // Query with SQL MATCH
+  const result = await client.query(`
+    SELECT person.name, movie.title, acted.role
+    FROM MATCH {type: Person, as: person}
+         -Acted-> {type: Movie, as: movie}
+  `);
+  for (const row of result.rows) {
+    console.log(`${row.name} acted in ${row.title} as ${row.role}`);
+  }
+
+  await client.end();
+}
+
+main().catch(console.error);
+----
+
+== Next Steps
+
+* xref:use-cases/supply-chain.adoc#use-case-supply-chain[Supply Chain Use Case] -- Full JavaScript implementation with 7 query patterns
+* xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL Protocol Reference]
+* xref:reference/sql/chapter.adoc#sql[SQL Reference]
+* xref:reference/http-api/http.adoc#http-json-api[HTTP/JSON API] -- Alternative: use `fetch()` with ArcadeDB's REST API

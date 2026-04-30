@@ -1,0 +1,62 @@
+[[use-case-realtime-analytics]]
+= Realtime Analytics
+
+Replace a fragmented stack of specialized monitoring tools with a single database that integrates time-series sensor data, service metrics, and infrastructure topology. xref:concepts/timeseries.adoc#timeseries[Time-series] native functions -- `ts.timeBucket()`, `ts.rate()`, `ts.percentile()`, and `ts.interpolate()` -- power sensor and service metric analysis, while xref:tutorials/multimodel.adoc#graph-model[graph traversal] maps building topology and service dependencies, enabling multi-model correlation that combines graph-based entity identification with time-series aggregation in unified queries.
+
+== Architecture Overview
+
+[cols="1,3"]
+|===
+| Time Series | `SensorReading` (sensor_id, location, temperature, humidity, pressure), `ServiceMetrics` (service_id, server_id, request_count, error_count, latency_ms)
+| Vertices | `Building`, `Floor`, `Sensor`, `Server`, `Service`
+| Edges | `HAS_FLOOR`, `INSTALLED_IN`, `RUNS_ON`, `DEPENDS_ON`
+|===
+
+Sensors are installed on floors within buildings; services run on servers and depend on other services. Time-series data links to graph topology, enabling queries like "show the temperature trend for all sensors on the 2nd floor of Building A."
+
+== Key Queries
+
+*Hourly Temperature Bucketing* -- Aggregate sensor readings by hour:
+
+[source,sql]
+----
+SELECT sensor_id, ts.timeBucket(timestamp, 'PT1H') AS hour,
+  AVG(temperature) AS avg_temp, MAX(temperature) AS max_temp
+FROM SensorReading
+GROUP BY sensor_id, hour ORDER BY hour
+----
+
+*Service Request Rate* -- Calculate request rate per service:
+
+[source,sql]
+----
+SELECT service_id, ts.rate(timestamp, request_count, 'PT5M') AS req_per_5min
+FROM ServiceMetrics
+WHERE service_id = 'api-gateway'
+----
+
+*Service Impact Analysis* -- Trace service dependencies for outage impact:
+
+[source,cypher]
+----
+MATCH (s:Service {name: 'database'})<-[:DEPENDS_ON*1..3]-(dependent:Service)
+RETURN dependent.name AS affected_service, length(path) AS hops
+----
+
+== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/realtime-analytics
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/realtime-analytics[realtime-analytics on GitHub]
+
+== Related Documentation
+
+* xref:concepts/timeseries.adoc#timeseries[Time Series]
+* xref:tutorials/multimodel.adoc#graph-model[Graph Model]

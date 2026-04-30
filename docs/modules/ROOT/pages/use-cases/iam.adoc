@@ -1,0 +1,70 @@
+[[use-case-iam]]
+= Identity & Access Management
+
+Manage identity access across complex permission hierarchies while detecting security anomalies and maintaining compliance. xref:tutorials/multimodel.adoc#graph-model[Graph traversal] resolves permissions through nested group/role hierarchies via SQL MATCH queries, xref:concepts/vector-search.adoc#vector-model[vector similarity] detects behavioral anomalies using access pattern embeddings with `vectorNeighbors()`, xref:concepts/timeseries.adoc#timeseries[time-series] tracking captures access audit logs for SOX/GDPR compliance reporting, and the xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL wire protocol] provides Python connectivity for integration.
+
+== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `Identity`, `Group`, `Role`, `Permission`, `Resource`, `Policy`
+| Edges | `MEMBER_OF`, `HAS_ROLE`, `GRANTS`, `APPLIES_TO`, `GOVERNED_BY`
+| Documents | `AccessLog` (identityEmail, resourceName, action, source_ip, recordedAt)
+|===
+
+Identities belong to nested groups that hold roles. Roles grant permissions on resources. Policies govern resources for compliance. Access logs track all actions for audit trails. Identities carry 8-dimensional access pattern vectors for behavioral analysis.
+
+== Key Queries
+
+*Permission Resolution* -- Resolve all permissions for a user through group/role hierarchy:
+
+[source,sql]
+----
+SELECT identity.email, role.name AS role, permission.action, resource.name AS resource
+FROM MATCH {type: Identity, as: identity, where: (email = 'alice@corp.com')}
+  -MEMBER_OF->  {type: Group, as: grp}
+  -HAS_ROLE->   {type: Role, as: role}
+  -GRANTS->     {type: Permission, as: permission}
+  -APPLIES_TO-> {type: Resource, as: resource}
+----
+
+*Shadow Admin Detection* -- Find users with admin-equivalent access through indirect paths:
+
+[source,sql]
+----
+SELECT identity.email, role.name
+FROM MATCH {type: Identity, as: identity}
+  -MEMBER_OF-> {type: Group, as: grp, while: (true)}
+  -HAS_ROLE->  {type: Role, as: role, where: (name LIKE '%admin%')}
+----
+
+*Behavioral Anomaly Detection* -- Identify users with unusual access patterns:
+
+[source,sql]
+----
+SELECT email, distance FROM (
+  SELECT expand(vectorNeighbors('Identity[access_pattern_vec]', [0.1,0.9,0.1,0.8,0.2,0.7,0.3,0.6], 3))
+) WHERE distance > 0.5
+----
+
+== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/iam
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/iam[iam on GitHub]
+
+== Related Documentation
+
+* xref:tutorials/multimodel.adoc#graph-model[Graph Model]
+* xref:concepts/vector-search.adoc#vector-model[Vector Search Concepts]
+* xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL Protocol]
+* xref:reference/graph-algorithms/algorithms.adoc#algo-bfs[BFS] -- Traverse permission hierarchies level by level
+* xref:reference/graph-algorithms/algorithms.adoc#algo-all-simple-paths[All Simple Paths] -- Enumerate all permission paths to a resource
+* xref:reference/graph-algorithms/algorithms.adoc#algo-scc[Strongly Connected Components] -- Detect circular permission dependencies

@@ -1,0 +1,111 @@
+[[grpc-messages]]
+= Message Types
+
+== Connection & Authentication
+
+[cols="2,3"]
+|===
+| `DatabaseCredentials` | Database name, username, and password for per-request authentication
+|===
+
+== Value Types
+
+The `GrpcValue` message uses a `oneof` to represent any ArcadeDB value:
+
+[cols="2,3"]
+|===
+| Field | ArcadeDB Type
+
+| `bool_value` | Boolean
+| `int32_value` | Integer
+| `int64_value` | Long
+| `float_value` | Float
+| `double_value` | Double
+| `string_value` | String
+| `bytes_value` | Binary / byte array
+| `timestamp_value` | Datetime (google.protobuf.Timestamp)
+| `list_value` | List / array
+| `map_value` | Map / embedded document
+| `link_value` | RID reference (bucket:position)
+| `decimal_value` | Decimal (string-encoded)
+| `null_value` | Null
+|===
+
+`GrpcRecord` wraps a record with its RID, type name, and a map of property name to `GrpcValue`.
+
+== Enums
+
+[cols="2,3"]
+|===
+| Enum | Values
+
+| `RetrievalMode` | `CURSOR` (streaming), `MATERIALIZE_ALL` (all at once), `PAGED` (paginated)
+| `ProjectionEncoding` | `PROJECTION_AS_LINK`, `PROJECTION_AS_MAP`, `PROJECTION_AS_JSON`
+| `TransactionIsolation` | `READ_UNCOMMITTED`, `READ_COMMITTED`, `REPEATABLE_READ`, `SERIALIZABLE`
+| `ConflictMode` | `CONFLICT_ERROR`, `CONFLICT_UPDATE`, `CONFLICT_IGNORE`, `CONFLICT_ABORT`
+| `TransactionMode` | `PER_REQUEST`, `PER_BATCH`, `PER_STREAM`, `PER_ROW`, `NONE`
+|===
+
+== Insert Operations
+
+[cols="2,3"]
+|===
+| `BulkInsertRequest` | Batch of records with type name, properties, and insert options
+| `InsertChunk` | A chunk of records for client-streaming inserts
+| `InsertRequest` / `InsertResponse` | Per-record request/response for bidirectional streaming
+| `InsertSummary` | Result summary: total inserted, errors, duration
+| `InsertOptions` | Transaction mode, conflict handling, and batch size configuration
+|===
+
+== Connecting from Python
+
+[source,python]
+----
+import grpc
+import arcadedb_server_pb2 as pb
+import arcadedb_server_pb2_grpc as rpc
+
+channel = grpc.insecure_channel('localhost:2424')
+stub = rpc.ArcadeDbServiceStub(channel)
+
+# Execute a query
+request = pb.ExecuteQueryRequest(
+    credentials=pb.DatabaseCredentials(
+        database='mydb', username='root', password='arcadedb'
+    ),
+    language='sql',
+    command='SELECT FROM V LIMIT 10',
+)
+response = stub.ExecuteQuery(request)
+for record in response.records:
+    print(record)
+----
+
+== Connecting from Node.js
+
+[source,javascript]
+----
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+
+const packageDef = protoLoader.loadSync('arcadedb-server.proto');
+const proto = grpc.loadPackageDefinition(packageDef).arcadedb;
+
+const client = new proto.ArcadeDbService(
+  'localhost:2424', grpc.credentials.createInsecure()
+);
+
+client.ExecuteQuery({
+  credentials: { database: 'mydb', username: 'root', password: 'arcadedb' },
+  language: 'sql',
+  command: 'SELECT FROM V LIMIT 10',
+}, (err, response) => {
+  console.log(response.records);
+});
+----
+
+== Further Reading
+
+* https://github.com/ArcadeData/arcadedb/blob/main/grpc/src/main/proto/arcadedb-server.proto[Proto definition on GitHub]
+* xref:reference/http-api/http.adoc#http-json-api[HTTP/JSON API] -- Alternative REST-based access
+* xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL Protocol] -- Alternative wire protocol

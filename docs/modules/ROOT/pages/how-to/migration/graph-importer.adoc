@@ -1,0 +1,321 @@
+[[graph-importer]]
+= Graph Importer
+image:edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/migration/graph-importer.adoc" float=right]
+
+The `GraphImporter` is a high-performance, declarative graph importer that uses a two-pass CSR-first architecture to bulk-load graph data from XML, CSV, and JSONL files into ArcadeDB.
+It is designed for importing large datasets (millions of vertices and edges) with minimal memory overhead.
+
+The importer is located in the `integration` module (`com.arcadedb.integration.importer.graph.GraphImporter`).
+
+== How It Works
+
+The import runs in two passes:
+
+1. **Pass 1** -- Process each data source once: create vertices with full properties, collect graph topology as compressed int arrays
+2. **Pass 2** -- Create all edges from the in-memory topology using xref:reference/java-api/java-batch-importer.adoc#java-batch-importer[GraphBatch], one batch per edge type with bidirectional edges for full IN+OUT traversal
+
+== Command-Line Usage
+
+[source,shell]
+----
+java -cp arcadedb-integration-*.jar com.arcadedb.integration.importer.graph.GraphImporter \
+  <json-config-file> <database-path> [data-dir]
+----
+
+- `json-config-file` -- Path to the JSON configuration file (see <<graph-importer-json-config,JSON Configuration>> below)
+- `database-path` -- Path where the database will be created (any existing database at this path is deleted)
+- `data-dir` -- Optional base directory for resolving relative file paths in the JSON config (defaults to the JSON file's parent directory)
+
+== Java API
+
+The importer can also be used programmatically via a fluent Builder API:
+
+[source,java]
+----
+try (GraphImporter importer = GraphImporter.builder(database)
+    .vertex("User", new CsvRowSource("users.csv"), v -> {
+        v.id("Id");
+        v.intProperty("reputation", "Reputation");
+        v.property("name", "DisplayName");
+    })
+    .vertex("Question", new XmlRowSource("posts.xml"), v -> {
+        v.id("Id");
+        v.filter("PostTypeId", "1");
+        v.property("title", "Title");
+        v.edgeIn("OwnerUserId", "ASKED", "User");
+        v.splitEdge("Tags", "TAGGED_WITH", "Tag", "|");
+    })
+    .edgeSource("LINKED_TO", new CsvRowSource("links.csv"), e -> {
+        e.from("PostId", "Question");
+        e.to("RelatedId", "Question");
+        e.intProperty("linkType", "LinkTypeId");
+    })
+    .limit(10000)
+    .build()) {
+
+  importer.run();
+  System.out.printf("Vertices: %,d, Edges: %,d%n",
+      importer.getVertexCount(), importer.getEdgeCount());
+}
+----
+
+Or from a JSON configuration file:
+
+[source,java]
+----
+String json = new String(Files.readAllBytes(jsonFile.toPath()));
+JSONObject config = new JSONObject(json);
+
+GraphImporter.createSchemaFromConfig(database, config);
+
+try (GraphImporter importer = GraphImporter.fromJSON(database, config, dataDir)) {
+  importer.run();
+}
+
+GraphImporter.executePostImportCommands(database, config);
+----
+
+[[graph-importer-json-config]]
+== JSON Configuration
+
+The JSON configuration file defines vertex types, edge types, data sources, property mappings, and optional post-import commands.
+
+=== Vertex Definitions
+
+Each entry in the `vertices` array defines a vertex type and its data source:
+
+[cols="2,1,5"]
+|===
+| Key | Required | Description
+
+| `type`
+| Yes
+| ArcadeDB vertex type name (auto-created if it does not exist)
+
+| `file`
+| Yes
+| Source file path, relative to the data directory. Format is auto-detected from extension: `.xml`, `.csv`, `.jsonl`
+
+| `id`
+| Yes
+| Source attribute used as integer primary key for edge resolution between types
+
+| `nameId`
+| No
+| String-based secondary key, used by `split` edges to resolve values by name
+
+| `filter`
+| No
+| Row filter in the format `attribute=value`. Only matching rows are imported. This enables splitting one file into multiple vertex types
+
+| `element`
+| No
+| For XML files: element name to read (defaults to `row`)
+
+| `properties`
+| No
+| Maps ArcadeDB property names to source attributes. Supports type prefixes: `"SourceAttr"` (string), `"int:SourceAttr"` (integer), `"bool:SourceAttr"` (boolean)
+
+| `edges`
+| No
+| Array of edge definitions derived from foreign key attributes in this vertex's source file
+|===
+
+=== Edge Definitions (within a vertex)
+
+Each entry in a vertex's `edges` array defines how to create edges from foreign key attributes:
+
+[cols="2,1,5"]
+|===
+| Key | Required | Description
+
+| `attribute`
+| Yes
+| Source attribute containing the foreign key value
+
+| `edge`
+| Yes
+| ArcadeDB edge type name (auto-created if it does not exist)
+
+| `target`
+| Yes
+| Target vertex type the foreign key references
+
+| `direction`
+| No
+| `out` (default): this vertex -> target. `in`: target -> this vertex
+
+| `split`
+| No
+| Delimiter for multi-value fields (e.g., `\|`). One edge is created per value, resolved by the target's `nameId`
+|===
+
+=== Edge-Only Sources
+
+The `edgeSources` array defines edges where both endpoints already exist as vertices. No vertices are created from these sources:
+
+[cols="2,1,5"]
+|===
+| Key | Required | Description
+
+| `edge`
+| Yes
+| ArcadeDB edge type name
+
+| `file`
+| Yes
+| Source file path
+
+| `from`
+| Yes
+| Compact format `attribute:vertexType` -- source attribute and its vertex type
+
+| `to`
+| Yes
+| Compact format `attribute:vertexType` -- target attribute and its vertex type
+
+| `properties`
+| No
+| Property mappings (same format as vertex properties)
+|===
+
+=== General Options
+
+[cols="2,1,5"]
+|===
+| Key | Required | Description
+
+| `limit`
+| No
+| Maximum records per source (for testing). Omit or set to 0 for unlimited
+|===
+
+[[graph-importer-post-import-commands]]
+=== Post-Import Commands
+
+The `postImportCommands` array defines commands to execute automatically after the graph import completes.
+This is useful for creating indexes, analytical views, or running any database command that depends on the imported data being present.
+
+[cols="2,1,5"]
+|===
+| Key | Required | Description
+
+| `language`
+| Yes
+| Query language to use: `sql`, `opencypher`, etc.
+
+| `command`
+| Yes
+| The command text to execute
+|===
+
+Commands are executed sequentially in the order they appear. If a command fails, a warning is logged and the remaining commands continue to execute.
+
+If any post-import command triggers an asynchronous xref:how-to/data-modeling/graph-olap.adoc#graph-olap[Graph Analytical View] build, the importer automatically waits (up to 10 minutes) for all views to reach READY status before returning.
+
+Example:
+
+[source,json]
+----
+"postImportCommands": [
+  {
+    "language": "sql",
+    "command": "CREATE INDEX ON Question (Id) UNIQUE"
+  },
+  {
+    "language": "sql",
+    "command": "CREATE GRAPH ANALYTICAL VIEW IF NOT EXISTS myGraph PROPERTIES (`!Body`, `!Text`) UPDATE MODE SYNCHRONOUS"
+  }
+]
+----
+
+== Complete Example
+
+Below is a complete JSON configuration for importing a StackOverflow data dump:
+
+[source,json]
+----
+{
+  "vertices": [
+    {
+      "type": "Tag", "file": "Tags.xml", "id": "Id", "nameId": "TagName",
+      "properties": { "Id": "int:Id", "TagName": "TagName", "Count": "int:Count" }
+    },
+    {
+      "type": "User", "file": "Users.xml", "id": "Id",
+      "properties": {
+        "Id": "int:Id", "DisplayName": "DisplayName", "Reputation": "int:Reputation",
+        "CreationDate": "CreationDate", "Views": "int:Views"
+      }
+    },
+    {
+      "type": "Question", "file": "Posts.xml", "id": "Id", "filter": "PostTypeId=1",
+      "properties": {
+        "Id": "int:Id", "Title": "Title", "Body": "Body",
+        "Score": "int:Score", "ViewCount": "int:ViewCount", "Tags": "Tags"
+      },
+      "edges": [
+        { "attribute": "OwnerUserId", "edge": "ASKED", "target": "User", "direction": "in" },
+        { "attribute": "Tags", "edge": "TAGGED_WITH", "target": "Tag", "split": "|" }
+      ]
+    },
+    {
+      "type": "Answer", "file": "Posts.xml", "id": "Id", "filter": "PostTypeId=2",
+      "properties": {
+        "Id": "int:Id", "Body": "Body", "Score": "int:Score"
+      },
+      "edges": [
+        { "attribute": "OwnerUserId", "edge": "ANSWERED", "target": "User", "direction": "in" },
+        { "attribute": "ParentId", "edge": "HAS_ANSWER", "target": "Question", "direction": "in" }
+      ]
+    }
+  ],
+
+  "edgeSources": [
+    {
+      "edge": "ACCEPTED_ANSWER", "file": "Posts.xml",
+      "from": "Id:Question", "to": "AcceptedAnswerId:Answer"
+    },
+    {
+      "edge": "LINKED_TO", "file": "PostLinks.xml",
+      "from": "PostId:Question", "to": "RelatedPostId:Question",
+      "properties": { "LinkType": "int:LinkTypeId" }
+    }
+  ],
+
+  "postImportCommands": [
+    {
+      "language": "sql",
+      "command": "CREATE GRAPH ANALYTICAL VIEW IF NOT EXISTS stackoverflow PROPERTIES (`!Body`, `!Text`) UPDATE MODE SYNCHRONOUS"
+    }
+  ]
+}
+----
+
+== Supported File Formats
+
+The file format is auto-detected from the file extension:
+
+[cols="1,3"]
+|===
+| Extension | Format
+
+| `.xml`
+| XML elements (configurable element name, defaults to `row`)
+
+| `.csv`
+| CSV with header row (first line defines property names)
+
+| `.jsonl`
+| JSON Lines (one JSON object per line)
+|===
+
+== Data Sources (Java API)
+
+When using the Java API, you can use the following `RecordSource` implementations:
+
+- `CsvRowSource` -- reads CSV files
+- `XmlRowSource` -- reads XML files
+- `JsonlRowSource` -- reads JSONL files
+
+Custom data sources can be implemented via the `RecordSource` interface.

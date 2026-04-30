@@ -1,0 +1,62 @@
+[[use-case-knowledge-graph]]
+= Knowledge Graphs
+
+Build a unified academic research system that integrates researchers, papers, institutions, and topics in a single database. xref:tutorials/multimodel.adoc#graph-model[Graph traversal] drives multi-hop queries across co-authorship and citation networks, xref:concepts/vector-search.adoc#vector-model[vector similarity] enables semantic paper search via `vectorNeighbors()` on paper embeddings, xref:tutorials/multimodel.adoc#searchengine-model[full-text search] supports keyword queries on abstracts using `SEARCH_INDEX()`, and xref:concepts/timeseries.adoc#timeseries[time-series] tracking monitors citation activity over time.
+
+== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `Researcher`, `Paper`, `Topic`, `Institution`
+| Edges | `CO_AUTHORED`, `CITES`, `COVERS`, `AFFILIATED_WITH`
+| Documents | `PaperActivity` (paperId, citationCount, timestamp)
+|===
+
+Papers carry 4-dimensional embedding vectors for semantic search and full-text indexed abstracts for keyword search. Citation activity is tracked as time-series documents.
+
+== Key Queries
+
+*Co-authorship Network* -- Discover collaborations between researchers:
+
+[source,cypher]
+----
+MATCH (r:Researcher)-[:CO_AUTHORED]->(p:Paper)<-[:CO_AUTHORED]-(coauthor:Researcher)
+WHERE r.name = 'Dr. Smith'
+RETURN coauthor.name, collect(p.title) AS papers
+----
+
+*Semantic Paper Search* -- Find papers similar to a research topic by embedding:
+
+[source,sql]
+----
+SELECT title, year, distance FROM (
+  SELECT expand(vectorNeighbors('Paper[embedding]', [0.8, 0.3, 0.7, 0.1], 5))
+) ORDER BY distance
+----
+
+*Full-Text Abstract Search* -- Keyword search across paper abstracts:
+
+[source,sql]
+----
+SELECT title, abstract FROM Paper
+WHERE SEARCH_INDEX('Paper[abstract]', 'machine learning graph')
+----
+
+== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/knowledge-graphs
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/knowledge-graphs[knowledge-graphs on GitHub]
+
+== Related Documentation
+
+* xref:concepts/vector-search.adoc#vector-model[Vector Search Concepts]
+* xref:tutorials/multimodel.adoc#searchengine-model[Full-Text Search]
+* xref:tutorials/multimodel.adoc#graph-model[Graph Model]

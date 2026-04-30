@@ -1,0 +1,67 @@
+[[use-case-social-network-analytics]]
+= Social Network Analytics
+
+Analyze social network dynamics -- trending content, user influence, viral propagation, and engagement metrics -- in a unified platform. Materialized views with three refresh modes (PERIODIC for trending dashboards, INCREMENTAL for post counts on commit, and MANUAL for on-demand influence scores) pre-compute key analytics, xref:tutorials/multimodel.adoc#graph-model[graph traversal] powers viral spread chain analysis and community overlap detection, xref:concepts/timeseries.adoc#timeseries[time-series] tracking captures engagement metrics as historical snapshots, and polyglot query support lets you use SQL for views and aggregations alongside OpenCypher for graph traversals.
+
+== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `User`, `Post`, `Topic`, `Group`
+| Edges | `FOLLOWS`, `CREATED`, `LIKED`, `SHARED`, `TAGGED`, `MEMBER_OF`
+| Documents | `EngagementMetric` (postId, likes, shares, comments, timestamp)
+|===
+
+Users create and interact with posts, follow each other, and belong to groups. Engagement metrics are captured as time-series snapshots. Materialized views pre-compute trending scores, post counts, and influence rankings.
+
+== Key Queries
+
+*Trending Content Dashboard* -- Aggregate engagement into trending scores (via PERIODIC materialized view):
+
+[source,sql]
+----
+SELECT postId, SUM(likes + shares * 2 + comments * 3) AS trendingScore
+FROM EngagementMetric
+WHERE timestamp > date('2024-01-15', 'yyyy-MM-dd')
+GROUP BY postId ORDER BY trendingScore DESC
+----
+
+*Viral Spread Chain* -- Trace how content propagates through the network:
+
+[source,cypher]
+----
+MATCH path = (origin:User)-[:CREATED]->(p:Post)<-[:SHARED]-(sharer:User)-[:FOLLOWS]->(reached:User)
+WHERE origin.name = 'Alice'
+RETURN origin.name, sharer.name, reached.name, p.title
+----
+
+*Community Overlap* -- Find users active in multiple groups:
+
+[source,cypher]
+----
+MATCH (u:User)-[:MEMBER_OF]->(g1:Group), (u)-[:MEMBER_OF]->(g2:Group)
+WHERE g1 <> g2
+RETURN u.name, g1.name, g2.name
+----
+
+== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/social-network-analytics
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/social-network-analytics[social-network-analytics on GitHub]
+
+== Related Documentation
+
+* xref:tutorials/multimodel.adoc#graph-model[Graph Model]
+* xref:concepts/timeseries.adoc#timeseries[Time Series]
+* xref:reference/graph-algorithms/algorithms.adoc#algo-page-rank[PageRank] -- Rank user influence in the network
+* xref:reference/graph-algorithms/algorithms.adoc#algo-louvain[Louvain Community Detection] -- Discover user communities
+* xref:reference/graph-algorithms/algorithms.adoc#algo-betweenness[Betweenness Centrality] -- Identify bridge users connecting communities
+* xref:reference/graph-algorithms/algorithms.adoc#algo-label-propagation[Label Propagation] -- Fast community assignment

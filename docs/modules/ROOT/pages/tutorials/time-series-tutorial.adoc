@@ -1,0 +1,199 @@
+[[time-series-tutorial]]
+= Time Series Tutorial
+
+This tutorial walks you through ingesting and querying time series data with ArcadeDB. You will create a sensor monitoring system that ingests temperature readings and queries them with SQL aggregations, PromQL, and continuous aggregates.
+
+== Prerequisites
+
+* ArcadeDB running (xref:how-to/operations/docker.adoc#quick-start-docker[Docker] or binary install)
+* `curl` for HTTP requests
+
+== Step 1: Create a TimeSeries Type
+
+Create a type to store sensor readings with temperature, humidity, and pressure fields:
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE SensorReading
+  TIMESTAMP ts PRECISION MILLISECOND
+  TAGS (sensor_id STRING, location STRING)
+  FIELDS (
+    temperature DOUBLE,
+    humidity DOUBLE,
+    pressure DOUBLE
+  )
+  SHARDS 4
+----
+
+* **TIMESTAMP** -- Every time series type needs a timestamp column
+* **TAGS** -- Low-cardinality dimensions used for filtering (indexed automatically)
+* **FIELDS** -- The measurement values
+* **SHARDS** -- Parallel write/read partitions (default: CPU count)
+
+== Step 2: Ingest Data via InfluxDB Line Protocol
+
+The fastest remote ingestion method. Send sensor readings using `curl`:
+
+[source,bash]
+----
+curl -X POST "http://localhost:2480/api/v1/ts/mydb/write?precision=ms" \
+  -u root:arcadedb \
+  -H "Content-Type: text/plain" \
+  --data-binary '
+SensorReading,sensor_id=sensor-A,location=floor-1 temperature=22.5,humidity=65.0,pressure=1013.2 1708430400000
+SensorReading,sensor_id=sensor-A,location=floor-1 temperature=22.7,humidity=64.5,pressure=1013.1 1708430460000
+SensorReading,sensor_id=sensor-A,location=floor-1 temperature=23.1,humidity=63.0,pressure=1013.0 1708430520000
+SensorReading,sensor_id=sensor-B,location=floor-2 temperature=19.8,humidity=70.0,pressure=1012.5 1708430400000
+SensorReading,sensor_id=sensor-B,location=floor-2 temperature=19.5,humidity=71.0,pressure=1012.6 1708430460000
+SensorReading,sensor_id=sensor-B,location=floor-2 temperature=19.2,humidity=72.0,pressure=1012.7 1708430520000
+'
+----
+
+The format is: `<type>,<tag>=<value> <field>=<value> <timestamp>`
+
+== Step 3: Ingest Data via SQL
+
+You can also insert using standard SQL:
+
+[source,sql]
+----
+INSERT INTO SensorReading
+  (ts, sensor_id, location, temperature, humidity, pressure)
+  VALUES
+    ('2026-02-20T10:10:00Z', 'sensor-A', 'floor-1', 23.5, 62.0, 1012.9),
+    ('2026-02-20T10:10:00Z', 'sensor-B', 'floor-2', 19.0, 73.0, 1012.8)
+----
+
+== Step 4: Query with Time Range Filters
+
+Time range conditions on the timestamp column are pushed down to the storage engine for efficient scans:
+
+[source,sql]
+----
+SELECT ts, sensor_id, temperature, humidity
+FROM SensorReading
+WHERE ts BETWEEN '2026-02-20T10:00:00Z' AND '2026-02-20T11:00:00Z'
+  AND sensor_id = 'sensor-A'
+ORDER BY ts
+----
+
+== Step 5: Aggregate with Time Bucketing
+
+Use `ts.timeBucket()` to group data into time intervals:
+
+[source,sql]
+----
+SELECT ts.timeBucket('1h', ts) AS hour,
+       sensor_id,
+       avg(temperature) AS avg_temp,
+       max(temperature) AS max_temp,
+       min(temperature) AS min_temp,
+       count(*) AS samples
+FROM SensorReading
+WHERE ts BETWEEN '2026-02-20' AND '2026-02-21'
+GROUP BY hour, sensor_id
+ORDER BY hour
+----
+
+== Step 6: Calculate Rates and Percentiles
+
+[source,sql]
+----
+-- Rate of change per minute
+SELECT ts.timeBucket('5m', ts) AS window,
+       sensor_id,
+       ts.rate(temperature, ts) AS temp_change_per_sec
+FROM SensorReading
+GROUP BY window, sensor_id
+
+-- 99th percentile temperature per hour
+SELECT ts.timeBucket('1h', ts) AS hour,
+       ts.percentile(temperature, 0.99) AS p99_temp
+FROM SensorReading
+GROUP BY hour
+----
+
+== Step 7: Fill Gaps with Interpolation
+
+Sensor data often has gaps. Use `ts.interpolate()` to fill them:
+
+[source,sql]
+----
+SELECT ts.timeBucket('1m', ts) AS minute,
+       ts.interpolate(temperature, 'linear', ts) AS temp
+FROM SensorReading
+WHERE sensor_id = 'sensor-A'
+  AND ts BETWEEN '2026-02-20T10:00:00Z' AND '2026-02-20T11:00:00Z'
+GROUP BY minute
+----
+
+Methods: `'zero'` (fill with 0), `'prev'` (forward fill), `'linear'` (interpolate), `'none'` (keep null).
+
+== Step 8: Query with PromQL
+
+ArcadeDB includes a native PromQL evaluator. Query via HTTP:
+
+[source,bash]
+----
+# Instant query
+curl "http://localhost:2480/ts/mydb/prom/api/v1/query?query=avg(SensorReading{sensor_id='sensor-A'})" \
+  -u root:arcadedb
+
+# Range query with rate calculation
+curl "http://localhost:2480/ts/mydb/prom/api/v1/query_range?\
+query=rate(SensorReading{sensor_id='sensor-A'}[5m])&\
+start=1708430400&end=1708434000&step=60" \
+  -u root:arcadedb
+----
+
+Or use PromQL from within SQL:
+
+[source,sql]
+----
+RETURN promql('avg(SensorReading{sensor_id="sensor-A"})')
+----
+
+== Step 9: Create a Continuous Aggregate
+
+Pre-compute hourly summaries that update automatically:
+
+[source,sql]
+----
+CREATE CONTINUOUS AGGREGATE hourly_temps AS
+  SELECT ts.timeBucket('1h', ts) AS hour,
+         sensor_id,
+         avg(temperature) AS avg_temp,
+         max(temperature) AS max_temp,
+         count(*) AS cnt
+  FROM SensorReading
+  GROUP BY hour, sensor_id
+----
+
+Query the aggregate like any table:
+
+[source,sql]
+----
+SELECT * FROM hourly_temps ORDER BY hour DESC LIMIT 10
+----
+
+New inserts into `SensorReading` automatically trigger incremental updates to the aggregate.
+
+== Step 10: Set Up Retention and Downsampling
+
+Keep raw data for 90 days, then downsample:
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading
+  ADD DOWNSAMPLING POLICY
+    AFTER 7 DAYS GRANULARITY 1 MINUTES
+    AFTER 30 DAYS GRANULARITY 1 HOURS
+----
+
+Raw data is automatically downsampled by a background scheduler.
+
+== Next Steps
+
+* xref:concepts/timeseries.adoc#timeseries[Time Series Concepts] -- Architecture, compression, HA, and full reference
+* xref:use-cases/realtime-analytics.adoc#use-case-realtime-analytics[Realtime Analytics Use Case] -- Complete IoT monitoring with Grafana
+* xref:reference/time-series/chapter.adoc#time-series-reference[Time Series Quick Reference] -- Syntax cheat sheet

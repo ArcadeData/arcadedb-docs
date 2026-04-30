@@ -1,0 +1,62 @@
+[[use-case-graph-rag]]
+= Graph RAG
+
+Implement retrieval-augmented generation (RAG) that retrieves richer, more connected context for LLM queries -- all within a single database. xref:tutorials/multimodel.adoc#graph-model[Graph traversal] enables multi-hop entity bridging across knowledge graph relationships, xref:concepts/vector-search.adoc#vector-model[vector similarity] powers semantic chunk retrieval using `vectorNeighbors()` with LSM_VECTOR indexes, xref:tutorials/multimodel.adoc#searchengine-model[full-text search] provides keyword-based chunk lookup, and Neo4j Bolt protocol compatibility on port 7687 supports LangChain4j integration.
+
+== Architecture Overview
+
+[cols="1,3"]
+|===
+| Vertices | `Chunk` (content, source, chunkIndex, embedding), `Entity`, `Person`, `Concept`, `Organization`
+| Edges | `MENTIONS`, `RELATES_TO`, `WORKS_AT`, `AUTHORED`
+|===
+
+Document chunks carry embedding vectors and link to extracted entities through `MENTIONS` edges. Entities connect via `RELATES_TO`, enabling multi-hop discovery that bridges chunks from different documents through shared entity mentions.
+
+== Key Queries
+
+*Hybrid Vector + Graph Search* -- Find semantically similar chunks and expand through entity connections:
+
+[source,sql]
+----
+SELECT content, source, distance FROM (
+  SELECT expand(vectorNeighbors('Chunk[embedding]', [0.9, 0.1, 0.8, 0.2], 5))
+)
+----
+
+*Multi-Hop Entity Bridge* -- Discover related entities across documents:
+
+[source,cypher]
+----
+MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)-[:RELATES_TO*1..2]-(related:Entity)<-[:MENTIONS]-(other:Chunk)
+WHERE c.source = 'quantum_computing.txt'
+RETURN related.name, other.content, other.source
+----
+
+*Composite Scoring* -- Combine vector distance with graph connectivity for ranked retrieval:
+
+[source,sql]
+----
+SELECT content, source,
+  (1.0 / (1.0 + distance)) * 0.7 + (entityCount / 5.0) * 0.3 AS compositeScore
+FROM ChunkScores ORDER BY compositeScore DESC
+----
+
+== Try It Yourself
+
+[source,bash]
+----
+git clone https://github.com/ArcadeData/arcadedb-usecases.git
+cd arcadedb-usecases/graph-rag
+docker compose up -d
+./setup.sh
+./queries/queries.sh
+----
+
+Full source: https://github.com/ArcadeData/arcadedb-usecases/tree/main/graph-rag[graph-rag on GitHub]
+
+== Related Documentation
+
+* xref:concepts/vector-search.adoc#vector-model[Vector Search Concepts]
+* xref:tutorials/multimodel.adoc#graph-model[Graph Model]
+* xref:tutorials/multimodel.adoc#searchengine-model[Full-Text Search]

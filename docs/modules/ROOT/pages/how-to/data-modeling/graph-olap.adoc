@@ -1,0 +1,291 @@
+[[graph-olap]]
+= Graph OLAP Engine
+image:edit.png[link="https://github.com/ArcadeData/arcadedb-docs/blob/main/src/main/asciidoc/how-to/data-modeling/graph-olap.adoc" float=right]
+
+NOTE: Available since ArcadeDB v26.4.1.
+
+The Graph OLAP Engine maintains a read-optimized, columnar representation of your graph alongside the live OLTP data.
+It uses *Compressed Sparse Row (CSR)* encoding and flat primitive arrays to deliver 5x–400x speedups on analytical workloads — multi-hop traversals, graph algorithms, and property aggregations — without sacrificing transactional safety.
+
+[discrete]
+== Why Graph OLAP?
+
+ArcadeDB's OLTP engine is optimized for point lookups and ACID transactions.
+Analytical workloads — PageRank, community detection, multi-hop traversals — access millions of edges in tight loops.
+The row-oriented, pointer-chasing nature of OLTP storage causes cache misses, object overhead, and GC pressure.
+
+The OLAP engine solves this by encoding graph topology as flat `int[]` arrays and properties as typed columns:
+
+* *Sequential memory access* — cache-line friendly, no pointer chasing
+* *Zero object allocation* — no GC pressure during traversal
+* *SIMD-friendly* — enables JVM vectorized operations
+* *9x more compact* — flat arrays vs. Java object overhead
+
+[discrete]
+== Graph Analytical View (GAV)
+
+A Graph Analytical View is a named, schema-persisted OLAP snapshot of selected vertex types, edge types, and properties.
+
+[source,java]
+----
+GraphAnalyticalView gav = GraphAnalyticalView.builder(database)
+    .withName("social")
+    .withVertexTypes("Person", "Company")
+    .withEdgeTypes("FOLLOWS", "WORKS_AT")
+    .withProperties("name", "age", "status")
+    .withUpdateMode(UpdateMode.SYNCHRONOUS)
+    .build();
+----
+
+Named views are persisted in `schema.json` and automatically restored on database restart.
+
+[discrete]
+== SQL
+
+*Creating a view*
+
+[source,sql]
+----
+CREATE GRAPH ANALYTICAL VIEW social
+  VERTEX TYPES (Person, Company)
+  EDGE TYPES (FOLLOWS, WORKS_AT)
+  PROPERTIES (name, age, status)
+  UPDATE MODE SYNCHRONOUS
+----
+
+All clauses after the view name are optional. A minimal view covering the entire graph:
+
+[source,sql]
+----
+CREATE GRAPH ANALYTICAL VIEW fullGraph
+----
+
+Use `IF NOT EXISTS` to avoid errors if the view already exists:
+
+[source,sql]
+----
+CREATE GRAPH ANALYTICAL VIEW social IF NOT EXISTS
+  VERTEX TYPES (Person)
+  EDGE TYPES (FOLLOWS)
+  UPDATE MODE SYNCHRONOUS
+----
+
+You can also materialize edge properties (e.g., weights):
+
+[source,sql]
+----
+CREATE GRAPH ANALYTICAL VIEW weighted
+  VERTEX TYPES (City)
+  EDGE TYPES (ROAD)
+  EDGE PROPERTIES (distance, toll)
+  UPDATE MODE SYNCHRONOUS
+  COMPACTION THRESHOLD 50000
+----
+
+*Altering a view*
+
+Change the update mode or compaction threshold of an existing view:
+
+[source,sql]
+----
+ALTER GRAPH ANALYTICAL VIEW social UPDATE MODE ASYNCHRONOUS
+ALTER GRAPH ANALYTICAL VIEW social COMPACTION THRESHOLD 20000
+----
+
+*Rebuilding a view*
+
+Force a full rebuild of the CSR snapshot:
+
+[source,sql]
+----
+REBUILD GRAPH ANALYTICAL VIEW social
+----
+
+*Dropping a view*
+
+[source,sql]
+----
+DROP GRAPH ANALYTICAL VIEW social
+DROP GRAPH ANALYTICAL VIEW IF EXISTS social
+----
+
+*Listing views*
+
+[source,sql]
+----
+SELECT FROM schema:graphAnalyticalViews
+----
+
+[discrete]
+== Builder Options
+
+[%header,cols="3,5,2"]
+|===
+| Method | Description | Default
+| `withName(String)` | Named registration + schema persistence | anonymous
+| `withVertexTypes(String...)` | Filter to specific vertex types | all
+| `withEdgeTypes(String...)` | Filter to specific edge types | all
+| `withProperties(String...)` | Materialize specific vertex properties | all
+| `withEdgeProperties(String...)` | Materialize edge properties (e.g., weights) | none
+| `withUpdateMode(UpdateMode)` | OFF, SYNCHRONOUS, or ASYNCHRONOUS | OFF
+| `withCompactionThreshold(int)` | Rebuild CSR after N accumulated delta edges | 10,000
+|===
+
+[discrete]
+== Async Build for Large Graphs
+
+For large graphs, use `buildAsync()` to avoid blocking the calling thread:
+
+[source,java]
+----
+GraphAnalyticalView gav = GraphAnalyticalView.builder(database)
+    .withName("large-graph")
+    .withUpdateMode(UpdateMode.ASYNCHRONOUS)
+    .buildAsync();
+
+// Wait for build completion
+boolean ready = gav.awaitReady(30, TimeUnit.SECONDS);
+----
+
+[discrete]
+== Update Modes
+
+The GAV supports three synchronization modes between OLTP and OLAP:
+
+[%header,cols="2,4,2,3"]
+|===
+| Mode | Behavior | Staleness | Use Case
+| *OFF* | Marks view STALE on commit; requires manual rebuild | Until rebuild | Batch analytics, static snapshots
+| *SYNCHRONOUS* | Applies an overlay on each commit | Zero | Real-time analytics, consistent reads
+| *ASYNCHRONOUS* | Triggers background rebuild on commit | Brief BUILDING window | Large graphs, tolerable brief inconsistency
+|===
+
+In *SYNCHRONOUS* mode, the engine captures transaction deltas (new/deleted vertices, added/removed edges, property changes) and merges them into an immutable overlay on top of the base CSR.
+Readers always see a consistent snapshot via an atomic volatile reference swap.
+When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
+
+[discrete]
+== How CSR Works
+
+The graph topology is stored as two pairs of arrays (forward for outgoing edges, backward for incoming):
+
+----
+Forward CSR (outgoing edges):
+  offsets:   [0, 3, 5, 8, ...]     -- one entry per vertex + sentinel
+  neighbors: [1, 5, 7, 2, 6, ...]  -- dense neighbor IDs, contiguous per source
+
+  Outgoing neighbors of vertex v = neighbors[offsets[v] .. offsets[v+1])
+  Out-degree of vertex v         = offsets[v+1] - offsets[v]   -- O(1)
+----
+
+This layout enables sequential memory access (cache-line friendly) and O(1) degree lookups.
+
+[discrete]
+== Columnar Property Storage
+
+Properties are stored as typed flat arrays — `int[]`, `long[]`, `double[]`, or dictionary-encoded `int[]` for strings.
+Each column has a compact null bitmap (1 bit per vertex).
+Dictionary encoding maps unique string values to integer codes, achieving near-100% compression for low-cardinality fields.
+
+[discrete]
+== Memory Usage
+
+The OLAP representation is significantly more compact than the OLTP equivalent:
+
+* *CSR topology*: ~8 bytes per edge (bidirectional)
+* *Node ID mapping*: ~8 bytes per vertex
+* *Columnar properties*: 4–8 bytes per vertex per column
+* *Null bitmaps*: 1 bit per vertex per column
+
+Example: for a graph with 500K vertices and 8M edges, the GAV uses *134.6 MB* compared to an estimated *~1.2 GB* for the OLTP representation — *9.3x more compact*.
+
+[source,java]
+----
+long bytes = gav.getMemoryUsageBytes();
+----
+
+[discrete]
+== Graph Algorithms
+
+The module includes parallelized graph algorithms that operate directly on CSR arrays with zero GC pressure:
+
+[%header,cols="3,5"]
+|===
+| Algorithm | Description
+| PageRank | Pull-based, parallel, configurable damping factor and iterations
+| Connected Components | Min-label propagation for weakly connected components
+| BFS | Breadth-first search with distance arrays
+| SSSP (Dijkstra) | Single-source shortest path for weighted graphs
+| Label Propagation | Community detection
+| Triangle Counting | Count 3-cliques in the graph
+| Local Clustering Coefficient | Per-vertex clustering coefficients
+|===
+
+[source,java]
+----
+GraphAlgorithms algos = new GraphAlgorithms();
+
+// PageRank (20 iterations, damping 0.85)
+double[] ranks = algos.pageRank(gav, 20, 0.85);
+
+// Connected Components
+int[] components = algos.connectedComponents(gav);
+
+// BFS from a source vertex
+int[] distances = algos.bfs(gav, sourceNodeId);
+----
+
+[discrete]
+== Query Planner Integration
+
+The Cypher query planner automatically detects ready GAVs and substitutes OLTP traversal operators with CSR-based operators when:
+
+* A named GAV is registered and in READY state
+* The GAV covers the required vertex and edge types
+* The query does not return edge variables as first-class records (edges in CSR have no RID; edge *properties* are fully supported)
+
+No query changes are needed — the optimizer transparently accelerates matching traversal patterns.
+
+[discrete]
+== Lifecycle
+
+[source,java]
+----
+// Check status
+if (gav.isReady()) { /* safe to query */ }
+
+// Status values: NOT_BUILT, BUILDING, READY, STALE
+Status status = gav.getStatus();
+
+// Drop (removes from registry + schema)
+gav.drop();
+
+// Shutdown (release resources, schema definition persists)
+gav.shutdown();
+----
+
+[discrete]
+== Benchmark Results
+
+On a graph with 500K vertices and ~8M edges:
+
+[%header,cols="3,2,2,2"]
+|===
+| Benchmark | OLTP | OLAP | Speedup
+| 1-hop count | 6.9 µs | 1.2 µs | 5.7x
+| 2-hop | 101.4 µs | 5.1 µs | 19.8x
+| 3-hop | 1,037 µs | 56.4 µs | 18.4x
+| 5-hop | 194,046 µs | 5,141 µs | 37.7x
+| Shortest Path | 394 ms/pair | 7.5 ms/pair | 52.8x
+| PageRank (20 iter) | 124,563 ms | 316 ms | 394.2x
+| Connected Components | 5,591 ms | 197 ms | 28.4x
+| Label Propagation | 62,619 ms | 645 ms | 97.1x
+|===
+
+[discrete]
+== Limitations
+
+* CSR uses `int[]` arrays — maximum ~2.1 billion vertices per bucket and ~2.1 billion edges per direction
+* Edges in CSR do not carry their own RID; the Cypher query planner falls back to OLTP only when the query returns an edge variable as a first-class record (e.g., `RETURN r`). Edge *properties* are fully supported via `withEdgeProperties()`
+* Dictionary encoding applies only to string properties
+* Initial build requires a full scan of selected vertex/edge types
