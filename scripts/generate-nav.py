@@ -94,13 +94,9 @@ NAV_STRUCTURE: list[dict] = [
                 ("reference/datatypes.adoc", "Data Types"),
                 ("reference/binary-types.adoc", "Binary Types (BLOB)"),
                 ("reference/managing-dates.adoc", "Managing Dates"),
-                # 6. Advanced patterns
+                # 6. Advanced patterns (still feature-shaped, useful to most users)
                 ("how-to/data-modeling/materialized-views.adoc", "Materialized Views"),
-                ("how-to/data-modeling/graph-olap.adoc", "Graph OLAP Engine"),
                 ("how-to/data-modeling/vector-embeddings.adoc", "Vector Embeddings"),
-                # 7. Storage internals (the curious)
-                ("reference/storage.adoc", "Storage Internals"),
-                ("reference/lsm-tree.adoc", "LSM-Tree Algorithm"),
             ]),
             ("Import & Migration", [
                 ("how-to/migration/importer.adoc", "Generic Importer"),
@@ -122,7 +118,6 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/auto-backup.adoc", "Automatic Backup"),
                 ("how-to/operations/restore.adoc", "Restore"),
                 "how-to/operations/monitoring.adoc",
-                "how-to/operations/performance-tuning.adoc",
                 ("how-to/operations/upgrade.adoc", "Upgrade ArcadeDB"),
             ]),
             ("Security", [
@@ -167,6 +162,15 @@ NAV_STRUCTURE: list[dict] = [
                 "use-cases/content-management.adoc",
                 "use-cases/network-monitoring.adoc",
                 "use-cases/data-lineage.adoc",
+            ]),
+            # Advanced — engine internals and tuning that beginners can skip.
+            # Pages stay at their original URLs; only the sidebar grouping
+            # changes so the learning path stays clean for newcomers.
+            ("Advanced", [
+                ("how-to/operations/performance-tuning.adoc", "Performance Tuning"),
+                ("how-to/data-modeling/graph-olap.adoc", "Graph OLAP Engine"),
+                ("reference/storage.adoc", "Storage Internals"),
+                ("reference/lsm-tree.adoc", "LSM-Tree Algorithm"),
             ]),
             ("Help", [
                 "appendix/community.adoc",
