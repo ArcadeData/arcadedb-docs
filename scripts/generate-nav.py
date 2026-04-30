@@ -240,7 +240,6 @@ NAV_STRUCTURE: list[dict] = [
             ]),
             ("Graph Algorithms", [
                 ("reference/graph-algorithms/algorithms.adoc", "Algorithms Reference"),
-                ("appendix/graph-algorithms.adoc", "Algorithms Appendix"),
             ]),
             ("Vector Functions", [
                 ("reference/vector-functions/distance-similarity.adoc", "Distance & Similarity"),
