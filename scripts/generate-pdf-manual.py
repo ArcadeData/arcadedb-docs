@@ -21,12 +21,21 @@ REPO = Path(__file__).resolve().parents[1]
 NAV_DIR = REPO / "docs" / "modules" / "ROOT"
 PAGES = NAV_DIR / "pages"
 PDF_DIR = REPO / "docs" / "pdf"
+PDF_PAGES = PDF_DIR / "pages"  # stripped page copies for the PDF aggregator
 
 NAV_FILES = ["nav.adoc", "nav-query.adoc", "nav-api.adoc"]
 
 XREF_RE = re.compile(r"xref:([^\[\s#]+\.adoc)(?:#[^\[\s]+)?\[([^\]]*)\]")
 TITLE_LINE_RE = re.compile(r"^\.([^\s].*?)\s*$")
 GROUP_LINE_RE = re.compile(r"^\*\s+([A-Z][^*\[]+?)\s*$")
+# Match an entire `++++` HTML passthrough block — `++++` (4+ plus signs)
+# on its own line, then any content, then `++++` on its own line.
+# Asciidoctor-pdf can't render embedded HTML/SVG, so it dumps these
+# blocks as literal text in the PDF; strip them before they get there.
+PASSTHROUGH_BLOCK_RE = re.compile(
+    r"^\+{4,}[ \t]*$.*?^\+{4,}[ \t]*$\n?",
+    re.MULTILINE | re.DOTALL,
+)
 
 
 def parse_nav(nav_path: Path) -> tuple[str, list[tuple[str | None, str]]]:
@@ -61,8 +70,34 @@ def parse_nav(nav_path: Path) -> tuple[str, list[tuple[str | None, str]]]:
     return tab_title, items
 
 
+def write_stripped_page(rel: str) -> bool:
+    """Copy docs/modules/ROOT/pages/<rel> to docs/pdf/pages/<rel> with
+    every ++++ HTML passthrough block removed. Returns True if the
+    target was written, False if the source page is missing."""
+    src = PAGES / rel
+    if not src.exists():
+        return False
+    dst = PDF_PAGES / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    text = src.read_text(encoding="utf-8")
+    stripped = PASSTHROUGH_BLOCK_RE.sub("", text)
+    # Collapse runs of 3+ blank lines that the strip can leave behind.
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped)
+    dst.write_text(stripped, encoding="utf-8")
+    return True
+
+
 def main() -> int:
     PDF_DIR.mkdir(parents=True, exist_ok=True)
+    # Re-create the stripped-pages tree from scratch each run so deleted
+    # source pages don't linger in PDF builds.
+    if PDF_PAGES.exists():
+        for p in sorted(PDF_PAGES.rglob("*"), reverse=True):
+            if p.is_file():
+                p.unlink()
+            elif p.is_dir():
+                p.rmdir()
+    PDF_PAGES.mkdir(parents=True, exist_ok=True)
 
     out: list[str] = [
         "= ArcadeDB Manual",
@@ -102,14 +137,13 @@ def main() -> int:
                 last_group = group
             if page_rel in seen:
                 continue
-            page_file = PAGES / page_rel
-            if not page_file.exists():
+            if not write_stripped_page(page_rel):
                 print(f"  WARN: missing page {page_rel}", file=sys.stderr)
                 continue
             seen.add(page_rel)
             # leveloffset=+2 so each page's `= Title` becomes `=== Title`
             # under the part / chapter levels we emit above it.
-            out.append(f"include::../modules/ROOT/pages/{page_rel}[leveloffset=+2]")
+            out.append(f"include::pages/{page_rel}[leveloffset=+2]")
             out.append("")
 
     text = "\n".join(out).rstrip() + "\n"
