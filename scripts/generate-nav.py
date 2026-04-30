@@ -65,26 +65,40 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/connectivity/bolt.adoc", "Neo4j Bolt Protocol"),
                 ("how-to/connectivity/grafana.adoc", "Grafana Datasource"),
             ]),
+            # Data Modeling reads as a learning path top-to-bottom:
+            #   1. The big picture (multi-model)
+            #   2. The core model (graph) and the other native models
+            #   3. Storage primitives (records / databases)
+            #   4. Schema layer (schema / inheritance / indexes / transactions)
+            #   5. Value-level vocabulary (data types)
+            #   6. Advanced modelling patterns
+            #   7. Storage internals for the curious
             ("Data Modeling", [
+                # 1. Big picture
+                ("concepts/multi-model.adoc", "Multi-Model Architecture"),
+                # 2. The seven data models
+                ("concepts/graphs.adoc", "Graph Database"),
+                ("concepts/timeseries.adoc", "Time Series"),
+                ("concepts/vector-search.adoc", "Vector Search"),
+                ("how-to/data-modeling/geospatial.adoc", "Geospatial"),
+                ("how-to/data-modeling/full-text-index.adoc", "Full-Text Search"),
+                # 3. Storage primitives
                 ("concepts/basics.adoc", "Records, Documents, Vertices & Edges"),
-                "concepts/schema.adoc",
-                "concepts/indexes.adoc",
-                "concepts/inheritance.adoc",
-                "concepts/transactions.adoc",
-                "concepts/multi-model.adoc",
-                "concepts/graphs.adoc",
-                "concepts/timeseries.adoc",
-                "concepts/vector-search.adoc",
-                "concepts/databases.adoc",
-                "concepts/high-availability.adoc",
-                ("how-to/data-modeling/full-text-index.adoc", "Full-Text Index"),
-                ("how-to/data-modeling/geospatial.adoc", "Geospatial Index"),
-                ("how-to/data-modeling/materialized-views.adoc", "Materialized Views"),
-                ("how-to/data-modeling/graph-olap.adoc", "Graph OLAP Engine"),
-                ("how-to/data-modeling/vector-embeddings.adoc", "Vector Embeddings"),
+                ("concepts/databases.adoc", "Databases"),
+                # 4. Schema
+                ("concepts/schema.adoc", "Schema"),
+                ("concepts/inheritance.adoc", "Inheritance"),
+                ("concepts/indexes.adoc", "Indexes"),
+                ("concepts/transactions.adoc", "Transactions"),
+                # 5. Data types
                 ("reference/datatypes.adoc", "Data Types"),
                 ("reference/binary-types.adoc", "Binary Types (BLOB)"),
                 ("reference/managing-dates.adoc", "Managing Dates"),
+                # 6. Advanced patterns
+                ("how-to/data-modeling/materialized-views.adoc", "Materialized Views"),
+                ("how-to/data-modeling/graph-olap.adoc", "Graph OLAP Engine"),
+                ("how-to/data-modeling/vector-embeddings.adoc", "Vector Embeddings"),
+                # 7. Storage internals (the curious)
                 ("reference/storage.adoc", "Storage Internals"),
                 ("reference/lsm-tree.adoc", "LSM-Tree Algorithm"),
             ]),
@@ -102,7 +116,8 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/server.adoc", "Server Configuration"),
                 ("how-to/operations/settings.adoc", "Changing Settings"),
                 ("reference/settings.adoc", "Settings Reference"),
-                ("how-to/operations/ha.adoc", "High Availability"),
+                ("concepts/high-availability.adoc", "High Availability — Concepts"),
+                ("how-to/operations/ha.adoc", "High Availability — Setup"),
                 ("how-to/operations/backup.adoc", "Backup"),
                 ("how-to/operations/auto-backup.adoc", "Automatic Backup"),
                 ("how-to/operations/restore.adoc", "Restore"),
