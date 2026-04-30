@@ -4,16 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is the ArcadeDB documentation repository, which generates HTML and PDF documentation from AsciiDoc source files using Maven and the Asciidoctor toolchain.
+This is the ArcadeDB documentation repository, which generates HTML and PDF documentation from AsciiDoc source files. **A migration to [Antora](https://antora.org/) is in progress on the `feat/antora` branch** — see "Documentation Pipeline" below.
+
+## Documentation Pipeline (transitional state)
+
+The repo currently runs two HTML pipelines in parallel:
+
+- **Legacy (production)**: `mvn generate-resources` → single-page HTML + `ArcadeDB-Manual.pdf`. Source: `src/main/asciidoc/`. Deployed to `docs.arcadedb.com` via `.github/workflows/cloudflare-deploy.yml`.
+- **Antora (preview, `feat/antora` branch only)**: `npm run build` → multi-page site at `build/site/`. Source: `docs/modules/ROOT/{pages,images}/`, **regenerated from `src/main/asciidoc/` by `scripts/migrate.sh`**. Deployed to a Cloudflare Pages preview branch via `.github/workflows/antora-preview.yml`.
+
+**Where to edit content**: `src/main/asciidoc/` remains the canonical source. After editing, run `scripts/migrate.sh` to refresh `docs/modules/ROOT/` (or rely on CI to do it). The migration is end-to-end re-runnable — it wipes and rebuilds `docs/modules/ROOT/{pages,images}` on every invocation.
+
+The PDF build is unchanged — it still reads from `src/main/asciidoc/`.
 
 ## Building and Serving Documentation
 
-### Generate documentation
+### Generate legacy HTML + PDF
 ```shell
 mvn generate-resources
 ```
 
 Output is generated in `target/generated-docs/`
+
+### Build the Antora site
+```shell
+npm ci
+bash scripts/migrate.sh
+npm run build      # build/site/
+npm run serve      # http://localhost:8080
+```
 
 ### Serve documentation locally
 ```shell
