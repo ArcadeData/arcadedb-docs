@@ -60,5 +60,8 @@ python3 scripts/enrich-chapters.py
 echo "==> Generating nav.adoc"
 python3 scripts/generate-nav.py
 
+echo "==> Generating PDF aggregator"
+python3 scripts/generate-pdf-manual.py
+
 echo
 echo "Migration complete. Build with: npm run build"

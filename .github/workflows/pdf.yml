@@ -1,0 +1,72 @@
+name: Generate PDF
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    # Skip self-trigger when this workflow's own commit lands.
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Graphviz
+        uses: ts-graphviz/setup-graphviz@b1de5da23ed0a6d14e0aeee8ed52fdd87af2363c # v2.0.2
+
+      - name: Install D2
+        run: |
+          curl -fsSL https://d2lang.com/install.sh | sh -s --
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/bin:$PATH"
+          d2 --version
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.10'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Regenerate Antora content from src/main/asciidoc
+        run: bash scripts/migrate.sh
+
+      - name: Build PDF (asciidoctorj-pdf via Maven)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          mvn generate-resources
+
+      - name: Commit ArcadeDB-Manual.pdf
+        run: |
+          if [ ! -f "target/generated-docs/ArcadeDB-Manual.pdf" ]; then
+            echo "PDF not generated"
+            exit 1
+          fi
+          cp target/generated-docs/ArcadeDB-Manual.pdf ArcadeDB-Manual.pdf
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ArcadeDB-Manual.pdf
+          if git diff --cached --quiet; then
+            echo "PDF unchanged — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Update ArcadeDB-Manual.pdf [skip ci]"
+          git push
