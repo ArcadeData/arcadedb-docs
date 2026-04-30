@@ -5,7 +5,7 @@ Most modern BI tools speak SQL over PostgreSQL — and so does ArcadeDB. The Pos
 
 == Connection paths
 
-There are three ways a BI tool can talk to ArcadeDB. Pick the one your tool supports:
+There are two ways a BI tool talks to ArcadeDB. Pick the one your tool supports:
 
 [cols="1,2,3", options="header"]
 |===
@@ -15,16 +15,12 @@ There are three ways a BI tool can talk to ArcadeDB. Pick the one your tool supp
 | A tool-specific extension that ArcadeData publishes (or that the tool ships out of the box) which knows ArcadeDB-specific features — graph queries, multiple query languages, time-series macros, graph visualization.
 | Use whenever ArcadeDB ships a native plugin (today: Grafana). Always preferred over the generic Postgres path because it surfaces graph-aware visualizations, multi-language queries, and time-series-aware query builders.
 
-| *PostgreSQL wire protocol* (built-in)
-| ArcadeDB exposes port 5432 as a Postgres-compatible endpoint. Any tool with a built-in PostgreSQL connector can point at ArcadeDB and run ArcadeDB SQL.
-| Use for tools that already speak Postgres natively: Apache Superset, Metabase, Tableau, Power BI, DBeaver, dbt, Looker, and so on. No driver download required.
-
-| *JDBC driver*
-| ArcadeDB also exposes a JDBC driver that wraps the Postgres protocol. Functionally identical to the built-in Postgres connector — just a different package.
-| Use when the tool insists on a JDBC URL specifically (some Java desktop apps, IDEs, and ETL platforms).
+| *PostgreSQL wire protocol*
+| ArcadeDB exposes port 5432 as a Postgres-compatible endpoint. Any tool with a built-in PostgreSQL connector — or any Java tool that loads the standard https://jdbc.postgresql.org/[PostgreSQL JDBC driver] — points at that endpoint and runs ArcadeDB SQL exactly as it would against Postgres.
+| Use for tools that already speak Postgres natively: Apache Superset, Metabase, Tableau, Power BI, DBeaver, dbt, Looker, and so on.
 |===
 
-The PostgreSQL wire protocol and the JDBC driver are the *same wire-level path*, just packaged differently. Inside ArcadeDB, both arrive at the Postgres protocol plugin and can run SQL, Cypher, Gremlin, GraphQL, and SQL Script via language prefixes (see "Sending non-SQL queries" below).
+ArcadeDB does not ship its own JDBC driver. Tools that require a JDBC URL connect through the standard PostgreSQL JDBC driver (`org.postgresql:postgresql`); the connection target is ArcadeDB's port 5432 instead of a real PostgreSQL server. Functionally it is the same wire-level path as the built-in Postgres connectors — same protocol, same auth, same query surface — and the same set of language prefixes works (see "Sending non-SQL queries" below).
 
 == Supported tools
 
@@ -57,14 +53,14 @@ The PostgreSQL wire protocol and the JDBC driver are the *same wire-level path*,
 
 The Postgres protocol plugin is bundled with the standard distribution; you only need to enable it. See xref:how-to/connectivity/postgres.adoc#postgres-driver[Postgres Protocol Plugin] for the exact server-side configuration. Once enabled, ArcadeDB listens on port 5432 (TLS optional) and the tool sees it as a regular PostgreSQL server — same hostname/port/database/username/password fields you already know.
 
-For tools that need a JDBC URL specifically, point them at:
+For Java tools that connect via JDBC, drop the standard https://jdbc.postgresql.org/download/[PostgreSQL JDBC driver] (`org.postgresql:postgresql`) on the classpath and use a JDBC URL of the form:
 
 [source]
 ----
 jdbc:postgresql://<host>:5432/<database>
 ----
 
-with `<database>` being your ArcadeDB database name and the standard PostgreSQL JDBC driver on the classpath.
+with `<database>` being your ArcadeDB database name. There is no ArcadeDB-specific driver to install — the wire protocol is what carries the connection.
 
 == Sending non-SQL queries from a Postgres-only tool
 
