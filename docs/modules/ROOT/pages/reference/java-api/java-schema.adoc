@@ -82,35 +82,6 @@ Bucket             getBucketByName(String name);
 Collection<Bucket> getBuckets();
 ----
 
-== Working with properties
-
-A property is created on a type via `DocumentType.createProperty(String name, Type type)` and configured through the `Property` interface (`setMandatory`, `setNotNull`, `setReadonly`, `setMin`, `setMax`, `setDefaultValue`, etc.).
-
-In addition to the constraint setters, two methods control where the value is physically stored:
-
-[source,java]
-----
-Property setExternal(boolean external);
-Property setCompression(String compression);
-----
-
-* `setExternal(true)` flips the property to xref:concepts/external-properties.adoc#external-properties[`EXTERNAL`] storage: the value is stored in a paired external bucket and the primary record only carries a small pointer. ArcadeDB transparently creates one paired bucket per primary bucket the first time the flag is set on the type.
-* `setCompression(String)` sets the compression policy for an `EXTERNAL` property. Supported values are `none` (default), `fast` (LZ4 fast), `max` (LZ4 HC) and `auto` (try `fast`, keep raw on no-win). The legacy alias `lz4` is accepted and stored as `fast`. Ignored for non-`EXTERNAL` properties.
-
-When you toggle `setExternal` on a type that already contains records, run xref:reference/sql/sql-rebuild-type.adoc#sql-rebuild-type[`REBUILD TYPE`] to re-serialise the existing records into the new layout:
-
-[source,java]
-----
-final DocumentType type = database.getSchema().createDocumentType("Doc");
-type.createProperty("name", Type.STRING);
-type.createProperty("embedding", Type.ARRAY_OF_FLOATS).setExternal(true);
-type.createProperty("body", Type.STRING).setExternal(true).setCompression("auto");
-
-// Promote an existing inline property and migrate the records
-type.getProperty("name").setExternal(true);
-database.command("sql", "REBUILD TYPE Doc");
-----
-
 [[java-indexes]]
 == Working with indexes
 
