@@ -1,0 +1,175 @@
+[[neo4j-differences]]
+
+= Differences with Neo4j
+
+ArcadeDB is fully compatible with Neo4j at the wire-protocol and query-language level — your existing applications can connect to ArcadeDB by changing the connection URL alone — but the engine underneath is multi-model, embeddable, and Apache 2.0 licensed. This page summarises what carries over, what is new, and how to migrate.
+
+== What's compatible
+
+ArcadeDB ships several drop-in compatibility layers so existing Neo4j codebases keep working with minimal changes:
+
+- **OpenCypher** — ArcadeDB implements OpenCypher (97.8% TCK pass rate) on every supported data model. Most Cypher queries written against Neo4j run unmodified.
+- **Bolt protocol** — ArcadeDB exposes a Bolt server compatible with Bolt v3.0, v4.0, and v4.4. Official Neo4j drivers (Java, Python, JavaScript, .NET, Go, Ruby) connect by switching the URL and credentials; existing application code stays untouched.
+- **APOC** — A subset of Neo4j's APOC procedures is available through ArcadeDB's xref:reference/extended-functions.adoc[Extended Functions].
+
+== Where ArcadeDB goes further
+
+Beyond Neo4j compatibility, ArcadeDB adds capabilities that typically require multiple databases on the Neo4j stack:
+
+- **Multi-model** — graph, document, key/value, search, time-series, vector, and geospatial data live in a single engine and a single transaction. Neo4j is graph-only.
+- **Multi-language** — beyond Cypher, ArcadeDB speaks SQL, Gremlin, GraphQL, MongoDB Query Language, and Redis commands.
+- **Native vector search** — built-in JVector (DiskANN + HNSW with SIMD acceleration). No external vector database required.
+- **Built-in full-text search** with fuzzy matching, integrated with the query languages.
+- **High Availability and replication** are part of the open-source distribution. Neo4j requires the (paid) Enterprise edition for HA.
+- **Embeddable** — ArcadeDB runs inside a JVM application with a few-megabyte footprint (as low as 16 MB heap). Neo4j Embedded is Enterprise-only.
+- **Apache 2.0 licence** — free for commercial use, no copyleft. Neo4j Community is GPL, which forces distributed applications to publish their source.
+
+== Performance comparison
+
+The LDBC Graphalytics benchmark shows the following timings on identical workloads (lower is better):
+
+[%header,cols="3,2,2"]
+|===
+| Algorithm                         | ArcadeDB    | Neo4j
+
+| PageRank                          | *0.48 s*    | 11.15 s
+| Weakly Connected Components (WCC) | *0.30 s*    | 0.75 s
+| Breadth-First Search (BFS)        | *0.13 s*    | 1.91 s
+| Local Clustering Coefficient (LCC)| *27.41 s*   | 45.78 s
+| Single-Source Shortest Path (SSSP)| *3.53 s*    | not available
+| Community Detection (CDLP)        | *3.67 s*    | 6.43 s
+|===
+
+ArcadeDB's xref:how-to/data-modeling/graph-olap.adoc[Graph OLAP] engine delivers up to 400× faster analytics than Neo4j on the same hardware.
+
+== Connecting an existing Neo4j application
+
+The quickest path is the Bolt server: keep using Neo4j's official drivers and only change the connection URL and credentials.
+
+[source,java]
+----
+// Existing Neo4j code works unchanged when pointed at ArcadeDB's Bolt port.
+Driver driver = GraphDatabase.driver(
+    "bolt://localhost:7687",
+    AuthTokens.basic("root", "arcadedb_password"),
+    Config.builder().withoutEncryption().build());
+
+try (Session session = driver.session(SessionConfig.forDatabase("mydb"))) {
+  Result rs = session.run(
+      "MATCH (p:Person)-[:KNOWS]->(f) WHERE p.name = $n RETURN f.name AS name",
+      Map.of("n", "Alice"));
+  rs.list().forEach(r -> System.out.println(r.get("name").asString()));
+}
+----
+
+See xref:how-to/connectivity/bolt.adoc[Neo4j Bolt Protocol Plugin] for server configuration and supported clients.
+
+== Importing a Neo4j database
+
+ArcadeDB ships a Neo4j importer that reads APOC's JSONL export format and rebuilds the graph on top of ArcadeDB's storage.
+
+. Export the source database from Neo4j using APOC:
++
+[source,cypher]
+----
+CALL apoc.export.json.all("neo4j-export.jsonl", {})
+----
++
+APOC writes one JSON object per line — vertices first, then relationships:
++
+[source,json]
+----
+{"type":"node","id":"0","labels":["User"],"properties":{"name":"Adam","age":42}}
+{"type":"node","id":"1","labels":["User"],"properties":{"name":"Jim","age":42}}
+{"type":"relationship","label":"KNOWS","properties":{"since":1993},
+ "start":{"id":"0","labels":["User"]},"end":{"id":"1","labels":["User"]}}
+----
+
+. Import into ArcadeDB through the console:
++
+[source,sql]
+----
+> CREATE DATABASE MyDatabase
+{MyDatabase}> IMPORT DATABASE file:///path/to/neo4j-export.jsonl
+----
++
+or programmatically through the Java API:
++
+[source,java]
+----
+Neo4jImporter importer = new Neo4jImporter(
+    "-i", "/path/to/neo4j-export.jsonl",
+    "-d", "./databases/MyDatabase",
+    "-o");                              // overwrite if exists
+importer.run();
+----
+
+The importer runs three passes: schema reconciliation, vertex creation, and edge creation.
+
+== Multi-label nodes
+
+Neo4j allows a single node to carry several labels (for example `[User, Administrator]`). ArcadeDB models the same idea with type inheritance: the importer creates a synthetic type `Administrator~User` (labels sorted alphabetically and joined with `~`) that extends both `Administrator` and `User`. Polymorphic queries work as expected — `SELECT FROM User` returns ordinary `User` vertices and every `Administrator~User` vertex.
+
+== Schema and constraints
+
+Neo4j's `CREATE CONSTRAINT … REQUIRE … IS UNIQUE` translates to a small block of ArcadeDB SQL DDL:
+
+[source,sql]
+----
+-- Neo4j
+-- CREATE CONSTRAINT FOR (p:Person) REQUIRE p.id IS UNIQUE
+
+CREATE VERTEX TYPE Person
+CREATE EDGE TYPE KNOWS
+CREATE PROPERTY Person.id LONG
+CREATE INDEX ON Person (id) UNIQUE
+----
+
+== Embedding ArcadeDB
+
+The native Java API skips the Bolt round-trip entirely and gives you full multi-model access in-process. This mode is exclusive to Apache 2.0 — no Enterprise licence required.
+
+[source,java]
+----
+Database database = new DatabaseFactory("./databases/mydb").open();
+
+database.transaction(() -> {
+  MutableVertex alice = database.newVertex("Person");
+  alice.set("name", "Alice");
+  alice.set("born", 1985);
+  alice.save();
+
+  MutableVertex bob = database.newVertex("Person");
+  bob.set("name", "Bob");
+  bob.set("born", 1990);
+  bob.save();
+
+  alice.newEdge("KNOWS", bob, "since", 2015);
+});
+
+// Native graph traversal — no string queries, no parser overhead.
+Vertex alice = database.lookupByKey("Person", "name", "Alice").next().asVertex();
+for (Vertex friend : alice.getVertices(Vertex.DIRECTION.OUT, "KNOWS"))
+  System.out.println(friend.getString("name"));
+----
+
+For sustained inserts, use the asynchronous API to fan operations across all available threads:
+
+[source,java]
+----
+database.async().onError(Throwable::printStackTrace);
+for (int i = 0; i < 1_000_000; i++) {
+  MutableVertex v = database.newVertex("Person");
+  v.set("id", i);
+  v.set("name", "Person_" + i);
+  database.async().createRecord(v, null);
+}
+----
+
+== Further reading
+
+- xref:reference/cypher/cypher-overview.adoc[Cypher in ArcadeDB] — language overview and compatibility notes.
+- xref:reference/cypher/cypher-compatibility.adoc[Cypher Compatibility] — the exact subset of OpenCypher TCK ArcadeDB passes.
+- xref:how-to/connectivity/bolt.adoc[Bolt Protocol] — wire-protocol setup for Neo4j drivers.
+- xref:how-to/migration/neo4j-importer.adoc[Neo4j Importer] — full reference for the JSONL importer used above.
+- xref:how-to/data-modeling/graph-olap.adoc[Graph OLAP Engine] — the analytics engine behind the benchmark numbers.
