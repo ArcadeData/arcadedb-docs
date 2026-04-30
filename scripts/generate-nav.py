@@ -41,7 +41,7 @@ def iter_includes(file_path: Path):
             yield target
 
 
-def first_heading(page_path: Path, fallback: str) -> str:
+def first_heading(page_path: Path) -> str | None:
     text = page_path.read_text(encoding="utf-8")
     for line in text.splitlines():
         s = line.strip()
@@ -52,7 +52,7 @@ def first_heading(page_path: Path, fallback: str) -> str:
         m = HEADING_RE.match(s)
         if m:
             return m.group(1).replace("`", "").strip()
-    return fallback
+    return None
 
 
 def to_pages_rel(src_path: Path) -> str | None:
@@ -70,12 +70,18 @@ def walk(node: Path, depth: int, lines: list[str], seen: set[Path]) -> None:
     if rel is None:
         return
     page_path = PAGES / rel
+    child_depth = depth
     if page_path.exists():
-        title = first_heading(page_path, page_path.stem.replace("-", " ").title())
-        bullet = "*" * depth
-        lines.append(f"{bullet} xref:{rel}[{title}]")
+        title = first_heading(page_path)
+        if title:
+            lines.append(f"{'*' * depth} xref:{rel}[{title}]")
+            child_depth = depth + 1
+        # If the page has no heading (e.g. legacy chapter.adoc files
+        # that were thin include:: wrappers), skip emitting a nav entry
+        # for it and hoist its children to the same depth so the user
+        # doesn't see a useless "Chapter" parent.
     for child in iter_includes(node):
-        walk(child, depth + 1, lines, seen)
+        walk(child, child_depth, lines, seen)
 
 
 def main() -> int:
@@ -98,11 +104,21 @@ def main() -> int:
         if chapter.name in {"footer.adoc", "web-footer.adoc"}:
             continue
         target_dir = chapter.relative_to(SRC).parts[0]
-        target = api_lines if target_dir in API_REFERENCE_DIRS else doc_lines
-        before = len(target)
-        walk(chapter, 1, target, seen)
-        if len(target) > before:
-            target.append("")
+        if target_dir in API_REFERENCE_DIRS:
+            # Hoist the chapter's children to the top of the API Reference
+            # tab. The chapter file itself ("Reference") would otherwise
+            # appear as the sole collapsed root and bury everything below it.
+            seen.add(chapter)
+            before = len(api_lines)
+            for child in iter_includes(chapter):
+                walk(child, 1, api_lines, seen)
+            if len(api_lines) > before:
+                api_lines.append("")
+        else:
+            before = len(doc_lines)
+            walk(chapter, 1, doc_lines, seen)
+            if len(doc_lines) > before:
+                doc_lines.append("")
 
     NAV.write_text("\n".join(doc_lines).rstrip() + "\n", encoding="utf-8")
     NAV_API.write_text("\n".join(api_lines).rstrip() + "\n", encoding="utf-8")
