@@ -1,0 +1,188 @@
+[[ext-fns-schema-meta]]
+==== Schema & Meta Procedures
+
+===== Meta/Schema Procedures
+
+
+[[meta-graph]]
+[discrete]
+===== meta.graph()
+
+Get a virtual graph representing the database schema structure.
+
+*Syntax:* `CALL meta.graph() YIELD nodes, relationships`
+
+*Returns:*
+
+* `nodes` - Virtual nodes representing vertex types with their counts and properties
+* `relationships` - Virtual relationships representing edge types with their counts
+
+*APOC Compatible:* `apoc.meta.graph`
+
+[source,cypher]
+----
+CALL meta.graph() YIELD nodes, relationships
+RETURN nodes, relationships
+----
+
+'''
+
+[[meta-schema]]
+[discrete]
+===== meta.nodetypeproperties()
+
+Get property information for each node type.
+
+*Syntax:* `CALL meta.nodetypeproperties() YIELD nodeType, propertyName, propertyTypes, mandatory`
+
+*Returns:*
+
+* `nodeType` - Name of the vertex type
+* `propertyName` - Name of the property
+* `propertyTypes` - List of property types
+* `mandatory` - Whether the property is required
+
+*APOC Compatible:* `apoc.meta.nodeTypeProperties`
+
+[source,cypher]
+----
+CALL meta.nodetypeproperties() YIELD nodeType, propertyName, propertyTypes
+RETURN nodeType, propertyName, propertyTypes
+----
+
+'''
+
+[[meta-rel-type-properties]]
+[discrete]
+===== meta.reltypeproperties()
+
+Get property information for each relationship type.
+
+*Syntax:* `CALL meta.reltypeproperties() YIELD relType, propertyName, propertyTypes, mandatory`
+
+*Returns:*
+
+* `relType` - Name of the edge type
+* `propertyName` - Name of the property
+* `propertyTypes` - List of property types
+* `mandatory` - Whether the property is required
+
+*APOC Compatible:* `apoc.meta.relTypeProperties`
+
+[source,cypher]
+----
+CALL meta.reltypeproperties() YIELD relType, propertyName, propertyTypes
+RETURN relType, propertyName, propertyTypes
+----
+
+---
+===== meta.schema()
+
+Get detailed schema information including all types and properties.
+
+*Syntax:* `CALL meta.schema() YIELD value`
+
+*Returns:* `value` - Map containing:
+
+* `nodeLabels` - List of vertex types with their properties
+* `relationshipTypes` - List of edge types with their properties
+
+*APOC Compatible:* `apoc.meta.schema`
+
+[source,cypher]
+----
+CALL meta.schema() YIELD value
+RETURN value.nodeLabels AS nodeTypes
+----
+
+'''
+
+[[meta-stats]]
+[discrete]
+===== meta.stats()
+
+Get database statistics including counts of nodes and relationships.
+
+*Syntax:* `CALL meta.stats() YIELD value`
+
+*Returns:* `value` - Map containing:
+
+* `labelCount` - Number of node labels
+* `relTypeCount` - Number of relationship types
+* `nodeCount` - Total number of nodes
+* `relCount` - Total number of relationships
+* `labels` - Map of label to count
+* `relTypes` - Map of relationship type to count
+
+*APOC Compatible:* `apoc.meta.stats`
+
+[source,cypher]
+----
+CALL meta.stats() YIELD value
+RETURN value.nodeCount AS nodes, value.relCount AS relationships
+----
+
+'''
+
+[[meta-node-type-properties]]
+[discrete]
+===== Merge Procedures
+
+
+[[merge-relationship]]
+[discrete]
+===== merge.node()
+
+Create or match a node by labels and properties.
+
+*Syntax:* `CALL merge.node(labels, matchProps, createProps) YIELD node`
+
+*Returns:* `node` - The merged node
+
+*APOC Compatible:* `apoc.merge.node`
+
+[source,cypher]
+----
+CALL merge.node(["Person"], {email: "alice@example.com"}, {name: "Alice", created: date.currentTimestamp()}) YIELD node
+RETURN node
+----
+
+---
+===== merge.relationship()
+
+Create or match a relationship between two nodes.
+
+*Syntax:* `CALL merge.relationship(startNode, relType, matchProps, createProps, endNode) YIELD rel`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| relType | String | Relationship type name
+| matchProps | Map | Properties to match on
+| createProps | Map | Properties to set on create
+| endNode | Node | Ending node
+|===
+
+*Returns:* `rel` - The merged relationship
+
+*APOC Compatible:* `apoc.merge.relationship`
+
+[source,cypher]
+----
+MATCH (a:Person {name: "Alice"}), (b:Person {name: "Bob"})
+CALL merge.relationship(a, "KNOWS", {}, {since: 2024}, b) YIELD rel
+RETURN rel
+
+// With batch processing:
+UNWIND $batch AS row
+MATCH (a), (b) WHERE elementId(a) = row.source AND elementId(b) = row.target
+CALL merge.relationship(a, row.relType, {}, row.props, b) YIELD rel
+RETURN count(rel)
+----
+
+'''
+
+[[merge-node]]
+[discrete]

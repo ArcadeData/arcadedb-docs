@@ -1,0 +1,311 @@
+[[ext-fns-path-algorithms]]
+==== Path & Algorithm Procedures
+
+===== Algorithm Procedures
+
+
+[[ext-algo-allsimplepaths]]
+[discrete]
+===== algo.allsimplepaths()
+
+Find all simple paths (without repeated nodes) between two nodes.
+
+*Syntax:* `CALL algo.allsimplepaths(startNode, endNode, relTypes, maxDepth) YIELD path`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| endNode | Node | Target node
+| relTypes | String/List | Relationship type(s) to traverse
+| maxDepth | Integer | Maximum path length
+|===
+
+*Returns:* `path` - Each simple path found
+
+*APOC Compatible:* `apoc.algo.allSimplePaths`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CALL algo.allsimplepaths(a, b, 'KNOWS', 5) YIELD path
+RETURN path
+----
+
+See <<algo-all-simple-paths>> in the Graph Algorithms appendix for full parameter reference and examples.
+
+---
+[[ext-algo-astar]]
+===== algo.astar()
+
+Find the shortest path using A* algorithm with optional geographic heuristics.
+
+*Syntax:* `CALL algo.astar(startNode, endNode, relType, weightProperty, [latProperty], [lonProperty]) YIELD path, weight`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| endNode | Node | Target node
+| relType | String | Relationship type to traverse
+| weightProperty | String | Edge property to use as weight
+| latProperty | String | Optional - Node property for latitude (for geographic heuristic)
+| lonProperty | String | Optional - Node property for longitude (for geographic heuristic)
+|===
+
+*Returns:*
+
+* `path` - The shortest path
+* `weight` - Total path weight
+
+*APOC Compatible:* `apoc.algo.aStar`
+
+[source,cypher]
+----
+MATCH (a:City {name: 'Seattle'}), (b:City {name: 'Miami'})
+CALL algo.astar(a, b, 'FLIGHT', 'distance', 'lat', 'lon') YIELD path, weight
+RETURN path, weight
+----
+
+See <<algo-astar>> in the Graph Algorithms appendix for full parameter reference and examples.
+
+'''
+
+[[ext-algo-dijkstra]]
+[discrete]
+===== algo.dijkstra()
+
+Find the shortest weighted path between two nodes using Dijkstra's algorithm.
+
+*Syntax:* `CALL algo.dijkstra(startNode, endNode, relType, weightProperty, [direction]) YIELD path, weight`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| endNode | Node | Target node
+| relType | String | Relationship type to traverse
+| weightProperty | String | Edge property to use as weight
+| direction | String | Optional - Traversal direction ("OUT", "IN", "BOTH", default: "BOTH")
+|===
+
+*Returns:*
+
+* `path` - The shortest path
+* `weight` - Total path weight
+
+*APOC Compatible:* `apoc.algo.dijkstra`
+
+[source,cypher]
+----
+MATCH (a:City {name: 'New York'}), (b:City {name: 'Los Angeles'})
+CALL algo.dijkstra(a, b, 'ROAD', 'distance') YIELD path, weight
+RETURN path, weight
+----
+
+See <<algo-dijkstra>> in the Graph Algorithms appendix for full parameter reference and examples.
+
+'''
+
+[discrete]
+===== Path Functions (Extended)
+
+
+[[path-create]]
+[discrete]
+===== path.combine()
+
+Combine two paths.
+
+*Syntax:* `path.combine(path1, path2)`
+
+*Returns:* Path - Combined path
+
+*APOC Compatible:* `apoc.path.combine`
+
+'''
+
+[[path-slice]]
+[discrete]
+===== path.create()
+
+Create a path from a list of nodes and relationships.
+
+*Syntax:* `path.create(node, [rel, node, ...])`
+
+*Returns:* Path - Created path
+
+*APOC Compatible:* `apoc.path.create`
+
+'''
+
+[[path-combine]]
+[discrete]
+===== path.elements()
+
+Get all elements (nodes and relationships) of a path.
+
+*Syntax:* `path.elements(path)`
+
+*Returns:* List - List of nodes and relationships
+
+*APOC Compatible:* `apoc.path.elements`
+
+---
+===== path.slice()
+
+Get a slice of a path.
+
+*Syntax:* `path.slice(path, start, [end])`
+
+*Returns:* Path - Sliced path
+
+*APOC Compatible:* `apoc.path.slice`
+
+'''
+
+[[path-elements]]
+[discrete]
+===== Path Expansion Procedures
+
+
+[[path-expand]]
+[discrete]
+===== path.expand()
+
+Expand paths from a starting node following relationship types and node labels.
+
+*Syntax:* `CALL path.expand(startNode, relTypes, labelFilter, minDepth, maxDepth) YIELD path`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| startNode | Node | Starting node
+| relTypes | String | Relationship types (pipe-separated, e.g., "KNOWS\|WORKS_WITH")
+| labelFilter | String | Node labels to include (pipe-separated)
+| minDepth | Integer | Minimum path length (non-negative)
+| maxDepth | Integer | Maximum path length
+|===
+
+*Returns:* `path` - Each expanded path
+
+*APOC Compatible:* `apoc.path.expand`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.expand(a, 'KNOWS|WORKS_WITH', 'Person', 1, 3) YIELD path
+RETURN path
+----
+
+'''
+
+[[path-expand-config]]
+[discrete]
+===== path.expandconfig()
+
+Expand paths using a configuration map for more control.
+
+*Syntax:* `CALL path.expandconfig(startNode, config) YIELD path`
+
+*Configuration options:*
+[%header,cols="2,2,4"]
+|===
+| Option | Type | Description
+| relationshipFilter | String/List | Relationship types
+| labelFilter | String/List | Node labels
+| minLevel | Integer | Minimum depth (default: 0)
+| maxLevel | Integer | Maximum depth (default: unlimited)
+| bfs | Boolean | Use BFS (true) or DFS (false) (default: true)
+| limit | Integer | Maximum number of paths to return
+|===
+
+*Returns:* `path` - Each expanded path
+
+*APOC Compatible:* `apoc.path.expandConfig`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.expandconfig(a, {
+  relationshipFilter: 'KNOWS|WORKS_WITH',
+  labelFilter: 'Person',
+  minLevel: 1,
+  maxLevel: 3,
+  bfs: true,
+  limit: 100
+}) YIELD path
+RETURN path
+----
+
+'''
+
+[[path-subgraph-nodes]]
+[discrete]
+===== path.spanningtree()
+
+Get a spanning tree from the start node to all reachable nodes.
+
+*Syntax:* `CALL path.spanningtree(startNode, config) YIELD path`
+
+*Returns:* `path` - Each path in the spanning tree
+
+*APOC Compatible:* `apoc.path.spanningTree`
+
+[source,cypher]
+----
+MATCH (root:Category {name: 'Root'})
+CALL path.spanningtree(root, {relationshipFilter: 'HAS_CHILD', maxLevel: 5}) YIELD path
+RETURN path
+----
+
+---
+===== path.subgraphall()
+
+Get all nodes and relationships reachable from a starting node.
+
+*Syntax:* `CALL path.subgraphall(startNode, config) YIELD nodes, relationships`
+
+*Returns:*
+
+* `nodes` - List of all reachable nodes
+* `relationships` - List of all traversed relationships
+
+*APOC Compatible:* `apoc.path.subgraphAll`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.subgraphall(a, {relationshipFilter: 'KNOWS', maxLevel: 2}) YIELD nodes, relationships
+RETURN size(nodes) AS nodeCount, size(relationships) AS relCount
+----
+
+'''
+
+[[path-spanning-tree]]
+[discrete]
+===== path.subgraphnodes()
+
+Get all nodes reachable from a starting node within configured constraints.
+
+*Syntax:* `CALL path.subgraphnodes(startNode, config) YIELD node`
+
+*Returns:* `node` - Each reachable node
+
+*APOC Compatible:* `apoc.path.subgraphNodes`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'})
+CALL path.subgraphnodes(a, {relationshipFilter: 'KNOWS', maxLevel: 3}) YIELD node
+RETURN node.name
+----
+
+'''
+
+[[path-subgraph-all]]
+[discrete]
