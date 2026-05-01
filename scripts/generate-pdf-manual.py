@@ -5,7 +5,7 @@ page in docs/modules/ROOT/pages/ in the same order as the Antora
 sidebar nav. Asciidoctor-PDF (driven from pom.xml) consumes this file
 to produce ArcadeDB-Manual.pdf.
 
-Reading the existing nav.adoc / nav-query.adoc / nav-api.adoc as the
+Reading the existing nav.adoc / nav-query.adoc as the
 source of truth keeps the PDF table-of-contents and the website nav
 in sync without duplicating the structure in two places.
 
@@ -23,7 +23,7 @@ PAGES = NAV_DIR / "pages"
 PDF_DIR = REPO / "docs" / "pdf"
 PDF_PAGES = PDF_DIR / "pages"  # stripped page copies for the PDF aggregator
 
-NAV_FILES = ["nav.adoc", "nav-query.adoc", "nav-api.adoc"]
+NAV_FILES = ["nav.adoc", "nav-query.adoc"]
 
 XREF_RE = re.compile(r"xref:([^\[\s#]+\.adoc)(?:#[^\[\s]+)?\[([^\]]*)\]")
 TITLE_LINE_RE = re.compile(r"^\.([^\s].*?)\s*$")
