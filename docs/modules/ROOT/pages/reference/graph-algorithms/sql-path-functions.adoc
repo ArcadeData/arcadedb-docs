@@ -1,0 +1,179 @@
+[[graph-algo-sql-path-functions]]
+= SQL Path Functions
+
+The following algorithms are also available as SQL functions that return a list of vertex RIDs (identities). They can be used in any SQL `SELECT` statement.
+
+[[algo-dijkstra-sql]]
+== dijkstra() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `dijkstra()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direction>])
+dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>,
+         { direction: <string>, edgeTypeNames: [...], maxDepth: <long>, emptyIfMaxDepth: <bool> })
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | — | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
+| `weightEdgeFieldName` | String | Yes | — | Edge property name for weights
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
+|===
+
+The 4th argument can also be an options map with keys `direction`, `edgeTypeNames`, `maxDepth`, `emptyIfMaxDepth`. Unknown keys are rejected with a descriptive error.
+
+*Return Value*
+
+`List<RID>` — Ordered list of vertex identities on the shortest path (including source and destination).
+
+*Description*
+
+SQL function equivalent of `algo.dijkstra`. Internally delegates to the A* implementation with no heuristic. Returns a `LinkedList` of vertex RIDs.
+
+*Examples*
+
+[source,sql]
+----
+-- Positional form (backward compatible)
+SELECT dijkstra(#12:0, #12:5, 'weight', 'OUT') AS path
+
+-- Options map form
+SELECT dijkstra(#12:0, #12:5, 'weight', { direction: 'OUT', maxDepth: 20 }) AS path
+----
+
+See also: xref:reference/sql/sql-functions.adoc#dijkstra[dijkstra()] in SQL Functions reference and xref:reference/graph-algorithms/path-finding.adoc#algo-dijkstra[] for the Cypher procedure variant.
+
+'''
+
+[[algo-bellman-ford-sql]]
+== bellmanFord() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `bellmanFord()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+bellmanFord(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName> [, <direction>])
+bellmanFord(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, { direction: <string> })
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | — | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
+| `weightEdgeFieldName` | String | Yes | — | Edge property name for weights (may be negative)
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
+|===
+
+*Return Value*
+
+`List<RID>` — Ordered list of vertex identities on the shortest path.
+
+*Description*
+
+SQL function equivalent of `algo.bellmanford`. Supports negative edge weights and detects negative-weight cycles (returns an empty path if a negative cycle is reachable).
+
+*Example*
+
+[source,sql]
+----
+SELECT bellmanFord(#12:0, #12:5, 'cost') AS path
+SELECT bellmanFord(#12:0, #12:5, 'cost', { direction: 'OUT' }) AS path
+----
+
+See also: xref:reference/graph-algorithms/path-finding.adoc#algo-bellman-ford[] for the Cypher procedure variant.
+
+'''
+
+[[algo-shortest-path-sql]]
+== shortestPath() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `shortestPath()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+shortestPath(<sourceVertex>, <destinationVertex>)
+shortestPath(<sourceVertex>, <destinationVertex>, <direction>, <edgeType>, { maxDepth, edge })
+shortestPath(<sourceVertex>, <destinationVertex>,
+             { direction: <string>, edgeType | edgeTypeNames: <string|list>, maxDepth: <int>, edge: <bool> })
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | — | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Positional or map key.
+| `edgeType` | String / List | No | all types | Edge type(s) to restrict traversal. Positional or map key (`edgeType` or `edgeTypeNames`).
+| `maxDepth` | Int | No | unlimited | Stop after this many hops. Options-map only (or via the trailing map in the positional form).
+| `edge` | Bool | No | `false` | Include edge RIDs in the result. Options-map only.
+|===
+
+The 3rd argument can be a direction string (backward compatible) OR an options map consolidating all knobs. Unknown keys are rejected with a descriptive error.
+
+*Return Value*
+
+`List<RID>` — Ordered list of vertex identities on the shortest path (unweighted; minimizes hop count).
+
+*Description*
+
+Finds the unweighted shortest path (minimum hop count) between two vertices using bidirectional BFS (meets in the middle), which can be significantly faster than single-direction BFS for large graphs.
+
+*Examples*
+
+[source,sql]
+----
+-- Positional form (backward compatible)
+SELECT shortestPath(#12:0, #12:9, 'BOTH', 'KNOWS') AS path
+
+-- Options map form
+SELECT shortestPath(#12:0, #12:9, { direction: 'BOTH', edgeTypeNames: ['KNOWS'], maxDepth: 6 }) AS path
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bidirectional_search[Bidirectional search – Wikipedia]
+
+See also: xref:reference/sql/sql-functions.adoc#shortest-path-function[shortestPath()] in SQL Functions reference.
+
+'''

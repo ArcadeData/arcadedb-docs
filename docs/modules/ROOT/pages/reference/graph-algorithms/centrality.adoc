@@ -1,0 +1,841 @@
+[[graph-algo-centrality]]
+= Centrality
+
+[[algo-page-rank]]
+== algo.pagerank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.pagerank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.pagerank([{dampingFactor: 0.85, maxIterations: 20, tolerance: 0.0001, weightProperty: null}])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| config map | Map | No | see defaults | Configuration properties (all optional)
+| `dampingFactor` | Double | No | `0.85` | Probability of following an edge vs. teleporting
+| `maxIterations` | Integer | No | `20` | Maximum number of power-iteration steps
+| `tolerance` | Double | No | `0.0001` | Convergence threshold (max score change)
+| `weightProperty` | String | No | `null` | Edge property for weighted PageRank
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | PageRank score
+|===
+
+*Description*
+
+Computes the PageRank centrality score for every vertex using the power-iteration method. Dangling nodes (no outgoing edges) contribute their rank to all nodes proportionally via the teleportation mechanism. When `weightProperty` is specified, edge weights are used as transition probabilities (normalized per node).
+
+*Use Cases*
+
+- Web page and document importance ranking
+- Identifying authoritative nodes in citation networks
+- Social network influence scoring
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.pagerank({dampingFactor: 0.85, maxIterations: 30})
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/PageRank[PageRank – Wikipedia]
+
+'''
+
+[[algo-betweenness]]
+== algo.betweenness
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.betweenness`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.betweenness([{normalized: true}])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| config map | Map | No | see defaults | Configuration properties (all optional)
+| `normalized` | Boolean | No | `true` | Divide scores by `2/((n-1)(n-2))` to normalize to [0,1]
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Betweenness centrality score
+|===
+
+*Description*
+
+Measures how often a vertex lies on the shortest path between all other pairs, using the Brandes algorithm with stack-based back-propagation. When `normalized` is `true`, scores are divided by `2/((n-1)(n-2))` (undirected normalization factor).
+
+*Use Cases*
+
+- Identifying bridge nodes and bottlenecks in networks
+- Communication hub detection in social graphs
+- Critical infrastructure analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.betweenness({normalized: true})
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 20
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Betweenness_centrality[Betweenness centrality – Wikipedia]
+- Brandes, U. (2001). A faster algorithm for betweenness centrality. _Journal of Mathematical Sociology_, 25(2), 163–177.
+
+'''
+
+[[algo-closeness]]
+== algo.closeness
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.closeness`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.closeness([relTypes, direction, normalized])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `normalized` | Boolean | No | `true` | Use Wasserman-Faust formula for disconnected graphs
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Closeness centrality score
+|===
+
+*Description*
+
+Computes closeness centrality via BFS from each vertex. For disconnected graphs, the Wasserman-Faust formula is applied: `score = (reachable / sumDist) × (reachable / (n-1))`, where `reachable` is the number of vertices reached and `sumDist` is the sum of shortest path distances to those vertices.
+
+*Use Cases*
+
+- Identifying well-positioned nodes for information spread
+- Supply chain hub identification
+- Social network influence reach analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.closeness('KNOWS', 'BOTH', true)
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Closeness_centrality[Closeness centrality – Wikipedia]
+- Wasserman, S. & Faust, K. (1994). _Social Network Analysis_.
+
+'''
+
+[[algo-degree]]
+== algo.degree
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.degree`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.degree([relTypes, direction])
+YIELD node, inDegree, outDegree, degree, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `inDegree` | Long | Number of incoming edges
+| `outDegree` | Long | Number of outgoing edges
+| `degree` | Long | Total degree (in + out for BOTH, else directional)
+| `score` | Double | Normalized degree: `total / (n-1)`
+|===
+
+*Description*
+
+Efficiently counts in-degree, out-degree, and total degree for every vertex using `vertex.countEdges()` to avoid materializing edge objects. The normalized score divides total degree by `(n-1)`, representing the fraction of all possible connections.
+
+*Use Cases*
+
+- Identifying high-degree hubs in social networks
+- Popularity ranking by connection count
+- Network connectivity baseline measurement
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.degree('FOLLOWS', 'IN')
+YIELD node, inDegree, score
+RETURN node, inDegree, score ORDER BY inDegree DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Degree_(graph_theory)[Degree (graph theory) – Wikipedia]
+
+'''
+
+[[algo-harmonic]]
+== algo.harmonic
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.harmonic`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.harmonic([relTypes, direction, normalized])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `normalized` | Boolean | No | `true` | Divide raw score by `(n-1)`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Harmonic centrality score
+|===
+
+*Description*
+
+Computes harmonic centrality as the sum of reciprocal shortest-path distances from a vertex to all reachable vertices: `score = Σ 1/dist(v, u)`. When `normalized` is `true`, divides by `(n-1)`. Harmonic centrality handles disconnected graphs naturally (unreachable vertices contribute 0 to the sum), unlike closeness centrality.
+
+*Use Cases*
+
+- Centrality measure robust to disconnected components
+- Influence reach in sparse networks
+- Alternative to closeness in disconnected graphs
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.harmonic('KNOWS', 'BOTH', true)
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Closeness_centrality#Harmonic_centrality[Harmonic centrality – Wikipedia]
+
+'''
+
+[[algo-eigenvector]]
+== algo.eigenvector
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.eigenvector`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.eigenvector([relTypes, direction, maxIterations, tolerance])
+YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `maxIterations` | Integer | No | `20` | Maximum power-iteration steps
+| `tolerance` | Double | No | `1e-6` | Convergence threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `score` | Double | Eigenvector centrality score in [0, 1]
+|===
+
+*Description*
+
+Computes eigenvector centrality using the power iteration method. A node scores highly if it is connected to other high-scoring nodes. L∞ normalization (divide by maximum score) keeps values in [0, 1]. Convergence is checked against the maximum absolute change in scores between iterations.
+
+*Use Cases*
+
+- Identifying globally influential nodes
+- Academic citation influence analysis
+- Prestige scoring in directed networks
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.eigenvector('CITES', 'IN', 50, 1e-8)
+YIELD node, score
+RETURN node, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Eigenvector_centrality[Eigenvector centrality – Wikipedia]
+
+'''
+
+[[algo-hits]]
+== algo.hits
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.hits`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.hits([relTypes, maxIterations, tolerance])
+YIELD node, hubScore, authorityScore
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `maxIterations` | Integer | No | `20` | Maximum number of iterations
+| `tolerance` | Double | No | `1e-6` | Convergence threshold (max score change)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `hubScore` | Double | Hub score (good hub points to good authorities)
+| `authorityScore` | Double | Authority score (good authority is pointed to by good hubs)
+|===
+
+*Description*
+
+Computes Hyperlink-Induced Topic Search (HITS) scores using alternating updates: authority scores are the sum of hub scores of incoming neighbors; hub scores are the sum of authority scores of outgoing neighbors. Both score vectors are L2-normalized after each iteration.
+
+*Use Cases*
+
+- Web link analysis (hubs = index pages, authorities = content pages)
+- Identifying experts vs. curators in knowledge networks
+- Bipartite influence analysis
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.hits('LINKS_TO', 30, 1e-8)
+YIELD node, hubScore, authorityScore
+RETURN node, hubScore, authorityScore ORDER BY authorityScore DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/HITS_algorithm[HITS algorithm – Wikipedia]
+- Kleinberg, J. M. (1999). Authoritative sources in a hyperlinked environment. _Journal of the ACM_, 46(5), 604–632.
+
+'''
+
+[[algo-katz]]
+== algo.katz
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.katz`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.katz([relTypes, alpha, maxIterations, tolerance])
+YIELD nodeId, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `alpha` | Double | No | `0.005` | Attenuation factor (must be less than 1/λ_max)
+| `maxIterations` | Integer | No | `100` | Maximum number of iterations
+| `tolerance` | Double | No | `1e-6` | Convergence threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `score` | Double | Katz centrality score (normalized to [0, 1])
+|===
+
+*Description*
+
+Computes Katz centrality, which counts all paths between nodes with exponential decay by path length. Formula: `k[i] = alpha × Σ_j(A[j][i] × k[j]) + 1`, normalized by the maximum score. Unlike eigenvector centrality, every node receives a base score (the `+1` term), making it robust for directed and sparse graphs.
+
+*Use Cases*
+
+- Influence ranking in directed social networks
+- Ranking nodes when direct connection is sparse
+- Early-stage recommendation systems
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.katz('FOLLOWS', 0.01, 50, 1e-8)
+YIELD nodeId, score
+RETURN nodeId, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Katz_centrality[Katz centrality – Wikipedia]
+
+'''
+
+[[algo-vote-rank]]
+== algo.voteRank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.voteRank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.voteRank([relTypes, topK])
+YIELD nodeId, rank
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `topK` | Integer | No | all nodes | Maximum number of top spreaders to return
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `rank` | Integer | 1-based rank (1 = most influential spreader)
+|===
+
+*Description*
+
+Identifies the most influential spreaders in a network using an iterative election process. In each round, the node with the highest accumulated votes is selected as a spreader. After selection, each of its neighbors has its voting ability reduced by `1/degree`. This suppression mechanism ensures that the selected spreaders are structurally diverse rather than clustered together.
+
+*Use Cases*
+
+- Viral marketing seed set selection
+- Identifying structurally independent influencers
+- Epidemic intervention: selecting individuals for immunization
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.voteRank('KNOWS', 5)
+YIELD nodeId, rank
+RETURN nodeId, rank ORDER BY rank ASC
+----
+
+*References*
+
+- Zhang, J., et al. (2016). Identifying a set of influential spreaders in complex networks. _Scientific Reports_, 6, 27823.
+
+'''
+
+[[algo-eccentricity]]
+== algo.eccentricity
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.eccentricity`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.eccentricity([relTypes, direction])
+YIELD node, eccentricity, isCenter, isPeripheral
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `eccentricity` | Integer | Maximum shortest-path distance to any reachable vertex
+| `isCenter` | Boolean | `true` if eccentricity equals the graph radius
+| `isPeripheral` | Boolean | `true` if eccentricity equals the graph diameter
+|===
+
+*Description*
+
+Computes the eccentricity of each vertex (the greatest shortest-path distance to any other reachable vertex) via BFS from each node. The graph radius is the minimum eccentricity and the graph diameter is the maximum. Center nodes have eccentricity equal to the radius; peripheral nodes have eccentricity equal to the diameter.
+
+*Use Cases*
+
+- Graph center identification for optimal facility placement
+- Network diameter and radius computation
+- Peripheral node analysis for vulnerability assessment
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.eccentricity('ROAD', 'BOTH')
+YIELD node, eccentricity, isCenter, isPeripheral
+RETURN node, eccentricity, isCenter, isPeripheral ORDER BY eccentricity ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Distance_(graph_theory)[Distance (graph theory) – Wikipedia]
+
+'''
+
+[[algo-personalized-page-rank]]
+== algo.personalizedPageRank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.personalizedPageRank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.personalizedPageRank(sourceNode [, relTypes, dampingFactor, maxIterations, tolerance])
+YIELD nodeId, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceNode` | Vertex | Yes | — | The personalization origin vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `dampingFactor` | Double | No | `0.85` | Probability of following an edge
+| `maxIterations` | Integer | No | `20` | Maximum power-iteration steps
+| `tolerance` | Double | No | `1e-6` | Convergence threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `nodeId` | RID | Vertex identity
+| `score` | Double | Personalized PageRank score relative to the source node
+|===
+
+*Description*
+
+Computes Personalized PageRank (PPR) relative to a single source vertex. Unlike standard PageRank, the teleportation probability is concentrated entirely at the source node (personalization vector = 1 at source, 0 everywhere else). Scores represent structural proximity/importance relative to the source. Dangling nodes contribute their rank back to the source only.
+
+*Use Cases*
+
+- Node-centric similarity and proximity ranking
+- Recommendation systems ("nodes similar to X")
+- Query-centric graph exploration
+
+*Example*
+
+[source,cypher]
+----
+MATCH (s:Person {name:'Alice'})
+CALL algo.personalizedPageRank(s, 'KNOWS', 0.85, 20, 0.000001)
+YIELD nodeId, score
+RETURN nodeId, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/PageRank#Personalized_PageRank[Personalized PageRank – Wikipedia]
+
+'''
+
+[[algo-article-rank]]
+== algo.articlerank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.articlerank`
+| Category | Centrality
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 1
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.articlerank([config]) YIELD node, score
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `config` | Map | `{}` | Configuration map (see below)
+|===
+
+*Config Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Key | Type | Default | Description
+
+| `dampingFactor` | Float | `0.85` | Damping factor (probability of following a link)
+| `maxIterations` | Integer | `20` | Maximum number of iterations
+| `tolerance` | Float | `0.0001` | Convergence threshold (sum of absolute score changes)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | Vertex | The vertex
+| `score` | Float | ArticleRank score for the vertex
+|===
+
+*Description*
+
+ArticleRank is a variant of PageRank that dampens the contribution of low-degree nodes. While standard PageRank divides a node's rank equally among its out-degree neighbours, ArticleRank divides by `outDegree(v) + avgOutDegree`. This reduces the influence of nodes with very few connections, producing more balanced centrality scores in sparse or scale-free graphs.
+
+Formula: `AR(u) = (1 − d) / N + d × Σ AR(v) / (outDeg(v) + avgOutDeg)`
+
+*Use Cases*
+
+- Web page importance ranking where low-citation pages should have less influence
+- Academic citation networks with highly skewed degree distributions
+- Any domain where hub dampening is desirable
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.articlerank({dampingFactor: 0.85, maxIterations: 20})
+YIELD node, score
+RETURN node.name AS name, score
+ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://dl.acm.org/doi/10.1145/988672.988727[ArticleRank: a PageRank-based alternative to numbers of citations – WWW 2004]
+
+'''

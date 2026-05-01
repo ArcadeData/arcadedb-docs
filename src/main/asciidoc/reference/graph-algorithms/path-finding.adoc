@@ -1,0 +1,867 @@
+[[graph-algo-path-finding]]
+==== Path Finding
+
+[[algo-dijkstra]]
+===== algo.dijkstra
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.dijkstra`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.dijkstra(startNode, endNode, relTypes, weightProperty [, direction])
+YIELD path, weight
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `weight` | Double | Total path weight
+|===
+
+*Description*
+
+Finds the single shortest weighted path between two vertices using Dijkstra's algorithm. Non-negative edge weights are required. Internally delegates to the A* implementation with no heuristic.
+
+*Use Cases*
+
+- Route planning in transportation networks
+- Cost-optimal navigation in weighted graphs
+- Network latency analysis
+
+*Example*
+
+[source,cypher]
+----
+MATCH (src:City {name:'Rome'}), (dst:City {name:'Berlin'})
+CALL algo.dijkstra(src, dst, 'ROAD', 'distance', 'OUT')
+YIELD path, weight
+RETURN path, weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm[Dijkstra's algorithm – Wikipedia]
+
+See also: <<algo-dijkstra-sql>> for the SQL function variant, and <<astar,astar()>> / <<dijkstra,dijkstra()>> for the SQL function equivalents.
+
+'''
+
+[[algo-astar]]
+===== algo.astar
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.astar`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 6
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.astar(startNode, endNode, relTypes, weightProperty [, latProperty, lonProperty])
+YIELD path, weight
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight
+| `latProperty` | String | No | — | Vertex property name for latitude (enables geographic heuristic)
+| `lonProperty` | String | No | — | Vertex property name for longitude (enables geographic heuristic)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `weight` | Double | Total path weight
+|===
+
+*Description*
+
+Finds the shortest weighted path using the A* algorithm. When `latProperty` and `lonProperty` are provided, a geographic (Euclidean) heuristic accelerates the search. Without the geographic properties it behaves identically to Dijkstra.
+
+*Use Cases*
+
+- Geospatial route optimization
+- Game AI pathfinding with spatial heuristics
+- Weighted graph shortest paths with domain-specific heuristics
+
+*Example*
+
+[source,cypher]
+----
+MATCH (src:City {name:'Milan'}), (dst:City {name:'Paris'})
+CALL algo.astar(src, dst, 'ROAD', 'km', 'lat', 'lon')
+YIELD path, weight
+RETURN path, weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/A*_search_algorithm[A* search algorithm – Wikipedia]
+
+'''
+
+[[algo-bellman-ford]]
+===== algo.bellmanford
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.bellmanford`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.bellmanford(startNode, endNode, relTypes, weightProperty)
+YIELD path, weight, negativeCycle
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight (may be negative)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `weight` | Double | Total path weight
+| `negativeCycle` | Boolean | `true` if a negative-weight cycle is reachable from `startNode`
+|===
+
+*Description*
+
+Finds the shortest weighted path between two vertices using the Bellman-Ford algorithm. Unlike Dijkstra, it correctly handles graphs with negative edge weights. It runs V−1 relaxation iterations followed by one extra iteration to detect negative-weight cycles. If a negative cycle is detected, `negativeCycle` is set to `true` and the path result is unreliable.
+
+*Use Cases*
+
+- Financial transaction networks with negative-cost edges
+- Currency arbitrage detection (negative cycle = profit cycle)
+- Graphs where edge weights can be negative
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:Account {id:1}), (b:Account {id:5})
+CALL algo.bellmanford(a, b, 'TRANSFER', 'cost')
+YIELD path, weight, negativeCycle
+RETURN path, weight, negativeCycle
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Bellman%E2%80%93Ford_algorithm[Bellman-Ford algorithm – Wikipedia]
+
+See also: <<algo-bellman-ford-sql>> for the SQL function variant.
+
+'''
+
+[[algo-all-simple-paths]]
+===== algo.allsimplepaths
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.allsimplepaths`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.allsimplepaths(startNode, endNode, relTypes, maxDepth)
+YIELD path
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `maxDepth` | Integer | Yes | — | Maximum path length in hops (minimum 1)
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities for one simple path
+|===
+
+*Description*
+
+Enumerates all simple (loop-free) paths between two vertices up to a maximum depth, using DFS with backtracking. Edges are traversed in both directions. Each result row contains one complete path. Use `maxDepth` to prevent combinatorial explosion in dense graphs.
+
+*Use Cases*
+
+- Finding all routes between two nodes in a network
+- Dependency analysis between components
+- Attack path enumeration in security graphs
+
+*Example*
+
+[source,cypher]
+----
+MATCH (s:Service {name:'AuthService'}), (t:Service {name:'Database'})
+CALL algo.allsimplepaths(s, t, 'CALLS', 4)
+YIELD path
+RETURN path
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Path_(graph_theory)[Path (graph theory) – Wikipedia]
+
+'''
+
+[[algo-k-shortest-paths]]
+===== algo.kShortestPaths
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.kShortestPaths`
+| Category | Path Finding
+| Complexity | CPU+RAM
+| Min Args | 3
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.kShortestPaths(startNode, endNode, k [, relTypes, weightProperty])
+YIELD path, weight, rank
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `endNode` | Vertex | Yes | — | Destination vertex
+| `k` | Integer | Yes | — | Number of shortest paths to find
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `weightProperty` | String | No | uniform weight | Edge property name for weights
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | List<RID> | Ordered list of vertex identities
+| `weight` | Double | Total path weight
+| `rank` | Integer | 1-based rank (1 = shortest)
+|===
+
+*Description*
+
+Finds the k shortest loopless paths between two vertices using Yen's algorithm. Internally uses Dijkstra on a V×V weight matrix, progressively building candidate paths by spur-node deviation from previous shortest paths. Memory usage scales as O(V²) for the weight matrix.
+
+*Use Cases*
+
+- Resilience planning: top-k alternative routes in case of failures
+- Network redundancy analysis
+- Multi-criteria path exploration
+
+*Example*
+
+[source,cypher]
+----
+MATCH (s:Router {id:'R1'}), (t:Router {id:'R10'})
+CALL algo.kShortestPaths(s, t, 3, 'LINK', 'latency')
+YIELD path, weight, rank
+RETURN rank, path, weight ORDER BY rank ASC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Yen%27s_k-shortest_path_algorithm[Yen's k shortest simple paths – Wikipedia]
+
+'''
+
+[[algo-apsp]]
+===== algo.apsp
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.apsp`
+| Category | Path Finding
+| Complexity | CPU+RAM
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.apsp([weightProperty, relTypes])
+YIELD source, target, distance
+----
+
+*Parameters*
+
+[cols="2,1,1,2,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `weightProperty` | String | No | uniform weight | Edge property name for weights
+| `relTypes` | String | No | all types | Comma-separated relationship types
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | RID | Source vertex identity
+| `target` | RID | Target vertex identity
+| `distance` | Double | Shortest distance between source and target
+|===
+
+*Description*
+
+Computes shortest distances between all reachable pairs of distinct vertices using the Floyd-Warshall algorithm. Time complexity is O(V³); memory usage is O(V²). Only reachable pairs (finite distance, source ≠ target) are returned. Suitable for small to medium graphs.
+
+*Use Cases*
+
+- Graph diameter and radius computation
+- Network reachability analysis
+- Pre-computing all pairwise distances for downstream analytics
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.apsp('weight', 'ROAD')
+YIELD source, target, distance
+RETURN source, target, distance ORDER BY distance DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Floyd%E2%80%93Warshall_algorithm[Floyd-Warshall algorithm – Wikipedia]
+
+'''
+
+[[algo-bfs]]
+===== algo.bfs
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.bfs`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.bfs(startNode [, relTypes, direction, maxDepth])
+YIELD node, depth
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex from which the traversal starts
+| `relTypes` | String | No | all types | Comma-separated relationship types to follow
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `maxDepth` | Integer | No | unbounded | Maximum BFS depth (hop count) from the start node
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity (the start node is not included)
+| `depth` | Integer | BFS depth from the start node
+|===
+
+*Description*
+
+Performs a Breadth-First Search traversal from a given start node, visiting all reachable vertices in non-decreasing distance order. Each reachable vertex (excluding the start node itself) is yielded together with its BFS depth. An optional `maxDepth` bound limits the traversal radius.
+
+*Use Cases*
+
+- Shortest hop-count paths from a source
+- Neighbourhood exploration at a given radius
+- Level-order processing of tree or DAG structures
+
+*Example*
+
+[source,cypher]
+----
+MATCH (start:Person {name:'Alice'})
+CALL algo.bfs(start, 'KNOWS', 'BOTH', 3)
+YIELD node, depth
+RETURN node.name, depth ORDER BY depth
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Breadth-first_search[Breadth-first search – Wikipedia]
+
+'''
+
+[[algo-dfs]]
+===== algo.dfs
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.dfs`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.dfs(startNode [, relTypes, direction, maxDepth])
+YIELD node, depth
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex from which the traversal starts
+| `relTypes` | String | No | all types | Comma-separated relationship types to follow
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `maxDepth` | Integer | No | unbounded | Maximum DFS depth from the start node
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity (the start node is not included)
+| `depth` | Integer | DFS discovery depth from the start node
+|===
+
+*Description*
+
+Performs an iterative (non-recursive) Depth-First Search from a given start node using an explicit stack, avoiding Java stack-overflow on large graphs. Vertices are yielded in DFS discovery order together with their depth. An optional `maxDepth` bound limits the traversal.
+
+*Use Cases*
+
+- Reachability analysis
+- Dependency resolution and cycle detection
+- Tree/DAG structure enumeration
+
+*Example*
+
+[source,cypher]
+----
+MATCH (start:Module {name:'core'})
+CALL algo.dfs(start, 'DEPENDS_ON', 'OUT')
+YIELD node, depth
+RETURN node.name, depth
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Depth-first_search[Depth-first search – Wikipedia]
+
+'''
+
+[[algo-dijkstra-single-source]]
+===== algo.dijkstra.singleSource
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.dijkstra.singleSource`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 3
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.dijkstra.singleSource(startNode, relTypes, weightProperty [, direction])
+YIELD node, cost
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `weightProperty` | String | Yes | — | Edge property name to use as weight (must be numeric, non-negative)
+| `direction` | String | No | `"OUT"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Reachable vertex identity (the start node is not included)
+| `cost` | Double | Minimum total weight from the start node to this vertex
+|===
+
+*Description*
+
+Computes the Single-Source Shortest Path (SSSP) from a given start node to every reachable vertex using Dijkstra's algorithm with a binary min-heap.
+This procedure extends `<<algo-dijkstra,algo.dijkstra>>` to return results for all reachable targets at once instead of just a single source-target pair.
+All edge weights must be non-negative; edges with negative weights are silently ignored.
+
+*Use Cases*
+
+- Distance maps from a hub in transportation networks
+- Risk propagation from an origin node
+- Identifying the closest facility to every location in a network
+
+*Example*
+
+[source,cypher]
+----
+MATCH (hub:City {name:'London'})
+CALL algo.dijkstra.singleSource(hub, 'ROAD', 'distance', 'OUT')
+YIELD node, cost
+RETURN node.name, cost ORDER BY cost LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm[Dijkstra's algorithm – Wikipedia]
+
+See also: <<algo-dijkstra>> for the single source-target variant.
+
+'''
+
+[[algo-longest-path-dag]]
+===== algo.longestPath
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.longestPath`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 2
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.longestPath([relTypes, weightProperty])
+YIELD node, distance, source
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `relTypes` | String | No | all types | Comma-separated relationship types to follow
+| `weightProperty` | String | No | `1.0` per hop | Edge property name to use as weight
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node` | RID | Vertex identity
+| `distance` | Double | Maximum distance from the furthest source reaching this vertex
+| `source` | RID | The source vertex that achieves the maximum distance
+|===
+
+*Description*
+
+Finds the longest path in a Directed Acyclic Graph (DAG) using dynamic programming on topological order (Kahn's algorithm). If the graph contains a cycle the procedure detects it and returns an empty result set.
+When no `weightProperty` is provided, each hop has weight `1.0` (i.e., the result is the maximum hop count).
+
+*Use Cases*
+
+- Critical path analysis in project scheduling (CPM)
+- Longest dependency chain in build systems
+- Pipeline bottleneck identification
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.longestPath('DEPENDS_ON')
+YIELD node, distance, source
+RETURN node.name AS task, distance, source.name AS criticalSource
+ORDER BY distance DESC LIMIT 5
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Longest_path_problem[Longest path problem – Wikipedia]
+
+See also: <<algo-topological-sort>> for topological ordering.
+
+'''
+
+[[algo-msa]]
+===== algo.msa
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.msa`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.msa(rootNode [, relTypes, weightProperty]) YIELD source, target, weight, totalWeight
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `rootNode` | Vertex | — | Root vertex for the arborescence
+| `relTypes` | String | all types | Comma-separated edge type names to traverse
+| `weightProperty` | String | `null` | Edge property for weights; `null` = all weights 1.0
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | Vertex | Source vertex of this MSA edge
+| `target` | Vertex | Destination vertex of this MSA edge
+| `weight` | Float | Weight of this edge
+| `totalWeight` | Float | Total weight of the arborescence (same on every row)
+|===
+
+*Description*
+
+Computes the Minimum Spanning Arborescence (directed MST) rooted at a specified vertex using the Chu-Liu/Edmonds algorithm. Unlike the undirected `algo.mst`, the arborescence is a *directed* spanning tree where every non-root vertex has exactly one incoming edge and all vertices are reachable from the root along directed paths.
+
+Returns n − 1 rows (one per arborescence edge). Returns an empty result if no spanning arborescence exists (the directed graph is not strongly connected from the root).
+
+*Use Cases*
+
+- Optimising directed distribution networks (water, power, logistics)
+- Dependency resolution with minimum total cost
+- Directed network backbone extraction
+
+*Example*
+
+[source,cypher]
+----
+MATCH (r:City {name:'Rome'})
+CALL algo.msa(r, 'ROAD', 'distance')
+YIELD source, target, weight, totalWeight
+RETURN source.name, target.name, weight ORDER BY weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Edmonds%27_algorithm[Edmonds' algorithm – Wikipedia]
+- Chu, Y. J. & Liu, T. H. (1965). On the Shortest Arborescence of a Directed Graph. _Science Sinica_.
+
+'''
+
+[[algo-steiner-tree]]
+===== algo.steinerTree
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.steinerTree`
+| Category | Path Finding
+| Complexity | CPU+RAM
+| Min Args | 1
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.steinerTree(terminalNodes [, relTypes, weightProperty]) YIELD source, target, weight, totalWeight
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `terminalNodes` | List<Vertex> | — | List of terminal (required) vertices to connect
+| `relTypes` | String | all types | Comma-separated edge type names to traverse (undirected)
+| `weightProperty` | String | `null` | Edge property for weights; `null` = all weights 1.0
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `source` | Vertex | Source vertex of this Steiner-tree edge
+| `target` | Vertex | Destination vertex of this Steiner-tree edge
+| `weight` | Float | Weight of this edge
+| `totalWeight` | Float | Total Steiner-tree weight (same on every row)
+|===
+
+*Description*
+
+Finds an approximate minimum-weight connected subgraph that spans all terminal vertices, using the Kou-Markowsky-Berman 2-approximation algorithm (approximation ratio `2(1 − 1/|T|)` where |T| is the number of terminals):
+
+1. Run Dijkstra from each terminal to find shortest paths to all other terminals.
+2. Build a complete graph on terminals with shortest-path distances.
+3. Find the MST of this terminal graph (Kruskal's).
+4. Expand each MST edge back to its actual shortest path in the original graph.
+5. Prune non-terminal leaves iteratively.
+
+Edges are traversed undirected. Returns an empty result if terminals are unreachable from each other.
+
+*Use Cases*
+
+- Designing minimum-cost subnetworks connecting mandatory waypoints
+- Content distribution network planning
+- Pipeline / cable routing connecting required endpoints
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:City {name:'Rome'}), (b:City {name:'Milan'}), (c:City {name:'Naples'})
+CALL algo.steinerTree([a, b, c], 'ROAD', 'distance')
+YIELD source, target, weight, totalWeight
+RETURN source.name, target.name, weight
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Steiner_tree_problem[Steiner tree problem – Wikipedia]
+- Kou, L., Markowsky, G. & Berman, L. (1981). A fast algorithm for Steiner trees. _Acta Informatica_.
+
+'''

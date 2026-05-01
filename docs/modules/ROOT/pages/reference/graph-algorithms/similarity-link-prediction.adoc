@@ -1,0 +1,638 @@
+[[graph-algo-similarity-link-prediction]]
+= Similarity and Link Prediction
+
+[[algo-jaccard]]
+== algo.jaccard
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.jaccard`
+| Category | Similarity
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.jaccard(node [, relTypes, direction, cutoff])
+YIELD node1, node2, similarity
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex to compare against all others
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Double | No | `0.0` | Minimum similarity threshold; pairs below are excluded
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `similarity` | Double | Jaccard similarity: \|N(src) ∩ N(v)\| / \|N(src) ∪ N(v)\|
+|===
+
+*Description*
+
+Computes the Jaccard similarity between the given source vertex and all other vertices, based on neighborhood overlap. Formula: `similarity = |N(src) ∩ N(v)| / |N(src) ∪ N(v)|`. Pairs with similarity below `cutoff` are filtered out.
+
+*Use Cases*
+
+- Collaborative filtering: "users with similar tastes"
+- Friend recommendation based on shared connections
+- Document similarity via shared keyword links
+
+*Example*
+
+[source,cypher]
+----
+MATCH (u:User {name:'Alice'})
+CALL algo.jaccard(u, 'LIKES', 'OUT', 0.2)
+YIELD node1, node2, similarity
+RETURN node2, similarity ORDER BY similarity DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Jaccard_index[Jaccard index – Wikipedia]
+
+'''
+
+[[algo-adamic-adar]]
+== algo.adamicAdar
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.adamicAdar`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.adamicAdar(node [, relTypes, direction, cutoff])
+YIELD node1, node2, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Double | No | `0.0` | Minimum score threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `score` | Double | Adamic-Adar score; higher = more likely to form a link
+|===
+
+*Description*
+
+Computes the Adamic-Adar link prediction score between the source vertex and all non-adjacent vertices. For each pair, the score is the sum over common neighbors w of `1/log(degree(w))`. Highly-connected common neighbors contribute less than rare common neighbors. Results are sorted by score descending.
+
+*Use Cases*
+
+- Social network friend recommendation
+- Knowledge graph link prediction
+- Co-authorship prediction in citation networks
+
+*Example*
+
+[source,cypher]
+----
+MATCH (p:Person {name:'Bob'})
+CALL algo.adamicAdar(p, 'KNOWS', 'BOTH', 0.5)
+YIELD node1, node2, score
+RETURN node2, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- Adamic, L. & Adar, E. (2003). Friends and neighbors on the web. _Social Networks_, 25(3), 211–230.
+
+'''
+
+[[algo-common-neighbors]]
+== algo.commonNeighbors
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.commonNeighbors`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.commonNeighbors(node [, relTypes, direction, cutoff])
+YIELD node1, node2, commonNeighbors
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Integer | No | `1` | Minimum number of common neighbors
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `commonNeighbors` | Integer | Count of shared neighbors
+|===
+
+*Description*
+
+Counts the number of common neighbors between the source vertex and all other vertices. Pairs with fewer than `cutoff` common neighbors are excluded. Results are sorted by count descending.
+
+*Use Cases*
+
+- Simple friend-of-a-friend recommendation
+- Link prediction baseline
+- Mutual connection analysis
+
+*Example*
+
+[source,cypher]
+----
+MATCH (u:User {name:'Charlie'})
+CALL algo.commonNeighbors(u, 'FOLLOWS', 'BOTH', 3)
+YIELD node1, node2, commonNeighbors
+RETURN node2, commonNeighbors ORDER BY commonNeighbors DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Link_prediction[Link prediction – Wikipedia]
+
+'''
+
+[[algo-preferential-attachment]]
+== algo.preferentialAttachment
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.preferentialAttachment`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.preferentialAttachment(node [, relTypes, direction])
+YIELD node1, node2, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `score` | Long | Product of the two nodes' degrees
+|===
+
+*Description*
+
+Computes the preferential attachment score for each pair as `degree(node1) × degree(node2)`. Based on the observation that in evolving networks, new links preferentially form between high-degree nodes. A simple but effective baseline for link prediction in scale-free networks.
+
+*Use Cases*
+
+- Scale-free network link prediction
+- Social network "people you may know" baseline
+- Network growth modeling
+
+*Example*
+
+[source,cypher]
+----
+MATCH (u:User {id:1})
+CALL algo.preferentialAttachment(u, 'KNOWS', 'BOTH')
+YIELD node1, node2, score
+RETURN node2, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Preferential_attachment[Preferential attachment – Wikipedia]
+
+'''
+
+[[algo-resource-allocation]]
+== algo.resourceAllocation
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.resourceAllocation`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 1
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.resourceAllocation(node [, relTypes, direction, cutoff])
+YIELD node1, node2, score
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `node` | Vertex | Yes | — | Source vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `cutoff` | Double | No | `0.0` | Minimum score threshold
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | RID | Source vertex identity
+| `node2` | RID | Compared vertex identity
+| `score` | Double | Resource allocation score
+|===
+
+*Description*
+
+Computes the resource allocation link prediction score: `score = Σ 1/degree(w)` over all common neighbors w. Models the fraction of "resources" that each common neighbor can send to both endpoints if it distributes equally to all its neighbors. Conceptually similar to Adamic-Adar but uses degree directly rather than its logarithm.
+
+*Use Cases*
+
+- Link prediction with emphasis on rare intermediaries
+- Recommendation in sparse networks
+- Metabolic network pathway prediction
+
+*Example*
+
+[source,cypher]
+----
+MATCH (p:Protein {id:'P1'})
+CALL algo.resourceAllocation(p, 'INTERACTS', 'BOTH', 0.1)
+YIELD node1, node2, score
+RETURN node2, score ORDER BY score DESC LIMIT 10
+----
+
+*References*
+
+- Zhou, T., Lü, L., & Zhang, Y. C. (2009). Predicting missing links via local information. _European Physical Journal B_, 71(4), 623–630.
+
+'''
+
+[[algo-sim-rank]]
+== algo.simRank
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.simRank`
+| Category | Similarity
+| Complexity | CPU+RAM
+| Min Args | 2
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.simRank(nodeA, nodeB [, relTypes, decayFactor, maxIterations])
+YIELD similarity, nodeAId, nodeBId
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `nodeA` | Vertex | Yes | — | First vertex
+| `nodeB` | Vertex | Yes | — | Second vertex
+| `relTypes` | String | No | all types | Comma-separated relationship types
+| `decayFactor` | Double | No | `0.8` | Decay constant C ∈ (0,1)
+| `maxIterations` | Integer | No | `5` | Number of refinement iterations
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `similarity` | Double | SimRank similarity score between nodeA and nodeB
+| `nodeAId` | RID | Identity of nodeA
+| `nodeBId` | RID | Identity of nodeB
+|===
+
+*Description*
+
+Computes SimRank similarity between two vertices using the recursive definition: two nodes are similar if they are pointed to by similar nodes. Maintains a full V×V similarity matrix (O(V²) memory), updated iteratively. Similarity of a node with itself is 1.0. Uses IN adjacency for the standard directed graph formulation.
+
+*Use Cases*
+
+- Structural equivalence analysis in directed graphs
+- Computing vertex pair similarity for matching problems
+- Entity resolution in knowledge graphs
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:Paper {id:'P1'}), (b:Paper {id:'P2'})
+CALL algo.simRank(a, b, 'CITES', 0.8, 5)
+YIELD similarity, nodeAId, nodeBId
+RETURN nodeAId, nodeBId, similarity
+----
+
+*References*
+
+- Jeh, G. & Widom, J. (2002). SimRank: a measure of structural-context similarity. _KDD 2002_.
+
+'''
+
+[[algo-knn]]
+== algo.knn
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.knn`
+| Category | Similarity
+| Complexity | CPU
+| Min Args | 0
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.knn([k, relTypes, direction]) YIELD node1, node2, similarity
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `k` | Integer | `5` | Number of nearest neighbours to return per node
+| `relTypes` | String | all types | Comma-separated edge type names to consider
+| `direction` | String | `"BOTH"` | Edge traversal direction: `IN`, `OUT`, or `BOTH`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | Vertex | Source vertex
+| `node2` | Vertex | One of the k nearest neighbours of node1
+| `similarity` | Float | Jaccard similarity score in [0.0, 1.0]
+|===
+
+*Description*
+
+Constructs a k-Nearest Neighbours (KNN) graph using Jaccard similarity on neighbourhood sets. For each pair of nodes, the similarity is computed as `|N(u) ∩ N(v)| / |N(u) ∪ N(v)|`. Each node retains only its top-k neighbours by similarity score. This produces a new graph representing approximate structural proximity, useful as a pre-processing step for community detection or recommendation.
+
+*Use Cases*
+
+- Constructing similarity graphs for downstream community detection
+- Collaborative filtering and recommendation
+- Detecting structurally similar entities (users, documents, products)
+
+*Example*
+
+[source,cypher]
+----
+CALL algo.knn(10, 'KNOWS', 'BOTH')
+YIELD node1, node2, similarity
+RETURN node1.name AS source, node2.name AS neighbour, similarity
+ORDER BY source, similarity DESC
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm[k-nearest neighbors algorithm – Wikipedia]
+
+'''
+
+[[algo-same-community]]
+== algo.sameCommunity
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.sameCommunity`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 3
+| Max Args | 3
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.sameCommunity(node1, node2, communityProperty) YIELD node1, node2, coefficient
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `node1` | Vertex | — | First vertex
+| `node2` | Vertex | — | Second vertex
+| `communityProperty` | String | — | Property name holding the community identifier on each vertex
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | Vertex | The first vertex
+| `node2` | Vertex | The second vertex
+| `coefficient` | Float | `1.0` if both nodes share the same community value, `0.0` otherwise
+|===
+
+*Description*
+
+A simple link-prediction feature: returns `1.0` when both nodes carry the same value for the given community property and `0.0` otherwise. Useful as a binary feature in machine-learning pipelines or to filter / weight edges based on community membership.
+
+*Use Cases*
+
+- Feature engineering for link-prediction models
+- Filtering candidate edges to intra-community connections
+- Evaluating community detection quality (ground-truth comparison)
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:Person), (b:Person)
+WHERE a <> b
+CALL algo.sameCommunity(a, b, 'community')
+YIELD coefficient
+WHERE coefficient = 1.0
+RETURN a.name, b.name
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Link_prediction[Link prediction – Wikipedia]
+
+'''
+
+[[algo-total-neighbors]]
+== algo.totalNeighbors
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.totalNeighbors`
+| Category | Link Prediction
+| Complexity | CPU
+| Min Args | 2
+| Max Args | 4
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.totalNeighbors(node1, node2 [, relTypes, direction]) YIELD node1, node2, coefficient
+----
+
+*Parameters*
+
+[cols="2,1,1,3", options="header"]
+|===
+| Name | Type | Default | Description
+
+| `node1` | Vertex | — | First vertex
+| `node2` | Vertex | — | Second vertex
+| `relTypes` | String | all types | Comma-separated edge type names to traverse
+| `direction` | String | `"BOTH"` | Edge traversal direction: `IN`, `OUT`, or `BOTH`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `node1` | Vertex | The first vertex
+| `node2` | Vertex | The second vertex
+| `coefficient` | Long | Size of the union of the two neighbourhood sets
+|===
+
+*Description*
+
+Computes `|N(u) ∪ N(v)|` — the total number of distinct neighbours across both nodes. This is the denominator of Jaccard similarity and is used as a link-prediction feature measuring total neighbourhood reach. Calculated as `|N(u)| + |N(v)| − |N(u) ∩ N(v)|` using a BitSet intersection.
+
+*Use Cases*
+
+- Feature engineering for link-prediction models
+- Identifying node pairs with large combined reach
+- Pre-filtering candidates before more expensive similarity computation
+
+*Example*
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CALL algo.totalNeighbors(a, b, 'KNOWS', 'BOTH')
+YIELD coefficient
+RETURN coefficient AS totalNeighbours
+----
+
+*References*
+
+- https://en.wikipedia.org/wiki/Jaccard_index[Jaccard index – Wikipedia]
+
+'''
