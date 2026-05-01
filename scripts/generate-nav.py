@@ -238,7 +238,6 @@ NAV_STRUCTURE: list[dict] = [
                 ("reference/extended-functions.adoc", "Extended Functions (APOC)"),
             ]),
             ("Cypher (openCypher)", [
-                ("reference/cypher/cypher-overview.adoc", "Overview"),
                 ("reference/cypher/cypher-introduction.adoc", "Introduction"),
                 ("reference/cypher/cypher-tutorial.adoc", "Tutorial"),
                 ("reference/cypher/cypher-clauses.adoc", "Clauses"),
