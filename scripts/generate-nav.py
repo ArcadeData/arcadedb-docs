@@ -194,7 +194,7 @@ NAV_STRUCTURE: list[dict] = [
             ]),
             ("Help", [
                 "appendix/community.adoc",
-                ("appendix/issues.adoc", "Known Issues"),
+                ("appendix/issues.adoc", "Report an Issue"),
                 ("appendix/orientdb-differences.adoc", "OrientDB Differences"),
                 ("appendix/neo4j-differences.adoc", "Neo4j Differences"),
                 "reference/requirements.adoc",
