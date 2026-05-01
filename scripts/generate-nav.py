@@ -55,14 +55,12 @@ NAV_STRUCTURE: list[dict] = [
                 "tutorials/javascript-quickstart.adoc",
                 "tutorials/vector-search-tutorial.adoc",
                 "tutorials/time-series-tutorial.adoc",
-                ("how-to/connectivity/jdbc.adoc", "JDBC Driver"),
                 ("how-to/connectivity/python.adoc", "Python Driver"),
                 ("how-to/connectivity/http-nodejs.adoc", "HTTP from Node.js"),
                 ("how-to/connectivity/http-csharp.adoc", "HTTP from C#"),
                 ("how-to/connectivity/http-elixir.adoc", "HTTP from Elixir"),
                 ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
                 ("how-to/connectivity/bolt.adoc", "Neo4j Bolt Protocol"),
-                ("how-to/connectivity/grafana.adoc", "Grafana Datasource"),
             ]),
             # Data Modeling reads as a learning path top-to-bottom:
             #   1. The big picture (multi-model)
@@ -140,6 +138,8 @@ NAV_STRUCTURE: list[dict] = [
                 ("tools/tools.adoc", "Other Tools"),
             ]),
             (("how-to/integrations/chapter.adoc", "BI & Analytics"), [
+                ("how-to/connectivity/jdbc.adoc", "JDBC Driver"),
+                ("how-to/connectivity/grafana.adoc", "Grafana Datasource"),
                 ("how-to/integrations/apache-superset.adoc", "Apache Superset"),
                 ("how-to/integrations/grafana.adoc", "Grafana"),
                 "how-to/integrations/metabase.adoc",
