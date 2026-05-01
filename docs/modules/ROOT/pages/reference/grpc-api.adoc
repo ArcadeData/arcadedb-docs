@@ -1,0 +1,165 @@
+[[grpc-api]]
+= gRPC API
+
+ArcadeDB exposes a gRPC interface for high-performance, strongly-typed access from any language with gRPC support (Java, Python, Go, C++, Node.js, Rust, C#, and more). The gRPC API provides two services with 22 RPCs covering queries, record operations, transactions, and administration.
+
+Proto definition: https://github.com/ArcadeData/arcadedb/blob/main/grpc/src/main/proto/arcadedb-server.proto[arcadedb-server.proto]
+
+[[grpc-services]]
+== Services
+
+
+=== ArcadeDbService
+
+The main service for database operations: querying, record CRUD, bulk inserts, and transactions.
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `StreamQuery` | `StreamQueryRequest` | stream `QueryResult` | Execute a query and stream results back row by row
+| `ExecuteCommand` | `ExecuteCommandRequest` | `ExecuteCommandResponse` | Execute a DDL/DML command (CREATE, INSERT, UPDATE, DELETE)
+| `ExecuteQuery` | `ExecuteQueryRequest` | `ExecuteQueryResponse` | Execute a query and return all results at once
+| `CreateRecord` | `CreateRecordRequest` | `CreateRecordResponse` | Create a new record (vertex, edge, or document)
+| `UpdateRecord` | `UpdateRecordRequest` | `UpdateRecordResponse` | Update an existing record by RID
+| `LookupByRid` | `LookupByRidRequest` | `LookupByRidResponse` | Look up a record by its Record ID
+| `DeleteRecord` | `DeleteRecordRequest` | `DeleteRecordResponse` | Delete a record by RID
+| `BulkInsert` | `BulkInsertRequest` | `InsertSummary` | Insert multiple records in a single request
+| `InsertStream` | stream `InsertChunk` | `InsertSummary` | Client-streaming insert for large datasets
+| `InsertBidirectional` | stream `InsertRequest` | stream `InsertResponse` | Bidirectional streaming for insert with per-record feedback
+| `BeginTransaction` | `BeginTransactionRequest` | `BeginTransactionResponse` | Begin an explicit transaction
+| `CommitTransaction` | `CommitTransactionRequest` | `CommitTransactionResponse` | Commit the current transaction
+| `RollbackTransaction` | `RollbackTransactionRequest` | `RollbackTransactionResponse` | Roll back the current transaction
+|===
+
+=== ArcadeDbAdminService
+
+Administration service for server and database management.
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `Ping` | `PingRequest` | `PingResponse` | Health check
+| `GetServerInfo` | `GetServerInfoRequest` | `GetServerInfoResponse` | Server version, uptime, and configuration
+| `ListDatabases` | `ListDatabasesRequest` | `ListDatabasesResponse` | List all databases
+| `ExistsDatabase` | `ExistsDatabaseRequest` | `ExistsDatabaseResponse` | Check if a database exists
+| `CreateDatabase` | `CreateDatabaseRequest` | `CreateDatabaseResponse` | Create a new database
+| `DropDatabase` | `DropDatabaseRequest` | `DropDatabaseResponse` | Drop an existing database
+| `GetDatabaseInfo` | `GetDatabaseInfoRequest` | `GetDatabaseInfoResponse` | Schema, types, and database statistics
+| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user
+| `DeleteUser` | `DeleteUserRequest` | `DeleteUserResponse` | Delete a user
+|===
+
+[[grpc-messages]]
+== Message Types
+
+
+=== Connection & Authentication
+
+[cols="2,3"]
+|===
+| `DatabaseCredentials` | Database name, username, and password for per-request authentication
+|===
+
+=== Value Types
+
+The `GrpcValue` message uses a `oneof` to represent any ArcadeDB value:
+
+[cols="2,3"]
+|===
+| Field | ArcadeDB Type
+
+| `bool_value` | Boolean
+| `int32_value` | Integer
+| `int64_value` | Long
+| `float_value` | Float
+| `double_value` | Double
+| `string_value` | String
+| `bytes_value` | Binary / byte array
+| `timestamp_value` | Datetime (google.protobuf.Timestamp)
+| `list_value` | List / array
+| `map_value` | Map / embedded document
+| `link_value` | RID reference (bucket:position)
+| `decimal_value` | Decimal (string-encoded)
+| `null_value` | Null
+|===
+
+`GrpcRecord` wraps a record with its RID, type name, and a map of property name to `GrpcValue`.
+
+=== Enums
+
+[cols="2,3"]
+|===
+| Enum | Values
+
+| `RetrievalMode` | `CURSOR` (streaming), `MATERIALIZE_ALL` (all at once), `PAGED` (paginated)
+| `ProjectionEncoding` | `PROJECTION_AS_LINK`, `PROJECTION_AS_MAP`, `PROJECTION_AS_JSON`
+| `TransactionIsolation` | `READ_UNCOMMITTED`, `READ_COMMITTED`, `REPEATABLE_READ`, `SERIALIZABLE`
+| `ConflictMode` | `CONFLICT_ERROR`, `CONFLICT_UPDATE`, `CONFLICT_IGNORE`, `CONFLICT_ABORT`
+| `TransactionMode` | `PER_REQUEST`, `PER_BATCH`, `PER_STREAM`, `PER_ROW`, `NONE`
+|===
+
+=== Insert Operations
+
+[cols="2,3"]
+|===
+| `BulkInsertRequest` | Batch of records with type name, properties, and insert options
+| `InsertChunk` | A chunk of records for client-streaming inserts
+| `InsertRequest` / `InsertResponse` | Per-record request/response for bidirectional streaming
+| `InsertSummary` | Result summary: total inserted, errors, duration
+| `InsertOptions` | Transaction mode, conflict handling, and batch size configuration
+|===
+
+=== Connecting from Python
+
+[source,python]
+----
+import grpc
+import arcadedb_server_pb2 as pb
+import arcadedb_server_pb2_grpc as rpc
+
+channel = grpc.insecure_channel('localhost:2424')
+stub = rpc.ArcadeDbServiceStub(channel)
+
+# Execute a query
+request = pb.ExecuteQueryRequest(
+    credentials=pb.DatabaseCredentials(
+        database='mydb', username='root', password='arcadedb'
+    ),
+    language='sql',
+    command='SELECT FROM V LIMIT 10',
+)
+response = stub.ExecuteQuery(request)
+for record in response.records:
+    print(record)
+----
+
+=== Connecting from Node.js
+
+[source,javascript]
+----
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+
+const packageDef = protoLoader.loadSync('arcadedb-server.proto');
+const proto = grpc.loadPackageDefinition(packageDef).arcadedb;
+
+const client = new proto.ArcadeDbService(
+  'localhost:2424', grpc.credentials.createInsecure()
+);
+
+client.ExecuteQuery({
+  credentials: { database: 'mydb', username: 'root', password: 'arcadedb' },
+  language: 'sql',
+  command: 'SELECT FROM V LIMIT 10',
+}, (err, response) => {
+  console.log(response.records);
+});
+----
+
+=== Further Reading
+
+* https://github.com/ArcadeData/arcadedb/blob/main/grpc/src/main/proto/arcadedb-server.proto[Proto definition on GitHub]
+* xref:reference/http-api/http.adoc#http-json-api[HTTP/JSON API] -- Alternative REST-based access
+* xref:how-to/connectivity/postgres.adoc#postgres-driver[PostgreSQL Protocol] -- Alternative wire protocol

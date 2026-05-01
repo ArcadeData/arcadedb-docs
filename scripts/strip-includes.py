@@ -40,7 +40,6 @@ def strip(path: Path) -> int:
 
 def main() -> int:
     targets = list(PAGES_ROOT.rglob("chapter.adoc"))
-    targets.append(PAGES_ROOT / "reference" / "java-api" / "java-reference.adoc")
     total = 0
     for path in targets:
         if not path.exists():

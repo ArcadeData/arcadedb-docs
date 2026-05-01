@@ -67,21 +67,7 @@ NAV_STRUCTURE: list[dict] = [
                 "use-cases/data-lineage.adoc",
             ]),
             (("api-drivers.adoc", "API & Drivers"), [
-                ("tutorials/java-tutorial.adoc", "Java"),
-                ("tutorials/python-quickstart.adoc", "Python"),
-                ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
-                ("how-to/connectivity/http-nodejs.adoc", "Node.js / JavaScript"),
-                ("how-to/connectivity/http-csharp.adoc", "C#"),
-                ("how-to/connectivity/c.adoc", "C"),
-                ("how-to/connectivity/cpp.adoc", "C++"),
-                ("how-to/connectivity/rust.adoc", "Rust"),
-                ("how-to/connectivity/ruby.adoc", "Ruby"),
-                ("how-to/connectivity/r.adoc", "R"),
-                ("how-to/connectivity/http-elixir.adoc", "Elixir"),
-                ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
-                ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
-                ("Java API", [
-                    ("reference/java-api/java-reference.adoc", "Overview"),
+                (("tutorials/java-tutorial.adoc", "Java"), [
                     ("reference/java-api/java-ref-database-factory.adoc", "DatabaseFactory"),
                     ("reference/java-api/java-ref-database.adoc", "Database"),
                     ("reference/java-api/java-ref-database-async.adoc", "Async Database"),
@@ -95,16 +81,21 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/java-api/java-select-api.adoc", "Select API"),
                     ("reference/java-api/java-vectors.adoc", "Vectors"),
                 ]),
-                ("HTTP API", [
-                    ("reference/http-api/http.adoc", "REST API"),
-                ]),
-                ("gRPC API", [
-                    ("reference/grpc-api/grpc-services.adoc", "Services"),
-                    ("reference/grpc-api/grpc-messages.adoc", "Messages"),
-                ]),
-                ("MCP Server", [
-                    ("reference/mcp/mcp.adoc", "Model Context Protocol Server"),
-                ]),
+                ("tutorials/python-quickstart.adoc", "Python"),
+                ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
+                ("how-to/connectivity/http-nodejs.adoc", "Node.js / JavaScript"),
+                ("how-to/connectivity/http-csharp.adoc", "C#"),
+                ("how-to/connectivity/c.adoc", "C"),
+                ("how-to/connectivity/cpp.adoc", "C++"),
+                ("how-to/connectivity/rust.adoc", "Rust"),
+                ("how-to/connectivity/ruby.adoc", "Ruby"),
+                ("how-to/connectivity/r.adoc", "R"),
+                ("how-to/connectivity/http-elixir.adoc", "Elixir"),
+                ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
+                ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
+                ("reference/http-api/http.adoc", "HTTP API"),
+                ("reference/grpc-api.adoc", "gRPC API"),
+                ("reference/mcp/mcp.adoc", "MCP Server"),
             ]),
             # Data Modeling reads as a learning path top-to-bottom:
             #   1. The big picture (multi-model)
@@ -338,10 +329,17 @@ def render_nav(spec: dict, listed: set[str]) -> str:
         else:
             lines.append(f"* {group_title}")
         for entry in items:
-            # Nested sub-group: (label, [child_items])
+            # Nested sub-group: (label, [child_items]) or ((path, label), [child_items])
             if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[1], list):
                 sub_title, sub_items = entry
-                lines.append(f"** {sub_title}")
+                if isinstance(sub_title, tuple):
+                    sub_path, sub_label = sub_title
+                    sub_page = PAGES / sub_path
+                    sub_t = sub_label or first_heading(sub_page) or sub_path
+                    listed.add(sub_path)
+                    lines.append(f"** xref:{sub_path}[{sub_t}]")
+                else:
+                    lines.append(f"** {sub_title}")
                 for child in sub_items:
                     cpath, clabel = normalize(child)
                     cpage = PAGES / cpath
