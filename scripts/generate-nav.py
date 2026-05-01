@@ -9,11 +9,12 @@ code with operations. This generator instead emits three sibling nav files
 that show up as tabs in the sidebar:
 
   nav.adoc        — Documentation        (narrative: get started / build /
-                                            model / operate / tools / use-cases)
+                                            model / operate / tools / use-cases /
+                                            API & Drivers including Java / HTTP /
+                                            gRPC / MCP references)
   nav-query.adoc  — Query Languages      (SQL, Cypher, Gremlin, GraphQL,
                                             MongoDB QL, Redis, graph algorithms,
                                             vector functions)
-  nav-api.adoc    — API Reference        (Java API, HTTP API, gRPC API, MCP)
 
 Each tab has groups (collapsible parent items with no URL) and pages
 (leaf items pointing at existing adoc files). Page URLs and anchors
@@ -79,6 +80,31 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/connectivity/http-elixir.adoc", "Elixir"),
                 ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
                 ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
+                ("Java API", [
+                    ("reference/java-api/java-reference.adoc", "Overview"),
+                    ("reference/java-api/java-ref-database-factory.adoc", "DatabaseFactory"),
+                    ("reference/java-api/java-ref-database.adoc", "Database"),
+                    ("reference/java-api/java-ref-database-async.adoc", "Async Database"),
+                    ("reference/java-api/java-api-local.adoc", "Embedded (Local) Client"),
+                    ("reference/java-api/java-api-remote.adoc", "Remote Client"),
+                    ("reference/java-api/java-api-grpc.adoc", "gRPC Client"),
+                    ("reference/java-api/java-schema.adoc", "Schema API"),
+                    ("reference/java-api/java-embeddeddoc.adoc", "Embedded Documents"),
+                    ("reference/java-api/java-events.adoc", "Events"),
+                    ("reference/java-api/java-batch-importer.adoc", "Batch Importer"),
+                    ("reference/java-api/java-select-api.adoc", "Select API"),
+                    ("reference/java-api/java-vectors.adoc", "Vectors"),
+                ]),
+                ("HTTP API", [
+                    ("reference/http-api/http.adoc", "REST API"),
+                ]),
+                ("gRPC API", [
+                    ("reference/grpc-api/grpc-services.adoc", "Services"),
+                    ("reference/grpc-api/grpc-messages.adoc", "Messages"),
+                ]),
+                ("MCP Server", [
+                    ("reference/mcp/mcp.adoc", "Model Context Protocol Server"),
+                ]),
             ]),
             # Data Modeling reads as a learning path top-to-bottom:
             #   1. The big picture (multi-model)
@@ -265,38 +291,6 @@ NAV_STRUCTURE: list[dict] = [
                 ("reference/extended-functions/text.adoc", "Text"),
                 ("reference/extended-functions/utility.adoc", "Utility"),
                 ("reference/extended-functions/vector.adoc", "Vector"),
-            ]),
-        ],
-    },
-    {
-        "file": "nav-api.adoc",
-        "title": "API Reference",
-        "intro": [],
-        "groups": [
-            ("Java API", [
-                ("reference/java-api/java-reference.adoc", "Overview"),
-                ("reference/java-api/java-ref-database-factory.adoc", "DatabaseFactory"),
-                ("reference/java-api/java-ref-database.adoc", "Database"),
-                ("reference/java-api/java-ref-database-async.adoc", "Async Database"),
-                ("reference/java-api/java-api-local.adoc", "Embedded (Local) Client"),
-                ("reference/java-api/java-api-remote.adoc", "Remote Client"),
-                ("reference/java-api/java-api-grpc.adoc", "gRPC Client"),
-                ("reference/java-api/java-schema.adoc", "Schema API"),
-                ("reference/java-api/java-embeddeddoc.adoc", "Embedded Documents"),
-                ("reference/java-api/java-events.adoc", "Events"),
-                ("reference/java-api/java-batch-importer.adoc", "Batch Importer"),
-                ("reference/java-api/java-select-api.adoc", "Select API"),
-                ("reference/java-api/java-vectors.adoc", "Vectors"),
-            ]),
-            ("HTTP API", [
-                ("reference/http-api/http.adoc", "REST API"),
-            ]),
-            ("gRPC API", [
-                ("reference/grpc-api/grpc-services.adoc", "Services"),
-                ("reference/grpc-api/grpc-messages.adoc", "Messages"),
-            ]),
-            ("MCP Server", [
-                ("reference/mcp/mcp.adoc", "Model Context Protocol Server"),
             ]),
         ],
     },
