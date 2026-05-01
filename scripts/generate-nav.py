@@ -48,7 +48,6 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/docker.adoc", "Quick Start with Docker"),
             ]),
             ("Build Applications", [
-                "tutorials/embed-server.adoc",
                 ("tutorials/java-tutorial.adoc", "10-Minute Java Tutorial (Embedded)"),
                 ("tutorials/remote-tutorial.adoc", "10-Minute Java Tutorial (Remote)"),
                 "tutorials/python-quickstart.adoc",
@@ -107,6 +106,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/binaries.adoc", "Install from Binaries"),
                 ("how-to/operations/install-docker.adoc", "Install with Docker"),
                 ("how-to/operations/kubernetes.adoc", "Kubernetes"),
+                "tutorials/embed-server.adoc",
                 ("how-to/operations/server.adoc", "Server Configuration"),
                 ("how-to/operations/settings.adoc", "Changing Settings"),
                 ("concepts/high-availability.adoc", "High Availability — Concepts"),
