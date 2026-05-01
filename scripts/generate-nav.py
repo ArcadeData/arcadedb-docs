@@ -66,7 +66,7 @@ NAV_STRUCTURE: list[dict] = [
                 "use-cases/network-monitoring.adoc",
                 "use-cases/data-lineage.adoc",
             ]),
-            (("api-drivers.adoc", "API & Drivers"), [
+            (("languages-drivers.adoc", "Languages & Drivers"), [
                 (("tutorials/java-tutorial.adoc", "Java"), [
                     ("reference/java-api/java-ref-database-factory.adoc", "DatabaseFactory"),
                     ("reference/java-api/java-ref-database.adoc", "Database"),
@@ -91,10 +91,12 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/connectivity/ruby.adoc", "Ruby"),
                 ("how-to/connectivity/r.adoc", "R"),
                 ("how-to/connectivity/http-elixir.adoc", "Elixir"),
-                ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
-                ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
+            ]),
+            (("api-integration.adoc", "API & Integration"), [
                 ("reference/http-api/http.adoc", "HTTP API"),
                 ("reference/grpc-api.adoc", "gRPC API"),
+                ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
+                ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
                 ("reference/mcp/mcp.adoc", "MCP Server"),
             ]),
             # Data Modeling reads as a learning path top-to-bottom:

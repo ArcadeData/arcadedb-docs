@@ -42,8 +42,11 @@ cp "$REPO"/scripts/templates/index.adoc "$DEST_PAGES"/index.adoc
 echo "==> Writing Get Started landing"
 cp "$REPO"/scripts/templates/get-started.adoc "$DEST_PAGES"/get-started.adoc
 
-echo "==> Copying API & Drivers landing"
-cp "$SRC"/api-drivers.adoc "$DEST_PAGES"/api-drivers.adoc
+echo "==> Copying Languages & Drivers landing"
+cp "$SRC"/languages-drivers.adoc "$DEST_PAGES"/languages-drivers.adoc
+
+echo "==> Copying API & Integration landing"
+cp "$SRC"/api-integration.adoc "$DEST_PAGES"/api-integration.adoc
 
 echo "==> Stripping include:: directives from chapter aggregators"
 python3 scripts/strip-includes.py
