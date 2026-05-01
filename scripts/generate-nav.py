@@ -168,6 +168,7 @@ NAV_STRUCTURE: list[dict] = [
             ("Advanced", [
                 ("how-to/operations/performance-tuning.adoc", "Performance Tuning"),
                 ("reference/settings.adoc", "Settings Reference"),
+                ("reference/sql-syntax.adoc", "SQL Syntax"),
                 ("how-to/data-modeling/graph-olap.adoc", "Graph OLAP Engine"),
                 ("reference/storage.adoc", "Storage Internals"),
                 ("reference/lsm-tree.adoc", "LSM-Tree Algorithm"),
@@ -188,7 +189,6 @@ NAV_STRUCTURE: list[dict] = [
         "groups": [
             ("SQL", [
                 ("reference/sql/sql-introduction.adoc", "Introduction"),
-                ("reference/sql-syntax.adoc", "SQL Syntax"),
                 ("reference/sql/sql-projections.adoc", "Projections"),
                 ("reference/sql/sql-pagination.adoc", "Pagination"),
                 ("reference/sql/sql-where.adoc", "Filtering"),
