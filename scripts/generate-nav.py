@@ -65,7 +65,7 @@ NAV_STRUCTURE: list[dict] = [
                 "use-cases/network-monitoring.adoc",
                 "use-cases/data-lineage.adoc",
             ]),
-            ("API & Drivers", [
+            (("api-drivers.adoc", "API & Drivers"), [
                 ("tutorials/java-tutorial.adoc", "Java"),
                 ("tutorials/python-quickstart.adoc", "Python"),
                 ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
