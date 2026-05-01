@@ -189,52 +189,51 @@ NAV_STRUCTURE: list[dict] = [
         "groups": [
             ("SQL", [
                 ("reference/sql/sql-introduction.adoc", "Introduction"),
-                ("reference/sql/sql-projections.adoc", "Projections"),
-                ("reference/sql/sql-pagination.adoc", "Pagination"),
-                ("reference/sql/sql-where.adoc", "Filtering"),
-                ("reference/sql/sql-select.adoc", "SELECT"),
-                ("reference/sql/sql-insert.adoc", "INSERT"),
-                ("reference/sql/sql-update.adoc", "UPDATE"),
-                ("reference/sql/sql-delete.adoc", "DELETE"),
-                ("reference/sql/sql-match.adoc", "MATCH"),
-                ("reference/sql/sql-traverse.adoc", "TRAVERSE"),
-                ("reference/sql/sql-move.adoc", "MOVE VERTEX"),
-                ("reference/sql/sql-create-vertex.adoc", "CREATE VERTEX"),
-                ("reference/sql/sql-create-edge.adoc", "CREATE EDGE"),
-                ("reference/sql/sql-create-type.adoc", "CREATE TYPE"),
-                ("reference/sql/sql-alter-type.adoc", "ALTER TYPE"),
-                ("reference/sql/sql-drop-type.adoc", "DROP TYPE"),
-                ("reference/sql/sql-truncate-type.adoc", "TRUNCATE TYPE"),
-                ("reference/sql/sql-create-property.adoc", "CREATE PROPERTY"),
-                ("reference/sql/sql-alter-property.adoc", "ALTER PROPERTY"),
-                ("reference/sql/sql-drop-property.adoc", "DROP PROPERTY"),
-                ("reference/sql/sql-create-bucket.adoc", "CREATE BUCKET"),
-                ("reference/sql/sql-drop-bucket.adoc", "DROP BUCKET"),
-                ("reference/sql/sql-truncate-bucket.adoc", "TRUNCATE BUCKET"),
-                ("reference/sql/sql-create-index.adoc", "CREATE INDEX"),
-                ("reference/sql/sql-rebuild-index.adoc", "REBUILD INDEX"),
-                ("reference/sql/sql-drop-index.adoc", "DROP INDEX"),
-                ("reference/sql/sql-create-trigger.adoc", "CREATE TRIGGER"),
-                ("reference/sql/sql-drop-trigger.adoc", "DROP TRIGGER"),
-                ("reference/sql/sql-create-materialized-view.adoc", "CREATE MATERIALIZED VIEW"),
-                ("reference/sql/sql-alter-materialized-view.adoc", "ALTER MATERIALIZED VIEW"),
-                ("reference/sql/sql-drop-materialized-view.adoc", "DROP MATERIALIZED VIEW"),
-                ("reference/sql/sql-refresh-materialized-view.adoc", "REFRESH MATERIALIZED VIEW"),
-                ("reference/sql/sql-align-database.adoc", "ALIGN DATABASE"),
-                ("reference/sql/sql-alter-database.adoc", "ALTER DATABASE"),
-                ("reference/sql/sql-backup-database.adoc", "BACKUP DATABASE"),
-                ("reference/sql/sql-check-database.adoc", "CHECK DATABASE"),
-                ("reference/sql/sql-export-database.adoc", "EXPORT DATABASE"),
-                ("reference/sql/sql-import-database.adoc", "IMPORT DATABASE"),
-                ("reference/sql/sql-explain.adoc", "EXPLAIN"),
-                ("reference/sql/sql-profile.adoc", "PROFILE"),
-                ("reference/sql/sql-console.adoc", "CONSOLE"),
-                ("reference/sql/sql-script.adoc", "SCRIPT"),
-                ("reference/sql/sql-functions.adoc", "Functions"),
-                ("reference/sql/sql-methods.adoc", "Methods"),
-                ("reference/sql/sql-triggers.adoc", "Triggers"),
-                ("reference/sql/sql-custom-functions.adoc", "Custom Functions"),
-                ("reference/sql/sql-select-execution.adoc", "SELECT Execution Model"),
+                ("Manipulation", [
+                    ("reference/sql/sql-select.adoc", "SELECT"),
+                    ("reference/sql/sql-insert.adoc", "INSERT"),
+                    ("reference/sql/sql-update.adoc", "UPDATE"),
+                    ("reference/sql/sql-delete.adoc", "DELETE"),
+                    ("reference/sql/sql-match.adoc", "MATCH"),
+                    ("reference/sql/sql-traverse.adoc", "TRAVERSE"),
+                    ("reference/sql/sql-move.adoc", "MOVE VERTEX"),
+                    ("reference/sql/sql-create-vertex.adoc", "CREATE VERTEX"),
+                    ("reference/sql/sql-create-edge.adoc", "CREATE EDGE"),
+                ]),
+                ("Schema (DDL)", [
+                    ("reference/sql/sql-types.adoc", "Types"),
+                    ("reference/sql/sql-properties.adoc", "Properties"),
+                    ("reference/sql/sql-indexes.adoc", "Indexes"),
+                    ("reference/sql/sql-buckets.adoc", "Buckets"),
+                    ("reference/sql/sql-triggers-ddl.adoc", "Triggers"),
+                    ("reference/sql/sql-materialized-views.adoc", "Materialized Views"),
+                ]),
+                ("Database Admin", [
+                    ("reference/sql/sql-align-database.adoc", "ALIGN DATABASE"),
+                    ("reference/sql/sql-alter-database.adoc", "ALTER DATABASE"),
+                    ("reference/sql/sql-backup-database.adoc", "BACKUP DATABASE"),
+                    ("reference/sql/sql-check-database.adoc", "CHECK DATABASE"),
+                    ("reference/sql/sql-export-database.adoc", "EXPORT DATABASE"),
+                    ("reference/sql/sql-import-database.adoc", "IMPORT DATABASE"),
+                ]),
+                ("Inspection", [
+                    ("reference/sql/sql-explain.adoc", "EXPLAIN"),
+                    ("reference/sql/sql-profile.adoc", "PROFILE"),
+                    ("reference/sql/sql-console.adoc", "CONSOLE"),
+                ]),
+                ("Query Shaping", [
+                    ("reference/sql/sql-projections.adoc", "Projections"),
+                    ("reference/sql/sql-pagination.adoc", "Pagination"),
+                    ("reference/sql/sql-where.adoc", "Filtering"),
+                ]),
+                ("Reference", [
+                    ("reference/sql/sql-script.adoc", "SCRIPT"),
+                    ("reference/sql/sql-functions.adoc", "Functions"),
+                    ("reference/sql/sql-methods.adoc", "Methods"),
+                    ("reference/sql/sql-triggers.adoc", "Triggers (concept)"),
+                    ("reference/sql/sql-custom-functions.adoc", "Custom Functions"),
+                    ("reference/sql/sql-select-execution.adoc", "SELECT Execution Model"),
+                ]),
             ]),
             ("Cypher (openCypher)", [
                 ("reference/cypher/cypher-introduction.adoc", "Introduction"),
@@ -354,6 +353,20 @@ def render_nav(spec: dict, listed: set[str]) -> str:
         else:
             lines.append(f"* {group_title}")
         for entry in items:
+            # Nested sub-group: (label, [child_items])
+            if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[1], list):
+                sub_title, sub_items = entry
+                lines.append(f"** {sub_title}")
+                for child in sub_items:
+                    cpath, clabel = normalize(child)
+                    cpage = PAGES / cpath
+                    if not cpage.exists():
+                        print(f"  WARN: nav references missing page {cpath}", file=sys.stderr)
+                        continue
+                    ctitle = clabel or first_heading(cpage) or cpath
+                    listed.add(cpath)
+                    lines.append(f"*** xref:{cpath}[{ctitle}]")
+                continue
             path, label = normalize(entry)
             page = PAGES / path
             if not page.exists():

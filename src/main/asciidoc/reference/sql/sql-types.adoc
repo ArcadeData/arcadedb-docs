@@ -1,0 +1,257 @@
+[[sql-types]]
+==== Types
+
+[[sql-create-type]]
+===== SQL - `CREATE TYPE`
+
+
+Creates a new type in the schema.
+
+*Syntax*
+
+[source,sql]
+----
+CREATE <DOCUMENT|VERTEX|EDGE> TYPE <type>
+[UNIDIRECTIONAL] [ IF NOT EXISTS ]
+[EXTENDS <super-type>] [BUCKET <bucket-id>[,]*] [BUCKETS <total-bucket-number>] [PAGESIZE <page-size>]
+
+----
+
+* Use *`&lt;DOCUMENT|VERTEX|EDGE&gt;`* if you are creating respectively a document, vertex or edge type.
+* *`&lt;type&gt;`* Defines the name of the type you want to create. You must use a letter, underscore or dollar for the first character,
+ for all other characters you can use alphanumeric characters, underscores and dollar.
+* *UNIDIRECTIONAL* Defines an edge types (only) to be of single direction instead of the default bi-directional edge.
+* *IF NOT EXISTS* Specifying this option, the type creation will just be ignored if the type already exists (instead of failing
+ with an error)
+* *`&lt;super-type&gt;`* Defines the super-type you want to extend with this type.
+* *`&lt;bucket-id&gt;`* Defines in a comma-separated list the ID's of the buckets you want this type to use.
+* *`&lt;total-bucket-number&gt;`* Defines the total number of buckets you want to create for this type. The default value is `1`.
+* *`&lt;page-size&gt;`* Defines the page size of the type.
+
+In the event that a bucket of the same name exists in the bucket, the new type uses this bucket by default. If you do not define a
+bucket in the command and a bucket of this name does not exist, ArcadeDB creates one. The new bucket has the same name as the type,
+but in lower-case.
+
+When working with multiple cores, it is recommended that you use multiple buckets to improve concurrency during inserts. To change
+the number of buckets created by default, <<sql-alter-database,`ALTER DATABASE`>> command to update the `minimumbuckets` property.
+You can also define the number of buckets you want to create using the `BUCKETS` option when you create the type.
+
+*Examples*
+
+* Create the document type `Account`:
+
+----
+ArcadeDB> CREATE DOCUMENT TYPE Account
+----
+
+* Create the vertex type `Car` to extend `Vehicle`:
+
+----
+ArcadeDB> CREATE VERTEX TYPE Car EXTENDS Vehicle
+----
+
+* Create the vertex type `Car`, using the bucket with name 'Car_classic' and 'Car_modern':
+
+----
+ArcadeDB> CREATE VERTEX TYPE Car BUCKET Car_classic,Car_modern
+----
+
+[[bucket-selection]]
+*Bucket Selection Strategies*
+
+When you create a type, it inherits the bucket selection strategy defined at the database-level. By default, this is set to
+`round-robin`. You can change the database default using the <<sql-alter-database,`ALTER DATABASE`>> command and the selection
+strategy for the type using the <<sql-alter-type,`ALTER TYPE`>> command.
+
+Supported Strategies:
+
+[%header,cols=2]
+|===
+| Strategy | Description
+| `round-robin` | Selects the next bucket in a circular order, restarting once complete.
+| `thread` | Selects the next bucket by using the partition (mod) from the current thread id. This strategy gives the best results in terms of performance if you are using multiple threads and multiple buckets.
+| `partitioned(<primary-key>)` | Uses the primary key to assign a partition to the record. This allows to speedup the lookup into the index avoiding to search for a key in all the sub-indexes. Use this if you have multiple buckets and you want fast lookup but slower insertions.
+|===
+
+For more information, see:
+
+* <<sql-alter-type,`ALTER TYPE`>>
+* <<sql-drop-type,`DROP TYPE`>>
+* <<sql-create-bucket,`CREATE BUCKET`>>
+
+[[sql-alter-type]]
+===== SQL - `ALTER TYPE`
+
+
+Change a type defined in the schema.
+The change is persistent.
+
+*Syntax*
+
+[source,sql]
+----
+ALTER TYPE <type> [<attribute-name> <attribute-value>] [CUSTOM <custom-key> = <custom-value>]
+
+----
+
+* *`&lt;type&gt;`* Defines the type you want to change.
+* *`&lt;attribute-name&gt;`* Defines the attribute you want to change.
+For a list of supported attributes, see the table below.
+* *`&lt;attribute-value&gt;`* Defines the value you want to set.
+* *`&lt;custom-key&gt;`* Name of the custom property to set.
+* *`&lt;custom-value&gt;`* Value for the custom property. All data types are supported as values.
+
+NOTE: A custom property can be deleted by setting its value to `null`.
+
+*Examples*
+
+* Add `Person` to the super types:
+
+----
+ArcadeDB> ALTER TYPE Employee SUPERTYPE +Person
+----
+
+* Remove a super-type:
+
+----
+ArcadeDB> ALTER TYPE Employee SUPERTYPE -Person
+----
+
+* Add the "account2" bucket to the type `Account`.
+
+----
+ArcadeDB> ALTER TYPE Account BUCKET +account2
+----
+
+In the event that the bucket does not exist, it automatically creates it.
+
+* Remove a bucket from the type `Account` with the ID `34`:
+
+----
+ArcadeDB> ALTER TYPE Account BUCKET -34
+----
+
+* Modify the bucket selection strategy to `partitioned` selecting the property id as partition key:
+
+----
+ArcadeDB> ALTER TYPE Account BucketSelectionStrategy `partitioned('id')`
+----
+
+* Set the custom value with key 'description':
+
+----
+ArcadeDB> ALTER TYPE Account CUSTOM description = 'All users'
+----
+
+* Set the custom nested value with key 'meta':
+
+----
+ArcadeDB> ALTER TYPE Account CUSTOM meta = { abool: true, alist: [1,2,3,4,5]};
+----
+
+* Change the type name from 'Account' to 'Client':
+
+----
+ArcadeDB> ALTER TYPE Account NAME Client;
+----
+
+* Add the former type name 'Account' as alias for 'Client':
+
+----
+ArcadeDB> ALTER TYPE Client ALIASES Account;
+----
+
+NOTE: Using `ALIASES` overwrites any previous `ALIASES` of this type.
+
+For more information, see:
+
+* <<sql-create-type,`CREATE TYPE`>>
+* <<sql-drop-type,`DROP TYPE`>>.
+
+*Supported Attributes*
+
+[%header,cols="20%,20%,60%",stripes=even]
+|===
+| Attribute | Type | Description
+| `NAME` | Identifier | Changes the type name.
+| `ALIASES` | Identifier(s) | Add one or more (comma-separated) alternate name(s) for the type name.
+| `SUPERTYPE` | Identifier | Defines a super-type for the type. Use `NULL` to remove a super-type assignment. It supports multiple
+inheritances. To set or add a new type, you can use the syntax `+&lt;type&gt;`, to remove it use `-&lt;type&gt;`.
+| `BUCKET` | Identifier or Integer | `+` to add a bucket
+and `-` to remove it from the type. If the bucket doesn't exist, it creates a physical bucket. Adding buckets to a type is also
+useful in storing records in distributed servers.
+| `BUCKETSELECTIONSTRATEGY` | Identifier | Change the selection of the bucket when new records are created. Using `partitioned()` is recommended when your have a unique id
+|===
+
+[[sql-drop-type]]
+===== SQL - `DROP TYPE`
+
+
+Removes a type from the schema.
+To drop a type (safely), first, all its instances need to be removed.
+
+*Syntax*
+
+[source,sql]
+----
+DROP TYPE <type> [IF EXISTS] [UNSAFE]
+
+----
+
+* *`&lt;type&gt;`* Defines the type you want to remove.
+* *`IF EXISTS`* Prevent errors if the type does not exist when attempting to drop it.
+* *`UNSAFE`* Defines whether the command drops non-empty edge and vertex types.
+Note, this can disrupt data consistency.
+Be sure to create a backup before running it.
+
+NOTE: Bear in mind, that the schema must remain coherent.
+For instance, avoid removing types that are super-types to others.
+This operation won't delete the associated bucket.
+
+*Examples*
+
+* Remove the type `Account`:
+
+----
+ArcadeDB> DROP TYPE Account
+----
+
+For more information, see:
+
+* <<sql-create-type,`CREATE TYPE`>>
+* <<sql-alter-type,`ALTER TYPE`>>
+
+[[sql-truncate-type]]
+===== SQL - `TRUNCATE TYPE`
+
+
+Deletes records of all buckets defined as part of the type.
+
+By default, every type has an associated bucket with the same name. This command operates at a lower level than <<sql-delete,`DELETE`>>. This commands ignores sub-types, (That is, their records remain in their buckets). If you want to also remove all records from the type hierarchy, you need to use the `POLYMORPHIC` keyword.
+
+Truncation is not permitted on vertex or edge types, but you can force its execution using the `UNSAFE` keyword. Forcing truncation is strongly discouraged, as it can leave the graph in an inconsistent state.
+
+*Syntax*
+
+----
+TRUNCATE TYPE <type> [ POLYMORPHIC ] [ UNSAFE ]
+
+----
+
+* *`&lt;type&gt;`* Defines the type you want to truncate.
+* *`POLYMORPHIC`* Defines whether the command also truncates the type hierarchy.
+* *`UNSAFE`* Defines whether the command forces the truncation on vertex or edge types.
+
+*Examples*
+
+* Remove all records of the type `Profile`:
+
+----
+ArcadeDB> TRUNCATE TYPE Profile
+----
+
+For more information, see:
+
+* <<sql-delete,`DELETE`>>
+* <<sql-truncate-bucket,`TRUNCATE BUCKET`>>
+* <<sql-create-type,`CREATE TYPE`>>
