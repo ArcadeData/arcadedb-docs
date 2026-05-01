@@ -1,6 +1,6 @@
 [[vector-model]]
 [[vector-search-concepts]]
-= Vector Search
+= Vector
 
 ArcadeDB includes a native vector search engine for similarity-based retrieval of embeddings. Vector indexes are fully integrated into the SQL query engine and support ACID transactions, persistent storage, and automatic compaction.
 
@@ -206,6 +206,79 @@ Vector search combines naturally with ArcadeDB's other data models:
 * **Graph + Vectors** -- Find similar items, then traverse relationships to discover connected context (xref:use-cases/graph-rag.adoc#use-case-graph-rag[Graph RAG pattern])
 * **Full-text + Vectors** -- Hybrid search combining keyword matching with semantic similarity (xref:use-cases/knowledge-graph.adoc#use-case-knowledge-graph[Knowledge Graph pattern])
 * **Time Series + Vectors** -- Detect behavioral anomalies by comparing embedding patterns over time (xref:use-cases/fraud-detection.adoc#use-case-fraud-detection[Fraud Detection pattern])
+
+== SQL Example
+
+Create a vector index and query it:
+
+[source,sql]
+----
+-- Create vertex type and property
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.content STRING;
+CREATE PROPERTY Document.embedding ARRAY_OF_FLOATS;
+
+-- Create vector index with 384 dimensions using COSINE similarity
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE'
+};
+
+-- Query for the 10 nearest documents
+-- Returns rows with .record (full document) and .distance (0 = identical for COSINE)
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+----
+
+== Java Example
+
+Create and query a vector index programmatically:
+
+[source,java]
+----
+import com.arcadedb.index.lsm.LSMVectorIndex;
+import com.arcadedb.index.lsm.LSMVectorIndexBuilder;
+import com.arcadedb.index.vector.VectorSimilarityFunction;
+
+// Create index programmatically
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .withDimensions(384)
+    .withSimilarity(VectorSimilarityFunction.COSINE)
+    .withMaxConnections(16)
+    .withBeamWidth(100);
+
+final LSMVectorIndex index = builder.create();
+
+// Query the index using SQL
+final ResultSet resultSet = database.query("sql",
+    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
+    queryVector);
+----
+
+[[additional-settings]]
+== Configuration Parameters
+
+When creating LSMVectorIndex instances, the following parameters can be configured:
+
+- `dimensions`: The dimensionality of the vectors (must match your embedding model output)
+- `similarity`: The distance function for similarity calculation (COSINE, DOT_PRODUCT, EUCLIDEAN, etc.)
+- `maxConnections`: Maximum number of connections per layer in the HNSW graph (default: 16, increase for better recall)
+- `beamWidth`: Beam width for approximate nearest neighbor search (default: 100, increase for more accurate results)
+
+[[similarity]]
+== Supported Similarity Functions
+
+[%header,cols=3]
+|===
+| Measure | Name | Type
+| `COSINE` | https://en.wikipedia.org/wiki/Cosine_similarity[Cosine Similarity] | L~2~
+| `DOT_PRODUCT` | https://en.wikipedia.org/wiki/Dot_product[Inner Product] | L~2~
+| `EUCLIDEAN` | https://en.wikipedia.org/wiki/Euclidean_distance[Euclidean Distance] | L~2~
+|===
+
+For more information on vector embeddings, see the xref:reference/java-api/java-vectors.adoc#java-vectors[Vector Embeddings] section.
 
 == Further Reading
 

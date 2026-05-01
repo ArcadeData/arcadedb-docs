@@ -78,9 +78,10 @@ NAV_STRUCTURE: list[dict] = [
                 # 2. The seven data models
                 ("concepts/graphs.adoc", "Graph Database"),
                 ("concepts/timeseries.adoc", "Time Series"),
-                ("concepts/vector-search.adoc", "Vector Search"),
+                ("concepts/vector-search.adoc", "Vector"),
                 ("how-to/data-modeling/geospatial.adoc", "Geospatial"),
                 ("how-to/data-modeling/full-text-index.adoc", "Full-Text Search"),
+                ("concepts/key-value.adoc", "Key/Value"),
                 # 3. Storage primitives
                 ("concepts/basics.adoc", "Records, Documents, Vertices & Edges"),
                 ("concepts/databases.adoc", "Databases"),

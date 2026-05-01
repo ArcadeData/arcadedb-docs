@@ -229,7 +229,6 @@ ArcadeDB natively supports **six data models**: Graph, Document, Key-Value, Full
 ==== Supported Data Models
 
 [[document-model]]
-[discrete]
 ===== Document Model
 
 The data in this model is stored inside documents.
@@ -257,7 +256,6 @@ Document types support <<inheritance,inheritance>>, allowing a subtype to extend
 |===
 
 [[graph-model]]
-[discrete]
 ===== Graph Model
 
 A graph represents a network-like structure consisting of Vertices (also known as Nodes) interconnected by Edges (also known as Arcs).
@@ -289,33 +287,14 @@ Graph traversal operates at O(1) complexity per hop through index-free adjacency
 | Relationship     | Edge                     | Edge
 |===
 
-[[keyvalue-model]]
-[discrete]
 ===== Key/Value Model
 
-This is the simplest model.
-Everything in the database can be reached by a key, where the values can be simple or complex types.
-ArcadeDB supports documents and graph elements as values, allowing for a richer model than what you would normally find in a typical key/value store.
-Every record in ArcadeDB is accessible by its <<rid,Record ID (RID)>> at O(1) complexity, making the entire database function as a key-value store.
-<<buckets,Buckets>> can also serve as dedicated key-value namespaces where records are inserted and retrieved by RID without requiring a type schema.
+This is the simplest model: everything in the database can be reached by a key, where the values can be simple or complex types.
+ArcadeDB supports documents and graph elements as values, providing a richer model than typical key/value stores.
 
-The most typical use cases of the Key/Value model are:
-
-- POST the value as payload of an HTTP call -> `/<bucket>/<key>`
-- GET the value as payload from an HTTP call -> `/<bucket>/<key>`
-- DELETE the value by Key, by calling the HTTP call -> `/<bucket>/<key>`
-
-[%header,cols=3]
-|===
-| Relational Model | Key/Value Model   | ArcadeDB Key/Value Model
-| Table            | Bucket            | <<buckets,Bucket>>
-| Row              | Key/Value pair    | Document
-| Column           | not available     | Document field or Vertex/Edge property
-| Relationship     | not available     | <<relationships,Relationship>>
-|===
+For the full description, comparison table, and HTTP usage patterns, see the dedicated <<key-value,Key/Value>> page.
 
 [[searchengine-model]]
-[discrete]
 ===== Search-Engine Model
 
 The search engine model is based on a full-text variant of the <<indexes,LSM-Tree index>>.
@@ -323,7 +302,6 @@ To index each word, the necessary tokenization is performed by the https://lucen
 A full-text index is <<sql-create-index,created just like any other index>> in ArcadeDB and participates in the same transaction as the rest of the database.
 
 [[timeseries-model]]
-[discrete]
 ===== Time-Series Model
 
 ArcadeDB includes a native <<timeseries,time-series>> engine designed for high-throughput ingestion and fast analytical queries over timestamped data.
@@ -343,99 +321,13 @@ Key capabilities:
 
 For the full reference, including DDL syntax, ingestion methods, SQL functions, PromQL support, and Grafana integration, see <<timeseries,Time Series>>.
 
-[[vector-model]]
-[discrete]
 ===== Vector Model
 
 ArcadeDB provides a high-performance vector indexing solution using the LSMVectorIndex, which is built on the https://github.com/jelmerk/jvector[JVector library].
-It implements the https://arxiv.org/abs/1603.09320[hierarchical navigable small world] (HNSW) algorithm and the Vamana (DiskANN) algorithm for efficient approximate nearest neighbor (ANN) search on multi-dimensional vector data.
+It implements both the https://arxiv.org/abs/1603.09320[hierarchical navigable small world] (HNSW) algorithm and the Vamana (DiskANN) algorithm for efficient approximate nearest neighbor (ANN) search on multi-dimensional vector data.
+Vector indexes participate in ACID transactions, persist on disk with automatic compaction, and integrate directly into SQL queries through `vectorNeighbors()`.
 
-The LSMVectorIndex combines the HNSW algorithm with ArcadeDB's LSM-Tree architecture, providing:
-
-- **Persistent Storage**: Vector indexes are stored on disk with automatic page management and compaction
-- **Transaction Support**: Full ACID compliance with automatic persistence on transaction commit
-- **Multiple Similarity Functions**: Supports COSINE (default), DOT_PRODUCT, EUCLIDEAN, and others
-- **SQL Integration**: Create and query vector indexes using SQL commands
-- **Automatic Compaction**: Efficiently reclaims disk space through automatic compaction of immutable pages
-- **High Performance**: LSM-Tree benefits for write efficiency and space optimization at scale
-- **Quantization**: INT8 and BINARY quantization for memory reduction
-
-[discrete]
-====== SQL Example
-
-Create a vector index and query it:
-
-[source,sql]
-----
--- Create vertex type and property
-CREATE VERTEX TYPE Document;
-CREATE PROPERTY Document.content STRING;
-CREATE PROPERTY Document.embedding ARRAY_OF_FLOATS;
-
--- Create vector index with 384 dimensions using COSINE similarity
-CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
-  dimensions: 384,
-  similarity: 'COSINE'
-};
-
--- Query for the 10 nearest documents
--- Returns rows with .record (full document) and .distance (0 = identical for COSINE)
-SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
-----
-
-[discrete]
-====== Java Example
-
-Create and query a vector index programmatically:
-
-[source,java]
-----
-import com.arcadedb.index.lsm.LSMVectorIndex;
-import com.arcadedb.index.lsm.LSMVectorIndexBuilder;
-import com.arcadedb.index.vector.VectorSimilarityFunction;
-
-// Create index programmatically
-final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
-    database,
-    "Document",
-    new String[]{"embedding"})
-    .withDimensions(384)
-    .withSimilarity(VectorSimilarityFunction.COSINE)
-    .withMaxConnections(16)
-    .withBeamWidth(100);
-
-final LSMVectorIndex index = builder.create();
-
-// Query the index using SQL
-final ResultSet resultSet = database.query("sql",
-    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
-    queryVector);
-----
-
-[[additional-settings]]
-[discrete]
-====== Configuration Parameters
-
-When creating LSMVectorIndex instances, the following parameters can be configured:
-
-- `dimensions`: The dimensionality of the vectors (must match your embedding model output)
-- `similarity`: The distance function for similarity calculation (COSINE, DOT_PRODUCT, EUCLIDEAN, etc.)
-- `maxConnections`: Maximum number of connections per layer in the HNSW graph (default: 16, increase for better recall)
-- `beamWidth`: Beam width for approximate nearest neighbor search (default: 100, increase for more accurate results)
-
-[[similarity]]
-[discrete]
-====== Supported Similarity Functions
-
-[%header,cols=3]
-|===
-| Measure | Name | Type
-| `COSINE` | https://en.wikipedia.org/wiki/Cosine_similarity[Cosine Similarity] | L~2~
-| `DOT_PRODUCT` | https://en.wikipedia.org/wiki/Dot_product[Inner Product] | L~2~
-| `EUCLIDEAN` | https://en.wikipedia.org/wiki/Euclidean_distance[Euclidean Distance] | L~2~
-|===
-
-For more information on vector embeddings, see the <<java-vectors,Vector Embeddings>> section.
+For SQL and Java examples, supported similarity functions, configuration parameters, quantization, and tuning advice, see the dedicated <<vector-model,Vector>> page.
 
 ==== Unified Query Layer
 

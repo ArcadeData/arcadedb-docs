@@ -1,0 +1,60 @@
+[[key-value]]
+[[keyvalue-model]]
+= Key/Value
+
+The key/value model is the simplest data model: every value is reachable through a single identifier (the key).
+ArcadeDB supports the key/value pattern natively without sacrificing the richer features of the multi-model engine -- values can be primitive types, full documents, or even graph elements.
+
+== How Keys Work in ArcadeDB
+
+Every record stored in ArcadeDB is automatically addressable by its xref:concepts/basics.adoc#rid[Record ID (RID)], a compact identifier of the form `#bucket:offset`.
+The RID provides O(1) direct access to any record, which means the entire database functions as a high-performance key/value store -- no separate engine, no extra indexes required.
+
+In addition to RIDs, you can layer your own keys on top:
+
+* **Indexed keys** -- create a unique xref:concepts/indexes.adoc#indexes[LSM-Tree index] on any property to look up records by an arbitrary identifier such as `userId`, `sku`, or `email`.
+* **Bucket-based keys** -- group records into xref:concepts/basics.adoc#buckets[buckets] and use the bucket as a key/value namespace where records are inserted and retrieved by RID without requiring a type schema.
+* **Composite keys** -- create indexes spanning multiple properties when the natural key is not a single value (for example, `(tenantId, accountId)`).
+
+== HTTP Key/Value Patterns
+
+The most typical use cases of the Key/Value model are exposed directly through the xref:reference/http-api/http.adoc#http-json-api[HTTP API]:
+
+[cols="1,3,2", options="header"]
+|===
+| Operation | HTTP Call | Effect
+| **Store**  | `POST /<bucket>/<key>`   | Save the value as the payload of the call
+| **Read**   | `GET /<bucket>/<key>`    | Return the value as the response payload
+| **Delete** | `DELETE /<bucket>/<key>` | Remove the value identified by the key
+|===
+
+This makes ArcadeDB usable as a drop-in key/value backend for caches, session stores, configuration stores, or any pattern where direct addressing by identifier is the primary access mode.
+
+== Comparison with Other Models
+
+[%header,cols=3]
+|===
+| Relational Model | Key/Value Model   | ArcadeDB Key/Value Model
+| Table            | Bucket            | xref:concepts/basics.adoc#buckets[Bucket]
+| Row              | Key/Value pair    | Document
+| Column           | not available     | Document field or Vertex/Edge property
+| Relationship     | not available     | xref:concepts/basics.adoc#relationships[Relationship]
+|===
+
+== Why ArcadeDB for Key/Value
+
+Most key/value stores treat the value as opaque -- a blob of bytes the database doesn't understand.
+ArcadeDB treats every value as a structured record:
+
+* **Rich values** -- values can be documents, vertices, or edges with typed properties, not just byte arrays.
+* **Queryable** -- the same record retrievable by RID is also queryable with SQL, Cypher, Gremlin, and other languages, without re-indexing or duplicating data.
+* **Transactional** -- key/value writes participate in full ACID transactions alongside graph and document operations.
+* **Persistent** -- LSM-Tree storage with automatic compaction ensures durability and efficient disk usage at scale.
+* **Multi-protocol** -- access the same data through HTTP, the xref:reference/redis-ql/redis.adoc#redis-protocol[Redis wire protocol], the Java API, or any other supported interface.
+
+== Further Reading
+
+* xref:concepts/basics.adoc#rid[Record ID (RID)] -- how RIDs work and how to use them as primary keys
+* xref:concepts/basics.adoc#buckets[Buckets] -- physical storage units that double as key/value namespaces
+* xref:reference/http-api/http.adoc#http-json-api[HTTP API] -- REST endpoints for POST/GET/DELETE on records
+* xref:reference/redis-ql/redis.adoc#redis-protocol[Redis Wire Protocol] -- speak the Redis protocol against ArcadeDB
