@@ -187,8 +187,7 @@ NAV_STRUCTURE: list[dict] = [
         "title": "Query Languages",
         "intro": [],
         "groups": [
-            ("SQL", [
-                ("reference/sql/sql-introduction.adoc", "Introduction"),
+            (("reference/sql/sql-introduction.adoc", "SQL"), [
                 ("Manipulation", [
                     ("reference/sql/sql-select.adoc", "SELECT"),
                     ("reference/sql/sql-insert.adoc", "INSERT"),
@@ -208,19 +207,8 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/sql/sql-triggers-ddl.adoc", "Triggers"),
                     ("reference/sql/sql-materialized-views.adoc", "Materialized Views"),
                 ]),
-                ("Database Admin", [
-                    ("reference/sql/sql-align-database.adoc", "ALIGN DATABASE"),
-                    ("reference/sql/sql-alter-database.adoc", "ALTER DATABASE"),
-                    ("reference/sql/sql-backup-database.adoc", "BACKUP DATABASE"),
-                    ("reference/sql/sql-check-database.adoc", "CHECK DATABASE"),
-                    ("reference/sql/sql-export-database.adoc", "EXPORT DATABASE"),
-                    ("reference/sql/sql-import-database.adoc", "IMPORT DATABASE"),
-                ]),
-                ("Inspection", [
-                    ("reference/sql/sql-explain.adoc", "EXPLAIN"),
-                    ("reference/sql/sql-profile.adoc", "PROFILE"),
-                    ("reference/sql/sql-console.adoc", "CONSOLE"),
-                ]),
+                ("reference/sql/sql-database-admin.adoc", "Database Admin"),
+                ("reference/sql/sql-inspection.adoc", "Inspection"),
                 ("Query Shaping", [
                     ("reference/sql/sql-projections.adoc", "Projections"),
                     ("reference/sql/sql-pagination.adoc", "Pagination"),

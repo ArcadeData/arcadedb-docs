@@ -1,0 +1,284 @@
+[[sql-database-admin]]
+==== Database Admin
+
+[[sql-align-database]]
+===== SQL - `ALIGN DATABASE`
+
+
+Executes a distributed alignment of the database. It must be executed on the Leader server. The alignment computes a checksum of
+each file and sends them to the replica nodes. Each replica node will compute the checksum on its own files. The files that are
+mismatching are requested by the replica to the leader. In the future single pages could be transferred instead of the entire file.
+
+NOTE: Align Database command is available only when the server is running with the <<howto-high-availability,HA module>> active.
+
+*Syntax*
+
+[source,sql]
+----
+ALIGN DATABASE
+----
+
+The command returns which page have been aligned on each server.
+
+*Examples*
+
+* Align the current database.
+
+----
+ArcadeDB> ALIGN DATABASE
+----
+
+[[sql-alter-database]]
+===== SQL - `ALTER DATABASE`
+
+
+Change a database setting. You can find the available settings in <<settings-sql,Settings>> appendix. The update is persistent.
+
+*Syntax*
+
+[source,sql]
+----
+ALTER DATABASE <setting-name> <setting-value>
+
+----
+
+* *`&lt;setting-name&gt;`* Check the available settings in <<settings-sql,Settings>> appendix. Since the setting name contains `.`
+ characters, surround the setting name with ```.
+* *`&lt;setting-value&gt;`* The new value to set
+
+*Examples*
+
+* Set the date time format to support milliseconds (the default is 'yyyy-MM-dd HH:mm:ss').
+
+----
+ArcadeDB> ALTER DATABASE `arcadedb.dateTimeFormat` 'yyyy-MM-dd HH:mm:ss.SSS'
+----
+
+* Set the default page size for buckets to 262,144 bytes. This is useful when importing database with records bigger than the
+ default page.
+
+----
+ArcadeDB> ALTER DATABASE `arcadedb.bucketDefaultPageSize` 262144
+----
+
+[[sql-backup-database]]
+===== SQL - `BACKUP DATABASE`
+
+
+Executes a backup of the current database. The resulting file is a compressed archive using ZIP as algorithm. The archive contains
+the database directory without the transaction logs. The backup is executed taking a snapshot of the database at the time the
+command is executed. Any pending transaction will not be in the backup archive. ArcadeDB allows to execute a non-stop backup of a
+database while it is used without blocking writes or affecting performance.
+
+*Syntax*
+
+[source,sql]
+----
+BACKUP DATABASE [ <backup-file-url> ]
+
+----
+
+* *`&lt;backup-file-url&gt;`* Optional, defines the location for the backup archive. If not specified, the backup file will
+ be `backups/&lt;db-name&gt;/&lt;db-name&gt;-backup-&lt;timestamp&gt;.tgz`, where the timestamp is expresses from the year to the millisecond.
+ Example of backup file name `backups/TheMatrix/TheMatrix-backup-20210921-172750767.zip`.
+
+*Examples*
+
+* Execute the backup of the current database with the default filename.
+
+----
+ArcadeDB> BACKUP DATABASE
+----
+
+[[sql-check-database]]
+===== SQL - `CHECK DATABASE`
+
+
+Executes an integrity check and in case of a repair of the database. This command analyzes the following things:
+
+* buckets: all the pages and records are scanned and checked if can be loaded (no physical corruption)
+* vertices: all the vertices are loaded and all the connected edges are checked. In case some edges point to records that have been
+ deleted they can be fixed automatically if the `FIX` option is enabled.
+* edges: scan all the edges and check the incoming and outgoing links are consistent in the relative vertices. If not, the edges can
+ be automatically removed if the `FIX` option is enabled.
+
+*Syntax*
+
+[source,sql]
+----
+CHECK DATABASE [ TYPE <type-name>[,]* ] [ BUCKET <bucket-name>[,]* ] [ FIX ] [ COMPRESS ]
+----
+
+* *`&lt;type-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific types
+* *`&lt;bucket-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific buckets
+* *`FIX`* Optional, if used auto fix the issue found with the check
+* *`COMPRESS`* Optional, if used compresses the database with the check
+
+The command returns the integrity check report in one record with the fields:
+
+[cols="1,3",options="header"]
+|===
+| *Field* | *Description*
+| `avgPageUsed` | average space used in a page.
+                  This is a percentage value, where 100% means all the pages are full.
+                  If a record is too big, a page is split into multiple pages and multiple reads are necessary.
+                  Sometimes it helps to create buckets with larger pages to accommodate large records,
+                  see the <<settings-sql,`bucketDefaultPageSize`>> setting.
+| `warnings` | set of warning messages.
+| `totalSurrogateRecords` | number of records that have been moved between pages.
+                            This happens when a record is updated and doesn't fit the original page,
+                            so a surrogate (placeholder) is set to point to the new page/position or it's a piece of a record stored on multiple pages. Internal, can be ignored.
+| `totalPlaceholderRecords` | see above. Internal, can be ignored.
+| `pageSize` | internal, can be ignored.
+| `totalDeletedRecords` | number of records deleted in the database (allocated minus active).
+                          When a record is deleted, it's RID is not recycled!
+| `totalAllocatedRecords` | total number of records created in the database.
+                            A record can be of type document, vertex or edge.
+| `totalAllocatedDocuments` | see above, but only documents records.
+| `totalAllocatedVertices` | see above, but only vertex records.
+| `totalAllocatedEdges` | see above, but only edge records.
+| `totalActiveRecords` | total number of records that are "active" (not deleted).
+                         A record can be of type document, vertex or edge.
+| `totalActiveDocuments` | see above, but only vertex document.
+| `totalActiveVertices` | see above, but only vertex records.
+| `totalActiveEdges` | see above, but only edge records.
+| `totalMaxOffset` | internal, can be ignored.
+| `deletedRecordsAfterFix` | holds the list of RIDs deleted after a fix.
+| `corruptedRecords` | all the records not found in the database.
+                       This could happen with broken edges (edges pointing to deleted vertices).
+                       This should be zero; if not, it means there is a bug in the graph operations that doesn't keep operations 100% transactional. Please report this.
+| `totalPages` | total number of pages in the database.
+| `rebuiltIndexes` | list of indexes that have been rebuilt automatically if corrupted records were found.
+| `operation` | can be ignored, set by the console.
+| `invalidLinks` | similar to corrupted records; should be zero.
+| `totalErrors` | counter of errors encountered while checking the database.
+             It should be zero.
+| `autoFix` | counter of autofix operations executed by the check database under the hood when corrupted records have been encountered.
+              Some operations, like broken edges, can be fixed and restored automatically.
+|===
+
+*Examples*
+
+* Execute the integrity check of the entire database without fixing any issue found.
+
+----
+ArcadeDB> CHECK DATABASE
+----
+
+* Execute the integrity check of the types 'Account' and 'Bill' without fixing any issue found.
+
+----
+ArcadeDB> CHECK DATABASE TYPE Account, Bill
+----
+
+* Execute the integrity check only on the bucket 'Account_Europe' without fixing any issue found.
+
+----
+ArcadeDB> CHECK DATABASE BUCKET Account_Europe
+----
+
+* Execute the integrity check of the entire database and auto fix any issues found.
+
+----
+ArcadeDB> CHECK DATABASE FIX
+----
+
+[[sql-export-database]]
+===== SQL - `EXPORT DATABASE`
+
+
+Exports a database in the `exports` directory under the root directory where ArcadeDB is running.
+
+*Syntax*
+
+[source,sql]
+----
+EXPORT DATABASE [<url>] [FORMAT JSONL|GRAPHML|GRAPHSON] [OVERWRITE TRUE|FALSE]
+
+----
+
+* *`&lt;url&gt;`* Defines the location of the file to export. Use:
+ ** `file://` as prefix for files located on the same file system where ArcadeDB is running. For security reasons, it is not possible to provide an absolute or relative path to the file
+ ** By default the file name is set to `exports/<db-name>-export-<timestamp>.<format>.tgz`.
+* *`&lt;FORMAT&gt;`* The format of the export as a quoted string
+ ** *JSONL* exports in https://jsonlines.org/[JSONL] format - a newline-delimited JSON variant (this is the default format)
+ ** *GraphML* exports in the popular http://graphml.graphdrawing.org/[GraphML] format. GraphML is supported by all the major Graph DBMS. This format does not support complex types, like collection of elements. Using GraphSON instead of GraphML is recommended
+ ** *GraphSON* database export. https://tinkerpop.apache.org/docs/current/dev/io/#graphson[GraphSON] is supported by all the major Graph DBMS
+* *`&lt;OVERWRITE&gt;`* Overwrite the export file if exists. Default is false.
+
+*Examples*
+
+* Export the current database under the `exports/` directory:
+
+----
+ArcadeDB> EXPORT DATABASE file://database.jsonl.tgz
+----
+
+* Export the current database in GraphSON format, overwriting any existent file if present:
+
+----
+ArcadeDB> EXPORT DATABASE file://Movies.graphson.tgz FORMAT GraphSON OVERWRITE true
+----
+
+[[sql-import-database]]
+===== SQL - `IMPORT DATABASE`
+
+
+Executes an import of the database into the current one. Usually an import database is executed on an empty database, but it is
+possible to execute on any database. In case of conflict (unique index key already existent, etc.), the conflicting records will not
+be imported. The importer automatically recognize the file between the following formats:
+
+* *OrientDB* database export
+* *Neo4J* database export
+* *GraphML* database export. This format does not support complex types, like collection of elements. Using GraphSON instead of
+ GraphML is recommended
+* *GraphSON* database export
+* *JSON* documents or responses
+* *JSON Lines* documents or responses
+
+*Syntax*
+
+[source,sql]
+----
+IMPORT DATABASE <url> [WITH ( <setting-name> = <setting-value> [,] )* ]
+----
+
+* *`&lt;url&gt;`* Defines the location of the file to import. Use:
+ ** `file://` as prefix for files located on the same file system where ArcadeDB is running.
+ ** `https://` and `http://` as prefix for remote files.
+
+*Examples*
+
+* Import the public OpenBeer database available as demo database for OrientDB and exported in TGZ file
+[source,shell]
+----
+IMPORT DATABASE https://github.com/ArcadeData/arcadedb-datasets/raw/main/orientdb/OpenBeer.gz
+----
+
+* Import the Movie database used in Neo4j's examples:
+[source,shell]
+----
+IMPORT DATABASE https://github.com/ArcadeData/arcadedb-datasets/raw/main/neo4j/movies.graphson.tgz
+----
+
+* Import a JSON response into document type `mytype`
+[source,shell]
+----
+IMPORT DATABASE http://echo.jsontest.com/key/value/one/two WITH documentType = 'mytype'
+----
+
+* Test data source
+[source,shell]
+----
+IMPORT DATABASE http://echo.jsontest.com/key/value/one/two WITH probeOnly = true
+----
+
+* Import a graph from CSV, with vertices in a `vertices.csv` which contains a column `Id`,
+  and edges in a `edges.csv` which contains columns `From` and `To`,
+  both placed in the ArcadeDB base folder:
+[source,shell]
+----
+IMPORT DATABASE file://empty.csv WITH vertices="file://vertices.csv", verticesFileType=csv, typeIdProperty=Id, typeIdType=Long, edges="file://edges.csv", edgesFileType=csv, edgeFromField="From", edgeToField="To"
+----
+
+See also <<importer,Importer>> for a description of the settings.
