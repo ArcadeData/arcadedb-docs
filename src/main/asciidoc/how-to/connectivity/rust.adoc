@@ -1,0 +1,101 @@
+[[http-api-rust]]
+==== Rust
+
+[TIP]
+====
+*Connection options for Rust*
+
+ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+
+* xref:how-to/connectivity/bolt.adoc[*Neo4j BOLT*] -- the community https://crates.io/crates/neo4rs[`neo4rs`] crate, run Cypher queries.
+* xref:how-to/connectivity/postgres.adoc[*PostgreSQL wire protocol*] -- the https://crates.io/crates/postgres[`postgres`] crate (or the async https://crates.io/crates/tokio-postgres[`tokio-postgres`]), run SQL.
+* xref:reference/http-api/http.adoc[*HTTP/JSON API*] -- https://crates.io/crates/reqwest[`reqwest`] or any HTTP client, no driver required.
+====
+
+===== Neo4j BOLT -- `neo4rs`
+
+`Cargo.toml`:
+
+[source,toml]
+----
+[dependencies]
+neo4rs = "0.7"
+tokio = { version = "1", features = ["full"] }
+----
+
+[source,rust]
+----
+use neo4rs::*;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let graph = Graph::new("bolt://localhost:7687", "root", "playwithdata").await?;
+    let mut result = graph.execute(query("MATCH (n) RETURN n LIMIT 5")).await?;
+    while let Ok(Some(row)) = result.next().await {
+        println!("{:?}", row);
+    }
+    Ok(())
+}
+----
+
+===== PostgreSQL Wire Protocol -- `postgres`
+
+`Cargo.toml`:
+
+[source,toml]
+----
+[dependencies]
+postgres = "0.19"
+----
+
+[source,rust]
+----
+use postgres::{Client, NoTls};
+
+fn main() -> Result<(), postgres::Error> {
+    let mut client = Client::connect(
+        "host=localhost port=5432 dbname=mydatabase \
+         user=root password=playwithdata",
+        NoTls,
+    )?;
+
+    for row in client.query("SELECT FROM schema:types LIMIT 5", &[])? {
+        let value: &str = row.get(0);
+        println!("{}", value);
+    }
+    Ok(())
+}
+----
+
+===== HTTP/JSON API -- `reqwest`
+
+`Cargo.toml`:
+
+[source,toml]
+----
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+serde_json = "1"
+----
+
+[source,rust]
+----
+use serde_json::json;
+
+fn main() -> Result<(), reqwest::Error> {
+    let body = json!({
+        "language": "sql",
+        "command":  "SELECT FROM schema:types LIMIT 5"
+    });
+
+    let res = reqwest::blocking::Client::new()
+        .post("http://localhost:2480/api/v1/query/mydatabase")
+        .basic_auth("root", Some("playwithdata"))
+        .json(&body)
+        .send()?
+        .text()?;
+
+    println!("{}", res);
+    Ok(())
+}
+----

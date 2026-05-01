@@ -1,0 +1,83 @@
+[[http-api-c]]
+==== C
+
+[TIP]
+====
+*Connection options for C*
+
+ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+
+* xref:how-to/connectivity/postgres.adoc[*PostgreSQL wire protocol*] -- use https://www.postgresql.org/docs/current/libpq.html[`libpq`], run SQL.
+* xref:reference/http-api/http.adoc[*HTTP/JSON API*] -- use https://curl.se/libcurl/[`libcurl`], no driver required.
+
+There is no actively maintained Neo4j BOLT driver for plain C. If you need Cypher from C, the easiest path is to call out to one of the BOLT-capable languages (Python, Go) over an FFI, or use the HTTP/JSON API and target the OpenCypher endpoint.
+====
+
+===== PostgreSQL Wire Protocol -- `libpq`
+
+[source,c]
+----
+#include <stdio.h>
+#include <libpq-fe.h>
+
+int main(void) {
+    PGconn *conn = PQconnectdb(
+        "host=localhost port=5432 dbname=mydatabase user=root password=playwithdata");
+    if (PQstatus(conn) != CONNECTION_OK) {
+        fprintf(stderr, "connection failed: %s", PQerrorMessage(conn));
+        PQfinish(conn);
+        return 1;
+    }
+
+    PGresult *res = PQexec(conn, "SELECT FROM schema:types LIMIT 5");
+    for (int i = 0; i < PQntuples(res); i++)
+        printf("%s\n", PQgetvalue(res, i, 0));
+
+    PQclear(res);
+    PQfinish(conn);
+    return 0;
+}
+----
+
+Build:
+
+[source,shell]
+----
+gcc example.c -lpq -o example
+----
+
+===== HTTP/JSON API -- `libcurl`
+
+[source,c]
+----
+#include <curl/curl.h>
+
+int main(void) {
+    CURL *curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_URL,
+        "http://localhost:2480/api/v1/query/mydatabase");
+    curl_easy_setopt(curl, CURLOPT_USERPWD, "root:playwithdata");
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    const char *body =
+        "{\"language\":\"sql\","
+        " \"command\":\"SELECT FROM schema:types LIMIT 5\"}";
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+
+    curl_easy_perform(curl);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return 0;
+}
+----
+
+Build:
+
+[source,shell]
+----
+gcc example.c -lcurl -o example
+----

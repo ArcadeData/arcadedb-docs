@@ -1,0 +1,54 @@
+[[http-api-r]]
+= R
+
+[TIP]
+====
+*Connection options for R*
+
+ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+
+* xref:how-to/connectivity/postgres.adoc[*PostgreSQL wire protocol*] -- the https://cran.r-project.org/web/packages/RPostgreSQL/[`RPostgreSQL`] package (or the modern https://cran.r-project.org/web/packages/RPostgres/[`RPostgres`]), run SQL.
+* xref:reference/http-api/http.adoc[*HTTP/JSON API*] -- the https://cran.r-project.org/web/packages/httr2/[`httr2`] or `httr` package, no driver required.
+
+There is no Neo4j BOLT driver for R. The closest option is the community https://github.com/neo4j-rstats/neo4r[`neo4r`] package, which talks to Neo4j over HTTP/Cypher rather than BOLT, so it does not work directly against ArcadeDB. Use the xref:reference/http-api/http.adoc[HTTP/JSON API] for OpenCypher queries from R.
+====
+
+== PostgreSQL Wire Protocol -- `RPostgres`
+
+[source,r]
+----
+install.packages("RPostgres")
+library(DBI)
+
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host     = "localhost",
+  port     = 5432,
+  dbname   = "mydatabase",
+  user     = "root",
+  password = "playwithdata"
+)
+
+result <- dbGetQuery(con, "SELECT FROM schema:types LIMIT 5")
+print(result)
+
+dbDisconnect(con)
+----
+
+== HTTP/JSON API -- `httr2`
+
+[source,r]
+----
+install.packages("httr2")
+library(httr2)
+
+response <- request("http://localhost:2480/api/v1/query/mydatabase") |>
+  req_auth_basic("root", "playwithdata") |>
+  req_body_json(list(
+    language = "sql",
+    command  = "SELECT FROM schema:types LIMIT 5"
+  )) |>
+  req_perform()
+
+print(resp_body_json(response))
+----

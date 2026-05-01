@@ -1,0 +1,86 @@
+[[http-api-ruby]]
+==== Ruby
+
+[TIP]
+====
+*Connection options for Ruby*
+
+ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+
+* xref:how-to/connectivity/bolt.adoc[*Neo4j BOLT*] -- the community https://rubygems.org/gems/neo4j-ruby-driver[`neo4j-ruby-driver`] gem, run Cypher queries.
+* xref:how-to/connectivity/postgres.adoc[*PostgreSQL wire protocol*] -- the https://rubygems.org/gems/pg[`pg`] gem, run SQL.
+* xref:reference/http-api/http.adoc[*HTTP/JSON API*] -- standard library `Net::HTTP` or the `faraday` gem, no driver required.
+====
+
+===== Neo4j BOLT -- `neo4j-ruby-driver`
+
+[source,shell]
+----
+gem install neo4j-ruby-driver
+----
+
+[source,ruby]
+----
+require "neo4j/driver"
+
+driver = Neo4j::Driver::GraphDatabase.driver(
+  "bolt://localhost:7687",
+  Neo4j::Driver::AuthTokens.basic("root", "playwithdata"),
+  encryption: false
+)
+
+driver.session(database: "mydatabase") do |session|
+  session.run("MATCH (n) RETURN n LIMIT 5").each do |record|
+    puts record.values
+  end
+end
+
+driver.close
+----
+
+===== PostgreSQL Wire Protocol -- `pg`
+
+[source,shell]
+----
+gem install pg
+----
+
+[source,ruby]
+----
+require "pg"
+
+conn = PG.connect(
+  host:     "localhost",
+  port:     5432,
+  dbname:   "mydatabase",
+  user:     "root",
+  password: "playwithdata"
+)
+
+conn.exec("SELECT FROM schema:types LIMIT 5") do |result|
+  result.each { |row| puts row.values.first }
+end
+
+conn.close
+----
+
+===== HTTP/JSON API -- `Net::HTTP`
+
+[source,ruby]
+----
+require "net/http"
+require "json"
+require "uri"
+
+uri = URI("http://localhost:2480/api/v1/query/mydatabase")
+
+req = Net::HTTP::Post.new(uri, "Content-Type" => "application/json")
+req.basic_auth("root", "playwithdata")
+req.body = JSON.dump(
+  language: "sql",
+  command:  "SELECT FROM schema:types LIMIT 5"
+)
+
+res = Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }
+puts JSON.parse(res.body)
+----

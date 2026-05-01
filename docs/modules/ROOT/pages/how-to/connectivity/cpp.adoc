@@ -1,0 +1,72 @@
+[[http-api-cpp]]
+= C++
+
+[TIP]
+====
+*Connection options for C++*
+
+ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+
+* xref:how-to/connectivity/postgres.adoc[*PostgreSQL wire protocol*] -- use http://pqxx.org/development/libpqxx/[`libpqxx`], run SQL.
+* xref:reference/http-api/http.adoc[*HTTP/JSON API*] -- use https://github.com/yhirose/cpp-httplib[`cpp-httplib`], `cpp-restclient`, or `libcurl`, no driver required.
+
+There is no actively maintained Neo4j BOLT driver for C++. If you need Cypher from C++, the easiest path is to use the HTTP/JSON API or to embed a BOLT-capable runtime (e.g. Python via pybind11).
+====
+
+== PostgreSQL Wire Protocol -- `libpqxx`
+
+[source,cpp]
+----
+#include <pqxx/pqxx>
+#include <iostream>
+
+int main() {
+    pqxx::connection conn(
+        "host=localhost port=5432 dbname=mydatabase "
+        "user=root password=playwithdata");
+
+    pqxx::work tx{conn};
+    auto result = tx.exec("SELECT FROM schema:types LIMIT 5");
+
+    for (auto const &row : result)
+        std::cout << row[0].c_str() << "\n";
+
+    tx.commit();
+    return 0;
+}
+----
+
+Build:
+
+[source,shell]
+----
+g++ -std=c++17 example.cpp -lpqxx -lpq -o example
+----
+
+== HTTP/JSON API -- `cpp-httplib`
+
+[source,cpp]
+----
+#include <httplib.h>
+#include <iostream>
+
+int main() {
+    httplib::Client cli("http://localhost:2480");
+    cli.set_basic_auth("root", "playwithdata");
+
+    auto res = cli.Post(
+        "/api/v1/query/mydatabase",
+        R"({"language":"sql","command":"SELECT FROM schema:types LIMIT 5"})",
+        "application/json");
+
+    if (res) std::cout << res->body << "\n";
+    return 0;
+}
+----
+
+Build (header-only library):
+
+[source,shell]
+----
+g++ -std=c++17 example.cpp -o example
+----
