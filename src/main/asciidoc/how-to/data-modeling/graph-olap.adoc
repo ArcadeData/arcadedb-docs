@@ -6,7 +6,6 @@ NOTE: Available since ArcadeDB v26.4.1.
 The Graph OLAP Engine maintains a read-optimized, columnar representation of your graph alongside the live OLTP data.
 It uses *Compressed Sparse Row (CSR)* encoding and flat primitive arrays to deliver 5x–400x speedups on analytical workloads — multi-hop traversals, graph algorithms, and property aggregations — without sacrificing transactional safety.
 
-[discrete]
 ==== Why Graph OLAP?
 
 ArcadeDB's OLTP engine is optimized for point lookups and ACID transactions.
@@ -20,7 +19,6 @@ The OLAP engine solves this by encoding graph topology as flat `int[]` arrays an
 * *SIMD-friendly* — enables JVM vectorized operations
 * *9x more compact* — flat arrays vs. Java object overhead
 
-[discrete]
 ==== Graph Analytical View (GAV)
 
 A Graph Analytical View is a named, schema-persisted OLAP snapshot of selected vertex types, edge types, and properties.
@@ -38,7 +36,6 @@ GraphAnalyticalView gav = GraphAnalyticalView.builder(database)
 
 Named views are persisted in `schema.json` and automatically restored on database restart.
 
-[discrete]
 ==== SQL
 
 *Creating a view*
@@ -115,7 +112,6 @@ DROP GRAPH ANALYTICAL VIEW IF EXISTS social
 SELECT FROM schema:graphAnalyticalViews
 ----
 
-[discrete]
 ==== Builder Options
 
 [%header,cols="3,5,2"]
@@ -130,7 +126,6 @@ SELECT FROM schema:graphAnalyticalViews
 | `withCompactionThreshold(int)` | Rebuild CSR after N accumulated delta edges | 10,000
 |===
 
-[discrete]
 ==== Async Build for Large Graphs
 
 For large graphs, use `buildAsync()` to avoid blocking the calling thread:
@@ -146,7 +141,6 @@ GraphAnalyticalView gav = GraphAnalyticalView.builder(database)
 boolean ready = gav.awaitReady(30, TimeUnit.SECONDS);
 ----
 
-[discrete]
 ==== Update Modes
 
 The GAV supports three synchronization modes between OLTP and OLAP:
@@ -163,7 +157,6 @@ In *SYNCHRONOUS* mode, the engine captures transaction deltas (new/deleted verti
 Readers always see a consistent snapshot via an atomic volatile reference swap.
 When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
 
-[discrete]
 ==== How CSR Works
 
 The graph topology is stored as two pairs of arrays (forward for outgoing edges, backward for incoming):
@@ -179,14 +172,12 @@ Forward CSR (outgoing edges):
 
 This layout enables sequential memory access (cache-line friendly) and O(1) degree lookups.
 
-[discrete]
 ==== Columnar Property Storage
 
 Properties are stored as typed flat arrays — `int[]`, `long[]`, `double[]`, or dictionary-encoded `int[]` for strings.
 Each column has a compact null bitmap (1 bit per vertex).
 Dictionary encoding maps unique string values to integer codes, achieving near-100% compression for low-cardinality fields.
 
-[discrete]
 ==== Memory Usage
 
 The OLAP representation is significantly more compact than the OLTP equivalent:
@@ -203,7 +194,6 @@ Example: for a graph with 500K vertices and 8M edges, the GAV uses *134.6 MB* co
 long bytes = gav.getMemoryUsageBytes();
 ----
 
-[discrete]
 ==== Graph Algorithms
 
 The module includes parallelized graph algorithms that operate directly on CSR arrays with zero GC pressure:
@@ -234,7 +224,6 @@ int[] components = algos.connectedComponents(gav);
 int[] distances = algos.bfs(gav, sourceNodeId);
 ----
 
-[discrete]
 ==== Query Planner Integration
 
 The Cypher query planner automatically detects ready GAVs and substitutes OLTP traversal operators with CSR-based operators when:
@@ -245,7 +234,6 @@ The Cypher query planner automatically detects ready GAVs and substitutes OLTP t
 
 No query changes are needed — the optimizer transparently accelerates matching traversal patterns.
 
-[discrete]
 ==== Lifecycle
 
 [source,java]
@@ -263,7 +251,6 @@ gav.drop();
 gav.shutdown();
 ----
 
-[discrete]
 ==== Benchmark Results
 
 On a graph with 500K vertices and ~8M edges:
@@ -281,7 +268,6 @@ On a graph with 500K vertices and ~8M edges:
 | Label Propagation | 62,619 ms | 645 ms | 97.1x
 |===
 
-[discrete]
 ==== Limitations
 
 * CSR uses `int[]` arrays — maximum ~2.1 billion vertices per bucket and ~2.1 billion edges per direction
