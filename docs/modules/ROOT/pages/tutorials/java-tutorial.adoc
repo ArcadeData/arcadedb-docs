@@ -18,12 +18,26 @@ The tutorial below covers the embedded / native Java API. Per-protocol Java exam
 
 == Embedded
 
+Add the following dependency to your Maven `pom.xml` (or the equivalent in Gradle / SBT):
+
+[source,xml,subs="+attributes"]
+----
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-engine</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+----
+
+NOTE: Most of the API works in both synchronous and asynchronous modes.
+Synchronous calls execute on the current thread and return when finished -- the easiest model for procedural code.
+Asynchronous calls schedule jobs onto a pool of worker threads (sized to the available cores by default), so a single-threaded application can still saturate every core.
+The asynchronous API is reached via `db.async()` -- see the xref:reference/java-api/java-ref-database-async.adoc[Async Database API] page.
+
 You can create a new database from scratch or open an existent one.
-Most of the API works in both synchronous and asynchronous modes.
-The asynchronous API are available from the `<db>.async()` object.
 
 To start from scratch, let's create a new database.
-The entry point it's the `xref:reference/java-api/java-ref-database-factory.adoc#databasefactory[DatabaseFactory]` class that allows to create and open a database.
+The entry point it's the `xref:reference/java-api/java-ref-database.adoc#databasefactory[DatabaseFactory]` class that allows to create and open a database.
 
 [source,java]
 ----
@@ -34,12 +48,12 @@ Pass the path in the file system where you want the database to be stored.
 In this case a new directory 'mydb' will be created under the path `/databases/` of your file system.
 You can also use a relative path like `databases/mydb`.
 
-NOTE: A `xref:reference/java-api/java-ref-database-factory.adoc#databasefactory[DatabaseFactory]` object doesn't hold the `xref:concepts/basics.adoc#database-url[Database]` instances.
+NOTE: A `xref:reference/java-api/java-ref-database.adoc#databasefactory[DatabaseFactory]` object doesn't hold the `xref:concepts/basics.adoc#database-url[Database]` instances.
 It's up to you to close them once you have finished.
 
 === Create a new database
 
-To create a new database from scratch, use the `.create()` method in `xref:reference/java-api/java-ref-database-factory.adoc#databasefactory[DatabaseFactory]` class.
+To create a new database from scratch, use the `.create()` method in `xref:reference/java-api/java-ref-database.adoc#databasefactory[DatabaseFactory]` class.
 If the database already exists, an exception is thrown.
 
 Syntax:
@@ -259,12 +273,12 @@ That's right, edges can have properties like vertices.
 What do you do with a brand new graph?
 Traversing, of course!
 
-You have basically three ways to do that (xref:reference/java-api/java-api-local.adoc#java-api-local[Java API], xref:reference/sql/chapter.adoc#sql[SQL], https://tinkerpop.apache.org/[Apache Gremlin] and https://opencypher.org/[Open Cypher]) each one with its pros/cons:
+You have basically three ways to do that (xref:reference/java-api/java-ref-database.adoc#database-api[Java API], xref:reference/sql/chapter.adoc#sql[SQL], https://tinkerpop.apache.org/[Apache Gremlin] and https://opencypher.org/[Open Cypher]) each one with its pros/cons:
 
 [cols=5]
 |===
 |
-|xref:reference/java-api/java-api-local.adoc#java-api-local[JVM Embedded API]
+|xref:reference/java-api/java-ref-database.adoc#database-api[JVM Embedded API]
 |xref:reference/sql/chapter.adoc#sql[SQL]
 |xref:reference/gremlin/gremlin.adoc#gremlin-api[Apache Gremlin]
 |xref:reference/cypher/chapter.adoc#cypher[Cypher]
@@ -434,40 +448,47 @@ For more information about Cypher see: xref:reference/cypher/chapter.adoc#cypher
 [[remote-tutorial]]
 == Remote
 
-When ArcadeDB runs as a separate server process, your Java application can talk to it over HTTP/JSON. The protocol is simple: every modern programming language can drive it, and on the Java side `RemoteDatabase` wraps the same `Database` API you use in embedded mode.
+When ArcadeDB runs as a separate server process, your Java application can connect over HTTP/JSON via the `RemoteDatabase` driver, which wraps the same `Database` API you use in embedded mode.
 
-The examples below use https://curl.se/[`curl`] for clarity. Every request is authenticated via HTTP basic authentication; in this tutorial we use the `root` user with password `arcadedb-password`.
+Add the network module alongside the engine:
 
-NOTE: On Windows (PowerShell) single and double quotes inside a quoted string need to be replaced with their Unicode entity representations -- `"` (double quote) and `'` (single quote). This applies to the data argument (`-d`) of POST requests.
-
-Create an empty database called `school`:
-
-[source,shell]
+[source,xml,subs="+attributes"]
 ----
-$ curl -X POST http://localhost:2480/api/v1/server \
-       -d '{ "command": "create database school" }' \
-       -H "Content-Type: application/json" \
-       --user root:arcadedb-password
-----
-
-Create a document type:
-
-[source,shell]
-----
-$ curl -X POST http://localhost:2480/api/v1/command/school \
-       -d '{ "language": "sql", "command": "create document type Class"}' \
-       -H "Content-Type: application/json" \
-       --user root:arcadedb-password
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-engine</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-network</artifactId>
+    <version>{revnumber}</version>
+</dependency>
 ----
 
-Insert a record using SQL parameters:
+Create the database on the server, then open a `RemoteDatabase` and run a query:
 
-[source,shell]
+[source,java]
 ----
-$ curl -X POST http://localhost:2480/api/v1/command/school \
-       -d '{ "language": "sql", "command": "insert into Class set name = :name, location = :location", "params": { "name": "English", "location": "3rd floor" }}' \
-       -H "Content-Type: application/json" \
-       --user root:arcadedb-password
+RemoteServer server = new RemoteServer("localhost", 2480, "root", "playwithdata");
+if (!server.exists("school"))
+    server.create("school");
+
+RemoteDatabase db = new RemoteDatabase("localhost", 2480, "school", "root", "playwithdata");
+
+db.command("sqlscript", """
+    create document type Class if not exists;
+    create property Class.name if not exists string;
+    """);
+
+db.command("sql",
+    "insert into Class set name = :name, location = :location",
+    Map.of("name", "English", "location", "3rd floor"));
+
+ResultSet rs = db.query("sql", "select from Class");
+rs.forEachRemaining(r -> System.out.println(r.toJSON()));
 ----
 
-For the full reference -- every endpoint, request shape, response shape -- see the xref:reference/http-api/http.adoc#http-json-api[HTTP/JSON API] page.
+NOTE: `RemoteDatabase` is **not** thread-safe -- it carries a backend session, and a thread closing a transaction also closes the session. Don't share an instance across threads; instead create one inside the method scope where you use it.
+
+For the full reference covering connection pooling, async calls, gRPC, and every server endpoint, see the xref:reference/java-api/java-api-remote.adoc[Remote API] and xref:reference/http-api/http.adoc[HTTP/JSON API] pages.
