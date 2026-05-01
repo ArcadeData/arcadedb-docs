@@ -111,7 +111,6 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/kubernetes.adoc", "Kubernetes"),
                 ("how-to/operations/server.adoc", "Server Configuration"),
                 ("how-to/operations/settings.adoc", "Changing Settings"),
-                ("reference/settings.adoc", "Settings Reference"),
                 ("concepts/high-availability.adoc", "High Availability — Concepts"),
                 ("how-to/operations/ha.adoc", "High Availability — Setup"),
                 ("how-to/operations/backup.adoc", "Backup"),
@@ -168,6 +167,7 @@ NAV_STRUCTURE: list[dict] = [
             # changes so the learning path stays clean for newcomers.
             ("Advanced", [
                 ("how-to/operations/performance-tuning.adoc", "Performance Tuning"),
+                ("reference/settings.adoc", "Settings Reference"),
                 ("how-to/data-modeling/graph-olap.adoc", "Graph OLAP Engine"),
                 ("reference/storage.adoc", "Storage Internals"),
                 ("reference/lsm-tree.adoc", "LSM-Tree Algorithm"),
