@@ -57,7 +57,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
                 ("how-to/connectivity/http-csharp.adoc", "C#"),
                 ("how-to/connectivity/http-elixir.adoc", "Elixir"),
-                ("how-to/connectivity/http-nodejs.adoc", "HTTP from Node.js"),
+                ("how-to/connectivity/http-nodejs.adoc", "Node.js / JavaScript"),
                 ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
                 ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
             ]),
