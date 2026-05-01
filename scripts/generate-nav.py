@@ -48,18 +48,18 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/docker.adoc", "Quick Start with Docker"),
             ]),
             ("Build Applications", [
-                ("tutorials/java-tutorial.adoc", "10-Minute Java Tutorial (Embedded)"),
-                ("tutorials/remote-tutorial.adoc", "10-Minute Java Tutorial (Remote)"),
-                "tutorials/python-quickstart.adoc",
-                "tutorials/javascript-quickstart.adoc",
-                "tutorials/vector-search-tutorial.adoc",
-                "tutorials/time-series-tutorial.adoc",
-                ("how-to/connectivity/python.adoc", "Python Driver"),
+                ("tutorials/vector-search-tutorial.adoc", "Vector Search Tutorial"),
+                ("tutorials/time-series-tutorial.adoc", "Time Series Tutorial"),
+            ]),
+            ("API & Drivers", [
+                ("tutorials/java-tutorial.adoc", "Java"),
+                ("tutorials/python-quickstart.adoc", "Python"),
+                ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
+                ("how-to/connectivity/http-csharp.adoc", "C#"),
+                ("how-to/connectivity/http-elixir.adoc", "Elixir"),
                 ("how-to/connectivity/http-nodejs.adoc", "HTTP from Node.js"),
-                ("how-to/connectivity/http-csharp.adoc", "HTTP from C#"),
-                ("how-to/connectivity/http-elixir.adoc", "HTTP from Elixir"),
                 ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
-                ("how-to/connectivity/bolt.adoc", "Neo4j Bolt Protocol"),
+                ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
             ]),
             # Data Modeling reads as a learning path top-to-bottom:
             #   1. The big picture (multi-model)

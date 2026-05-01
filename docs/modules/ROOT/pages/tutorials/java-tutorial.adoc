@@ -1,5 +1,9 @@
 [[java-tutorial]]
-= 10-Minute Tutorial (Embedded)
+= Java
+
+The Java API is the primary interface to ArcadeDB. Use it in **embedded** mode to run the database inside your JVM (no separate server process), or in **remote** mode to talk to a running ArcadeDB Server over HTTP.
+
+== Embedded
 
 You can create a new database from scratch or open an existent one.
 Most of the API works in both synchronous and asynchronous modes.
@@ -20,7 +24,7 @@ You can also use a relative path like `databases/mydb`.
 NOTE: A `xref:reference/java-api/java-ref-database-factory.adoc#databasefactory[DatabaseFactory]` object doesn't hold the `xref:concepts/basics.adoc#database-url[Database]` instances.
 It's up to you to close them once you have finished.
 
-== Create a new database
+=== Create a new database
 
 To create a new database from scratch, use the `.create()` method in `xref:reference/java-api/java-ref-database-factory.adoc#databasefactory[DatabaseFactory]` class.
 If the database already exists, an exception is thrown.
@@ -38,7 +42,7 @@ try( Database db = databaseFactory.create(); ){
 The database instance `db` is ready to be used inside the try block.
 The `xref:concepts/basics.adoc#database-url[Database]` instance extends Java7 `AutoClosable` interface, that means the database is closed automatically when the Database variable reaches out of the scope.
 
-== Open an existent database
+=== Open an existent database
 
 If you want to open an existent database, use the `open()` method instead:
 
@@ -64,7 +68,7 @@ By letting know to ArcadeDB that you're not changing the database, a lot of opti
 
 If you open a database in READ_ONLY mode, no lock file is created, so the same database could be opened in READ_ONLY mode by another process at the same time.
 
-== Write your first transaction
+=== Write your first transaction
 
 Either if you create or open a database, in order to use it, you have to execute your code inside a transaction, in this way:
 
@@ -105,7 +109,7 @@ In case you want to manually rollback the transaction at a certain point (like w
 
 Once you have your database instance (in this tutorial the variable `db` is used), you can create/update/delete records and execute queries.
 
-== Write your first document object
+=== Write your first document object
 
 Let's start now populating the database by creating our first document of type "Customer".
 What is a document?
@@ -145,7 +149,7 @@ try( Database db = databaseFactory.open(); ){
 
 You can create types and records in the same transaction.
 
-== Execute a Query
+=== Execute a Query
 
 Once we have our database populated, how to extract data from it?
 Simple, with a query.
@@ -191,7 +195,7 @@ try( Database db = databaseFactory.open(); ){
 
 By using a map, parameters are referenced by name (`:age` and `:city` in this example).
 
-== Create a Graph
+=== Create a Graph
 
 Now that we're familiar with the most basic operations, let's see how to work with graphs.
 Before creating our vertices and edges, we have to create both vertex and edge types beforehand.
@@ -237,7 +241,7 @@ Use always bidirectional unless you want to avoid creating super-nodes when it's
 Note also that we stored a property "since = 2010" in the edge.
 That's right, edges can have properties like vertices.
 
-== Traverse the Graph
+=== Traverse the Graph
 
 What do you do with a brand new graph?
 Traversing, of course!
@@ -264,7 +268,7 @@ You have total control on the query/traversal.
 With the SQL, you can combine the `SELECT` with the `MATCH` statement to create powerful traversals in a just few lines.
 You could use Apache Gremlin if you're coming from another GraphDB that supports this language.
 
-=== Traverse via API
+==== Traverse via API
 
 In order to start traversing a graph, you need your root vertex (in some cases you want to start from multiple root vertices).
 You can load your root vertex by its RID (Record ID), via the indexes properties or via a SQL query.
@@ -365,7 +369,7 @@ try( Database db = databaseFactory.open(); ){
 }
 ----
 
-=== Traverse via SQL
+==== Traverse via SQL
 
 By using SQL, you can do the traversal by using SELECT:
 
@@ -389,7 +393,7 @@ try( Database db = databaseFactory.open(); ){
 }
 ----
 
-=== Traverse via Apache Gremlin
+==== Traverse via Apache Gremlin
 
 Since ArcadeDB is 100% compliant with Gremlin 3.7.x, you can run this query against the Apache xref:reference/gremlin/gremlin.adoc#gremlin-server[Gremlin Server] configured with ArcadeDB:
 
@@ -400,7 +404,7 @@ g.V().has('name','Michelle').has('lastName','Besso').out('IsFriendOf');
 
 For more information about Apache Gremlin see: xref:reference/gremlin/gremlin.adoc#gremlin-api[Gremlin API] support
 
-=== Traverse via Open Cypher
+==== Traverse via Open Cypher
 
 ArcadeDB supports also Open Cypher.
 The same query would be the following:
@@ -413,3 +417,44 @@ RETURN friend.name, friend.lastName
 ----
 
 For more information about Cypher see: xref:reference/cypher/chapter.adoc#cypher[Cypher] support
+
+[[remote-tutorial]]
+== Remote
+
+When ArcadeDB runs as a separate server process, your Java application can talk to it over HTTP/JSON. The protocol is simple: every modern programming language can drive it, and on the Java side `RemoteDatabase` wraps the same `Database` API you use in embedded mode.
+
+The examples below use https://curl.se/[`curl`] for clarity. Every request is authenticated via HTTP basic authentication; in this tutorial we use the `root` user with password `arcadedb-password`.
+
+NOTE: On Windows (PowerShell) single and double quotes inside a quoted string need to be replaced with their Unicode entity representations -- `"` (double quote) and `'` (single quote). This applies to the data argument (`-d`) of POST requests.
+
+Create an empty database called `school`:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{ "command": "create database school" }' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Create a document type:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{ "language": "sql", "command": "create document type Class"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Insert a record using SQL parameters:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{ "language": "sql", "command": "insert into Class set name = :name, location = :location", "params": { "name": "English", "location": "3rd floor" }}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+For the full reference -- every endpoint, request shape, response shape -- see the xref:reference/http-api/http.adoc#http-json-api[HTTP/JSON API] page.
