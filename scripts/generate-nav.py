@@ -175,7 +175,6 @@ NAV_STRUCTURE: list[dict] = [
             ]),
             (("how-to/integrations/chapter.adoc", "BI & Analytics"), [
                 ("how-to/connectivity/jdbc.adoc", "JDBC Driver"),
-                ("how-to/connectivity/grafana.adoc", "Grafana Datasource"),
                 ("how-to/integrations/apache-superset.adoc", "Apache Superset"),
                 ("how-to/integrations/grafana.adoc", "Grafana"),
                 "how-to/integrations/metabase.adoc",
