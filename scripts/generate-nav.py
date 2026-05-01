@@ -46,7 +46,6 @@ NAV_STRUCTURE: list[dict] = [
                 "tutorials/what-is-arcadedb.adoc",
                 "tutorials/run.adoc",
                 ("how-to/operations/docker.adoc", "Quick Start with Docker"),
-                "tutorials/multimodel.adoc",
             ]),
             ("Build Applications", [
                 "tutorials/embed-server.adoc",

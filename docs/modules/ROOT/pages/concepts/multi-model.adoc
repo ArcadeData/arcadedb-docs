@@ -1,9 +1,16 @@
 [[multi-model]]
 = Multi-Model Architecture
 
-ArcadeDB is a multi-model database that natively supports documents, graphs, key-value, time series, and vector search within a single engine.
+[[multi-model-tutorial]]
+ArcadeDB is a multi-model database that natively supports documents, graphs, key-value, time series, full-text search, and vector embeddings within a single engine.
 All models share the same storage layer, the same transaction manager, and the same query infrastructure.
 This design eliminates the need for polyglot persistence -- the practice of running separate specialized databases for different data models -- and the operational complexity that comes with it.
+
+image::https://arcadedb.com/assets/images/arcadedb-multimodel.png[align="center"]
+
+ArcadeDB is a true **Multi-Model** DBMS, combining all the features of the supported models into one core.
+This is not just a thin layer of interfaces over a single underlying engine, as is common in other "multi-model" databases.
+The ArcadeDB engine itself was built from the ground up to support every model, which is why it can deliver speed and scalability that bolt-on approaches cannot.
 
 == Why Multi-Model Matters
 
@@ -221,42 +228,214 @@ ArcadeDB natively supports **six data models**: Graph, Document, Key-Value, Full
 
 == Supported Data Models
 
+[[document-model]]
 [discrete]
-=== Documents
+=== Document Model
 
-xref:tutorials/multimodel.adoc#document-model[Documents] are the foundational record type.
-They store data as JSON-like structures with nested properties, lists, and maps.
+The data in this model is stored inside documents.
+A document is a set of key/value pairs (also referred to as fields or properties), where the key allows access to its value.
+Values can hold primitive data types, embedded documents, or arrays of other values.
+Documents are not typically forced to have a schema, which can be advantageous because they remain flexible and easy to modify.
+Documents are stored in collections, enabling developers to group data as they decide.
+ArcadeDB uses the concepts of "xref:concepts/basics.adoc#types[Types]" and "xref:concepts/basics.adoc#buckets[Buckets]" as its form of "collections" for grouping documents.
+
+ArcadeDB's document model also adds the concept of a "xref:concepts/basics.adoc#relationships[Relationship]" between documents.
+You can decide whether to embed documents or link to them directly.
+When you fetch a document, all the links are automatically resolved by ArcadeDB.
+This is a major difference compared to other document databases, like MongoDB or CouchDB, where the developer must handle every relationship between documents themselves.
+
 Types can operate in schema-full mode (all properties declared), schema-less mode (no schema constraints), or xref:concepts/schema.adoc#schema[schema-hybrid] mode where some properties are enforced while others remain free-form.
 Document types support xref:concepts/inheritance.adoc#inheritance[inheritance], allowing a subtype to extend a parent type and inherit its properties.
 
-[discrete]
-=== Graph
+[%header,cols=3]
+|===
+| Relational Model | Document Model   | ArcadeDB Document Model
+| Table            | Collection       | xref:concepts/basics.adoc#types[Type] or xref:concepts/basics.adoc#buckets[Bucket]
+| Row              | Document         | Document
+| Column           | Key/value pair   | Document property
+| Relationship     | not available    | xref:concepts/basics.adoc#relationships[Relationship]
+|===
 
-The xref:concepts/graphs.adoc#graph-database[graph model] represents data as vertices and edges with properties.
+[[graph-model]]
+[discrete]
+=== Graph Model
+
+A graph represents a network-like structure consisting of Vertices (also known as Nodes) interconnected by Edges (also known as Arcs).
+ArcadeDB's graph model is represented by the concept of a property graph, which defines the following:
+
+* **Vertex** - an entity that can be linked with other vertices and has the following mandatory properties:
+** unique identifier
+** set of incoming edges
+** set of outgoing edges
+** label that defines the type of vertex
+
+* **Edge** - an entity that links two vertices and has the following mandatory properties:
+** unique identifier
+** link to an incoming vertex (also known as head)
+** link to an outgoing vertex (also known as tail)
+** label that defines the type of connection/relationship between head and tail vertex
+
+In addition to mandatory properties, each vertex or edge can also hold a set of custom properties, which makes vertices and edges look similar to documents.
 Edges are first-class citizens stored in their own types -- not join tables or adjacency lists bolted onto a relational schema.
 ArcadeDB supports two kinds of edges: **lightweight edges** for simple relationships that carry no properties, and **regular edges** for relationships that need their own attributes such as weight, timestamp, or label.
 Graph traversal operates at O(1) complexity per hop through index-free adjacency.
 
-[discrete]
-=== Key-Value
+[%header,cols=3]
+|===
+| Relational Model | Graph Model              | ArcadeDB Graph Model
+| Table            | Vertex and Edge Types    | Type
+| Row              | Vertex                   | Vertex
+| Column           | Vertex and Edge property | Vertex and Edge property
+| Relationship     | Edge                     | Edge
+|===
 
+[[keyvalue-model]]
+[discrete]
+=== Key/Value Model
+
+This is the simplest model.
+Everything in the database can be reached by a key, where the values can be simple or complex types.
+ArcadeDB supports documents and graph elements as values, allowing for a richer model than what you would normally find in a typical key/value store.
 Every record in ArcadeDB is accessible by its xref:concepts/basics.adoc#rid[Record ID (RID)] at O(1) complexity, making the entire database function as a key-value store.
-Buckets can also serve as dedicated key-value namespaces where records are inserted and retrieved by RID without requiring a type schema.
-This model is useful for caching, session storage, and any scenario where direct access by identifier is the primary pattern.
+xref:concepts/basics.adoc#buckets[Buckets] can also serve as dedicated key-value namespaces where records are inserted and retrieved by RID without requiring a type schema.
+
+The most typical use cases of the Key/Value model are:
+
+- POST the value as payload of an HTTP call -> `/<bucket>/<key>`
+- GET the value as payload from an HTTP call -> `/<bucket>/<key>`
+- DELETE the value by Key, by calling the HTTP call -> `/<bucket>/<key>`
+
+[%header,cols=3]
+|===
+| Relational Model | Key/Value Model   | ArcadeDB Key/Value Model
+| Table            | Bucket            | xref:concepts/basics.adoc#buckets[Bucket]
+| Row              | Key/Value pair    | Document
+| Column           | not available     | Document field or Vertex/Edge property
+| Relationship     | not available     | xref:concepts/basics.adoc#relationships[Relationship]
+|===
+
+[[searchengine-model]]
+[discrete]
+=== Search-Engine Model
+
+The search engine model is based on a full-text variant of the xref:concepts/indexes.adoc#indexes[LSM-Tree index].
+To index each word, the necessary tokenization is performed by the https://lucene.apache.org[Apache Lucene] library.
+A full-text index is xref:reference/sql/sql-create-index.adoc#sql-create-index[created just like any other index] in ArcadeDB and participates in the same transaction as the rest of the database.
+
+[[timeseries-model]]
+[discrete]
+=== Time-Series Model
+
+ArcadeDB includes a native xref:concepts/timeseries.adoc#timeseries[time-series] engine designed for high-throughput ingestion and fast analytical queries over timestamped data.
+The Time-Series model is integrated directly into the multi-model core -- the same database that stores graphs, documents, and key/value pairs can store and query billions of time-stamped samples with specialized columnar compression, SIMD-vectorized aggregation, and automatic lifecycle management.
+
+Key capabilities:
+
+- **Columnar storage** with Gorilla, Delta-of-Delta, Simple-8b, and Dictionary compression -- as low as 0.4 bytes per sample
+- **Shard-per-core parallelism** with lock-free writes
+- **InfluxDB Line Protocol** ingestion for compatibility with Telegraf, Grafana Agent, and hundreds of collection agents
+- **Prometheus remote_write / remote_read** protocol for drop-in Prometheus backend usage
+- **PromQL query language** with native parser and HTTP-compatible API endpoints
+- **SQL analytical functions** -- `ts.timeBucket`, `ts.rate`, `ts.percentile`, `ts.interpolate`, and more
+- **Continuous aggregates**, **retention policies**, and **downsampling tiers** for automatic data lifecycle
+- **Grafana integration** via DataFrame-compatible endpoints
+- **Studio TimeSeries Explorer** with query, schema inspection, ingestion docs, and PromQL tabs
+
+For the full reference, including DDL syntax, ingestion methods, SQL functions, PromQL support, and Grafana integration, see xref:concepts/timeseries.adoc#timeseries[Time Series].
+
+[[vector-model]]
+[discrete]
+=== Vector Model
+
+ArcadeDB provides a high-performance vector indexing solution using the LSMVectorIndex, which is built on the https://github.com/jelmerk/jvector[JVector library].
+It implements the https://arxiv.org/abs/1603.09320[hierarchical navigable small world] (HNSW) algorithm and the Vamana (DiskANN) algorithm for efficient approximate nearest neighbor (ANN) search on multi-dimensional vector data.
+
+The LSMVectorIndex combines the HNSW algorithm with ArcadeDB's LSM-Tree architecture, providing:
+
+- **Persistent Storage**: Vector indexes are stored on disk with automatic page management and compaction
+- **Transaction Support**: Full ACID compliance with automatic persistence on transaction commit
+- **Multiple Similarity Functions**: Supports COSINE (default), DOT_PRODUCT, EUCLIDEAN, and others
+- **SQL Integration**: Create and query vector indexes using SQL commands
+- **Automatic Compaction**: Efficiently reclaims disk space through automatic compaction of immutable pages
+- **High Performance**: LSM-Tree benefits for write efficiency and space optimization at scale
+- **Quantization**: INT8 and BINARY quantization for memory reduction
 
 [discrete]
-=== Time Series
+==== SQL Example
 
-The xref:concepts/timeseries.adoc#timeseries[time series] engine provides columnar storage with Gorilla XOR compression for floats and Delta-of-Delta encoding for timestamps, achieving 0.4 to 1.4 bytes per sample.
-Ingestion supports the InfluxDB Line Protocol, making it compatible with Telegraf, Grafana Agent, and hundreds of collection agents.
-Queries use PromQL for monitoring workloads or SQL analytical functions such as `ts.timeBucket`, `ts.rate`, and `ts.percentile` for custom analysis.
+Create a vector index and query it:
+
+[source,sql]
+----
+-- Create vertex type and property
+CREATE VERTEX TYPE Document;
+CREATE PROPERTY Document.content STRING;
+CREATE PROPERTY Document.embedding ARRAY_OF_FLOATS;
+
+-- Create vector index with 384 dimensions using COSINE similarity
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  dimensions: 384,
+  similarity: 'COSINE'
+};
+
+-- Query for the 10 nearest documents
+-- Returns rows with .record (full document) and .distance (0 = identical for COSINE)
+SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+----
 
 [discrete]
-=== Vector Search
+==== Java Example
 
-xref:concepts/vector-search.adoc#vector-search-concepts[Vector search] enables similarity-based retrieval using the LSMVectorIndex.
-The index implements both HNSW and Vamana (DiskANN) algorithms from JVector, supports COSINE, DOT_PRODUCT, and EUCLIDEAN similarity functions, and offers INT8 and BINARY quantization for memory reduction.
-Vector indexes participate in ACID transactions and integrate directly into SQL queries through functions like `vectorNeighbors()`.
+Create and query a vector index programmatically:
+
+[source,java]
+----
+import com.arcadedb.index.lsm.LSMVectorIndex;
+import com.arcadedb.index.lsm.LSMVectorIndexBuilder;
+import com.arcadedb.index.vector.VectorSimilarityFunction;
+
+// Create index programmatically
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .withDimensions(384)
+    .withSimilarity(VectorSimilarityFunction.COSINE)
+    .withMaxConnections(16)
+    .withBeamWidth(100);
+
+final LSMVectorIndex index = builder.create();
+
+// Query the index using SQL
+final ResultSet resultSet = database.query("sql",
+    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
+    queryVector);
+----
+
+[[additional-settings]]
+[discrete]
+==== Configuration Parameters
+
+When creating LSMVectorIndex instances, the following parameters can be configured:
+
+- `dimensions`: The dimensionality of the vectors (must match your embedding model output)
+- `similarity`: The distance function for similarity calculation (COSINE, DOT_PRODUCT, EUCLIDEAN, etc.)
+- `maxConnections`: Maximum number of connections per layer in the HNSW graph (default: 16, increase for better recall)
+- `beamWidth`: Beam width for approximate nearest neighbor search (default: 100, increase for more accurate results)
+
+[[similarity]]
+[discrete]
+==== Supported Similarity Functions
+
+[%header,cols=3]
+|===
+| Measure | Name | Type
+| `COSINE` | https://en.wikipedia.org/wiki/Cosine_similarity[Cosine Similarity] | L~2~
+| `DOT_PRODUCT` | https://en.wikipedia.org/wiki/Dot_product[Inner Product] | L~2~
+| `EUCLIDEAN` | https://en.wikipedia.org/wiki/Euclidean_distance[Euclidean Distance] | L~2~
+|===
+
+For more information on vector embeddings, see the xref:reference/java-api/java-vectors.adoc#java-vectors[Vector Embeddings] section.
 
 == Unified Query Layer
 
