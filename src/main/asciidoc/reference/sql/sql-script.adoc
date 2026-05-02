@@ -456,19 +456,17 @@ The upsert script itself:
 BEGIN;
 
 -- 1. Upsert the city. UNIQUE index on City.name makes this atomic.
-UPDATE City    SET name = 'London', country = 'UK'
-       UPSERT  WHERE name = 'London';
+--    `RETURN AFTER` returns the upserted row directly, so we capture
+--    the vertex (and its RID) in $city without a second roundtrip.
+LET city    = UPDATE City SET name = 'London', country = 'UK'
+              UPSERT RETURN AFTER WHERE name = 'London';
 
 -- 2. Upsert the person. UNIQUE index on Account.email makes this atomic.
-UPDATE Account SET name = 'Luke', email = 'luke@example.com',
-                   updatedAt = sysdate()
-       UPSERT  WHERE email = 'luke@example.com';
+LET account = UPDATE Account SET name = 'Luke', email = 'luke@example.com',
+                                 updatedAt = sysdate()
+              UPSERT RETURN AFTER WHERE email = 'luke@example.com';
 
--- 3. Look up both vertices for the edge step.
-LET city    = SELECT FROM City    WHERE name  = 'London';
-LET account = SELECT FROM Account WHERE email = 'luke@example.com';
-
--- 4. Idempotently connect them. CREATE EDGE has no UPSERT clause,
+-- 3. Idempotently connect them. CREATE EDGE has no UPSERT clause,
 --    so check for an existing edge first.
 LET existing = SELECT FROM Lives
                 WHERE @out = $account[0] AND @in = $city[0];
@@ -484,7 +482,7 @@ RETURN (SELECT FROM Lives
 
 What makes this a *real* upsert:
 
-* *Vertices* — `UPDATE ... UPSERT WHERE` either updates the existing row matched by the unique key or inserts a new one. Run the script twice with the same `email`/`name` and you still end up with exactly one `Account` and one `City`.
+* *Vertices* — `UPDATE ... UPSERT WHERE` either updates the existing row matched by the unique key or inserts a new one. The `RETURN AFTER` clause makes the statement emit the upserted row (with `@rid`) regardless of which branch was taken, so we capture it into a `LET` variable in one statement instead of issuing a separate `SELECT` lookup. Run the script twice with the same `email`/`name` and you still end up with exactly one `Account` and one `City`.
 * *Edge* — `CREATE EDGE` does not have its own `UPSERT` clause, so the script does the equivalent by hand: a `SELECT` against the edge's `@out`/`@in` endpoints, then `CREATE EDGE` only when the lookup is empty. Re-running the script does not produce duplicate edges.
 * *Concurrency* — the whole `BEGIN ... COMMIT RETRY 100` block is the unit that gets retried. If two clients run this script at the same time and one of them hits a `NeedRetryException` (typically from the unique-index conflict), the server transparently rolls back and re-executes the block up to 100 times.
 
