@@ -4,29 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is the ArcadeDB documentation repository, which generates HTML and PDF documentation from AsciiDoc source files. **A migration to [Antora](https://antora.org/) is in progress on the `feat/antora` branch** — see "Documentation Pipeline" below.
+This is the ArcadeDB documentation repository. It produces the HTML site at `docs.arcadedb.com` (built with [Antora](https://antora.org/)) and the `ArcadeDB-Manual.pdf` (built with the Asciidoctor Maven plugin). Both pipelines read from the same canonical AsciiDoc sources in `src/main/asciidoc/`.
 
-## Documentation Pipeline (transitional state)
+## Documentation Pipeline
 
-The repo currently runs two HTML pipelines in parallel:
+Two outputs, one source tree:
 
-- **Legacy (production)**: `mvn generate-resources` → single-page HTML + `ArcadeDB-Manual.pdf`. Source: `src/main/asciidoc/`. Deployed to `docs.arcadedb.com` via `.github/workflows/cloudflare-deploy.yml`.
-- **Antora (preview, `feat/antora` branch only)**: `npm run build` → multi-page site at `build/site/`. Source: `docs/modules/ROOT/{pages,images}/`, **regenerated from `src/main/asciidoc/` by `scripts/migrate.sh`**. Deployed to a Cloudflare Pages preview branch via `.github/workflows/antora-preview.yml`.
+- **HTML site (production)** — `docs.arcadedb.com` is the Antora build. The Antora playbook reads from `docs/modules/ROOT/{pages,images}/`, which is **regenerated from `src/main/asciidoc/` on every CI run by `scripts/migrate.sh`** (it wipes and rebuilds the `docs/modules/ROOT/` tree). Deploy workflow: `.github/workflows/cloudflare-deploy.yml` — on every push to `main` it does `npm ci` → `bash scripts/migrate.sh` → `npm run build` → `wrangler pages deploy build/site` to the `arcadedb-docs` Cloudflare Pages project.
+- **PDF (production)** — `ArcadeDB-Manual.pdf` is built by `mvn` from `src/main/asciidoc/` directly. Workflow: `.github/workflows/pdf.yml`.
 
-**Where to edit content**: `src/main/asciidoc/` remains the canonical source. After editing, run `scripts/migrate.sh` to refresh `docs/modules/ROOT/` (or rely on CI to do it). The migration is end-to-end re-runnable — it wipes and rebuilds `docs/modules/ROOT/{pages,images}` on every invocation.
+**Where to edit content**: `src/main/asciidoc/` is the only place to edit. CI runs `scripts/migrate.sh` automatically on push to `main`, so you do **not** need to run it by hand. Only run it locally if you want to preview the Antora site before pushing.
 
-The PDF build is unchanged — it still reads from `src/main/asciidoc/`.
+The legacy single-page Asciidoctor HTML build (`mvn generate-resources` → `target/generated-docs/index.html`) still works and is useful for quick local previews of `src/main/asciidoc/` edits, but it is no longer deployed anywhere — `docs.arcadedb.com` is Antora.
 
 ## Building and Serving Documentation
 
-### Generate legacy HTML + PDF
-```shell
-mvn generate-resources
-```
-
-Output is generated in `target/generated-docs/`
-
-### Build the Antora site
+### Preview the Antora site (matches what's live)
 ```shell
 npm ci
 bash scripts/migrate.sh
@@ -34,29 +27,23 @@ npm run build      # build/site/
 npm run serve      # http://localhost:8080
 ```
 
-### Enable Algolia DocSearch (after approval)
-
-DocSearch is wired into the UI but stays hidden until credentials are
-provisioned. When the application is approved:
-
-1. Add three secrets to the GitHub repo (Settings → Secrets → Actions):
-   - `ALGOLIA_APP_ID`
-   - `ALGOLIA_API_KEY` (the **search-only** key, not the admin key)
-   - `ALGOLIA_INDEX_NAME` (defaults to `arcadedb` in `antora-playbook.yml`)
-2. Re-run the `Antora Preview` workflow. The search box appears in the
-   navbar; pressing Cmd/Ctrl+K opens the DocSearch modal.
-
-The CI step in `.github/workflows/antora-preview.yml` detects whether
-`ALGOLIA_APP_ID` is set and conditionally passes `--key
-site.keys.algolia_*=...` to Antora. Locally, set the same env vars
-plus `SITE_SEARCH_PROVIDER=algolia` if you want to preview search.
-
-### Serve documentation locally
+### Quick single-page HTML preview (no Antora, no migrate)
 ```shell
-mvn jetty:run
+mvn generate-resources                   # → target/generated-docs/index.html
+```
+Or for a live-served version:
+```shell
+mvn jetty:run                            # http://localhost:8080
 ```
 
-Then open http://localhost:8080
+### Build the PDF
+```shell
+mvn -Pgenerate-pdf generate-resources    # → target/generated-docs/ArcadeDB-Manual.pdf
+```
+
+### Algolia DocSearch
+
+DocSearch is wired into the Antora UI bundle. It's enabled in CI when the `ALGOLIA_APP_ID`, `ALGOLIA_API_KEY` (search-only key), and `ALGOLIA_INDEX_NAME` repo secrets are set — `cloudflare-deploy.yml` and `antora-preview.yml` both pick them up and turn on the search UI by setting `SITE_SEARCH_PROVIDER=algolia`. Locally, export the same three env vars plus `SITE_SEARCH_PROVIDER=algolia` before `npm run build` to preview search.
 
 ### Using Docker (no local Maven installation needed)
 ```shell
@@ -189,4 +176,4 @@ This repository uses:
 - Main branch: `main`
 - Mergify for automated PR merging (`.mergify.yml`)
 - GitHub Actions for validation on every push/PR
-- Netlify for deployment (badge in README.md)
+- Cloudflare Pages for deployment of `docs.arcadedb.com` (`cloudflare-deploy.yml`)
