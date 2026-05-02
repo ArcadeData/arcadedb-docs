@@ -41,6 +41,88 @@ mvn jetty:run                            # http://localhost:8080
 mvn -Pgenerate-pdf generate-resources    # → target/generated-docs/ArcadeDB-Manual.pdf
 ```
 
+## Animated SVG diagrams — house style
+
+When the user asks for an animated SVG, follow this template. Two examples already use it: the polyglot-persistence panels on `concepts/multi-model.adoc` (`.ppd-*` classes) and the bucket-selection animation on `concepts/basics.adoc` (`.bss-*` classes). Stick to the same conventions so all diagrams feel of a piece.
+
+### Where things go
+
+- **The `<svg>` markup** lives inline in the AsciiDoc page, wrapped in `++++` passthrough fences so Asciidoctor leaves it alone.
+- **The CSS** goes in **two** places (one for each pipeline), with identical content:
+  - `src/main/asciidoc/docinfo.html` — for the legacy single-page build.
+  - `docs/ui/supplemental/css/arcadedb.css` — for the Antora build that serves `docs.arcadedb.com`. **This is the file the live site uses.** Forgetting to mirror styles here means the live site renders unstyled (it's how the function-badge bug happened — only the legacy file was updated).
+- **One CSS class prefix per diagram** (`.ppd-*`, `.bss-*`, …). Pick a 2-3 letter prefix from the topic and apply it to every element in that diagram so styles never collide between diagrams.
+
+### Color palette (use these, don't invent new ones)
+
+CSS variables to prefer for chrome/text:
+
+- `--color-text-primary` (`#1A1D23`) — primary labels, dot fill
+- `--color-text-secondary` (`#4A5568`) — captions, sub-labels
+- `--color-border` (`#E2E8F0`) — neutral box strokes
+- `--color-border-light` (`#EDF2F7`) — divider lines
+- `--color-primary` (`#0066CC`) — accent for the "good" / ArcadeDB-branded path
+
+Brand accent palette for color-coded actors / categories (use in this order so multi-actor diagrams look consistent):
+
+- Blue: stroke `#93C5FD`, text/dot `#0066CC`
+- Purple: stroke `#C4B5FD`, text/dot `#7C3AED` (or text `#65A30D` for the lime variant)
+- Green: stroke `#6EE7B7`, text `#10B981` / `#047857` (dot `#10B981`)
+- Lime: stroke `#84CC16`, text `#65A30D` (used for MongoDB in the polyglot diagram)
+- Red: stroke `#FCA5A5`, text `#EF4444` / `#B91C1C` (used to mark "bad totals")
+- Yellow: stroke `#FCD34D`, text `#F59E0B`
+
+Use translucent fills (`rgba(R,G,B,0.08-0.12)`) for emphasised "totals" boxes, never as primary fills.
+
+### Geometry & box style
+
+- `viewBox="0 0 1200 <height>"` — pick the height; CSS scales width responsively. For multi-panel diagrams, stack panels vertically at ~300-320 px each separated by a `<line class="…-divider" stroke-dasharray="4 6"/>`.
+- All rects: `rx="8"` (small boxes), `rx="10"` (large containers), `rx="999"` for pills.
+- Stroke-width: `1.5` everywhere; stroke is colored, fill is `#fff` (or `#FAFBFC` for the "engine" / hash containers).
+- Connectors: `stroke-width: 2` for live data paths, `1.5` for layout dividers; `stroke-linecap: round`; `stroke-dasharray: 4 4` for "schematic" connectors, solid for active flows. Use `opacity: 0.35-0.55` on connectors so the dots stand out.
+- Dots traveling along paths: `<circle r="7">` filled with the actor's brand color, `stroke="#fff" stroke-width="1"`.
+
+### Font sizes (post-2026-05 bump)
+
+These are the sizes that read well on a 1200px-wide diagram. Use the same scale for new diagrams.
+
+- Section title: **29px**, weight 700, `letter-spacing: 0.06em`, color `--color-text-secondary`
+- Section subtitle / caption: **21px**, italic, `--color-text-secondary`
+- Box label / actor title: **20-21px**, weight 600-700
+- Box subtitle (e.g. file name under a bucket): **17px**, `--color-text-secondary`
+- Lane / thread label: **18px**, weight 700, `letter-spacing: 0.05em`
+- Code-style label inside a box (e.g. `hash(id) % 3`): **20px**, weight 700, `font-family: var(--font-code)`
+
+If the user asks for "bigger / smaller", scale the whole set proportionally — don't tweak one element in isolation.
+
+### Animation pattern (SMIL)
+
+The whole pattern is dots fading in, gliding along a labeled path, then fading out — repeating forever. Implementation:
+
+1. Define each path with an `id` (`<path id="…-leg1" d="…" class="… …-conn-pg"/>`). Use cubic Bezier (`C`) curves for visually smooth flows.
+2. For each dot, render a `<circle r="7" class="… …-dot-pg" opacity="0">` containing:
+   - `<animateMotion id="…-leg1" begin="0s; …-legN.end+0.7s" dur="0.5s" fill="freeze"><mpath href="#…-leg1"/></animateMotion>` — `dur` is per-leg flight time, typically 0.5-1.2s.
+   - `<set attributeName="opacity" to="1" begin="0s; …-legN.end+0.7s"/>` — fade in *at the same time* the motion starts.
+   - `<set attributeName="opacity" to="0" begin="…-leg1.end"/>` — fade out when motion ends.
+3. Chain begin times: each leg starts a small delay (`+0.1s` to `+0.7s`) after the previous leg's `id.end`. The very first leg has a literal time (`0s`) **and** a "loop-back" time keyed off the last leg of the cycle, so the animation repeats forever without `repeatCount`.
+4. To run several actors in parallel (like the THREAD panel), give them all the same `begin` expression so they start in lockstep.
+
+This pattern works in every modern browser and degrades gracefully (the diagram is still readable as a static image if SMIL is disabled).
+
+### Accessibility & responsive
+
+- Always set `role="img"` and `aria-label="<one-sentence description of what the animation shows>"` on the outer `<svg>`.
+- In CSS: `@media (max-width: 700px) { .…-svg { display: none; } }` — diagrams at 1200px don't shrink to phones gracefully, so hide them on narrow viewports rather than ship a broken layout.
+
+### Process checklist when adding a new diagram
+
+1. Pick a 2-3 letter class prefix; reserve it (grep to confirm it's free).
+2. Sketch the panels at `viewBox="0 0 1200 <height>"`; align everything on a 10-px grid.
+3. Write the `<svg>` inline in the page, wrapped in `++++` … `++++`.
+4. Add the CSS to **both** `src/main/asciidoc/docinfo.html` and `docs/ui/supplemental/css/arcadedb.css`.
+5. Run `bash scripts/migrate.sh && npm run build` and inspect `build/site/<page>.html` to confirm the SVG and CSS arrived.
+6. Push — CI deploys to `docs.arcadedb.com`.
+
 ### Algolia DocSearch
 
 DocSearch is wired into the Antora UI bundle. It's enabled in CI when the `ALGOLIA_APP_ID`, `ALGOLIA_API_KEY` (search-only key), and `ALGOLIA_INDEX_NAME` repo secrets are set — `cloudflare-deploy.yml` and `antora-preview.yml` both pick them up and turn on the search UI by setting `SITE_SEARCH_PROVIDER=algolia`. Locally, export the same three env vars plus `SITE_SEARCH_PROVIDER=algolia` before `npm run build` to preview search.
