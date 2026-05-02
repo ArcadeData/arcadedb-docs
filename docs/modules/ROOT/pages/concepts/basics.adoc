@@ -98,7 +98,7 @@ Practically, this is done by xref:reference/sql/sql-types.adoc#sql-create-type[e
 Each type has its own <<buckets,buckets (data files)>>.
 A type can support multiple buckets.
 When you execute a query against a type, it automatically fetches from all the buckets that are part of the type.
-When you create a new record, ArcadeDB selects the bucket to store it in using a xref:reference/sql/sql-types.adoc#bucket-selection[configurable strategy].
+When you create a new record, ArcadeDB selects the bucket to store it in using a <<bucket-selection,configurable strategy>> -- round-robin, per-thread, or hashed by a property.
 
 As a default, ArcadeDB creates one bucket per type, but can be configured to for example to as many cores (processors) the host machine has, see xref:reference/settings.adoc#setting-database[`typeDefaultBuckets`].
 In this, CRUD operations can go full speed in parallel with zero contention between CPUs and/or cores.
@@ -221,6 +221,292 @@ This is the query to retrieve both Italian and Spanish customers.
 ----
 SELECT FROM BUCKET:[Customer_Europe_Italy,Customer_Europe_Spain]
 ----
+
+[[bucket-selection]]
+== Bucket Selection Strategy
+
+When a type is backed by more than one bucket, ArcadeDB has to decide which bucket should receive each new record.
+That decision is made by the type's *bucket selection strategy*.
+The strategy is set on the type (and inherited from the database default), so it is transparent to the application code that issues the `INSERT` or `CREATE`.
+
+ArcadeDB ships with three built-in strategies. The animation below shows how a stream of new records is dispatched under each one.
+
+++++
+<svg class="bss-svg" viewBox="0 0 1200 960"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Three animated panels comparing the round-robin, thread, and partitioned bucket-selection strategies in ArcadeDB.">
+
+  <!-- ============================================================
+       Panel 1 — ROUND-ROBIN (y 0..320)
+       ============================================================ -->
+  <text x="600" y="28" class="bss-section-label" text-anchor="middle">ROUND-ROBIN — next bucket in circular order</text>
+  <text x="600" y="50" class="bss-section-sub"   text-anchor="middle">default strategy: each new record goes to the next bucket, then wraps around</text>
+
+  <g class="bss-producer">
+    <rect x="80" y="120" width="200" height="80" rx="10"/>
+    <text x="180" y="155" text-anchor="middle" class="bss-producer-title">INCOMING RECORDS</text>
+    <text x="180" y="180" text-anchor="middle" class="bss-producer-title">stream of inserts →</text>
+  </g>
+
+  <g class="bss-bucket bss-bucket-0">
+    <rect x="950" y="100" width="200" height="50" rx="8"/>
+    <text x="1050" y="125" text-anchor="middle" class="bss-bucket-title">Bucket 0</text>
+    <text x="1050" y="142" text-anchor="middle" class="bss-bucket-sub">Customer_0</text>
+  </g>
+  <g class="bss-bucket bss-bucket-1">
+    <rect x="950" y="170" width="200" height="50" rx="8"/>
+    <text x="1050" y="195" text-anchor="middle" class="bss-bucket-title">Bucket 1</text>
+    <text x="1050" y="212" text-anchor="middle" class="bss-bucket-sub">Customer_1</text>
+  </g>
+  <g class="bss-bucket bss-bucket-2">
+    <rect x="950" y="240" width="200" height="50" rx="8"/>
+    <text x="1050" y="265" text-anchor="middle" class="bss-bucket-title">Bucket 2</text>
+    <text x="1050" y="282" text-anchor="middle" class="bss-bucket-sub">Customer_2</text>
+  </g>
+
+  <path id="bss-rr-to-0" d="M 280 160 C 600 160, 700 125, 950 125" class="bss-conn bss-conn-0"/>
+  <path id="bss-rr-to-1" d="M 280 160 C 600 160, 700 195, 950 195" class="bss-conn bss-conn-1"/>
+  <path id="bss-rr-to-2" d="M 280 160 C 600 160, 700 265, 950 265" class="bss-conn bss-conn-2"/>
+
+  <!-- six dots cycling 0,1,2,0,1,2 — repeat indefinitely. dur is the time of one dot's flight,
+       offsets are staggered by 0.7s so a steady stream is visible. -->
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion dur="0.9s" begin="0s; bss-rr6.end+0.6s" fill="freeze"><mpath href="#bss-rr-to-0"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; bss-rr6.end+0.6s"/>
+    <set attributeName="opacity" to="0" begin="0.9s; bss-rr6.end+1.5s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-1" opacity="0">
+    <animateMotion id="bss-rr2" dur="0.9s" begin="0.7s; bss-rr6.end+1.3s" fill="freeze"><mpath href="#bss-rr-to-1"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0.7s; bss-rr6.end+1.3s"/>
+    <set attributeName="opacity" to="0" begin="1.6s; bss-rr6.end+2.2s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-2" opacity="0">
+    <animateMotion id="bss-rr3" dur="0.9s" begin="1.4s; bss-rr6.end+2.0s" fill="freeze"><mpath href="#bss-rr-to-2"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="1.4s; bss-rr6.end+2.0s"/>
+    <set attributeName="opacity" to="0" begin="2.3s; bss-rr6.end+2.9s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion id="bss-rr4" dur="0.9s" begin="2.1s; bss-rr6.end+2.7s" fill="freeze"><mpath href="#bss-rr-to-0"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="2.1s; bss-rr6.end+2.7s"/>
+    <set attributeName="opacity" to="0" begin="3.0s; bss-rr6.end+3.6s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-1" opacity="0">
+    <animateMotion id="bss-rr5" dur="0.9s" begin="2.8s; bss-rr6.end+3.4s" fill="freeze"><mpath href="#bss-rr-to-1"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="2.8s; bss-rr6.end+3.4s"/>
+    <set attributeName="opacity" to="0" begin="3.7s; bss-rr6.end+4.3s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-2" opacity="0">
+    <animateMotion id="bss-rr6" dur="0.9s" begin="3.5s" fill="freeze"><mpath href="#bss-rr-to-2"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="3.5s; bss-rr6.end+4.1s"/>
+    <set attributeName="opacity" to="0" begin="4.4s; bss-rr6.end+5.0s"/>
+  </circle>
+
+  <line x1="60" y1="320" x2="1140" y2="320" class="bss-divider"/>
+
+  <!-- ============================================================
+       Panel 2 — THREAD (y 320..640)
+       ============================================================ -->
+  <text x="600" y="358" class="bss-section-label" text-anchor="middle">THREAD — each thread writes to its own bucket</text>
+  <text x="600" y="380" class="bss-section-sub"   text-anchor="middle">bucket = (thread id) mod (number of buckets) — concurrent inserts never contend on the same bucket</text>
+
+  <!-- Thread 1 -->
+  <text x="60"  y="430" class="bss-thread-label">THREAD T1</text>
+  <g class="bss-producer">
+    <rect x="140" y="410" width="160" height="40" rx="8"/>
+    <text x="220" y="436" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
+  </g>
+  <g class="bss-bucket bss-bucket-0">
+    <rect x="950" y="410" width="200" height="40" rx="8"/>
+    <text x="1050" y="436" text-anchor="middle" class="bss-bucket-title">Bucket 0 (Customer_0)</text>
+  </g>
+  <path id="bss-th-1" d="M 300 430 L 950 430" class="bss-conn bss-conn-0"/>
+
+  <!-- Thread 2 -->
+  <text x="60"  y="510" class="bss-thread-label">THREAD T2</text>
+  <g class="bss-producer">
+    <rect x="140" y="490" width="160" height="40" rx="8"/>
+    <text x="220" y="516" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
+  </g>
+  <g class="bss-bucket bss-bucket-1">
+    <rect x="950" y="490" width="200" height="40" rx="8"/>
+    <text x="1050" y="516" text-anchor="middle" class="bss-bucket-title">Bucket 1 (Customer_1)</text>
+  </g>
+  <path id="bss-th-2" d="M 300 510 L 950 510" class="bss-conn bss-conn-1"/>
+
+  <!-- Thread 3 -->
+  <text x="60"  y="590" class="bss-thread-label">THREAD T3</text>
+  <g class="bss-producer">
+    <rect x="140" y="570" width="160" height="40" rx="8"/>
+    <text x="220" y="596" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
+  </g>
+  <g class="bss-bucket bss-bucket-2">
+    <rect x="950" y="570" width="200" height="40" rx="8"/>
+    <text x="1050" y="596" text-anchor="middle" class="bss-bucket-title">Bucket 2 (Customer_2)</text>
+  </g>
+  <path id="bss-th-3" d="M 300 590 L 950 590" class="bss-conn bss-conn-2"/>
+
+  <!-- Two waves of dots, fired in parallel across the three threads. -->
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion id="bss-thA" dur="1.2s" begin="0s; bss-thB.end+1.0s" fill="freeze"><mpath href="#bss-th-1"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; bss-thB.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="1.2s; bss-thB.end+2.2s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-1" opacity="0">
+    <animateMotion dur="1.2s" begin="0s; bss-thB.end+1.0s" fill="freeze"><mpath href="#bss-th-2"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; bss-thB.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="1.2s; bss-thB.end+2.2s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-2" opacity="0">
+    <animateMotion dur="1.2s" begin="0s; bss-thB.end+1.0s" fill="freeze"><mpath href="#bss-th-3"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; bss-thB.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="1.2s; bss-thB.end+2.2s"/>
+  </circle>
+
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion id="bss-thB" dur="1.2s" begin="bss-thA.end+0.4s" fill="freeze"><mpath href="#bss-th-1"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-thA.end+0.4s"/>
+    <set attributeName="opacity" to="0" begin="bss-thA.end+1.6s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-1" opacity="0">
+    <animateMotion dur="1.2s" begin="bss-thA.end+0.4s" fill="freeze"><mpath href="#bss-th-2"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-thA.end+0.4s"/>
+    <set attributeName="opacity" to="0" begin="bss-thA.end+1.6s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-2" opacity="0">
+    <animateMotion dur="1.2s" begin="bss-thA.end+0.4s" fill="freeze"><mpath href="#bss-th-3"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-thA.end+0.4s"/>
+    <set attributeName="opacity" to="0" begin="bss-thA.end+1.6s"/>
+  </circle>
+
+  <line x1="60" y1="640" x2="1140" y2="640" class="bss-divider"/>
+
+  <!-- ============================================================
+       Panel 3 — PARTITIONED(id) (y 640..960)
+       ============================================================ -->
+  <text x="600" y="678" class="bss-section-label" text-anchor="middle">PARTITIONED(id) — bucket chosen by hashing the key</text>
+  <text x="600" y="700" class="bss-section-sub"   text-anchor="middle">same id always lands in the same bucket — the index lookup hits one sub-index instead of all of them</text>
+
+  <!-- Records with explicit id values -->
+  <g class="bss-record">
+    <rect x="80"  y="740" width="120" height="36" rx="6" stroke="#94A3B8"/>
+    <text x="140" y="763" text-anchor="middle">id = 42</text>
+  </g>
+  <g class="bss-record">
+    <rect x="80"  y="790" width="120" height="36" rx="6" stroke="#94A3B8"/>
+    <text x="140" y="813" text-anchor="middle">id = 17</text>
+  </g>
+  <g class="bss-record">
+    <rect x="80"  y="840" width="120" height="36" rx="6" stroke="#94A3B8"/>
+    <text x="140" y="863" text-anchor="middle">id = 99</text>
+  </g>
+  <g class="bss-record">
+    <rect x="80"  y="890" width="120" height="36" rx="6" stroke="#94A3B8"/>
+    <text x="140" y="913" text-anchor="middle">id = 33</text>
+  </g>
+
+  <!-- Hash function box in the middle -->
+  <g class="bss-hash">
+    <rect x="470" y="800" width="240" height="60" rx="10"/>
+    <text x="590" y="828" text-anchor="middle" class="bss-hash-title">hash(id) % 3</text>
+    <text x="590" y="848" text-anchor="middle" class="bss-section-sub">deterministic routing</text>
+  </g>
+
+  <!-- Buckets on the right -->
+  <g class="bss-bucket bss-bucket-0">
+    <rect x="950" y="740" width="200" height="50" rx="8"/>
+    <text x="1050" y="765" text-anchor="middle" class="bss-bucket-title">Bucket 0</text>
+    <text x="1050" y="782" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 0</text>
+  </g>
+  <g class="bss-bucket bss-bucket-1">
+    <rect x="950" y="810" width="200" height="50" rx="8"/>
+    <text x="1050" y="835" text-anchor="middle" class="bss-bucket-title">Bucket 1</text>
+    <text x="1050" y="852" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 1</text>
+  </g>
+  <g class="bss-bucket bss-bucket-2">
+    <rect x="950" y="880" width="200" height="50" rx="8"/>
+    <text x="1050" y="905" text-anchor="middle" class="bss-bucket-title">Bucket 2</text>
+    <text x="1050" y="922" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 2</text>
+  </g>
+
+  <!-- Path 1: record (140,758) → hash (470,830) → bucket -->
+  <path id="bss-pa-in-1" d="M 200 758 C 320 758, 380 830, 470 830" class="bss-conn"/>
+  <path id="bss-pa-in-2" d="M 200 808 C 320 808, 380 830, 470 830" class="bss-conn"/>
+  <path id="bss-pa-in-3" d="M 200 858 C 320 858, 380 830, 470 830" class="bss-conn"/>
+  <path id="bss-pa-in-4" d="M 200 908 C 320 908, 380 830, 470 830" class="bss-conn"/>
+
+  <!-- Hash → bucket paths. 42%3=0, 17%3=2, 99%3=0, 33%3=0. -->
+  <path id="bss-pa-out-0" d="M 710 830 C 820 830, 880 765, 950 765" class="bss-conn bss-conn-0"/>
+  <path id="bss-pa-out-1" d="M 710 830 C 820 830, 880 835, 950 835" class="bss-conn bss-conn-1"/>
+  <path id="bss-pa-out-2" d="M 710 830 C 820 830, 880 905, 950 905" class="bss-conn bss-conn-2"/>
+
+  <!-- record-1 (id=42) → hash → bucket 0  (42%3 = 0) -->
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion dur="0.7s" begin="0s; bss-pa4b.end+1.0s" fill="freeze"><mpath href="#bss-pa-in-1"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; bss-pa4b.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="0.7s; bss-pa4b.end+1.7s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion id="bss-pa1b" dur="0.7s" begin="0.75s; bss-pa4b.end+1.75s" fill="freeze"><mpath href="#bss-pa-out-0"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0.75s; bss-pa4b.end+1.75s"/>
+    <set attributeName="opacity" to="0" begin="1.45s; bss-pa4b.end+2.45s"/>
+  </circle>
+
+  <!-- record-2 (id=17) → hash → bucket 2  (17%3 = 2) -->
+  <circle r="7" class="bss-dot bss-dot-2" opacity="0">
+    <animateMotion dur="0.7s" begin="bss-pa1b.end+0.2s" fill="freeze"><mpath href="#bss-pa-in-2"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-pa1b.end+0.2s"/>
+    <set attributeName="opacity" to="0" begin="bss-pa1b.end+0.9s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-2" opacity="0">
+    <animateMotion id="bss-pa2b" dur="0.7s" begin="bss-pa1b.end+0.95s" fill="freeze"><mpath href="#bss-pa-out-2"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-pa1b.end+0.95s"/>
+    <set attributeName="opacity" to="0" begin="bss-pa1b.end+1.65s"/>
+  </circle>
+
+  <!-- record-3 (id=99) → hash → bucket 0  (99%3 = 0) -->
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion dur="0.7s" begin="bss-pa2b.end+0.2s" fill="freeze"><mpath href="#bss-pa-in-3"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-pa2b.end+0.2s"/>
+    <set attributeName="opacity" to="0" begin="bss-pa2b.end+0.9s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion id="bss-pa3b" dur="0.7s" begin="bss-pa2b.end+0.95s" fill="freeze"><mpath href="#bss-pa-out-0"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-pa2b.end+0.95s"/>
+    <set attributeName="opacity" to="0" begin="bss-pa2b.end+1.65s"/>
+  </circle>
+
+  <!-- record-4 (id=33) → hash → bucket 0  (33%3 = 0) -->
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion dur="0.7s" begin="bss-pa3b.end+0.2s" fill="freeze"><mpath href="#bss-pa-in-4"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-pa3b.end+0.2s"/>
+    <set attributeName="opacity" to="0" begin="bss-pa3b.end+0.9s"/>
+  </circle>
+  <circle r="7" class="bss-dot bss-dot-0" opacity="0">
+    <animateMotion id="bss-pa4b" dur="0.7s" begin="bss-pa3b.end+0.95s" fill="freeze"><mpath href="#bss-pa-out-0"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="bss-pa3b.end+0.95s"/>
+    <set attributeName="opacity" to="0" begin="bss-pa3b.end+1.65s"/>
+  </circle>
+</svg>
+++++
+
+[%header,cols="1,3,3"]
+|===
+| Strategy | How it picks a bucket | When to use it
+
+| `round-robin`
+| Each new record goes to the next bucket in circular order. Defaults to this when a type has multiple buckets.
+| The general-purpose default. Spreads writes evenly across buckets without any application-level coordination.
+
+| `thread`
+| The bucket is chosen as `(threadId mod numBuckets)`, so every thread always writes to the same bucket.
+| The fastest option for highly concurrent inserts. With one bucket per thread there is zero contention between threads on the same bucket page, since each thread owns a distinct file.
+
+| `partitioned(<property>)`
+| The value of the named property is hashed into a bucket index, so two records that share the same key always land in the same bucket.
+| When you query by that property afterwards. The lookup hits a single sub-index instead of scanning every bucket's index, which trades slightly slower inserts for much faster point reads.
+|===
+
+The strategy is inherited from a database-wide default (changeable with xref:reference/sql/sql-database-admin.adoc#sql-alter-database[`ALTER DATABASE`]) and can be overridden per type with xref:reference/sql/sql-types.adoc#sql-alter-type[`ALTER TYPE ... BucketSelectionStrategy`]. See the SQL reference under xref:reference/sql/sql-types.adoc#sql-bucket-selection[Bucket Selection Strategies] for the exact syntax.
 
 [[relationships]]
 == Relationships

@@ -1,210 +1,502 @@
 [[sql-script]]
 = SQL Script
 
-ArcadeDB allows execution of arbitrary scripts written in Javascript or any scripting language installed in the JVM.
+SQL Script (`sqlscript`) is ArcadeDB's server-side scripting engine.
+A script is a sequence of SQL statements -- including the regular DML/DDL commands plus a small set of script-only constructs (transactions, control flow, variables, locks) -- that the server parses and runs as a single unit.
 
-ArcadeDB supports a minimal SQL engine to allow a batch of commands, called "SQL Script" (`sqlscript`).
-Batches of commands are useful when you have to execute multiple things at the server side and avoiding the network roundtrip for each command.
+== Why use SQL Script
 
-The following list highlights the differences between `sql` and `sqlscript`:
+Single-statement SQL is fine for ad-hoc queries, but most real workloads (especially graph workloads) need to do several things together: look up a vertex, create another, connect them with an edge, then return the result.
+Doing that as separate client calls has two problems: each call pays a network round-trip, and there is no transaction across them.
 
-* `sqlscript` allows multiple statements, `sql` is limited to a single statement.
-* A `sqlscript` batch is automatically transaction, a `sql` query or command by itself is not.
-* `sqlscript` supports additional control flow constructs (i.e. loops and conditionals, see below).
+SQL Script solves both:
 
-NOTE: Given that `sqlscript` always induces transactions,
-      the transaction atomicity prerequisite of "all-or-nothing" applies to every `sqlscript` script.
+* *One round-trip instead of many.* The whole script is sent to the server once.
+  A graph mutation that takes 5 commands no longer pays 5x the latency -- the server runs them locally and sends back one response.
+* *Implicit transaction.* A script is automatically wrapped in a transaction (unless you open one yourself with `BEGIN`), so it is all-or-nothing: any failure rolls back the entire script.
+* *Automatic retry on conflict.* Wrap the body in `BEGIN ... COMMIT RETRY <n>` and ArcadeDB will retry the transaction on `NeedRetryException` (typically a concurrent-modification or transient lock-timeout). This is what lets you run the same script in parallel from many clients without writing your own retry loop -- the server resolves the contention.
+* *Server-side variables and control flow.* `LET`, `IF`, `WHILE`, `FOREACH`, `RETURN`, etc. let you express small pieces of imperative logic without leaving SQL.
 
-SQL Script supports all the ArcadeDB xref:reference/sql/chapter.adoc#sql-commands[SQL Commands], plus the following:
+A typical use case is a graph upsert: find or create a vertex, then attach an edge to it, possibly conditionally. With SQL Script that is one network call and one transaction; the server handles concurrency.
 
-* `BEGIN [isolation &lt;isolation-level&gt;]`, where `&lt;isolation-level&gt;` can be `READ_COMMITTED`, `REPEATABLE_READ`. By default is `READ_COMMITTED`
-* `LOCK &lt;lock-type&gt; &lt;id&gt;[,&lt;id&gt;]*`, where `&lt;lock-type&gt;` has to be `TYPE` or `BUCKET` followed by the respective types' or buckets' identifiers `&lt;id&gt;`
-* `COMMIT [retry &lt;retry&gt;]`, where:
-** `&lt;retry&gt;` is the number of retries in case of concurrent modification exception
-* `ROLLBACK`
-* `LET &lt;variable&gt; = &lt;SQL&gt;`, to assign the result of a SQL command to a variable. To reuse the variable prefix it with the dollar sign `$`.
-* `SET GLOBAL &lt;variable&gt; = &lt;BOOLEAN|STRING|NUMBER|LIST|MAP&gt;`, to assign a transient global variable. To reuse the variable prefix it with the dollar sign `$`.
+[NOTE]
+====
+A script is a transaction.
+The atomicity guarantee -- "all-or-nothing" -- applies to every script: if any statement fails (and is not caught by a retry/else clause), every change made by the script is rolled back.
+====
 
-NOTE: `LOCK` explicitly locks a type or bucket during a transaction until it is committed.
+== Differences between `sql` and `sqlscript`
 
-NOTE: A `SET GLOBAL`-declared variable exists as long as the associated database is not closed or the server shut down.
+[%header,cols="1,3,3"]
+|===
+| Feature | `sql` (single command) | `sqlscript` (batch)
 
-NOTE: A `LET` can be used as an ephemeral https://en.wikipedia.org/wiki/View_(SQL)[view].
+| Number of statements | Exactly one | One or more, separated by `;`
+| Transaction | Not transactional by itself | Implicit transaction (or explicit `BEGIN`/`COMMIT`)
+| Variables | Only inside `SELECT ... LET` | `LET` and `SET GLOBAL` across statements
+| Control flow | None | `IF`, `WHILE`, `FOREACH`, `BREAK`, `RETURN`
+| Explicit transaction control | Not allowed | `BEGIN`, `COMMIT [RETRY ... ELSE ...]`, `ROLLBACK`
+| Retry on conflict | No | `COMMIT RETRY <n>`
+| Locks | No | `LOCK TYPE` / `LOCK BUCKET`
+|===
 
-NOTE: `LET`-declared variables have dynamic scope.
+To pick the engine, pass `"sqlscript"` as the language parameter (Java driver, HTTP `language` field, console `LANGUAGE` setting, etc.).
 
-* `IF(&lt;condition&gt;){ &lt;statement&gt;; [&lt;statement&gt;;]* }`. Look at <<conditional-execution,conditional execution>>.
-* `WHILE(&lt;condition&gt;){ &lt;statement&gt;; [&lt;statement&gt;;]* }`. Look at <<loops,loops>>.
-* `FOREACH(&lt;variable&gt; IN &lt;expression&gt;){ &lt;statement&gt;; [&lt;statement&gt;;]* }`. Look at <<loops,loops>>.
-* `SLEEP &lt;ms&gt;`, put the batch in wait for `&lt;ms&gt;` milliseconds.
-////
-* `console.log &lt;text&gt;`, logs a message in the console. Context variables can be used with `${&lt;variable&gt;}`.
-* `console.error &lt;text&gt;`, writes a message in the console's standard output. Context variables can be used with `${&lt;variable&gt;}`.
-* `console.output &lt;text&gt;`, writes a message in the console's standard error. Context variables can be used with `${&lt;variable&gt;}`.
-////
-* `BREAK` Look at <<loops,loops>>.
-* `RETURN <value>`, where `value` can be:
-** any value. Example: `return 3`
-** any variable with `$` as prefix. Example: `return $a`
-** arrays (HTTP protocol only, see below). Example: `return [ $a, $b ]`
-** maps (HTTP protocol only, see below). Example: `return { &#39;first&#39; : $a, &#39;second&#39; : $b }`
-** a query. Example: `return (SELECT FROM Foo)`
+[[sql-script-syntax]]
+== Syntax reference
 
-NOTE: An empty result can be returned via `RETURN []` in SQLscript and also SQL.
+A SQL Script supports every xref:reference/sql/chapter.adoc#sql-commands[SQL command] plus the following script-only statements.
 
-NOTE: to return arrays and maps (eg. Java or Node.js driver) it's strongly recommended using a RETURN SELECT, eg.
+[%header,cols="1,2"]
+|===
+| Statement | Purpose
+
+| <<sql-script-begin,`BEGIN [ISOLATION <level>]`>>
+| Open an explicit transaction (`READ_COMMITTED` or `REPEATABLE_READ`).
+
+| <<sql-script-commit,`COMMIT [RETRY <n> [ELSE { ... } [AND] (FAIL\|CONTINUE)]]`>>
+| Commit the transaction; optionally retry on conflict and run a fallback block.
+
+| `ROLLBACK`
+| Abort the current transaction.
+
+| <<sql-script-lock,`LOCK TYPE\|BUCKET <name>[, <name>]*`>>
+| Take an explicit type-level or bucket-level lock for the rest of the transaction.
+
+| <<sql-script-let,`LET <var> = <SQL or expression>`>>
+| Bind the result of a statement or expression to a script variable. Reference it as `$var`.
+
+| <<sql-script-set-global,`SET GLOBAL <var> = <expression>`>>
+| Set a database-scoped variable that survives across scripts and queries until the database is closed.
+
+| <<sql-script-if,`IF (<cond>) { ... } [ELSE { ... }]`>>
+| Conditional execution.
+
+| <<sql-script-foreach,`FOREACH (<var> IN <expression>) { ... }`>>
+| Loop over the items of a collection or query result.
+
+| <<sql-script-while,`WHILE (<cond>) { ... }`>>
+| Loop while a boolean condition holds.
+
+| <<sql-script-break,`BREAK`>>
+| Exit the innermost `FOREACH` or `WHILE`.
+
+| <<sql-script-return,`RETURN [<expression>]`>>
+| Stop the script and return a value (literal, variable, query, array or map).
+
+| <<sql-script-sleep,`SLEEP <ms>`>>
+| Pause the script for the given number of milliseconds.
+
+| <<sql-script-console,`CONSOLE.(log\|output\|error\|warn\|debug) <expression>`>>
+| Write a message to the server log or stdout/stderr (server-side only).
+|===
+
+[NOTE]
+====
+Statements are separated by `;`. Inside `IF`/`WHILE`/`FOREACH` blocks the trailing `;` after each inner statement is optional.
+Keywords are case insensitive.
+====
+
+[[sql-script-begin]]
+== BEGIN -- start an explicit transaction
 
 [source,sql]
 ----
-RETURN (SELECT $a as first, $b as second)
+BEGIN [ISOLATION <READ_COMMITTED | REPEATABLE_READ>]
 ----
 
-This will work on any protocol and driver.
+By default a script runs inside an implicit `READ_COMMITTED` transaction. Use `BEGIN` only when you want to set a different isolation level, or to mark the start of a `BEGIN ... COMMIT RETRY` block.
 
-*Dynamic typing*
+* `READ_COMMITTED` (default): each `SELECT` sees the latest committed data.
+* `REPEATABLE_READ`: subsequent reads of the same record return the same snapshot for the lifetime of the transaction.
 
-Types in statements like `SELECT`, `INSERT`, `CREATE`, etc. can be provided as variables:
+[source,sql]
+----
+BEGIN ISOLATION REPEATABLE_READ;
+LET v1 = SELECT FROM Account WHERE id = 1;
+-- ... other work ...
+LET v2 = SELECT FROM Account WHERE id = 1;  -- guaranteed to match v1
+COMMIT;
+----
+
+[[sql-script-commit]]
+== COMMIT -- commit, retry, fallback
+
+[source,sql]
+----
+COMMIT [RETRY <n> [ELSE { <statements> } [AND] (FAIL | CONTINUE)]]
+----
+
+* Without arguments, `COMMIT` simply commits the current transaction.
+* `RETRY <n>` makes the server re-run the whole `BEGIN ... COMMIT` block on a retryable failure, up to `n` times. Retryable failures include `NeedRetryException` (concurrent modification, MVCC conflicts) and transient transaction-lock timeouts. Between attempts the server waits a random delay capped by `arcadedb.txRetryDelay` (default 100 ms).
+* `ELSE { ... }` is the fallback block executed when retries are exhausted.
+* `AND FAIL` (the default when `ELSE` is omitted) re-throws the original exception after the fallback runs.
+* `AND CONTINUE` swallows the exception and lets the script keep going.
+
+This is the building block that makes server-side scripts safe to run from many concurrent clients: each conflict is resolved on the server, and the client only sees the final result.
+
+Examples:
+
+[source,sql]
+----
+-- retry up to 100 times, fail if still conflicting
+BEGIN;
+LET account = CREATE VERTEX Account SET name = 'Luke';
+LET city    = SELECT FROM City WHERE name = 'London';
+LET e       = CREATE EDGE Lives FROM $account TO $city;
+COMMIT RETRY 100;
+RETURN $e;
+----
+
+[source,sql]
+----
+-- retry, otherwise log to a dead-letter type and continue
+BEGIN;
+UPDATE Account SET balance = balance - 100 WHERE id = 1;
+UPDATE Account SET balance = balance + 100 WHERE id = 2;
+COMMIT RETRY 10 ELSE {
+  INSERT INTO TransferDLQ SET fromId = 1, toId = 2, amount = 100, ts = sysdate();
+} AND CONTINUE;
+----
+
+[[sql-script-lock]]
+== LOCK -- explicit type or bucket lock
+
+[source,sql]
+----
+LOCK TYPE   <type-name>  [, <type-name>]*
+LOCK BUCKET <bucket-name>[, <bucket-name>]*
+----
+
+`LOCK` takes an exclusive lock on one or more types or buckets for the rest of the current transaction. The lock is released automatically on `COMMIT` or `ROLLBACK`.
+
+Use it when an MVCC retry would not be enough -- typically for a "read-modify-write" sequence that must see a consistent snapshot of an entire type, or for serializing work on a hot bucket.
+
+[source,sql]
+----
+BEGIN;
+LOCK TYPE Account;                              -- nobody else can modify Account until we commit
+LET total = SELECT sum(balance) FROM Account;
+INSERT INTO Audit SET kind = 'snapshot', total = $total[0].sum, ts = sysdate();
+COMMIT;
+----
+
+[source,sql]
+----
+BEGIN;
+LOCK BUCKET orders_2026_q2;                     -- serialize writes on a hot bucket
+INSERT INTO Order BUCKET orders_2026_q2 SET ...;
+COMMIT;
+----
+
+[[sql-script-let]]
+== LET -- script variables
+
+[source,sql]
+----
+LET <var> = <expression>
+LET <var> = <SQL statement>
+LET <var1> = <expr1>, <var2> = <expr2>, ...
+----
+
+`LET` evaluates the right-hand side and binds the result to a variable. Reference it later with `$var`. The right-hand side can be:
+
+* an expression (literal, arithmetic, function call): `LET total = 0;`
+* a SQL command: `LET city = SELECT FROM City WHERE name = 'London';`
+* multiple bindings in one statement, separated by commas.
+
+A `LET` whose value is a `SELECT` acts as an ephemeral https://en.wikipedia.org/wiki/View_(SQL)[view] -- the result is materialized into a list and can be referenced repeatedly without re-running the query.
+
+`LET` variables have dynamic scope: they are visible to every statement that runs after them in the same script (and inside nested blocks).
+
+[source,sql]
+----
+LET hubs = SELECT FROM City WHERE category = 'hub';
+LET count = $hubs.size();
+INSERT INTO Stat SET name = 'hub-count', value = $count;
+RETURN $count;
+----
+
+*Dynamic typing.* Type names in `SELECT`, `INSERT`, `CREATE`, etc. can come from a variable -- but only when the statement is itself the right-hand side of a `LET`:
 
 [source,sql]
 ----
 LET mytype = 'vec';
 LET r = SELECT FROM $mytype WHERE num > 0;
-RETURN $r
+RETURN $r;
 ----
-
-this includes edge types in edge creation:
 
 [source,sql]
 ----
-LET myedge = 'edg';
+LET myedge = 'Lives';
 LET r = CREATE EDGE $myedge FROM #1:0 TO #1:1;
-RETURN $r
+RETURN $r;
 ----
 
-It is required that statements using a variable type are inside a `LET`-assignment.
-
-*Optimistic transaction*
-
-Example to create a new vertex in a xref:concepts/transactions.adoc#transactions[Transactions] and attach it to an existent vertex by creating a new edge between them. If a concurrent modification occurs, repeat the transaction up to 100 times:
+[[sql-script-set-global]]
+== SET GLOBAL -- database-scoped variables
 
 [source,sql]
 ----
-begin;
-let account = create vertex Account set name = 'Luke';
-let city = select from City where name = 'London';
-let e = create edge Lives from $account to $city;
-commit retry 100;
-return $e;
+SET GLOBAL <var> = <BOOLEAN | STRING | NUMBER | LIST | MAP>
 ----
 
-Note the usage of `$account` and `$city` in further SQL commands.
-
-[[conditional-execution]]
-*Conditional execution*
-
-SQL Batch provides IF constructor to allow conditional execution.
-The syntax is
+`SET GLOBAL` stores a transient variable on the database itself. It is visible to every subsequent SQL or Cypher query running against that database, until the database is closed or the variable is set to `NULL`. Use it for small bits of session-like state (a feature flag, a tenant id, a timestamp).
 
 [source,sql]
 ----
-IF( <sql-predicate> ){
+SET GLOBAL tenant = 'acme';
+-- later, in any query on this database:
+SELECT FROM Account WHERE tenantId = $tenant;
+----
+
+[[sql-script-return]]
+== RETURN -- end the script with a value
+
+[source,sql]
+----
+RETURN [<expression>]
+----
+
+`RETURN` ends script execution immediately. The argument can be:
+
+* a literal: `RETURN 3;`
+* a variable: `RETURN $a;`
+* a query: `RETURN (SELECT FROM Foo);`
+* an array (HTTP only): `RETURN [ $a, $b ];`
+* a map (HTTP only): `RETURN { 'first': $a, 'second': $b };`
+* nothing -- exits the script with an empty result.
+
+[NOTE]
+====
+To return arrays or maps in a way that works on every protocol and driver (Java, Node.js, etc.), wrap the result in a `SELECT`:
+
+[source,sql]
+----
+RETURN (SELECT $a AS first, $b AS second)
+----
+
+To return an empty result use `RETURN []`.
+====
+
+[[sql-script-if]]
+== IF -- conditional execution
+
+[source,sql]
+----
+IF (<sql-predicate>) {
+  <statement>;
+  <statement>;
+  ...
+} [ELSE {
+  <statement>;
+  ...
+}]
+----
+
+`<sql-predicate>` is any boolean expression that would be valid in a `WHERE` clause.
+
+[source,sql]
+----
+LET existing = SELECT FROM User WHERE email = 'luke@example.com';
+IF ($existing.size() = 0) {
+  INSERT INTO User SET email = 'luke@example.com', createdAt = sysdate();
+} ELSE {
+  UPDATE User SET lastSeen = sysdate() WHERE email = 'luke@example.com';
+}
+----
+
+[source,sql]
+----
+IF ($a.size() > 0) {
+  ROLLBACK;
+}
+----
+
+[[sql-script-foreach]]
+== FOREACH -- iterate a collection
+
+[source,sql]
+----
+FOREACH (<variable> IN <expression>) {
   <statement>;
   <statement>;
   ...
 }
 ----
 
-WARNING: There has to be a linebreak after `IF( <sql-predicate> ){` and `}` has to follow a linebreak.
-
-`&lt;sql-predicate&gt;` is any valid SQL predicate (any condition that can be used in a `WHERE` clause):
+The expression must evaluate to a collection: a literal array, a variable, or the result of a sub-query.
 
 [source,sql]
 ----
-IF( $a.size() > 0 ) {
-  ROLLBACK;
-}
-----
-
-[[loops]]
-*Loops*
-
-SQL Batch provides two different loop blocks: `FOREACH` and `WHILE`.
-
-== FOREACH
-
-Loops on all the items of a collection and, for each of them, executes a set of SQL statements.
-The expression argument should return an array, and can be a literal array, variable, or result of a sub-query.
-
-The syntax is:
-
-[source,sql]
-----
-FOREACH( <variable> IN <expression> ){
-   <statement>;
-   <statement>;
-   ...
-}
-----
-
-Example
-
-[source,sql]
-----
-FOREACH( $i IN [1, 2, 3] ){
+FOREACH ($i IN [1, 2, 3]) {
   INSERT INTO Foo SET value = $i;
 }
 ----
 
-== WHILE
-
-Loops while a condition is true.
-
-The syntax is:
-
 [source,sql]
 ----
-WHILE( <condition> ){
-   <statement>;
-   <statement>;
-   ...
+-- bulk-create edges from a query result
+LET people = SELECT FROM Person WHERE city = 'London';
+FOREACH ($p IN $people) {
+  CREATE EDGE LivesIn FROM $p TO (SELECT FROM City WHERE name = 'London');
 }
 ----
 
-Example
+[[sql-script-while]]
+== WHILE -- loop on a condition
+
+[source,sql]
+----
+WHILE (<condition>) {
+  <statement>;
+  <statement>;
+  ...
+}
+----
 
 [source,sql]
 ----
 LET $i = 0;
-WHILE ($i < 10){
+WHILE ($i < 10) {
   INSERT INTO Foo SET value = $i;
   LET $i = $i + 1;
 }
 ----
 
-== BREAK
+[[sql-script-break]]
+== BREAK -- exit the current loop
 
-`FOREACH` and `WHILE` loops can be conditionally interrupted using `BREAK`.
+`BREAK` exits the innermost `FOREACH` or `WHILE`.
 
 [source,sql]
 ----
-FOREACH( $i IN [1, 2, 3] ){
-  IF( $i >2 ){
+FOREACH ($i IN [1, 2, 3, 4, 5]) {
+  IF ($i > 2) {
     BREAK;
   }
   CONSOLE.log $i;
 }
 ----
 
-Example that computes the sum of amounts for customers until the amount is negative.
-
 [source,sql]
 ----
+-- sum positive amounts until you hit a negative one
 LET total = 0;
-FOREACH( $record IN (select from CustomerAccount) ){
-  IF( record.amount < 0 ) {
+FOREACH ($record IN (SELECT FROM CustomerAccount)) {
+  IF ($record.amount < 0) {
     BREAK;
   }
-  LET total = $total + record.amount;
+  LET total = $total + $record.amount;
 }
 RETURN $total;
 ----
+
+[[sql-script-sleep]]
+== SLEEP -- pause execution
+
+[source,sql]
+----
+SLEEP <milliseconds>
+----
+
+Pauses the script for the given number of milliseconds. Mostly useful for tests, throttling, or staggering retries.
+
+[source,sql]
+----
+FOREACH ($url IN $urls) {
+  INSERT INTO FetchJob SET url = $url, status = 'queued';
+  SLEEP 50;                                  -- be polite to a downstream system
+}
+----
+
+[[sql-script-console]]
+== CONSOLE -- log from a script
+
+[source,sql]
+----
+CONSOLE.log    <expression>
+CONSOLE.output <expression>
+CONSOLE.error  <expression>
+CONSOLE.warn   <expression>
+CONSOLE.debug  <expression>
+----
+
+Writes a message from the server side. `log`/`warn`/`debug` go to the server log at the matching level, `output` to stdout, `error` to stderr (and the log at SEVERE level). Useful for debugging long-running or scheduled scripts.
+
+[source,sql]
+----
+LET count = SELECT count(*) AS c FROM Order WHERE status = 'pending';
+IF ($count[0].c > 1000) {
+  CONSOLE.warn 'Pending order backlog is ' + $count[0].c;
+}
+----
+
+[[sql-script-graph-example]]
+== End-to-end example: a graph upsert with retry
+
+This is the canonical use case for SQL Script: a single script that *upserts* two vertices (insert if missing, update if present), idempotently connects them with an edge, retries on conflict, and returns the result. Many clients can run this in parallel against the same server -- each conflict triggers a server-side retry, no client-side bookkeeping required.
+
+The script uses the xref:reference/sql/sql-update.adoc#sql-update[`UPDATE ... UPSERT`] clause for the vertices. `UPSERT` is atomic only when the `WHERE` condition matches a `UNIQUE` index, so the schema needs those indexes first (one-time setup):
+
+[source,sql]
+----
+CREATE VERTEX TYPE City   IF NOT EXISTS;
+CREATE VERTEX TYPE Account IF NOT EXISTS;
+CREATE EDGE   TYPE Lives   IF NOT EXISTS;
+
+CREATE INDEX IF NOT EXISTS ON City    (name)  UNIQUE;
+CREATE INDEX IF NOT EXISTS ON Account (email) UNIQUE;
+----
+
+The upsert script itself:
+
+[source,sql]
+----
+BEGIN;
+
+-- 1. Upsert the city. UNIQUE index on City.name makes this atomic.
+UPDATE City    SET name = 'London', country = 'UK'
+       UPSERT  WHERE name = 'London';
+
+-- 2. Upsert the person. UNIQUE index on Account.email makes this atomic.
+UPDATE Account SET name = 'Luke', email = 'luke@example.com',
+                   updatedAt = sysdate()
+       UPSERT  WHERE email = 'luke@example.com';
+
+-- 3. Look up both vertices for the edge step.
+LET city    = SELECT FROM City    WHERE name  = 'London';
+LET account = SELECT FROM Account WHERE email = 'luke@example.com';
+
+-- 4. Idempotently connect them. CREATE EDGE has no UPSERT clause,
+--    so check for an existing edge first.
+LET existing = SELECT FROM Lives
+                WHERE @out = $account[0] AND @in = $city[0];
+IF ($existing.size() = 0) {
+  CREATE EDGE Lives FROM $account TO $city SET since = sysdate();
+}
+
+COMMIT RETRY 100;
+
+RETURN (SELECT FROM Lives
+         WHERE @out = $account[0] AND @in = $city[0]);
+----
+
+What makes this a *real* upsert:
+
+* *Vertices* — `UPDATE ... UPSERT WHERE` either updates the existing row matched by the unique key or inserts a new one. Run the script twice with the same `email`/`name` and you still end up with exactly one `Account` and one `City`.
+* *Edge* — `CREATE EDGE` does not have its own `UPSERT` clause, so the script does the equivalent by hand: a `SELECT` against the edge's `@out`/`@in` endpoints, then `CREATE EDGE` only when the lookup is empty. Re-running the script does not produce duplicate edges.
+* *Concurrency* — the whole `BEGIN ... COMMIT RETRY 100` block is the unit that gets retried. If two clients run this script at the same time and one of them hits a `NeedRetryException` (typically from the unique-index conflict), the server transparently rolls back and re-executes the block up to 100 times.
+
+The result of the final `SELECT` (the existing or newly-created `Lives` edge) is what the client receives.
+
+== Running scripts
+
+You can run a SQL script from any of the supported entry points:
+
+* *Java driver*: `database.command("sqlscript", "BEGIN; ... COMMIT;")`.
+* *HTTP API*: `POST /api/v1/command/<db>` with `{"language": "sqlscript", "command": "..."}`.
+* *Console*: switch the language with `set language sqlscript;` then paste the script.
+* *Studio*: pick "SQL Script" in the language selector before running.
+
+In an HA cluster, scripts are routed to the leader so that the implicit transaction can be applied with quorum.

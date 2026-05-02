@@ -35,7 +35,7 @@ Nine out of ten developers can write their first ArcadeDB query without learning
   <a class="landing-card" href="sql-functions.html">
     <div class="landing-card-icon">&#x1F4DA;</div>
     <h3>Reference</h3>
-    <p>Functions, methods, custom functions, SCRIPT, SELECT execution model.</p>
+    <p>Functions, methods, custom functions, SQL Script, SELECT execution model.</p>
   </a>
 </div>
 ++++
@@ -232,20 +232,59 @@ In ArcadeDB, the `*` may be omitted:
 SELECT FROM Customer
 ----
 
+[[system-types]]
 == System Types
 
-To retrieve information about the schema, indexes and the database, here a three special types from which one can "select":
+ArcadeDB exposes several read-only virtual types under the `schema:` prefix that let you introspect the database from SQL.
+They behave like any other type: projections, filters, `ORDER BY`, `LIMIT` and aggregations all work, and you can `expand()` collection-valued properties.
 
-* `schema:types`
-* `schema:buckets`
-* `schema:indexes`
-* `schema:database`
+[%header,cols="1,3"]
+|===
+| Virtual type | What it returns
 
-these can be treated such as any other types, so projections and filters apply as for any other types.
+| `schema:types`
+| One row per defined document/vertex/edge/timeseries type. Properties: `name`, `type` (`document`/`vertex`/`edge`/`timeseries`), `records` (count), `buckets`, `bucketSelectionStrategy`, `parentTypes`, nested `properties` (with `name`, `type`, `mandatory`, `readOnly`, `notNull`, `min`, `max`, `default`, `regexp`, `compression`, `custom`, …) and nested `indexes`. For external properties also `externalBuckets`. For time series types, additional time-series metadata.
+
+| `schema:buckets`
+| One row per bucket (the physical storage unit). Properties: `name`, `fileId`, `records` (count), `purpose` (e.g. `PRIMARY`; filter with `WHERE purpose = 'PRIMARY'` to hide internal buckets like external-property pairs).
+
+| `schema:indexes`
+| One row per index. Properties: `name`, `indexType`, `typeName`, `properties`, `keyTypes`, `unique`, `automatic`, `compacting`, `fileId`, `size`, `supportsOrderedIterations`, `associatedBucketId`, `nullStrategy`.
+
+| `schema:database`
+| A single row with database-wide metadata: `name`, `path`, `mode`, `size`, `dateFormat`, `dateTimeFormat`, `timezone`, `encoding`, plus a `settings` array of all `DATABASE`-scoped global settings (`key`, `value`, `default`, `description`, `overridden`). Use `SELECT expand(settings) FROM schema:database` to list current settings, or wrap it in a subquery to filter: `SELECT FROM ( SELECT expand(settings) FROM schema:database ) WHERE key = '<setting>'`. Password values are masked.
+
+| `schema:materializedviews`
+| One row per xref:reference/sql/sql-materialized-views.adoc#sql-materialized-views[materialized view]. Properties: `name`, `query`, `backingType`, `refreshMode`, `refreshInterval`, `simpleQuery`, `lastRefreshTime`, `status`, `sourceTypes`, plus runtime metrics: `refreshCount`, `refreshTotalTimeMs`, `refreshMinTimeMs`, `refreshMaxTimeMs`, `refreshAvgTimeMs`, `errorCount`, `lastRefreshDurationMs`.
+
+| `schema:graphanalyticalviews`
+| One row per graph analytical view. Properties: `name`, `vertexTypes`, `edgeTypes`, `propertyFilter`, `edgePropertyFilter`, `updateMode`, `compactionThreshold`, plus live stats when the view is built: `status`, `nodeCount`, `edgeCount`, `memoryUsageBytes`, `buildTimestamp`, `buildDurationMs`.
+
+| `schema:continuousaggregates`
+| One row per continuous aggregate (incremental rollup over a time-series source). Properties: `name`, `query`, `backingType`, `sourceType`, `bucketIntervalMs`, `bucketColumn`, `timestampColumn`, `watermarkTs`, `lastRefreshTime`, `status`, plus runtime metrics: `refreshCount`, `refreshTotalTimeMs`, `refreshMinTimeMs`, `refreshMaxTimeMs`, `refreshAvgTimeMs`, `errorCount`, `lastRefreshDurationMs`.
+
+| `schema:stats`
+| A single row with per-database runtime statistics (`databaseName` plus all entries returned by `Database.getStats()` — counters, cache hits/misses, page I/O and the like). Useful for ad-hoc diagnostics from the SQL console.
+
+| `schema:dictionary`
+| A single row describing the database property dictionary (the internal mapping of property names to numeric ids used to keep records compact): `totalEntries`, `totalPages`, and `entries` (a map of property name → dictionary id).
+|===
+
+Examples:
 
 [source,sql]
 ----
 SELECT FROM schema:types
+----
+
+[source,sql]
+----
+SELECT name, records FROM schema:buckets WHERE purpose = 'PRIMARY' ORDER BY records DESC
+----
+
+[source,sql]
+----
+SELECT FROM ( SELECT expand(settings) FROM schema:database ) WHERE key = 'arcadedb.serverMetrics'
 ----
 
 == DISTINCT

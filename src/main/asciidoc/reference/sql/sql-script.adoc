@@ -435,19 +435,60 @@ IF ($count[0].c > 1000) {
 [[sql-script-graph-example]]
 ===== End-to-end example: a graph upsert with retry
 
-This is the canonical use case for SQL Script: a script that creates a vertex, looks up another, links them with an edge, retries on conflict, and returns the new edge. Many clients can run this in parallel against the same server -- each conflict triggers a server-side retry, no client-side bookkeeping required.
+This is the canonical use case for SQL Script: a single script that *upserts* two vertices (insert if missing, update if present), idempotently connects them with an edge, retries on conflict, and returns the result. Many clients can run this in parallel against the same server -- each conflict triggers a server-side retry, no client-side bookkeeping required.
+
+The script uses the <<sql-update,`UPDATE ... UPSERT`>> clause for the vertices. `UPSERT` is atomic only when the `WHERE` condition matches a `UNIQUE` index, so the schema needs those indexes first (one-time setup):
+
+[source,sql]
+----
+CREATE VERTEX TYPE City   IF NOT EXISTS;
+CREATE VERTEX TYPE Account IF NOT EXISTS;
+CREATE EDGE   TYPE Lives   IF NOT EXISTS;
+
+CREATE INDEX IF NOT EXISTS ON City    (name)  UNIQUE;
+CREATE INDEX IF NOT EXISTS ON Account (email) UNIQUE;
+----
+
+The upsert script itself:
 
 [source,sql]
 ----
 BEGIN;
-LET account = CREATE VERTEX Account SET name = 'Luke';
-LET city    = SELECT FROM City WHERE name = 'London';
-LET e       = CREATE EDGE Lives FROM $account TO $city;
+
+-- 1. Upsert the city. UNIQUE index on City.name makes this atomic.
+UPDATE City    SET name = 'London', country = 'UK'
+       UPSERT  WHERE name = 'London';
+
+-- 2. Upsert the person. UNIQUE index on Account.email makes this atomic.
+UPDATE Account SET name = 'Luke', email = 'luke@example.com',
+                   updatedAt = sysdate()
+       UPSERT  WHERE email = 'luke@example.com';
+
+-- 3. Look up both vertices for the edge step.
+LET city    = SELECT FROM City    WHERE name  = 'London';
+LET account = SELECT FROM Account WHERE email = 'luke@example.com';
+
+-- 4. Idempotently connect them. CREATE EDGE has no UPSERT clause,
+--    so check for an existing edge first.
+LET existing = SELECT FROM Lives
+                WHERE @out = $account[0] AND @in = $city[0];
+IF ($existing.size() = 0) {
+  CREATE EDGE Lives FROM $account TO $city SET since = sysdate();
+}
+
 COMMIT RETRY 100;
-RETURN $e;
+
+RETURN (SELECT FROM Lives
+         WHERE @out = $account[0] AND @in = $city[0]);
 ----
 
-Note how `$account` and `$city` carry results from one statement to the next, and how the entire block between `BEGIN` and `COMMIT` is the unit that gets retried.
+What makes this a *real* upsert:
+
+* *Vertices* — `UPDATE ... UPSERT WHERE` either updates the existing row matched by the unique key or inserts a new one. Run the script twice with the same `email`/`name` and you still end up with exactly one `Account` and one `City`.
+* *Edge* — `CREATE EDGE` does not have its own `UPSERT` clause, so the script does the equivalent by hand: a `SELECT` against the edge's `@out`/`@in` endpoints, then `CREATE EDGE` only when the lookup is empty. Re-running the script does not produce duplicate edges.
+* *Concurrency* — the whole `BEGIN ... COMMIT RETRY 100` block is the unit that gets retried. If two clients run this script at the same time and one of them hits a `NeedRetryException` (typically from the unique-index conflict), the server transparently rolls back and re-executes the block up to 100 times.
+
+The result of the final `SELECT` (the existing or newly-created `Lives` edge) is what the client receives.
 
 ===== Running scripts
 
