@@ -24,6 +24,7 @@ UPDATE <type>|BUCKET:<bucket>|<recordID>
 * *`UPSERT`* Updates a record if it exists or inserts a new record if it doesn't. This avoids the need to execute two commands, (one for each condition, inserting and updating).
 `UPSERT` requires a xref:reference/sql/sql-where.adoc#filtering[`WHERE`] clause and a type target. There are further limitations on `UPSERT`, explained below.
 Practically `UPSERT` means: `UPDATE` if the `WHERE` condition is fulfilled, otherwise `INSERT`.
+`UPSERT` works on document types *and on vertex types*: when the target is a vertex type and no existing record matches, a brand new vertex (not a plain document) is created, with all the graph capabilities (incoming/outgoing edges, `@in`/`@out` projections, etc.). For edge types, `UPSERT` is not available because edges always require `FROM` and `TO` endpoints; use xref:reference/sql/sql-create-edge.adoc#sql-create-edge[`CREATE EDGE ... IF NOT EXISTS`] instead.
 * `APPLY DEFAULTS` applies a properties' default attribute on an update again.
 * `RETURN` Specifies an expression to return instead of the record and what to do with the result-set returned by the expression. The available return operators are:
 ** `COUNT` Returns the number of updated records. This is the default return operator.
@@ -128,6 +129,15 @@ ArcadeDB> UPDATE Profile SET verified = true WHERE verified IS NULL BATCH 10000
 ArcadeDB> UPDATE Profile SET nick = 'Luca' UPSERT WHERE nick = 'Luca'
 ----
 
+* Upsert a vertex by a natural key. With a `UNIQUE` index on `Person.email`, this either updates the existing person or creates a new vertex (not a plain document) of type `Person`:
+
+----
+ArcadeDB> UPDATE Person SET name = 'Luca', email = 'luca@example.com'
+            UPSERT WHERE email = 'luca@example.com'
+----
+
+The newly created record is a real vertex, so it can immediately participate in graph traversals and be the source/target of xref:reference/sql/sql-create-edge.adoc#sql-create-edge[`CREATE EDGE`].
+
 * Updates using the `RETURN` keyword:
 
 ----
@@ -142,10 +152,23 @@ For more information on SQL syntax, see xref:reference/sql/sql-select.adoc#sql-s
 
 *Limitations of the `UPSERT` Clause*
 
-The `UPSERT` clause only guarantees atomicity when you use a `UNIQUE` index and perform the look-up on the index through the xref:reference/sql/sql-where.adoc#filtering[`WHERE`] condition.
+The `UPSERT` clause only guarantees atomicity when you use a `UNIQUE` index and perform the look-up on the index through the xref:reference/sql/sql-where.adoc#filtering[`WHERE`] condition. This applies to both document and vertex types.
 
 ----
 ArcadeDB> UPDATE Client SET id = 23 UPSERT WHERE id = 23
 ----
 
 Here, you must have a unique index on `Client.id` to guarantee uniqueness on concurrent operations.
+
+The same rule applies when upserting vertices: define a `UNIQUE` index on the natural key first.
+
+----
+ArcadeDB> CREATE INDEX ON Person (email) UNIQUE
+ArcadeDB> UPDATE Person SET name = 'Luca', email = 'luca@example.com'
+            UPSERT WHERE email = 'luca@example.com'
+----
+
+Additional restrictions:
+
+* the `WHERE` condition cannot use `OR`. Only an `AND` chain of equality conditions is supported, because each equality term is also reused as the initial value of the property when a new record has to be created.
+* `UPSERT` is not available on edge types. To create an edge only if it does not already exist, use xref:reference/sql/sql-create-edge.adoc#sql-create-edge[`CREATE EDGE ... IF NOT EXISTS`].

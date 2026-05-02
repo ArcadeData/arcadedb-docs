@@ -232,7 +232,7 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/sql/sql-where.adoc", "Filtering"),
                 ]),
                 ("Reference", [
-                    ("reference/sql/sql-script.adoc", "SCRIPT"),
+                    ("reference/sql/sql-script.adoc", "SQL Script"),
                     ("reference/sql/sql-functions.adoc", "Functions"),
                     ("reference/sql/sql-methods.adoc", "Methods"),
                     ("reference/sql/sql-triggers.adoc", "Triggers (concept)"),

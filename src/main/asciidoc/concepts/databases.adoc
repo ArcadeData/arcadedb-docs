@@ -1,28 +1,107 @@
-[[creating-databases]]
-=== Creating Databases
+[[database]]
+=== Database
 
-There are several ways to create databases, where each has advantages in certain scenarios laid out next.
+A *database* is the top-level container for everything ArcadeDB stores: types, buckets, indexes, records, and the write-ahead log that makes them durable.
+A single ArcadeDB process -- whether an embedded JVM or a standalone server -- can host many databases at once; they share the JVM, the network listeners, and the global configuration, but each database is otherwise independent.
+There is no shared catalog and no concept of joins or transactions across databases: every query, every transaction, and every backup operates on exactly one database.
+
+Each database is one directory on disk.
+Inside that directory live the bucket files (one file per <<buckets,bucket>>), the WAL, the schema definition (a JSON file), and any persisted indexes.
+The database name *is* the directory name, so the easiest way to think about a database is as a self-contained on-disk dataset that you can copy, archive, or move between servers by moving the folder.
+A server discovers its databases by scanning its data root directory at startup, which is also why dropping a directory in or out of that root is enough to register or unregister a database.
+
+The same on-disk database is reachable from any of the supported entry points concurrently.
+In an embedded scenario you open it directly from Java with `<<factorycreate,DatabaseFactory.open()>>` or `<<factorycreate,DatabaseFactory.create()>>`.
+When run as a server, the same database is reachable through the HTTP/JSON API and through the wire-protocol plugins (PostgreSQL, MongoDB, Redis, Gremlin Server, gRPC) at the same time, all backed by the same storage, transactions, and schema.
+
+The database name must be unique within the hosting process.
+
+[[database-url]]
+==== Database URL
+
+ArcadeDB uses its own http://en.wikipedia.org/wiki/Uniform_Resource_Locator[URL] format of `<engine>:<db-name>`.
+The embedded engine is the default and can be omitted, so to open a database on the local file system you can pass the path directly as the URL.
+
+[[database-lifecycle]]
+==== Database lifecycle
+
+A database must be opened before use and closed when you are done with it.
+The Java `Database` interface implements `AutoCloseable`, so the canonical pattern is a try-with-resources block, which guarantees the WAL is flushed and the files are released even on exception:
+
+[source,java]
+----
+try (Database db = new DatabaseFactory("/data/mydb").open()) {
+  // ... use the database ...
+}
+----
+
+NOTE: ArcadeDB automatically closes all opened databases when the process dies *gracefully* -- i.e. not killed by force.
+On Unix/Linux this is the case for `SIGTERM` (Docker exit code `143`) but not `SIGKILL` (Docker exit code `137`).
+On a forced kill the next start replays the WAL to restore consistency, but you will pay that recovery cost; clean shutdown is always preferable.
+
+[[creating-databases]]
+==== Creating Databases
+
+A new database starts empty: no types, no buckets, no indexes.
+You can create one through any of the supported entry points -- they all hit the same underlying storage layer, so the result is identical.
 
 *Console*
 
-The <<console,console>> tool provides a SQL-like statement which is not part of the general ArcadeDB SQL dialect (see <<sql,SQL overview>>).
-Since console commands can be passed via command line, this way is useful when preparing a database via script, Dockerfile, or CI.
+The <<console,console>> is the most direct way: a one-liner you can run from a terminal, a `Dockerfile`, or a CI step.
+
+[source,shell]
+----
+$ bin/console.sh "create database mydb"
+----
+
+If the server is already running, point the console at it and use the same command:
+
+[source,shell]
+----
+$ bin/console.sh "connect remote:localhost/mydb root <password>; create database mydb"
+----
 
 *Studio*
 
-The <<studio,studio>> tool provides a GUI to create (and manage) databases.
-This method is useful when experimenting or using an exploratory approach.
-Under the hood, the studio uses the HTTP API.
+<<studio,Studio>> exposes a *Create Database* button in the GUI.
+Useful when you are exploring interactively or onboarding a new team member.
+Studio calls the HTTP API under the hood, so the result is identical to the curl example below.
 
 *HTTP API*
 
-The <<http-servercommand,HTTP `server` command>> can be used to create a database remotely.
-This is useful, for example, when programmatically managing databases in containers or on virtual machines.
+The <<http-servercommand,HTTP `server` command>> creates a database remotely on a running server.
+Useful for managing databases programmatically across containers, VMs, or Kubernetes pods.
+
+[source,shell]
+----
+$ curl -u root:<password> \
+       -H 'Content-Type: application/json' \
+       -d '{"command": "create database mydb"}' \
+       http://localhost:2480/api/v1/server
+----
 
 *Java API*
 
-The <<factorycreate,`create` method>> of the `DatabaseFactory` class can be used when using ArcadeDB as an embedded database.
+When ArcadeDB is embedded in a JVM application, use <<factorycreate,`DatabaseFactory.create()`>>:
 
-*Server Argument*
+[source,java]
+----
+try (Database db = new DatabaseFactory("/data/mydb").create()) {
+  // schema setup, initial data, ...
+}
+----
 
-Lastly, the <<arcadedb-settings,`defaultDatabases` setting>> allows to implicitly create a database when starting the server, as a specified default database that does not exists is created.
+`create()` fails if the directory already exists; pair it with `exists()` (or use `open()` after the first run) for idempotent setup.
+
+*Server start-up (declarative)*
+
+The <<arcadedb-settings,`arcadedb.server.defaultDatabases` setting>> declares a comma-separated list of databases that *must* exist when the server boots.
+Any name in the list that is missing on disk is created automatically, optionally with a root user and seed data.
+This is the cleanest pattern for declarative provisioning -- the server's configuration *is* the source of truth for which databases exist.
+
+[source,properties]
+----
+arcadedb.server.defaultDatabases=mydb[root|<password>]
+----
+
+Once a database exists, define its schema with <<sql-create-type,`CREATE TYPE`>> (and the related `CREATE BUCKET` / `CREATE INDEX` commands), or import an existing dataset with <<sql-import-database,`IMPORT DATABASE`>>.

@@ -61,6 +61,25 @@ ArcadeDB> CREATE VERTEX Employee CONTENT [{"name" : "Jay", "surname" : "Miner"},
             {"name": "Frank", "surname": "Hermier"},{"name": "Emily", "surname": "Sout"}]
 ----
 
+[[sql-create-vertex-upsert]]
+*Idempotent vertex creation (upsert)*
+
+`CREATE VERTEX` does not have an `UPSERT` clause. To create a vertex *only if it does not already exist*, or update it otherwise, use the xref:reference/sql/sql-update.adoc#sql-update[`UPDATE ... UPSERT`] command against the vertex type. When the target type is a vertex type, `UPSERT` creates a real vertex (not a plain document), so it can be used as the endpoint of an edge right away.
+
+The lookup must be backed by a `UNIQUE` index on the property used in the `WHERE` clause; this is what makes the operation atomic under concurrent writers.
+
+----
+ArcadeDB> CREATE VERTEX TYPE Person
+ArcadeDB> CREATE PROPERTY Person.email STRING
+ArcadeDB> CREATE INDEX ON Person (email) UNIQUE
+
+ArcadeDB> UPDATE Person SET name = 'Luca', email = 'luca@example.com'
+            UPSERT WHERE email = 'luca@example.com'
+----
+
+Re-running the same `UPDATE ... UPSERT` updates the existing vertex instead of creating a duplicate. See xref:reference/sql/sql-update.adoc#sql-update[`UPDATE`] for the full syntax and the upsert limitations.
+
 For more information, see:
 
 * xref:reference/sql/sql-create-edge.adoc#sql-create-edge[`CREATE EDGE`]
+* xref:reference/sql/sql-update.adoc#sql-update[`UPDATE`] (`UPSERT` clause)
