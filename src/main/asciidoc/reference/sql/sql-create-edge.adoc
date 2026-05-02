@@ -92,6 +92,27 @@ ArcadeDB> CREATE EDGE Watched FROM (SELECT FROM account WHERE name = 'Luca') TO
             (SELECT FROM movies WHERE type.name = 'action') IF NOT EXISTS
 ----
 
+[[sql-create-edge-upsert]]
+*Why there is no `UPSERT` for edges*
+
+The <<sql-update,`UPDATE ... UPSERT`>> clause is supported on document and vertex types, but not on edge types: an edge always needs `FROM` and `TO` endpoints, which an `UPDATE` `WHERE` clause cannot supply. The idempotent equivalent for edges is `CREATE EDGE ... IF NOT EXISTS`, ideally combined with a `UNIQUE` index on `(``@out``, ``@in``)` so the uniqueness check is atomic under concurrent writers (see the example above).
+
+A common pattern is to upsert the two vertices first, then connect them:
+
+----
+ArcadeDB> UPDATE Person SET name = 'Luca', email = 'luca@example.com'
+            UPSERT WHERE email = 'luca@example.com'
+ArcadeDB> UPDATE City   SET name = 'London'
+            UPSERT WHERE name = 'London'
+ArcadeDB> CREATE EDGE Lives
+            FROM (SELECT FROM Person WHERE email = 'luca@example.com')
+            TO   (SELECT FROM City   WHERE name  = 'London')
+            IF NOT EXISTS
+----
+
+For an end-to-end multi-statement version (with retry on conflict), see <<sql-script,SQL Script>>.
+
 For more information, see:
 
 * <<sql-create-vertex,`CREATE VERTEX`>>
+* <<sql-update,`UPDATE`>> (`UPSERT` clause)

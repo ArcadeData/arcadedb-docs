@@ -229,69 +229,71 @@ When a type is backed by more than one bucket, ArcadeDB has to decide which buck
 That decision is made by the type's *bucket selection strategy*.
 The strategy is set on the type (and inherited from the database default), so it is transparent to the application code that issues the `INSERT` or `CREATE`.
 
-ArcadeDB ships with three built-in strategies. The animation below shows how a stream of new records is dispatched under each one.
+ArcadeDB ships with three built-in strategies, described in the sections below.
+
+[[bucket-selection-round-robin]]
+=== `round-robin`
+
+The default strategy when a type has more than one bucket. Each new record is assigned to the next bucket in circular order; after the last bucket the counter wraps back to the first.
+
+This is the right choice when you have no specific reason to choose otherwise. Writes are spread evenly across all buckets without any application-level coordination, and the algorithm has no per-record overhead.
+
+The animation shows six successive inserts arriving at the producer and being routed to `Bucket 0`, `Bucket 1`, `Bucket 2`, `Bucket 0`, `Bucket 1`, `Bucket 2`.
 
 ++++
-<svg class="bss-svg" viewBox="0 0 1200 960"
+<svg class="bss-svg" viewBox="0 0 1200 270"
      xmlns="http://www.w3.org/2000/svg"
-     role="img" aria-label="Three animated panels comparing the round-robin, thread, and partitioned bucket-selection strategies in ArcadeDB.">
-
-  <!-- ============================================================
-       Panel 1 — ROUND-ROBIN (y 0..320)
-       ============================================================ -->
-  <text x="600" y="28" class="bss-section-label" text-anchor="middle">ROUND-ROBIN — next bucket in circular order</text>
-  <text x="600" y="50" class="bss-section-sub"   text-anchor="middle">default strategy: each new record goes to the next bucket, then wraps around</text>
+     role="img" aria-label="Round-robin bucket-selection: a stream of inserts is routed in turn to bucket 0, bucket 1, then bucket 2, then back to bucket 0.">
 
   <g class="bss-producer">
-    <rect x="80" y="115" width="320" height="90" rx="10"/>
-    <text x="240" y="155" text-anchor="middle" class="bss-producer-title">INCOMING RECORDS</text>
-    <text x="240" y="185" text-anchor="middle" class="bss-producer-title">stream of inserts →</text>
+    <rect x="80" y="50" width="320" height="90" rx="10"/>
+    <text x="240" y="90"  text-anchor="middle" class="bss-producer-title">INCOMING RECORDS</text>
+    <text x="240" y="120" text-anchor="middle" class="bss-producer-title">stream of inserts →</text>
   </g>
 
   <g class="bss-bucket bss-bucket-0">
-    <rect x="930" y="95" width="220" height="60" rx="8"/>
-    <text x="1040" y="121" text-anchor="middle" class="bss-bucket-title">Bucket 0</text>
-    <text x="1040" y="143" text-anchor="middle" class="bss-bucket-sub">Customer_0</text>
+    <rect x="930" y="30" width="220" height="60" rx="8"/>
+    <text x="1040" y="56" text-anchor="middle" class="bss-bucket-title">Bucket 0</text>
+    <text x="1040" y="78" text-anchor="middle" class="bss-bucket-sub">Customer_0</text>
   </g>
   <g class="bss-bucket bss-bucket-1">
-    <rect x="930" y="170" width="220" height="60" rx="8"/>
-    <text x="1040" y="196" text-anchor="middle" class="bss-bucket-title">Bucket 1</text>
-    <text x="1040" y="218" text-anchor="middle" class="bss-bucket-sub">Customer_1</text>
+    <rect x="930" y="105" width="220" height="60" rx="8"/>
+    <text x="1040" y="131" text-anchor="middle" class="bss-bucket-title">Bucket 1</text>
+    <text x="1040" y="153" text-anchor="middle" class="bss-bucket-sub">Customer_1</text>
   </g>
   <g class="bss-bucket bss-bucket-2">
-    <rect x="930" y="245" width="220" height="60" rx="8"/>
-    <text x="1040" y="271" text-anchor="middle" class="bss-bucket-title">Bucket 2</text>
-    <text x="1040" y="293" text-anchor="middle" class="bss-bucket-sub">Customer_2</text>
+    <rect x="930" y="180" width="220" height="60" rx="8"/>
+    <text x="1040" y="206" text-anchor="middle" class="bss-bucket-title">Bucket 2</text>
+    <text x="1040" y="228" text-anchor="middle" class="bss-bucket-sub">Customer_2</text>
   </g>
 
-  <path id="bss-rr-to-0" d="M 400 160 C 620 160, 720 125, 930 125" class="bss-conn bss-conn-0"/>
-  <path id="bss-rr-to-1" d="M 400 160 C 620 160, 720 200, 930 200" class="bss-conn bss-conn-1"/>
-  <path id="bss-rr-to-2" d="M 400 160 C 620 160, 720 275, 930 275" class="bss-conn bss-conn-2"/>
+  <path id="bss-rr-to-0" d="M 400 95 C 620 95, 720 60, 930 60"   class="bss-conn bss-conn-0"/>
+  <path id="bss-rr-to-1" d="M 400 95 C 620 95, 720 135, 930 135" class="bss-conn bss-conn-1"/>
+  <path id="bss-rr-to-2" d="M 400 95 C 620 95, 720 210, 930 210" class="bss-conn bss-conn-2"/>
 
-  <!-- six dots cycling 0,1,2,0,1,2 — repeat indefinitely. dur is the time of one dot's flight,
-       offsets are staggered by 0.7s so a steady stream is visible. -->
+  <!-- six dots cycling 0,1,2,0,1,2 — repeat indefinitely. -->
   <circle r="7" class="bss-dot bss-dot-0" opacity="0">
     <animateMotion dur="0.9s" begin="0s; bss-rr6.end+0.6s" fill="freeze"><mpath href="#bss-rr-to-0"/></animateMotion>
     <set attributeName="opacity" to="1" begin="0s; bss-rr6.end+0.6s"/>
     <set attributeName="opacity" to="0" begin="0.9s; bss-rr6.end+1.5s"/>
   </circle>
   <circle r="7" class="bss-dot bss-dot-1" opacity="0">
-    <animateMotion id="bss-rr2" dur="0.9s" begin="0.7s; bss-rr6.end+1.3s" fill="freeze"><mpath href="#bss-rr-to-1"/></animateMotion>
+    <animateMotion dur="0.9s" begin="0.7s; bss-rr6.end+1.3s" fill="freeze"><mpath href="#bss-rr-to-1"/></animateMotion>
     <set attributeName="opacity" to="1" begin="0.7s; bss-rr6.end+1.3s"/>
     <set attributeName="opacity" to="0" begin="1.6s; bss-rr6.end+2.2s"/>
   </circle>
   <circle r="7" class="bss-dot bss-dot-2" opacity="0">
-    <animateMotion id="bss-rr3" dur="0.9s" begin="1.4s; bss-rr6.end+2.0s" fill="freeze"><mpath href="#bss-rr-to-2"/></animateMotion>
+    <animateMotion dur="0.9s" begin="1.4s; bss-rr6.end+2.0s" fill="freeze"><mpath href="#bss-rr-to-2"/></animateMotion>
     <set attributeName="opacity" to="1" begin="1.4s; bss-rr6.end+2.0s"/>
     <set attributeName="opacity" to="0" begin="2.3s; bss-rr6.end+2.9s"/>
   </circle>
   <circle r="7" class="bss-dot bss-dot-0" opacity="0">
-    <animateMotion id="bss-rr4" dur="0.9s" begin="2.1s; bss-rr6.end+2.7s" fill="freeze"><mpath href="#bss-rr-to-0"/></animateMotion>
+    <animateMotion dur="0.9s" begin="2.1s; bss-rr6.end+2.7s" fill="freeze"><mpath href="#bss-rr-to-0"/></animateMotion>
     <set attributeName="opacity" to="1" begin="2.1s; bss-rr6.end+2.7s"/>
     <set attributeName="opacity" to="0" begin="3.0s; bss-rr6.end+3.6s"/>
   </circle>
   <circle r="7" class="bss-dot bss-dot-1" opacity="0">
-    <animateMotion id="bss-rr5" dur="0.9s" begin="2.8s; bss-rr6.end+3.4s" fill="freeze"><mpath href="#bss-rr-to-1"/></animateMotion>
+    <animateMotion dur="0.9s" begin="2.8s; bss-rr6.end+3.4s" fill="freeze"><mpath href="#bss-rr-to-1"/></animateMotion>
     <set attributeName="opacity" to="1" begin="2.8s; bss-rr6.end+3.4s"/>
     <set attributeName="opacity" to="0" begin="3.7s; bss-rr6.end+4.3s"/>
   </circle>
@@ -300,50 +302,60 @@ ArcadeDB ships with three built-in strategies. The animation below shows how a s
     <set attributeName="opacity" to="1" begin="3.5s; bss-rr6.end+4.1s"/>
     <set attributeName="opacity" to="0" begin="4.4s; bss-rr6.end+5.0s"/>
   </circle>
+</svg>
+++++
 
-  <line x1="60" y1="320" x2="1140" y2="320" class="bss-divider"/>
+[[bucket-selection-thread]]
+=== `thread`
 
-  <!-- ============================================================
-       Panel 2 — THREAD (y 320..640)
-       ============================================================ -->
-  <text x="600" y="358" class="bss-section-label" text-anchor="middle">THREAD — each thread writes to its own bucket</text>
-  <text x="600" y="380" class="bss-section-sub"   text-anchor="middle">bucket = (thread id) mod (number of buckets) — concurrent inserts never contend on the same bucket</text>
+The bucket is chosen as `(threadId mod numBuckets)`, so each writer thread always lands in the same bucket. With one bucket per thread, two threads writing concurrently never touch the same bucket file or page, eliminating page-level lock contention between them.
+
+This is the fastest strategy under heavy concurrent inserts. Best results come when the number of buckets is at least equal to the number of writer threads (e.g. one bucket per CPU core; see the `typeDefaultBuckets` setting).
+
+The trade-off is that record distribution depends on how evenly threads insert: if one thread does most of the work, its bucket grows much faster than the others. Pick this when peak write throughput matters more than balanced bucket sizes.
+
+The animation shows three threads firing inserts at the same instant; each thread's record always lands in its own dedicated bucket.
+
+++++
+<svg class="bss-svg" viewBox="0 0 1200 270"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Thread bucket-selection: three concurrent threads each write to their own dedicated bucket; T1 → Bucket 0, T2 → Bucket 1, T3 → Bucket 2.">
 
   <!-- Thread 1 -->
-  <text x="50"  y="437" class="bss-thread-label">THREAD T1</text>
+  <text x="50" y="62" class="bss-thread-label">THREAD T1</text>
   <g class="bss-producer">
-    <rect x="180" y="405" width="280" height="50" rx="8"/>
-    <text x="320" y="437" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
+    <rect x="180" y="30" width="280" height="50" rx="8"/>
+    <text x="320" y="62" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
   </g>
   <g class="bss-bucket bss-bucket-0">
-    <rect x="850" y="405" width="300" height="50" rx="8"/>
-    <text x="1000" y="437" text-anchor="middle" class="bss-bucket-title">Bucket 0 (Customer_0)</text>
+    <rect x="850" y="30" width="300" height="50" rx="8"/>
+    <text x="1000" y="62" text-anchor="middle" class="bss-bucket-title">Bucket 0 (Customer_0)</text>
   </g>
-  <path id="bss-th-1" d="M 460 430 L 850 430" class="bss-conn bss-conn-0"/>
+  <path id="bss-th-1" d="M 460 55 L 850 55" class="bss-conn bss-conn-0"/>
 
   <!-- Thread 2 -->
-  <text x="50"  y="517" class="bss-thread-label">THREAD T2</text>
+  <text x="50" y="142" class="bss-thread-label">THREAD T2</text>
   <g class="bss-producer">
-    <rect x="180" y="485" width="280" height="50" rx="8"/>
-    <text x="320" y="517" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
+    <rect x="180" y="110" width="280" height="50" rx="8"/>
+    <text x="320" y="142" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
   </g>
   <g class="bss-bucket bss-bucket-1">
-    <rect x="850" y="485" width="300" height="50" rx="8"/>
-    <text x="1000" y="517" text-anchor="middle" class="bss-bucket-title">Bucket 1 (Customer_1)</text>
+    <rect x="850" y="110" width="300" height="50" rx="8"/>
+    <text x="1000" y="142" text-anchor="middle" class="bss-bucket-title">Bucket 1 (Customer_1)</text>
   </g>
-  <path id="bss-th-2" d="M 460 510 L 850 510" class="bss-conn bss-conn-1"/>
+  <path id="bss-th-2" d="M 460 135 L 850 135" class="bss-conn bss-conn-1"/>
 
   <!-- Thread 3 -->
-  <text x="50"  y="597" class="bss-thread-label">THREAD T3</text>
+  <text x="50" y="222" class="bss-thread-label">THREAD T3</text>
   <g class="bss-producer">
-    <rect x="180" y="565" width="280" height="50" rx="8"/>
-    <text x="320" y="597" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
+    <rect x="180" y="190" width="280" height="50" rx="8"/>
+    <text x="320" y="222" text-anchor="middle" class="bss-producer-title">INSERT INTO Customer</text>
   </g>
   <g class="bss-bucket bss-bucket-2">
-    <rect x="850" y="565" width="300" height="50" rx="8"/>
-    <text x="1000" y="597" text-anchor="middle" class="bss-bucket-title">Bucket 2 (Customer_2)</text>
+    <rect x="850" y="190" width="300" height="50" rx="8"/>
+    <text x="1000" y="222" text-anchor="middle" class="bss-bucket-title">Bucket 2 (Customer_2)</text>
   </g>
-  <path id="bss-th-3" d="M 460 590 L 850 590" class="bss-conn bss-conn-2"/>
+  <path id="bss-th-3" d="M 460 215 L 850 215" class="bss-conn bss-conn-2"/>
 
   <!-- Two waves of dots, fired in parallel across the three threads. -->
   <circle r="7" class="bss-dot bss-dot-0" opacity="0">
@@ -377,67 +389,81 @@ ArcadeDB ships with three built-in strategies. The animation below shows how a s
     <set attributeName="opacity" to="1" begin="bss-thA.end+0.4s"/>
     <set attributeName="opacity" to="0" begin="bss-thA.end+1.6s"/>
   </circle>
+</svg>
+++++
 
-  <line x1="60" y1="640" x2="1140" y2="640" class="bss-divider"/>
+[[bucket-selection-partitioned]]
+=== `partitioned(<property>)`
 
-  <!-- ============================================================
-       Panel 3 — PARTITIONED(id) (y 640..960)
-       ============================================================ -->
-  <text x="600" y="678" class="bss-section-label" text-anchor="middle">PARTITIONED(id) — bucket chosen by hashing the key</text>
-  <text x="600" y="700" class="bss-section-sub"   text-anchor="middle">same id always lands in the same bucket — the index lookup hits one sub-index instead of all of them</text>
+The bucket is chosen by hashing the value of a named property and mapping the hash to a bucket index. Two records that share the same key always land in the same bucket, deterministically.
+
+The big win is on read. When you later query by that property, ArcadeDB knows exactly which bucket can possibly contain the row, so the index lookup hits a single sub-index instead of scanning every bucket's index in turn. For point lookups by key this can be much faster than `round-robin` or `thread`.
+
+The trade-offs:
+
+* Inserts are slightly slower than the other strategies because of the extra hashing step.
+* The distribution of records across buckets only stays balanced if the chosen property has high cardinality and reasonably uniform values. A low-cardinality key concentrates writes into a few buckets.
+* The `UPSERT` clause on `UPDATE` only guarantees atomicity when the `WHERE` condition matches a `UNIQUE` index, so this strategy is most often paired with one.
+
+The animation shows four records with `id` values `42, 17, 99, 33` flowing through `hash(id) % 3` and landing in their deterministic destination buckets (`Bucket 0`, `Bucket 2`, `Bucket 0`, `Bucket 0`).
+
+++++
+<svg class="bss-svg" viewBox="0 0 1200 260"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Partitioned bucket-selection: records with id values 42, 17, 99 and 33 are passed through a hash(id) % 3 box and routed deterministically to bucket 0, bucket 2, bucket 0 and bucket 0.">
 
   <!-- Records with explicit id values -->
   <g class="bss-record">
-    <rect x="60"  y="735" width="150" height="44" rx="6" stroke="#94A3B8"/>
-    <text x="135" y="765" text-anchor="middle">id = 42</text>
+    <rect x="60" y="30"  width="150" height="44" rx="6" stroke="#94A3B8"/>
+    <text x="135" y="60" text-anchor="middle">id = 42</text>
   </g>
   <g class="bss-record">
-    <rect x="60"  y="789" width="150" height="44" rx="6" stroke="#94A3B8"/>
-    <text x="135" y="819" text-anchor="middle">id = 17</text>
+    <rect x="60" y="84"  width="150" height="44" rx="6" stroke="#94A3B8"/>
+    <text x="135" y="114" text-anchor="middle">id = 17</text>
   </g>
   <g class="bss-record">
-    <rect x="60"  y="843" width="150" height="44" rx="6" stroke="#94A3B8"/>
-    <text x="135" y="873" text-anchor="middle">id = 99</text>
+    <rect x="60" y="138" width="150" height="44" rx="6" stroke="#94A3B8"/>
+    <text x="135" y="168" text-anchor="middle">id = 99</text>
   </g>
   <g class="bss-record">
-    <rect x="60"  y="897" width="150" height="44" rx="6" stroke="#94A3B8"/>
-    <text x="135" y="927" text-anchor="middle">id = 33</text>
+    <rect x="60" y="192" width="150" height="44" rx="6" stroke="#94A3B8"/>
+    <text x="135" y="222" text-anchor="middle">id = 33</text>
   </g>
 
   <!-- Hash function box in the middle -->
   <g class="bss-hash">
-    <rect x="430" y="795" width="320" height="80" rx="10"/>
-    <text x="590" y="828" text-anchor="middle" class="bss-hash-title">hash(id) % 3</text>
-    <text x="590" y="858" text-anchor="middle" class="bss-section-sub">deterministic routing</text>
+    <rect x="430" y="90" width="320" height="80" rx="10"/>
+    <text x="590" y="123" text-anchor="middle" class="bss-hash-title">hash(id) % 3</text>
+    <text x="590" y="153" text-anchor="middle" class="bss-section-sub">deterministic routing</text>
   </g>
 
   <!-- Buckets on the right -->
   <g class="bss-bucket bss-bucket-0">
-    <rect x="930" y="735" width="220" height="60" rx="8"/>
-    <text x="1040" y="761" text-anchor="middle" class="bss-bucket-title">Bucket 0</text>
-    <text x="1040" y="783" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 0</text>
+    <rect x="930" y="30" width="220" height="60" rx="8"/>
+    <text x="1040" y="56" text-anchor="middle" class="bss-bucket-title">Bucket 0</text>
+    <text x="1040" y="78" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 0</text>
   </g>
   <g class="bss-bucket bss-bucket-1">
-    <rect x="930" y="805" width="220" height="60" rx="8"/>
-    <text x="1040" y="831" text-anchor="middle" class="bss-bucket-title">Bucket 1</text>
-    <text x="1040" y="853" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 1</text>
+    <rect x="930" y="100" width="220" height="60" rx="8"/>
+    <text x="1040" y="126" text-anchor="middle" class="bss-bucket-title">Bucket 1</text>
+    <text x="1040" y="148" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 1</text>
   </g>
   <g class="bss-bucket bss-bucket-2">
-    <rect x="930" y="875" width="220" height="60" rx="8"/>
-    <text x="1040" y="901" text-anchor="middle" class="bss-bucket-title">Bucket 2</text>
-    <text x="1040" y="923" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 2</text>
+    <rect x="930" y="170" width="220" height="60" rx="8"/>
+    <text x="1040" y="196" text-anchor="middle" class="bss-bucket-title">Bucket 2</text>
+    <text x="1040" y="218" text-anchor="middle" class="bss-bucket-sub">id mod 3 = 2</text>
   </g>
 
-  <!-- Path 1: record → hash (430,835) → bucket -->
-  <path id="bss-pa-in-1" d="M 210 757 C 320 757, 360 835, 430 835" class="bss-conn"/>
-  <path id="bss-pa-in-2" d="M 210 811 C 320 811, 360 835, 430 835" class="bss-conn"/>
-  <path id="bss-pa-in-3" d="M 210 865 C 320 865, 360 835, 430 835" class="bss-conn"/>
-  <path id="bss-pa-in-4" d="M 210 919 C 320 919, 360 835, 430 835" class="bss-conn"/>
+  <!-- Path: record → hash (430,130) → bucket -->
+  <path id="bss-pa-in-1" d="M 210 52  C 320 52,  360 130, 430 130" class="bss-conn"/>
+  <path id="bss-pa-in-2" d="M 210 106 C 320 106, 360 130, 430 130" class="bss-conn"/>
+  <path id="bss-pa-in-3" d="M 210 160 C 320 160, 360 130, 430 130" class="bss-conn"/>
+  <path id="bss-pa-in-4" d="M 210 214 C 320 214, 360 130, 430 130" class="bss-conn"/>
 
   <!-- Hash → bucket paths. 42%3=0, 17%3=2, 99%3=0, 33%3=0. -->
-  <path id="bss-pa-out-0" d="M 750 835 C 830 835, 870 765, 930 765" class="bss-conn bss-conn-0"/>
-  <path id="bss-pa-out-1" d="M 750 835 C 830 835, 870 835, 930 835" class="bss-conn bss-conn-1"/>
-  <path id="bss-pa-out-2" d="M 750 835 C 830 835, 870 905, 930 905" class="bss-conn bss-conn-2"/>
+  <path id="bss-pa-out-0" d="M 750 130 C 830 130, 870 60,  930 60"  class="bss-conn bss-conn-0"/>
+  <path id="bss-pa-out-1" d="M 750 130 C 830 130, 870 130, 930 130" class="bss-conn bss-conn-1"/>
+  <path id="bss-pa-out-2" d="M 750 130 C 830 130, 870 200, 930 200" class="bss-conn bss-conn-2"/>
 
   <!-- record-1 (id=42) → hash → bucket 0  (42%3 = 0) -->
   <circle r="7" class="bss-dot bss-dot-0" opacity="0">
@@ -489,22 +515,7 @@ ArcadeDB ships with three built-in strategies. The animation below shows how a s
 </svg>
 ++++
 
-[%header,cols="1,3,3"]
-|===
-| Strategy | How it picks a bucket | When to use it
-
-| `round-robin`
-| Each new record goes to the next bucket in circular order. Defaults to this when a type has multiple buckets.
-| The general-purpose default. Spreads writes evenly across buckets without any application-level coordination.
-
-| `thread`
-| The bucket is chosen as `(threadId mod numBuckets)`, so every thread always writes to the same bucket.
-| The fastest option for highly concurrent inserts. With one bucket per thread there is zero contention between threads on the same bucket page, since each thread owns a distinct file.
-
-| `partitioned(<property>)`
-| The value of the named property is hashed into a bucket index, so two records that share the same key always land in the same bucket.
-| When you query by that property afterwards. The lookup hits a single sub-index instead of scanning every bucket's index, which trades slightly slower inserts for much faster point reads.
-|===
+=== Setting and changing the strategy
 
 The strategy is inherited from a database-wide default (changeable with xref:reference/sql/sql-database-admin.adoc#sql-alter-database[`ALTER DATABASE`]) and can be overridden per type with xref:reference/sql/sql-types.adoc#sql-alter-type[`ALTER TYPE ... BucketSelectionStrategy`]. See the SQL reference under xref:reference/sql/sql-types.adoc#sql-bucket-selection[Bucket Selection Strategies] for the exact syntax.
 
