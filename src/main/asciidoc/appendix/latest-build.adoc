@@ -1,0 +1,119 @@
+[[latest-build]]
+=== Get the Latest Build
+
+ArcadeDB ships a new official release roughly once a month, but every commit merged into the `main` branch is also packaged as a development build (a *SNAPSHOT*). If your fix has already landed on `main` and you don't want to wait for the next monthly release, you have two options:
+
+. <<latest-build-local,**Build it yourself locally**>> — fastest if you already have a JDK and Maven, and produces the same artifacts the CI does.
+. <<latest-build-snapshot,**Pull the SNAPSHOT from Maven Central**>> — no toolchain required; just wait ~15 minutes after the commit lands.
+
+Both options give you the *exact same code* — the difference is whether the bytes are produced on your machine or on the GitHub Actions runner.
+
+[[latest-build-local]]
+==== Option 1: Build it Yourself
+
+You'll need:
+
+* **JDK 21 or newer** — check with `java -version`.
+* **Maven 3.9+** — check with `mvn -version`.
+* (optional) **Docker Desktop** — only required if you want a local Docker image; skip the `-Pdocker` profile otherwise.
+
+Steps:
+
+[source,shell]
+----
+# 1. Clone the repository
+git clone https://github.com/ArcadeData/arcadedb.git
+cd arcadedb
+
+# 2. Build the project (skip tests for a faster build)
+mvn clean install -DskipTests -Pdocker
+----
+
+The `-Pdocker` profile additionally builds and tags Docker images on your local Docker daemon. After the build completes you'll find them with:
+
+[source,shell]
+----
+docker images | grep arcadedata/arcadedb
+----
+
+You will see images such as `arcadedata/arcadedb:latest`, `arcadedata/arcadedb-minimal:latest`, and `arcadedata/arcadedb-headless:latest`, each also tagged with the snapshot version (for example `26.5.1-SNAPSHOT`). If you don't need Docker, just drop `-Pdocker` from the command.
+
+The packaged distributions (`tar.gz` and `zip`) are produced in:
+
+[source]
+----
+package/target/
+----
+
+Look for files named `arcadedb-<version>-SNAPSHOT-base.tar.gz`, `arcadedb-<version>-SNAPSHOT-base.zip`, and the `headless` variants. Unpack one of them and follow the same launch instructions as a stable release — see <<binaries,Installation from Binaries>>.
+
+TIP: A clean build from scratch typically takes 2–4 minutes on a modern laptop. Re-runs are noticeably faster thanks to Maven's incremental compilation and dependency cache.
+
+[[latest-build-snapshot]]
+==== Option 2: Wait ~15 Minutes for the Maven Central SNAPSHOT
+
+Every push to `main` triggers a https://github.com/ArcadeData/arcadedb/actions/workflows/mvn-deploy.yml[GitHub Actions deploy workflow]. As long as the build passes, it publishes the artifacts to Maven Central's snapshots repository — typically within ~15 minutes from the commit.
+
+To consume the SNAPSHOT in your own project, point your build at the Maven Central snapshots repository.
+
+**Maven (`pom.xml`)**:
+
+[source,xml,subs="attributes+"]
+----
+<repositories>
+  <repository>
+    <id>central-snapshots</id>
+    <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+    <releases><enabled>false</enabled></releases>
+    <snapshots><enabled>true</enabled></snapshots>
+  </repository>
+</repositories>
+
+<dependencies>
+  <dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-engine</artifactId>
+    <version>{revnumber}-SNAPSHOT</version>
+  </dependency>
+</dependencies>
+----
+
+**Gradle (`build.gradle`)**:
+
+[source,groovy,subs="attributes+"]
+----
+repositories {
+  maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
+}
+
+dependencies {
+  implementation 'com.arcadedb:arcadedb-engine:{revnumber}-SNAPSHOT'
+}
+----
+
+NOTE: Replace `{revnumber}-SNAPSHOT` with the version reported in the `pom.xml` of the `main` branch at the time of your build. The version is bumped after each official release, so the value changes over time.
+
+To force Maven to re-resolve the latest snapshot (instead of using the locally cached one), pass the `-U` flag: `mvn -U clean install`.
+
+==== Verifying You Have the Build You Expect
+
+A SNAPSHOT distribution includes a `build.number` file at its root. Open it to confirm the exact commit hash and build timestamp:
+
+[source,shell]
+----
+cat arcadedb-<version>-SNAPSHOT/build.number
+----
+
+If you open an issue against a SNAPSHOT build, please include the contents of this file — see <<reportanissue,Report an Issue>>.
+
+==== When to Use Which Option
+
+[%header,cols="1,3"]
+|===
+| If you...                                                                         | Use
+| Need to test a fix immediately and have JDK/Maven installed                       | Build it yourself
+| Want a Docker image of the snapshot on your local machine                         | Build it yourself with `-Pdocker`
+| Don't want to install a toolchain                                                 | Wait for the Maven Central snapshot
+| Are integrating ArcadeDB as a library dependency in your own project              | Maven Central snapshot (with the repository declared in your build)
+| Need to reproduce CI behavior exactly                                             | Maven Central snapshot
+|===

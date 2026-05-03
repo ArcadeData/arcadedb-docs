@@ -194,6 +194,7 @@ NAV_STRUCTURE: list[dict] = [
             ]),
             ("Help", [
                 "appendix/community.adoc",
+                ("appendix/latest-build.adoc", "Get the Latest Build"),
                 ("appendix/issues.adoc", "Report an Issue"),
                 "reference/requirements.adoc",
             ]),
