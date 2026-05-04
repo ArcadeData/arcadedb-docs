@@ -42,6 +42,20 @@ SELECT title, abstract FROM Paper
 WHERE SEARCH_INDEX('Paper[abstract]', 'machine learning graph')
 ----
 
+*Hybrid Semantic + Keyword Search, one query* -- _Available since v26.5.1._ Fuse the semantic-similarity ranking with the abstract keyword match into a single ranked list, then collapse to one paper per topic so the literature review surface does not over-represent a single research thread:
+
+[source,sql]
+----
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Paper[embedding]', [0.8, 0.3, 0.7, 0.1], 50),
+    (SELECT @rid, $score FROM Paper
+     WHERE SEARCH_INDEX('Paper[abstract]', 'machine learning graph') = true),
+    { fusion: 'RRF', groupBy: 'topic', groupSize: 1 }
+)) LIMIT 10
+----
+
+The semantic side surfaces conceptually similar papers even when the abstract phrasing diverges; the full-text side anchors the result on papers that explicitly use the query terms; RRF balances the two without requiring score calibration. Replace `groupBy: 'topic'` with `'institution'`, `'venue'`, or `'year'` to diversify along a different axis. To dedupe across multiple authors of the same paper, the upstream <<sparse-vector-search,sparse vector index>> can be added as a third source for term-level disambiguation.
+
 ==== Try It Yourself
 
 [source,bash]

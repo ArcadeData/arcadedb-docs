@@ -63,6 +63,8 @@ See <<full-text-index>> for full documentation.
 See <<geospatial>> for full documentation.
 ** `HNSW` vector index (Hierarchical Navigable Small World).
 ** `LSMVECTORINDEX` LSM Tree-based vector index.
+** `LSM_SPARSE_VECTOR` posting-list inverted index for sparse-vector retrieval (BM25-style, SPLADE, BGE-M3, OpenSearch sparse). _Available since v26.5.1._
+See <<sparse-vector-search,Sparse Vector Search>> for full documentation.
 * *`&lt;key-type&gt;`* Defines the key type.
 With automatic indexes, the key type is automatically selected when the database reads the target schema property.
 For manual indexes, when not specified, it selects the key at run-time during the first insertion by reading the type of the type.
@@ -428,6 +430,29 @@ WHERE geo.within(coords, geo.geomFromText(
 ----
 
 See <<geospatial>> for full documentation on geometry formats, predicate functions, and precision configuration.
+
+* Create a sparse vector index for SPLADE / BM25 / BGE-M3 hybrid retrieval. _Available since v26.5.1._
+
+[source,sql]
+----
+CREATE DOCUMENT TYPE Doc
+CREATE PROPERTY Doc.tokens  ARRAY_OF_INTEGERS
+CREATE PROPERTY Doc.weights ARRAY_OF_FLOATS
+
+CREATE INDEX ON Doc (tokens, weights) LSM_SPARSE_VECTOR
+  METADATA { dimensions: 105000, modifier: 'IDF' }
+----
+
+The two parallel array properties carry the non-zero dimension ids and matching weights for each record. `dimensions` declares the vocabulary cap and rejects out-of-range ids at write time (set to `0` to disable the cap). `modifier: 'IDF'` enables Robertson-Sparck-Jones IDF weighting at query time; omit it (or set to `'NONE'`) for plain dot-product scoring.
+
+Query with `vector.sparseNeighbors`:
+
+[source,sql]
+----
+SELECT expand(`vector.sparseNeighbors`('Doc[tokens,weights]', :qIdx, :qVal, 50))
+----
+
+For server-side hybrid retrieval (dense + sparse + full-text fused into one ranked top-K), see <<hybrid-search,Hybrid Search with `vector.fuse`>>.
 
 For more information, see:
 

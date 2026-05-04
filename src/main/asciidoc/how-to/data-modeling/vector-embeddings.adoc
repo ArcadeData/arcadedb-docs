@@ -183,24 +183,57 @@ SELECT name, distance FROM (
 )
 ----
 
-===== Hybrid Search: Vector + Full-Text
+===== Hybrid Search: Dense + Sparse + Full-Text
 
-Combine vector similarity with keyword matching for best results:
+NOTE: The `vector.fuse` operator described below is available since ArcadeDB v26.5.1. Earlier versions required two queries plus client-side fusion via `vector.rrfScore`.
+
+Combine dense vector similarity with sparse retrieval and/or keyword matching in a single server-side query. `vector.fuse` accepts any number of ranked sub-pipelines plus a fusion strategy (`RRF`, `DBSF`, `LINEAR`) and returns one ranked top-K:
 
 [source,sql]
 ----
--- Step 1: Full-text search for keyword matches
-SELECT @rid, title, content FROM Document
-WHERE SEARCH_INDEX('Document[content]', 'machine learning')
+-- Schema: dense + sparse properties + indexes (sparse needs LSM_SPARSE_VECTOR).
+CREATE PROPERTY Document.dense   ARRAY_OF_FLOATS;
+CREATE PROPERTY Document.tokens  ARRAY_OF_INTEGERS;
+CREATE PROPERTY Document.weights ARRAY_OF_FLOATS;
 
--- Step 2: Vector search for semantic matches
-SELECT @rid, title, distance FROM (
-  SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 20))
-)
+CREATE INDEX ON Document (dense) LSM_VECTOR
+  METADATA { dimensions: 384, similarity: 'COSINE' }
 
--- Combine scores using reciprocal rank fusion
-SELECT vectorRRFScore(keywordRank, vectorRank, 60) AS score
+CREATE INDEX ON Document (tokens, weights) LSM_SPARSE_VECTOR
+  METADATA { dimensions: 30000, modifier: 'IDF' }
+
+-- Hybrid retrieval in one statement.
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Document[dense]', :denseVec, 50),
+    `vector.sparseNeighbors`('Document[tokens,weights]', :qIdx, :qVal, 50),
+    { fusion: 'RRF', groupBy: 'source_file', groupSize: 1 }
+)) LIMIT 10
 ----
+
+* `vector.neighbors` exposes `distance` (lower = better); `vector.fuse` auto-flips it so dense and sparse sources compose without manual rescaling.
+* `groupBy` + `groupSize` collapse same-source duplicates server-side. Drop the option to return chunk-level results.
+* Pre-fusion grouping is also possible by attaching `{ groupBy: 'source_file', groupSize: 1 }` to each individual source.
+
+To include full-text alongside dense/sparse, add a third source built from `SEARCH_INDEX`:
+
+[source,sql]
+----
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Document[dense]', :denseVec, 100),
+    `vector.sparseNeighbors`('Document[tokens,weights]', :qIdx, :qVal, 100),
+    (SELECT @rid, $score FROM Document
+     WHERE SEARCH_INDEX('Document[content]', 'machine learning') = true),
+    { fusion: 'RRF' }
+)) LIMIT 10
+----
+
+Pick the strategy that matches your scoring shape:
+
+* `RRF` -- rank-only, indifferent to score scales. Default, safest with mixed source types.
+* `DBSF` -- mean +/- 3sigma normalisation per source then weighted sum. Use when scores are roughly Gaussian on each side.
+* `LINEAR` -- per-source min-max normalisation then weighted sum. Use with already-tuned offline weights.
+
+For the legacy two-query workaround (still supported via `vector.rrfScore` and `vector.hybridScore` on already-computed scores), see the <<sql-functions,SQL Vector Functions>> reference.
 
 ===== Batch Ingestion
 

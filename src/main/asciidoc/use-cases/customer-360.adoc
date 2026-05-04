@@ -38,6 +38,17 @@ FROM MATCH {type: Customer, as: customer}
 GROUP BY customer.name ORDER BY churnRatio DESC
 ----
 
+*Hybrid Preference + Ticket Search* -- _Available since v26.5.1._ Match a customer's preference vector against products while keeping support-ticket keyword evidence in the same ranked list. Useful for "next best action" surfaces that fold both behavioural similarity and recent issue context into one ranking, deduped to one product per category:
+
+[source,sql]
+----
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Product[embedding]', :customerPrefVector, 50),
+    (SELECT @rid, $score FROM Ticket WHERE SEARCH_INDEX('Ticket[content]', :recentIssueTerms) = true),
+    { fusion: 'RRF', groupBy: 'category', groupSize: 1 }
+)) LIMIT 10
+----
+
 *Customer Journey Analysis* -- Trace conversion paths from ad click to purchase:
 
 [source,cypher]

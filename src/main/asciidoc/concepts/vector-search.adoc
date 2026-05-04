@@ -280,9 +280,172 @@ When creating LSMVectorIndex instances, the following parameters can be configur
 
 For more information on vector embeddings, see the <<java-vectors,Vector Embeddings>> section.
 
+[[sparse-vector-search]]
+==== Sparse Vector Search
+
+NOTE: Available since ArcadeDB v26.5.1.
+
+In addition to dense embeddings, ArcadeDB supports *sparse* vector retrieval via the `LSM_SPARSE_VECTOR` index. Sparse vectors carry only the non-zero dimensions of a high-dimensional space and are produced by learned-sparse retrieval models such as https://github.com/naver/splade[SPLADE], https://huggingface.co/BAAI/bge-m3[BGE-M3], OpenSearch's `opensearch-neural-sparse-encoding-multilingual-v1`, and BM25-as-sparse-vector pipelines.
+
+Sparse retrieval excels where dense embeddings collapse semantically distinct queries into the same point ("freeze card after theft" vs "unfreeze card after travel"), because the per-token weights expose the discriminating terms directly.
+
+===== Storage layout
+
+The index uses a posting-list inverted structure on the LSM-Tree backbone with composite key `(int dim_id, RID rid, float weight)`. It inherits ACID transactions, WAL, replication, and compaction from the LSM-Tree, just like every other ArcadeDB index. Per-document data lives in two parallel array properties:
+
+* an `ARRAY_OF_INTEGERS` of non-zero dimension ids, and
+* an `ARRAY_OF_FLOATS` of the matching weights.
+
+Both arrays must have the same length on every record. Weights must be non-negative; negative weights would corrupt the WAND per-dim upper bound used during retrieval and are rejected at write time. All standard sparse models (BM25, SPLADE, BGE-M3, Cohere sparse) emit non-negative weights, so this is not a real constraint in practice.
+
+===== Schema setup
+
+[source,sql]
+----
+CREATE DOCUMENT TYPE Doc;
+CREATE PROPERTY Doc.tokens  ARRAY_OF_INTEGERS;
+CREATE PROPERTY Doc.weights ARRAY_OF_FLOATS;
+
+-- LSM_SPARSE_VECTOR index. `dimensions` declares the vocabulary cap (0 = open-ended).
+-- `modifier: 'IDF'` enables Robertson-Sparck-Jones IDF weighting at query time.
+CREATE INDEX ON Doc (tokens, weights) LSM_SPARSE_VECTOR
+  METADATA { "dimensions": 105000, "modifier": "IDF" };
+----
+
+===== Querying
+
+Use `vector.sparseNeighbors` to retrieve top-K records by sparse dot product:
+
+[source,sql]
+----
+SELECT expand(`vector.sparseNeighbors`(
+    'Doc[tokens,weights]',
+    :queryIndices, :queryValues,
+    50
+))
+----
+
+Options map (5th argument) supports `filter` (allowed-RIDs whitelist), `groupBy`, `groupSize` -- see <<vector-groupby,Group-By Retrieval>> below.
+
+===== Top-K algorithm
+
+Retrieval uses document-at-a-time WAND with per-dim `max_weight` upper bounds: per-dim cursors traverse postings in RID order, the algorithm pivots to the smallest RID whose cumulative upper bound can still beat the current K-th best score, and skips cursors below the pivot via direct seeks. Only dot-product similarity is supported (cosine on sparse vectors is conventionally handled by L2-normalizing both the query and stored vectors at insert time).
+
+The MVP works well up to roughly 10M sparse vectors. The scaling story past that point (BlockMax-WAND with per-page bounds, weight quantization, parallel per-segment scoring) is tracked separately.
+
+[[hybrid-search]]
+==== Hybrid Search with `vector.fuse`
+
+NOTE: Available since ArcadeDB v26.5.1.
+
+`vector.fuse` combines two or more ranked sub-pipelines into a single ranked top-K, server-side, in one query. It generalises the dense+sparse hybrid pattern but works with any source that yields `(@rid, $score)` rows: dense `vector.neighbors`, sparse `vector.sparseNeighbors`, full-text `SEARCH_INDEX`, or any plain `SELECT ... ORDER BY ... LIMIT N`.
+
+[source,sql]
+----
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Doc[dense]', :denseVec, 50),
+    `vector.sparseNeighbors`('Doc[tokens,weights]', :qIdx, :qVal, 50),
+    { fusion: 'RRF', groupBy: 'source_file', groupSize: 1 }
+)) LIMIT 10
+----
+
+===== Fusion strategies
+
+`vector.fuse` supports three strategies via the `fusion` option:
+
+[cols="1,4", options="header"]
+|===
+| Strategy | When to use
+
+| `RRF` (default) | Reciprocal Rank Fusion. `score = sum_i weight_i / (k + rank_i)`. Rank-only, indifferent to score scales -- best when sources have wildly different score distributions (e.g. cosine in [-1, 1] plus BM25 in [0, +inf)). Default `k = 60`.
+| `DBSF` | Distribution-Based Score Fusion (Qdrant 1.11+). Per-source scores normalised to [mean - 3sigma, mean + 3sigma], then weighted sum. Useful when sources produce comparable, roughly Gaussian distributions and you want score magnitude (not just rank) to influence fusion.
+| `LINEAR` | Per-source min-max normalisation, then weighted sum. Use when you have already-tuned weights from offline relevance experiments. Requires every source row to carry a numeric score.
+|===
+
+`vector.fuse` assumes "higher = better" for every source. It auto-flips the `distance` field exposed by `vector.neighbors` to a similarity at extract time so dense and sparse sources fuse without manual rescaling. If you build a custom source via `SELECT @rid, <expr> AS score FROM ...`, expose `score` with similarity semantics for `LINEAR` and `DBSF` to behave correctly. `RRF` is rank-only so it tolerates either convention.
+
+===== Weighted fusion
+
+Per-source weights tilt the fused ranking:
+
+[source,sql]
+----
+-- Dense matters 3x more than sparse for this corpus.
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Doc[dense]', :denseVec, 50),
+    `vector.sparseNeighbors`('Doc[tokens,weights]', :qIdx, :qVal, 50),
+    { fusion: 'RRF', weights: [3.0, 1.0] }
+)) LIMIT 10
+----
+
+===== Three-way fusion (dense + sparse + full-text)
+
+[source,sql]
+----
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Doc[dense]', :denseVec, 100),
+    `vector.sparseNeighbors`('Doc[tokens,weights]', :qIdx, :qVal, 100),
+    (SELECT @rid, $score FROM Doc WHERE SEARCH_INDEX('Doc[content]', :keywords) = true),
+    { fusion: 'RRF', k: 60 }
+)) LIMIT 10
+----
+
+===== Outer composition
+
+The fused output is itself a result set, so it composes with outer `WHERE`, `ORDER BY`, `LIMIT`, joins, and projections:
+
+[source,sql]
+----
+-- Score threshold + projection.
+SELECT title, source_file, score
+FROM (
+  SELECT expand(`vector.fuse`(
+      `vector.neighbors`('Doc[dense]', :denseVec, 50),
+      `vector.sparseNeighbors`('Doc[tokens,weights]', :qIdx, :qVal, 50),
+      { fusion: 'RRF' }
+  ))
+)
+WHERE score >= 0.02
+ORDER BY score DESC
+LIMIT 10
+----
+
+[[vector-groupby]]
+==== Group-By Retrieval
+
+NOTE: Available since ArcadeDB v26.5.1.
+
+`vector.neighbors`, `vector.sparseNeighbors`, and `vector.fuse` all accept `groupBy` and `groupSize` options for diversification at retrieval time, mirroring Qdrant's `query_points_groups` semantics. Common pattern: best chunk per source document, deduped at the index level rather than over-fetched and post-partitioned in the application.
+
+[source,sql]
+----
+-- Top 10 distinct source files, best matching chunk from each.
+SELECT expand(`vector.neighbors`(
+    'Doc[embedding]', :queryVec, 10,
+    { groupBy: 'source_file', groupSize: 1 }
+))
+----
+
+The third positional argument (`limit` / `k`) becomes the *max number of distinct groups* when `groupBy` is set. Total returned rows are bounded by `limit * groupSize`. `groupSize` defaults to `1`.
+
+`groupBy` accepts dotted nested-field paths -- `metadata.author`, `provenance.source.id`, etc. Each segment after the first descends one level via `Map`-typed properties or embedded documents; a missing segment lands the row in the `null` group.
+
+`groupBy` composes with the existing `filter` option:
+
+[source,sql]
+----
+SELECT expand(`vector.neighbors`(
+    'Doc[embedding]', :queryVec, 10,
+    { filter: [#5:0, #5:1, #5:2], groupBy: 'source_file', groupSize: 1 }
+))
+----
+
+The MVP implements grouping as a post-traversal filter with adaptive over-fetch. Pathological combinations of `limit` and `groupSize` (e.g. `limit=1000, groupSize=1000` would request 5,000,000 candidates) are rejected with an explicit error to bound memory.
+
 ==== Further Reading
 
 * <<vector-search-tutorial,Vector Search Tutorial>> -- Step-by-step hands-on guide
 * <<vector-embeddings-howto,Vector Embeddings How-To>> -- Index creation, tuning, and best practices
 * <<java-vectors,Java Vector API>> -- Programmatic vector index management
 * <<sql-functions,SQL Vector Functions>> -- All 40+ vector SQL functions
+* <<sparse-vector-search,Sparse Vector Search>> and <<hybrid-search,Hybrid Search with `vector.fuse`>> -- This section

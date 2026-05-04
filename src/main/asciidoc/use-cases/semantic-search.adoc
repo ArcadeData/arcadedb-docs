@@ -3,18 +3,36 @@
 
 NOTE: This use case is in development. Want to contribute? See the https://github.com/ArcadeData/arcadedb-usecases[arcadedb-usecases repository].
 
-Standalone vector search for e-commerce product discovery and document retrieval. Demonstrates ArcadeDB's vector capabilities without requiring graph traversal -- pure semantic search with filtering, faceting, and hybrid keyword+vector ranking.
+Standalone vector search for e-commerce product discovery and document retrieval. Demonstrates ArcadeDB's vector capabilities without requiring graph traversal -- pure semantic search with filtering, faceting, and hybrid dense + sparse + keyword ranking.
 
 ==== Planned Features
 
 * **<<vector-model,Vector Similarity>>** -- Product and document embeddings with LSM_VECTOR, HNSW, and DiskANN indexes
-* **<<searchengine-model,Full-Text Search>>** -- Hybrid keyword + semantic search with reciprocal rank fusion
+* **<<sparse-vector-search,Sparse Vector Retrieval>>** -- SPLADE / BM25 / BGE-M3 sparse embeddings via `LSM_SPARSE_VECTOR` (v26.5.1+)
+* **<<hybrid-search,Server-side Hybrid Fusion>>** -- `vector.fuse` combining dense + sparse + full-text in one query with RRF / DBSF / LINEAR strategies (v26.5.1+)
+* **<<searchengine-model,Full-Text Search>>** -- Lucene-backed keyword index, plugged in as a `SEARCH_INDEX(...)` source of `vector.fuse`
 * **<<document-model,Document Model>>** -- Faceted filtering on product attributes
 * **Python** -- Primary implementation language targeting data science and AI workflows
+
+==== Reference Hybrid Query
+
+_Available since ArcadeDB v26.5.1._
+
+[source,sql]
+----
+SELECT expand(`vector.fuse`(
+    `vector.neighbors`('Product[dense]', :queryVec, 50),
+    `vector.sparseNeighbors`('Product[tokens,weights]', :qIdx, :qVal, 50),
+    (SELECT @rid, $score FROM Product WHERE SEARCH_INDEX('Product[name]', :keywords) = true),
+    { fusion: 'RRF', groupBy: 'category', groupSize: 1 }
+)) LIMIT 20
+----
+
+This is the typical e-commerce shape: semantic similarity (dense embeddings) + exact-term matching (sparse) + keyword search (full-text), fused server-side, then diversified across product categories so the result page does not collapse to one category.
 
 ==== Target Scenarios
 
 * E-commerce product search with natural language queries
 * Document retrieval with semantic understanding
-* Hybrid search combining keyword matching and vector similarity
-* Multi-vector search (title embeddings + description embeddings)
+* Hybrid search combining keyword matching and dense+sparse vector similarity
+* Multi-vector search (title embeddings + description embeddings + sparse term embeddings)
