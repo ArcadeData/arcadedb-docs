@@ -527,7 +527,7 @@ The default `round-robin` strategy is *safe but unconditionally generic*: it nev
 Use this 3-question decision tree before you create a new type:
 
 . *Is the data scoped to a tenant, customer, organisation, or other high-cardinality categorical key?* If yes, use `partitioned(<that-key>)`. Multi-tenant SaaS workloads, customer-scoped records, and per-organisation document stores all fit here. The planner will skip every bucket that doesn't match the scope predicate, so a `WHERE tenant_id = X` query touches one HNSW graph (or one LSM-Tree per-bucket sub-index) instead of all of them. This is the optimisation that makes filterable HNSW work for SaaS use cases (see <<vector-search-filterable-hnsw>>).
-. *Is the data time-series with a hot recent / cold historical split?* If yes, prefer the `LSM_TIMESERIES` type's native partitioning (see <<concepts-timeseries>>) - it understands time-window roll-off and downsampling out of the box. Generic types with `partitioned(timestamp)` can degenerate into a hot bucket for the current period.
+. *Is the data time-series with a hot recent / cold historical split?* If yes, prefer the `LSM_TIMESERIES` type's native partitioning (see <<timeseries,Time series>>) - it understands time-window roll-off and downsampling out of the box. Generic types with `partitioned(timestamp)` can degenerate into a hot bucket for the current period.
 . *Is the workload single-tenant, mixed-cutting analytics, or a generic document store?* Stick with `round-robin` (the default). The other strategies' query-time benefit doesn't materialise without a stable partition axis.
 
 [CAUTION]
@@ -549,7 +549,7 @@ A schema mutation can invalidate the partition mapping for existing records:
 * `ALTER TYPE Doc BucketSelectionStrategy 'partitioned(...)'` on a populated type that previously used `round-robin` puts the records under a hash they were never routed by.
 * Changing the strategy's property set (e.g. `partitioned(orgId)` -> `partitioned(orgId, region)`) on a populated type has the same effect.
 
-When this happens, ArcadeDB sets a `needsRepartition` flag on the type. The flag is exposed in `SELECT FROM schema:types` and shown as a yellow warning banner in Studio's type-detail panel. *While the flag is set, partition-aware bucket pruning is suppressed*: queries fan out across every bucket and stay correct, but lose the optimisation. The flag is cleared by a successful `REBUILD TYPE ... WITH repartition = true`, which walks every record, moves the misplaced ones to their hash-target bucket, and then clears the flag. Records that move get a new RID, so types with inbound edges should drop and re-import rather than rebuild.
+When this happens, ArcadeDB sets a `needsRepartition` flag on the type. The flag is exposed in `SELECT FROM schema:types` and shown as a yellow warning banner in Studio's type-detail panel. *While the flag is set, partition-aware bucket pruning is suppressed*: queries fan out across every bucket and stay correct, but lose the optimisation. The flag is cleared by a successful `REBUILD TYPE ... WITH repartition = true`, which walks every record, moves the misplaced ones to their hash-target bucket, and then clears the flag.
 
 You can also chain the rebuild atomically with the schema change:
 
@@ -559,6 +559,16 @@ ALTER TYPE Doc BUCKET +newBucket WITH repartition = true
 ----
 
 This runs the bucket addition and the rebuild as one logical operation; the flag never goes true to subsequent queries.
+
+[CAUTION]
+====
+*Vertex and edge types*: a repartition rebuild deletes each misplaced record from its old bucket and re-inserts it, which gives it a new RID. For graph types this breaks integrity in two ways:
+
+* Inbound edges from other vertices keep pointing at the old RID and silently dangle.
+* Outbound-edge segments are stored on the vertex itself, so the delete+re-insert wipes them - even on a type that has no inbound references.
+
+There is no safe in-place fix for either, so ArcadeDB refuses `REBUILD TYPE <V> WITH repartition = true` (and the chained `ALTER TYPE <V> ... WITH repartition = true`) on vertex or edge types unconditionally. The supported workflow for repartitioning a populated graph type is to drop and re-import the data under the new partitioning.
+====
 
 ===== Verifying it's working
 

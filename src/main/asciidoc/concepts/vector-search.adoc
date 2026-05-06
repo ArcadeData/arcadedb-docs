@@ -187,6 +187,27 @@ The `filter` value accepts a list of RIDs, RID strings, or any `Identifiable`. I
 
 TIP: Very selective filters (only a tiny fraction of records match) can starve the HNSW beam; combine `filter` with a higher `efSearch` to preserve recall.
 
+[[vector-search-filterable-hnsw]]
+===== Partition-aware filterable HNSW
+
+When the type uses `partitioned(<key>)` as its bucket selection strategy and the query's `WHERE` clause binds the partition key to a literal, the planner narrows `vector.neighbors` / `vector.sparseNeighbors` to a single per-bucket HNSW graph automatically -- no `filter` option needed:
+
+[source,sql]
+----
+SELECT vector.neighbors('Document[embedding]', :queryVector, 10) AS neighbors
+  FROM Document
+ WHERE tenant_id = 'acme'
+----
+
+With the partition strategy in place, this query touches only `tenant_id = 'acme'`'s HNSW graph instead of fanning out across every bucket. The optimisation kicks in transparently for both dense (`vector.neighbors`) and sparse (`vector.sparseNeighbors`) search and composes with explicit `filter` lists when both are present.
+
+The two approaches are complementary:
+
+* `partitioned(<key>)` + a `WHERE` predicate on the key prunes the *bucket set* before the HNSW traversal even starts. Best for high-cardinality scope keys (tenant, customer, region) where every query naturally carries the predicate.
+* `filter: (SELECT @rid ...)` prunes *individual RIDs* during the HNSW traversal. Best for low-cardinality or query-shaped filters that don't map cleanly onto a partition key.
+
+For the multi-tenant SaaS case, partition-aware HNSW is usually the right primitive. See <<schema-design-101-bucket-strategy,Schema design 101: choosing a bucket strategy>> for picking the partition key.
+
 ==== Multi-Modal Search
 
 A single vertex type can have multiple vector indexes on different properties:
