@@ -519,6 +519,58 @@ The animation shows four records with `id` values `42, 17, 99, 33` flowing throu
 
 The strategy is inherited from a database-wide default (changeable with <<sql-alter-database,`ALTER DATABASE`>>) and can be overridden per type with <<sql-alter-type,`ALTER TYPE ... BucketSelectionStrategy`>>. See the SQL reference under <<sql-bucket-selection,Bucket Selection Strategies>> for the exact syntax.
 
+[[schema-design-101-bucket-strategy]]
+===== Schema design 101: choosing a bucket strategy
+
+The default `round-robin` strategy is *safe but unconditionally generic*: it never produces hot buckets, but it also gives the planner zero query-time leverage. Most production schemas have an obvious partition axis (tenant, customer, region, organisation) that the default ignores. Picking a partitioned strategy at schema-creation time is one of the highest-leverage decisions you can make for a single-node deployment.
+
+Use this 3-question decision tree before you create a new type:
+
+. *Is the data scoped to a tenant, customer, organisation, or other high-cardinality categorical key?* If yes, use `partitioned(<that-key>)`. Multi-tenant SaaS workloads, customer-scoped records, and per-organisation document stores all fit here. The planner will skip every bucket that doesn't match the scope predicate, so a `WHERE tenant_id = X` query touches one HNSW graph (or one LSM-Tree per-bucket sub-index) instead of all of them. This is the optimisation that makes filterable HNSW work for SaaS use cases (see <<vector-search-filterable-hnsw>>).
+. *Is the data time-series with a hot recent / cold historical split?* If yes, prefer the `LSM_TIMESERIES` type's native partitioning (see <<concepts-timeseries>>) - it understands time-window roll-off and downsampling out of the box. Generic types with `partitioned(timestamp)` can degenerate into a hot bucket for the current period.
+. *Is the workload single-tenant, mixed-cutting analytics, or a generic document store?* Stick with `round-robin` (the default). The other strategies' query-time benefit doesn't materialise without a stable partition axis.
+
+[CAUTION]
+====
+**Anti-patterns** worth calling out:
+
+* *Low-cardinality keys* (`status` with 3 values, `lang` with 5 values): every value collides into one bucket. With 16 buckets and a 3-value key, ~13 buckets stay empty and the other 3 carry everything.
+* *Skewed distributions* (90% of traffic on one tenant): the hot tenant's bucket becomes the bottleneck. Either pre-shard manually or pick a finer-grained key.
+* *Mutable partition keys*: the strategy assumes the key value never changes after insert. ArcadeDB enforces this with an exception in `DocumentIndexer` when `UPDATE` would change a partition-key column. If you need to "move" a record to a different tenant, drop and re-insert it.
+* *Composite partition keys*: `partitioned(orgId, region)` works but only helps queries that bind *both* keys. A query that filters by `orgId` alone touches every bucket.
+====
+
+===== `needsRepartition` flag
+
+A schema mutation can invalidate the partition mapping for existing records:
+
+* `ALTER TYPE Doc BUCKET +newBucket` on a partitioned type changes the modulus: `hash(tenant_id) % oldCount` no longer matches `hash(tenant_id) % newCount` for the same value. Existing records stay in their old buckets; new records go to the right bucket. The mapping is now stale.
+* Same for removing a bucket.
+* `ALTER TYPE Doc BucketSelectionStrategy 'partitioned(...)'` on a populated type that previously used `round-robin` puts the records under a hash they were never routed by.
+* Changing the strategy's property set (e.g. `partitioned(orgId)` -> `partitioned(orgId, region)`) on a populated type has the same effect.
+
+When this happens, ArcadeDB sets a `needsRepartition` flag on the type. The flag is exposed in `SELECT FROM schema:types` and shown as a yellow warning banner in Studio's type-detail panel. *While the flag is set, partition-aware bucket pruning is suppressed*: queries fan out across every bucket and stay correct, but lose the optimisation. The flag is cleared by a successful `REBUILD TYPE ... WITH repartition = true`, which walks every record, moves the misplaced ones to their hash-target bucket, and then clears the flag. Records that move get a new RID, so types with inbound edges should drop and re-import rather than rebuild.
+
+You can also chain the rebuild atomically with the schema change:
+
+[source,sql]
+----
+ALTER TYPE Doc BUCKET +newBucket WITH repartition = true
+----
+
+This runs the bucket addition and the rebuild as one logical operation; the flag never goes true to subsequent queries.
+
+===== Verifying it's working
+
+To check whether a query is benefiting from partition pruning, prefix it with `EXPLAIN`:
+
+[source,sql]
+----
+EXPLAIN SELECT FROM Doc WHERE tenant_id = 'acme'
+----
+
+In the resulting plan, look for a `GetValueFromIndexEntryStep` line with a narrow `filtering buckets [N]` value (one bucket id rather than the full set). For Cypher, the partition-pruned path is logged in the `usedIndexName` field as `<label>[partition='<bucket>']`.
+
 [[relationships]]
 === Relationships
 
