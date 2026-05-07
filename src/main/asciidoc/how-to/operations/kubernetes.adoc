@@ -511,20 +511,232 @@ autoscaling:
 [[kubernetes-values-security]]
 ====== Security context
 
+The chart sets a restrictive security posture by default.
+At the pod level, `podSecurityContext` ensures all processes run as a non-root user and that the filesystem group matches the `arcadedb` user (`1000`) created in the Docker image, so mounted volumes are writable without `chmod`.
+At the container level, `securityContext` pins the UID/GID to `1000`, blocks privilege escalation, and drops all Linux capabilities — the server needs none.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`podSecurityContext.runAsNonRoot` | `true` | Require that the pod's entry-point process runs as a non-root UID. Kubernetes rejects the pod if the image's `USER` is `0`.
+|`podSecurityContext.fsGroup` | `1000` | Supplemental GID applied to mounted volumes. Set to match the `arcadedb` user so PVC data directories are writable by the container process.
+|`securityContext.runAsUser` | `1000` | UID used by the container process. Matches the `arcadedb` user in the image.
+|`securityContext.runAsGroup` | `1000` | Primary GID used by the container process.
+|`securityContext.allowPrivilegeEscalation` | `false` | Prevents the container process from gaining more privileges than its parent (blocks `setuid` binaries, no `CAP_SYS_ADMIN`, etc.).
+|`securityContext.capabilities.drop` | `[ALL]` | Drops every Linux capability from the container. ArcadeDB requires none of the default capabilities.
+|===
+
+Example override (adding `readOnlyRootFilesystem` for maximum hardening — ArcadeDB writes only to its data directory, which is a mounted volume):
+
+[source,yaml]
+----
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 1000
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true
+----
+
+[NOTE]
+====
+`readOnlyRootFilesystem: true` is not set by the chart's default but is safe to add when persistence is enabled — ArcadeDB writes database files to the PVC mount path, not to the container root filesystem.
+If you run without persistence (`persistence.enabled: false`), omit this flag because the container writes databases to the root filesystem.
+====
+
 [[kubernetes-values-service-account]]
 ====== Service account
+
+The chart creates a dedicated `ServiceAccount` for ArcadeDB pods by default.
+Disable creation and supply an existing `ServiceAccount` name when you manage service accounts outside Helm — for example, to attach an IRSA annotation (AWS EKS) or a Workload Identity annotation (GKE) that grants the pod cloud-provider permissions such as reading secrets from AWS Secrets Manager or Google Secret Manager.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`serviceAccount.create` | `true` | Create a `ServiceAccount` as part of the release. Set to `false` to reuse a pre-existing account (supply its name in `serviceAccount.name`).
+|`serviceAccount.automount` | `false` | Mount the service account token into pods. ArcadeDB does not call the Kubernetes API, so the token is unnecessary; keeping it unmounted reduces the attack surface.
+|`serviceAccount.annotations` | `{}` | Annotations applied to the `ServiceAccount` object. Used for cloud-provider workload identity (e.g. `eks.amazonaws.com/role-arn` for IRSA, `iam.gke.io/gcp-service-account` for GKE Workload Identity).
+|`serviceAccount.name` | `""` | Name of the `ServiceAccount` to use. When empty and `serviceAccount.create` is `true`, the chart generates a name from the release.
+|===
+
+Example override (reusing an existing service account with a GKE Workload Identity annotation):
+
+[source,yaml]
+----
+serviceAccount:
+  create: false
+  name: arcadedb-wi-sa
+  annotations:
+    iam.gke.io/gcp-service-account: arcadedb@my-gcp-project.iam.gserviceaccount.com
+----
 
 [[kubernetes-values-scheduling]]
 ====== Scheduling
 
+`nodeSelector`, `tolerations`, and `affinity` control which nodes the ArcadeDB pods are placed on.
+The chart ships with a default `podAntiAffinity` rule (weight 100) that prefers scheduling each pod on a different node — the most useful pattern for Raft-based HA clusters, since it distributes quorum peers across failure domains and keeps the cluster alive when a single node goes down.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`nodeSelector` | `{}` | Map of node labels that pods must match. Use to restrict ArcadeDB to a specific node pool (e.g. `cloud.google.com/gke-nodepool: db-pool`).
+|`tolerations` | `[]` | List of Kubernetes `Toleration` objects. Needed when ArcadeDB should run on tainted nodes (e.g. dedicated database nodes marked with `NoSchedule`).
+|`affinity` | (pod anti-affinity — see below) | Full `affinity` stanza. The default contains a `preferredDuringSchedulingIgnoredDuringExecution` pod anti-affinity rule that spreads pods across distinct hostnames. Override the entire key to replace it.
+|===
+
+The chart's built-in `affinity` default:
+
+[source,yaml]
+----
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - arcadedb
+          topologyKey: kubernetes.io/hostname
+----
+
+Example override (required anti-affinity across availability zones — stricter than the default preference-based rule):
+
+[source,yaml]
+----
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/instance
+              operator: In
+              values:
+                - my-arcadedb
+        topologyKey: topology.kubernetes.io/zone
+----
+
+[NOTE]
+====
+Switching from `preferredDuringScheduling` to `requiredDuringScheduling` means Kubernetes will leave pods `Pending` rather than co-locate them when there are fewer zones than replicas.
+Verify that your cluster has at least as many zones (or nodes) as `replicaCount` before using `required` rules.
+====
+
 [[kubernetes-values-pod-metadata]]
 ====== Pod metadata
+
+`podAnnotations` and `podLabels` attach metadata directly to the pod objects created by the `StatefulSet`.
+Annotations are the standard integration point for cluster tooling: Prometheus scrape configuration, secret injection sidecars (Vault Agent, External Secrets), and service mesh proxy injection all rely on pod annotations.
+Labels supplement the chart-generated selectors and are useful for observability grouping, cost allocation, or policy enforcement tools that filter by label.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`podAnnotations` | `{}` | Annotations applied to every pod. Common uses: Prometheus scrape hints, Vault Agent injection, Datadog APM tracing, Istio sidecar policy.
+|`podLabels` | `{}` | Extra labels applied to every pod. Merged with the chart-generated labels (`app.kubernetes.io/*`). Useful for cost-allocation labels, Cilium network policies that match on custom labels, or PodDisruptionBudget selectors.
+|===
+
+Example override (Prometheus scrape annotations):
+
+[source,yaml]
+----
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "2480"
+  prometheus.io/path: "/api/v1/server"
+----
+
+[NOTE]
+====
+The Prometheus annotations shown above work with the community `prometheus/prometheus` scrape-config style.
+If you use the Prometheus Operator (`ServiceMonitor`/`PodMonitor` CRDs), configure a `PodMonitor` resource instead and omit these annotations.
+Enable the Prometheus plugin (`arcadedb.plugins.prometheus.enabled: true`) to expose the `/metrics` endpoint.
+====
 
 [[kubernetes-values-network-policy]]
 ====== Network policy
 
+Setting `networkPolicy.enabled: true` creates a Kubernetes `NetworkPolicy` that restricts traffic to and from ArcadeDB pods: the HTTP port (2480) accepts connections from any pod in the cluster, while the Raft gRPC port (2434) is locked down to ArcadeDB pods only.
+This requires a CNI plugin that enforces `NetworkPolicy` resources — Calico, Cilium, Weave Net, and most managed Kubernetes offerings (GKE, EKS with VPC CNI + policy, ASK Azure CNI) support this; vanilla `kubenet` does not.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`networkPolicy.enabled` | `false` | Create `NetworkPolicy` resources for the release. When `true`, inbound HTTP (2480) is permitted from all pods in the cluster; Raft gRPC (2434) is restricted to pods belonging to the same ArcadeDB release.
+|===
+
+Example override:
+
+[source,yaml]
+----
+networkPolicy:
+  enabled: true
+----
+
+[IMPORTANT]
+====
+Enabling `networkPolicy` has no effect if your cluster's CNI does not enforce `NetworkPolicy` objects.
+Verify enforcement with `kubectl auth can-i create networkpolicies` and test the policy with a known-blocked source after enabling it.
+====
+
 [[kubernetes-values-extras]]
 ====== Extras
+
+The escape-hatch keys let you attach resources that the named chart values do not cover: extra Kubernetes manifests rendered alongside the chart, extra volumes and volume mounts injected into the container spec, and additional `volumeClaimTemplates` for the `StatefulSet`.
+These are advanced options intended for cases where a named value does not exist — for example, mounting a `ConfigMap` as a configuration file, adding a sidecar's shared `emptyDir`, or provisioning a separate PVC for WAL logs.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`extraManifests` | `{}` | Map of arbitrary Kubernetes manifests rendered as part of the Helm release. Use to co-deploy `ConfigMap`, `ExternalSecret`, or other objects that must live in the same namespace and lifecycle as the chart.
+|`volumes` | `[]` | List of extra `volume` entries added to the pod spec. Pair with `volumeMounts` to expose the volume inside the container.
+|`volumeMounts` | `[]` | List of extra `volumeMount` entries added to the ArcadeDB container spec. The `mountPath` must not overlap with the persistence mount (`/home/arcadedb/databases`).
+|`volumeClaimTemplates` | `[]` | Extra `volumeClaimTemplates` for the `StatefulSet` (e.g. a dedicated PVC for WAL files, replication logs, or backups). The primary database PVC is controlled by `persistence.enabled` — see <<kubernetes-values-persistence,Persistence>>.
+|===
+
+Example override (mounting an extra `ConfigMap` as a config file):
+
+[source,yaml]
+----
+volumes:
+  - name: custom-config
+    configMap:
+      name: arcadedb-extra-config
+volumeMounts:
+  - name: custom-config
+    mountPath: /home/arcadedb/config/custom.json
+    subPath: custom.json
+    readOnly: true
+----
+
+The corresponding `ConfigMap` can be co-deployed via `extraManifests`:
+
+[source,yaml]
+----
+extraManifests:
+  arcadedb-extra-config:
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: arcadedb-extra-config
+    data:
+      custom.json: |
+        {
+          "key": "value"
+        }
+----
 
 [[kubernetes-operate]]
 ===== Operating the cluster
