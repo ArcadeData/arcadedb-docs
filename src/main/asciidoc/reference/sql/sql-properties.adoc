@@ -274,7 +274,7 @@ For more information, see:
 [[sql-external-properties]]
 ===== External property storage
 
-By default, every property of a record is serialised inline in the same page as the topology (vertex/edge identity and edges-out/edges-in lists).
+By default, every property of a record is serialized inline in the same page as the topology (vertex/edge identity and edges-out/edges-in lists).
 That keeps reads simple, but it means traversal-only queries pay for every heavy property in cache misses and I/O — even when the projection never touches them.
 A 4 KB embedding on every vertex pushes useful topology out of the page cache long before the working set is exhausted.
 
@@ -293,7 +293,7 @@ Skip it for small, hot properties — the extra pointer indirection adds a page 
 
 Each primary bucket of a type that has at least one EXTERNAL property gets a paired bucket suffixed with `_ext`.
 The mapping is persisted in the schema and visible from `SELECT FROM schema:types` under the `externalBuckets` field, e.g. `{ "Person_0": "Person_0_ext" }`.
-External buckets are internal: they are filtered out of `schema:buckets` by default and rejected by user-facing DML (`INSERT INTO bucket:` against an external bucket fails).
+External buckets are internal: they are filtered out of `schema:buckets` by default and rejected by user-facing DML (`INSERT INTO BUCKET:` against an external bucket fails).
 To inspect them explicitly:
 
 [source,sql]
@@ -311,7 +311,7 @@ The payload stored in the paired bucket can be LZ4-compressed via the per-proper
 * `none` (default) — raw bytes; no compression overhead, no compression savings.
 * `lz4` — always LZ4-compressed.
 * `auto` — try LZ4 and keep the compressed bytes only when they save more than 10% of the raw size; otherwise fall back to raw.
-The decision is made per record, so a single property happily mixes compressed and uncompressed records (text gets compressed, vector embeddings typically fall back to raw).
+The decision is made per record, so a single property can mix compressed and uncompressed records (text gets compressed, vector embeddings typically fall back to raw).
 
 The compression mode is recorded in the main record's pointer byte, not inside the external blob, so reads dispatch to the right decoder without an extra header lookup.
 
@@ -342,7 +342,7 @@ Existing external buckets are not relocated when this setting changes; move the 
 * The primary record and its external value are written in the same transaction and WAL group, so commit, rollback, and crash recovery are atomic across both.
 * Updating an EXTERNAL property updates the external record in place and does not rewrite the main record bytes.
 * Deleting the primary record cascades the delete to every linked external record in the same transaction.
-* If a property is toggled `EXTERNAL false`, renamed, or dropped, the orphan external value is reclaimed on the next write of that record (or by `REBUILD TYPE`).
+* If a property is toggled `EXTERNAL false`, renamed, or dropped, the orphaned external value is reclaimed on the next write of that record (or by `REBUILD TYPE`).
 
 For more information, see:
 
