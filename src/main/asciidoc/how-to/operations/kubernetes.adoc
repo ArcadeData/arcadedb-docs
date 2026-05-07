@@ -799,6 +799,30 @@ Delete it explicitly if no longer needed.
 [[kubernetes-ha]]
 ===== High Availability on Kubernetes
 
+ArcadeDB on Kubernetes uses the standard `StatefulSet` + headless `Service` pattern (the same pattern used by `etcd`, CockroachDB, and Apache Ozone).
+The chart pre-computes the full peer list from `replicaCount` and injects it into each pod via environment variables, so users do not configure `arcadedb.ha.serverList` by hand.
+
+The chart sets the equivalent of:
+
+[source,properties]
+----
+arcadedb.ha.enabled=true
+arcadedb.ha.k8s=true
+arcadedb.ha.k8sSuffix=.my-arcadedb.arcadedb.svc.cluster.local
+arcadedb.ha.serverList=my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local:2434:2480,my-arcadedb-1.my-arcadedb.arcadedb.svc.cluster.local:2434:2480,my-arcadedb-2.my-arcadedb.arcadedb.svc.cluster.local:2434:2480
+----
+
+(Substitute your release name and namespace.)
+
+*Auto-join on scale-up* (since `26.4.1`)::
+When `arcadedb.ha.k8s=true` and a new pod starts without an existing Raft storage directory, the server automatically joins the existing cluster via the Raft `SetConfiguration(ADD)` admin API.
+This enables zero-downtime scale-up: `helm upgrade --set replicaCount=N` (or `kubectl scale statefulset`) adds new pods that join the existing cluster without restarting any existing peer.
+
+*Auto-leave on scale-down*::
+The chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so the terminating pod cleanly transfers leadership (if it holds it) and removes itself from the Raft group before shutdown.
+
+For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
+
 [[kubernetes-troubleshooting]]
 ===== Troubleshooting
 
