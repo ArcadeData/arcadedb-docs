@@ -84,6 +84,50 @@ For a scripted version (with `start.sh`, `stop.sh`, and `test.sh`), see the <<ku
 [[kubernetes-install]]
 ===== Installing the chart
 
+For production deployments, follow the same broad shape as the <<kubernetes-quickstart,quickstart>> but tailor `values.yaml` to your environment.
+
+. Add the Helm repository:
++
+[source,shell]
+----
+helm repo add arcadedb https://helm.arcadedb.com/
+helm repo update
+----
+
+. Create a `Secret` containing the `root` password.
+The chart references this secret by name -- it does not store the password in the chart values:
++
+[source,shell]
+----
+kubectl create secret generic arcadedb-credentials \
+  --from-literal=rootPassword='<password>'
+----
+
+. Prepare a `values.yaml` override file that fits your environment.
+At a minimum, set `replicaCount`, `image.tag`, and the `credentials.rootPassword.secret` block.
+See the <<kubernetes-values,configuration reference>> for the full set of options including persistence, ingress, resources, autoscaling, and security context.
+
+. Install the chart:
++
+[source,shell]
+----
+helm install my-arcadedb arcadedb/arcadedb \
+  --namespace arcadedb --create-namespace \
+  --values values.yaml \
+  --wait
+----
+
+. Verify the deployment:
++
+[source,shell]
+----
+kubectl -n arcadedb get statefulset
+kubectl -n arcadedb get pods
+kubectl -n arcadedb get svc
+----
+
+The pods are named `my-arcadedb-0`, `my-arcadedb-1`, ... and reach the `Ready` state once the readiness probe succeeds.
+
 [[kubernetes-values]]
 ===== Configuration reference
 
