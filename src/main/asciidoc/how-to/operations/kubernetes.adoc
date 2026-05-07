@@ -826,5 +826,44 @@ For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, e
 [[kubernetes-troubleshooting]]
 ===== Troubleshooting
 
+The most common deployment failure is a missing or incorrectly named `rootPassword` `Secret` -- pods crash-loop with an authentication-related error in the log.
+Verify the secret exists and that the chart's `credentials.rootPassword.secret.name` and `.key` match it.
+
+Inspect a pod's events:
+
+[source,shell]
+----
+kubectl -n arcadedb describe pod my-arcadedb-0
+----
+
+Read the server log:
+
+[source,shell]
+----
+kubectl -n arcadedb logs my-arcadedb-0
+----
+
+(Replace `my-arcadedb-0` with the pod name you want to inspect.)
+
+To tear down a stuck cluster and start over:
+
+[source,shell]
+----
+helm uninstall my-arcadedb --namespace arcadedb
+kubectl -n arcadedb delete pvc -l app.kubernetes.io/name=arcadedb
+----
+
+Then re-run `helm install` with corrected values.
+
 [[kubernetes-reference-deployment]]
 ===== Reference deployment
+
+The https://github.com/ArcadeData/arcadedb-deployments[`ArcadeData/arcadedb-deployments`] repository hosts a working, scripted reference deployment under https://github.com/ArcadeData/arcadedb-deployments/tree/main/kubernetes[`kubernetes/`].
+It pairs a https://kind.sigs.k8s.io/[kind] cluster with the official chart and provides:
+
+* `start.sh` -- creates the kind cluster, runs `helm dependency update` + `helm install --wait`, and starts a port-forward to `localhost:2480`.
+* `stop.sh` -- terminates the port-forward, runs `helm uninstall`, and destroys the kind cluster.
+* `test.sh` -- validates that the cluster is functional.
+* `values.yaml` -- the values overrides used by `start.sh`. Note that this file wraps overrides under a top-level `arcadedb:` key because it consumes the chart as a *subchart*; when installing the chart directly (the path documented above), use the same overrides at the top level.
+
+Use this repository as a starting point for your own setup and as a reproducible bug-report environment.
