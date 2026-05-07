@@ -41,6 +41,13 @@ For dates is the maximum date (uses the database date format).
 For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
 ** `regexp &lt;string&gt;` Defines the mask to validate the input as a Regular Expression
 ** `default <any>` Defines default value if not present. Default is `null`.
+** `external &lt;true|false&gt;` If true, the property's value is stored in a paired *external bucket* instead of inline in the primary record.
+The main record carries only a pointer (`[bucketId][position]`) to the external record.
+This keeps the primary bucket pages dense for graph traversal and pushes heavy payloads (vector embeddings, long strings, embedded JSON, full-text payloads) to a separate file that traversal-only queries do not touch.
+Default is *false*.
+See <<sql-external-properties,External property storage>> below for details.
+** `compression '&lt;none|lz4|auto&gt;'` Only meaningful together with `external true`.
+Controls compression of the value stored in the paired bucket: `none` (default) writes raw bytes, `lz4` always LZ4-compresses, `auto` tries LZ4 and keeps the compressed form only if it saves more than 10% (decided per record, so a single property can mix compressed and uncompressed records).
 ** `IF NOT EXISTS` If specified, create the property only if not exists.
 If a property with the same name already exists in the type, then no error is returned
 
@@ -109,10 +116,23 @@ ArcadeDB> CREATE PROPERTY Employee.salary IF NOT EXISTS double
 ArcadeDB> CREATE PROPERTY Employee.hiredAt DATETIME (readonly, default sysdate('YYYY-MM-DD HH:MM:SS'))
 ----
 
+* Create the property `embedding` for vector data, stored in a paired external bucket so traversal-only queries do not pay for it:
+
+----
+ArcadeDB> CREATE PROPERTY Person.embedding ARRAY_OF_FLOATS (EXTERNAL true)
+----
+
+* Create the property `body` stored externally with adaptive LZ4 compression (compresses text, falls back to raw when compression would not pay off):
+
+----
+ArcadeDB> CREATE PROPERTY Doc.body STRING (EXTERNAL true, COMPRESSION 'auto')
+----
+
 For more information, see:
 
 * <<sql-alter-property,`ALTER PROPERTY`>>
 * <<sql-drop-property,`DROP PROPERTY`>>
+* <<sql-external-properties,External property storage>>
 
 [[supported-types]]
 *Supported Types*
@@ -167,6 +187,9 @@ ALTER PROPERTY <type-name>.<property-name> <attribute-name> <attribute-value> [C
     For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
  ** `regexp <string>` Defines the mask to validate the input as a Regular Expression
  ** `default <any>` Defines default value if not present. Default is `null`.
+ ** `external <true|false>` Toggles external storage of the property's value (see <<sql-external-properties,External property storage>>).
+    Switching the flag does not migrate existing records eagerly; they are converted lazily on the next write, or all at once with `REBUILD TYPE`.
+ ** `compression '<none|lz4|auto>'` Sets the compression mode for an EXTERNAL property's payload (`none`, `lz4`, or `auto`). Has no effect on inline properties.
 * *`&lt;custom-key&gt;`* Name of the custom property to set
 * *`&lt;custom-value&gt;`* Value for the custom property. All data types are supported as values.
 
@@ -194,11 +217,25 @@ ArcadeDB> ALTER PROPERTY User.createdOn READONLY true
 ArcadeDB> ALTER PROPERTY Account.signedOn CUSTOM description = 'First Sign In'
 ----
 
+* Move an existing property to external storage and enable adaptive LZ4 compression:
+
+----
+ArcadeDB> ALTER PROPERTY Doc.body EXTERNAL true
+ArcadeDB> ALTER PROPERTY Doc.body COMPRESSION 'auto'
+----
+
+* Move a property back to inline storage:
+
+----
+ArcadeDB> ALTER PROPERTY Doc.body EXTERNAL false
+----
+
 For more information, see:
 
 * <<sql-create-property,`CREATE PROPERTY`>>
 * <<sql-drop-property,`DROP PROPERTY`>>
 * <<sql-alter-type,`ALTER TYPE`>>
+* <<sql-external-properties,External property storage>>
 
 [[sql-drop-property]]
 ===== SQL - `DROP PROPERTY`
@@ -233,3 +270,81 @@ For more information, see:
 
 * <<sql-alter-property,`ALTER PROPERTY`>>
 * <<sql-create-property, `CREATE PROPERTY`>>
+
+[[sql-external-properties]]
+===== External property storage
+
+By default, every property of a record is serialised inline in the same page as the topology (vertex/edge identity and edges-out/edges-in lists).
+That keeps reads simple, but it means traversal-only queries pay for every heavy property in cache misses and I/O — even when the projection never touches them.
+A 4 KB embedding on every vertex pushes useful topology out of the page cache long before the working set is exhausted.
+
+Properties marked `EXTERNAL true` are stored in a paired *external bucket* instead.
+The primary record carries only a small pointer (`[bucketId][position]`); the value lives in a separate file that traversal-only queries never read.
+
+Use it when:
+
+* the property is large compared to the rest of the record (vector embeddings, long text, embedded JSON, full-text payloads), and
+* most queries do not project the property.
+
+Skip it for small, hot properties — the extra pointer indirection adds a page lookup on every read that does need the value.
+
+[[sql-external-properties-pairing]]
+*Per-bucket pairing*
+
+Each primary bucket of a type that has at least one EXTERNAL property gets a paired bucket suffixed with `_ext`.
+The mapping is persisted in the schema and visible from `SELECT FROM schema:types` under the `externalBuckets` field, e.g. `{ "Person_0": "Person_0_ext" }`.
+External buckets are internal: they are filtered out of `schema:buckets` by default and rejected by user-facing DML (`INSERT INTO bucket:` against an external bucket fails).
+To inspect them explicitly:
+
+[source,sql]
+----
+SELECT name, purpose FROM schema:buckets WHERE purpose <> 'PRIMARY'
+----
+
+External buckets show `purpose: 'EXTERNAL_PROPERTY'`.
+
+[[sql-external-properties-compression]]
+*Compression*
+
+The payload stored in the paired bucket can be LZ4-compressed via the per-property `COMPRESSION` attribute:
+
+* `none` (default) — raw bytes; no compression overhead, no compression savings.
+* `lz4` — always LZ4-compressed.
+* `auto` — try LZ4 and keep the compressed bytes only when they save more than 10% of the raw size; otherwise fall back to raw.
+The decision is made per record, so a single property happily mixes compressed and uncompressed records (text gets compressed, vector embeddings typically fall back to raw).
+
+The compression mode is recorded in the main record's pointer byte, not inside the external blob, so reads dispatch to the right decoder without an extra header lookup.
+
+[[sql-external-properties-migration]]
+*Migrating existing records*
+
+Toggling `EXTERNAL` does not rewrite existing records eagerly.
+Each record is converted on its next write (insert, update, or upsert), and orphaned external values are reclaimed in the same transaction.
+To migrate a populated type at once, use `REBUILD TYPE`:
+
+[source,sql]
+----
+REBUILD TYPE Person
+REBUILD TYPE Parent POLYMORPHIC
+REBUILD TYPE Person WITH batchSize = 1000
+----
+
+[[sql-external-properties-tiered]]
+*Tiered storage*
+
+External buckets can be placed on a different volume from the primary buckets — for example, topology on fast NVMe and heavy payloads on cheaper bulk storage.
+Set the database-scope configuration `arcadedb.externalPropertyBucketPath` to the target directory before creating the EXTERNAL property; new paired buckets are created there instead of in the database directory.
+Existing external buckets are not relocated when this setting changes; move the files manually if you need to migrate after the fact.
+
+[[sql-external-properties-semantics]]
+*Transactional semantics*
+
+* The primary record and its external value are written in the same transaction and WAL group, so commit, rollback, and crash recovery are atomic across both.
+* Updating an EXTERNAL property updates the external record in place and does not rewrite the main record bytes.
+* Deleting the primary record cascades the delete to every linked external record in the same transaction.
+* If a property is toggled `EXTERNAL false`, renamed, or dropped, the orphan external value is reclaimed on the next write of that record (or by `REBUILD TYPE`).
+
+For more information, see:
+
+* <<sql-create-property,`CREATE PROPERTY`>>
+* <<sql-alter-property,`ALTER PROPERTY`>>
