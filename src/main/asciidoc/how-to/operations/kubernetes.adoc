@@ -1,89 +1,869 @@
 [[kubernetes]]
 ==== Kubernetes
 
-Before starting the Kubernetes (K8S) cluster, set ArcadeDB Server root password as a secret (replace <password> with the root password you want to use):
+ArcadeDB officially supports deployment on Kubernetes via the https://github.com/ArcadeData/arcadedb-helm[arcadedb-helm] chart, published at `https://helm.arcadedb.com/`.
+The chart deploys ArcadeDB as a `StatefulSet` and, when `replicaCount` is greater than 1, automatically configures a Raft-based <<howto-high-availability,High Availability>> cluster.
+The reference for the configuration values below targets chart version *26.4.2*; confirm against your installation with `helm show values arcadedb/arcadedb`.
+
+[[kubernetes-prerequisites]]
+===== Prerequisites
+
+* Kubernetes 1.19 or later
+* Helm 3.0 or later
+* `kubectl` configured for your target cluster
+* (Optional) `kind` and Docker for the local quickstart below
+
+[[kubernetes-quickstart]]
+===== Quickstart with kind
+
+This walkthrough mirrors https://github.com/ArcadeData/arcadedb-deployments/tree/main/kubernetes[`ArcadeData/arcadedb-deployments/kubernetes`] and produces a 3-node ArcadeDB cluster on a local https://kind.sigs.k8s.io/[kind] cluster in roughly five minutes.
+
+. Create a local Kubernetes cluster:
++
+[source,shell]
+----
+kind create cluster --name arcadedb
+----
+
+. Create the secret holding the `root` user password (replace `<password>`):
++
+[source,shell]
+----
+kubectl create secret generic arcadedb-credentials \
+  --from-literal=rootPassword='<password>'
+----
+
+. Add the ArcadeDB Helm repository and update:
++
+[source,shell]
+----
+helm repo add arcadedb https://helm.arcadedb.com/
+helm repo update
+----
+
+. Save the following overrides to `values.yaml`:
++
+[source,yaml]
+----
+replicaCount: 3
+image:
+  tag: "26.4.2"
+service:
+  http:
+    type: ClusterIP
+arcadedb:
+  credentials:
+    rootPassword:
+      secret:
+        name: arcadedb-credentials
+        key: rootPassword
+----
+
+. Install the chart:
++
+[source,shell]
+----
+helm install my-arcadedb arcadedb/arcadedb -f values.yaml --wait
+----
+
+. Forward the HTTP port to your laptop:
++
+[source,shell]
+----
+kubectl port-forward svc/my-arcadedb-http 2480:2480
+----
+
+. Open http://localhost:2480 in a browser to reach Studio, or use `curl`:
++
+[source,shell]
+----
+curl -u root:<password> http://localhost:2480/api/v1/server
+----
+
+For a scripted version (with `start.sh`, `stop.sh`, and `test.sh`), see the <<kubernetes-reference-deployment,reference deployment>>.
+
+[[kubernetes-install]]
+===== Installing the chart
+
+For production deployments, follow the same broad shape as the <<kubernetes-quickstart,quickstart>> but tailor `values.yaml` to your environment.
+
+. Add the Helm repository:
++
+[source,shell]
+----
+helm repo add arcadedb https://helm.arcadedb.com/
+helm repo update
+----
+
+. Create a `Secret` containing the `root` password.
+The chart references this secret by name -- it does not store the password in the chart values:
++
+[source,shell]
+----
+kubectl create secret generic arcadedb-credentials \
+  --from-literal=rootPassword='<password>'
+----
+
+. Prepare a `values.yaml` override file that fits your environment.
+At a minimum, set `replicaCount`, `image.tag`, and the `arcadedb.credentials.rootPassword.secret` block.
+See the <<kubernetes-values,configuration reference>> for the full set of options including persistence, ingress, resources, autoscaling, and security context.
+
+. Install the chart:
++
+[source,shell]
+----
+helm install my-arcadedb arcadedb/arcadedb \
+  --namespace arcadedb --create-namespace \
+  --values values.yaml \
+  --wait
+----
+
+. Verify the deployment:
++
+[source,shell]
+----
+kubectl -n arcadedb get statefulset
+kubectl -n arcadedb get pods
+kubectl -n arcadedb get svc
+----
+
+The pods are named `my-arcadedb-0`, `my-arcadedb-1`, ... and reach the `Ready` state once the readiness probe succeeds.
+
+[[kubernetes-values]]
+===== Configuration reference
+
+The values exposed by the chart are grouped below.
+This reference targets chart version *26.4.2*; confirm the current set against your installation with:
 
 [source,shell]
 ----
-$ kubectl create secret generic arcadedb-credentials --from-literal=rootPassword='<password>'
+helm show values arcadedb/arcadedb
 ----
 
-This will set the password in the `rootPassword` environment variable. The ArcadeDB server will use this password for the `root` user.
+The complete and authoritative source is the chart's https://github.com/ArcadeData/arcadedb-helm/blob/main/charts/arcadedb/values.yaml[`values.yaml`].
+The example snippets below show keys at the top level (the chart is installed directly as `arcadedb/arcadedb`); if you consume the chart as a *subchart* under a parent named `arcadedb`, wrap each snippet under a top-level `arcadedb:` key.
 
-Now you can start a Kubernetes cluster with 3 servers by using the default configuration:
+[[kubernetes-values-image]]
+====== Image
+
+Selects the container image, pull policy, and pull secrets.
+Override `image.tag` to pin to a specific ArcadeDB release; otherwise the chart's `appVersion` is used.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`image.registry` | `arcadedata` | Container registry hosting the image
+|`image.repository` | `arcadedb` | Image repository name
+|`image.tag` | (chart `appVersion`) | Image tag; pin to a specific ArcadeDB version for reproducible deployments
+|`image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy
+|`imagePullSecrets` | `[]` | List of `Secret` references for private registries
+|`nameOverride` | `""` | Overrides the chart name used in resource names
+|`fullnameOverride` | `""` | Overrides the fully-qualified app name used in resource names
+|===
+
+Example override:
+
+[source,yaml]
+----
+image:
+  tag: "26.4.2"
+  pullPolicy: IfNotPresent
+imagePullSecrets:
+  - name: my-registry-secret
+----
+
+[[kubernetes-values-replicas]]
+====== Replicas
+
+`replicaCount` controls how many ArcadeDB pods the `StatefulSet` runs.
+A single replica (`1`) gives a standalone instance; three replicas is the smallest cluster that tolerates one node failure under Raft majority quorum.
+See <<kubernetes-ha,High Availability on Kubernetes>> for the implications of running a multi-replica cluster.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`replicaCount` | `1` | Number of ArcadeDB pods. Values greater than 1 enable Raft HA automatically; the minimum recommended HA size is 3.
+|===
+
+Example override:
+
+[source,yaml]
+----
+replicaCount: 3
+----
+
+[[kubernetes-values-credentials]]
+====== Credentials
+
+The chart never stores the root password in its own values; it reads it from a Kubernetes `Secret` at install time.
+If `arcadedb.credentials.rootPassword.secret.name` is `null`, a 32-character random password is auto-generated in a `Secret` named `arcadedb-credentials-secret` — note that GitOps tools such as ArgoCD regenerate this secret on every render, so supply your own secret for production.
+Pods that start without a resolvable secret crash-loop immediately; see <<kubernetes-troubleshooting,Troubleshooting>> for the symptom and fix.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`arcadedb.credentials.rootPassword.secret.name` | `null` | Name of an existing `Secret` containing the root password. `null` triggers auto-generation.
+|`arcadedb.credentials.rootPassword.secret.key` | `null` | Key within the named `Secret` whose value is the root password.
+|===
+
+Create the secret first (see the <<kubernetes-quickstart,Quickstart>> for the full command), then reference it in your `values.yaml`:
+
+[source,yaml]
+----
+arcadedb:
+  credentials:
+    rootPassword:
+      secret:
+        name: arcadedb-credentials
+        key: rootPassword
+----
+
+[[kubernetes-values-database]]
+====== Database
+
+These keys control where ArcadeDB stores databases inside the container, which databases to create at startup, additional JVM arguments, and arbitrary environment variables passed to the container process.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`arcadedb.databaseDirectory` | `/home/arcadedb/databases` | Path inside the container where database files are stored. Must match the `persistence` mount path if a PVC is used.
+|`arcadedb.defaultDatabases` | `""` | Databases to create automatically at first startup. Use the form `Name[user:password]`, e.g. `Universe[admin:secret]`. Empty string means no databases are pre-created.
+|`arcadedb.extraCommands` | `[-Darcadedb.server.mode=production]` | List of additional JVM `-D` arguments appended to the ArcadeDB startup command.
+|`arcadedb.extraEnvironment` | `[]` | List of extra environment variables (in `name`/`value` map form) injected into the container.
+|===
+
+Example override:
+
+[source,yaml]
+----
+arcadedb:
+  extraCommands:
+    - -Darcadedb.server.mode=production
+    - -Darcadedb.tx.walFiles=2
+  extraEnvironment:
+    - name: JAVA_TOOL_OPTIONS
+      value: "-XX:+UseG1GC"
+----
+
+[[kubernetes-values-plugins]]
+====== Plugins
+
+ArcadeDB supports multiple wire protocols alongside its native HTTP API; each protocol is enabled by adding the corresponding key under `arcadedb.plugins`.
+The chart ships with named slots for `gremlin`, `postgres`, `mongo`, `redis`, and `prometheus`, plus support for any user-supplied key (e.g. `myPlugin`) for custom plugins.
+By default, `arcadedb.plugins` is an empty map (`{}`), meaning no wire-protocol plugins are activated.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`arcadedb.plugins.gremlin.enabled` | (absent) | Enable the Apache TinkerPop Gremlin server plugin.
+|`arcadedb.plugins.gremlin.port` | (absent — see example) | Port the Gremlin plugin listens on; conventionally `8182`.
+|`arcadedb.plugins.postgres.enabled` | (absent) | Enable the PostgreSQL wire-protocol plugin.
+|`arcadedb.plugins.postgres.port` | (absent — see example) | Port the PostgreSQL plugin listens on; conventionally `5432`.
+|`arcadedb.plugins.mongo.enabled` | (absent) | Enable the MongoDB wire-protocol plugin.
+|`arcadedb.plugins.mongo.port` | (absent — see example) | Port the MongoDB plugin listens on; conventionally `27017`.
+|`arcadedb.plugins.redis.enabled` | (absent) | Enable the Redis wire-protocol plugin.
+|`arcadedb.plugins.redis.port` | (absent — see example) | Port the Redis plugin listens on; conventionally `6379`.
+|`arcadedb.plugins.prometheus.enabled` | (absent) | Enable the Prometheus metrics endpoint.
+|===
+
+Example override (enabling the PostgreSQL and MongoDB wire protocols):
+
+[source,yaml]
+----
+arcadedb:
+  plugins:
+    postgres:
+      enabled: true
+      port: 5432
+    mongo:
+      enabled: true
+      port: 27017
+----
+
+[[kubernetes-values-service]]
+====== Service
+
+The chart creates two Kubernetes `Service` objects for each ArcadeDB deployment.
+The *HTTP service* (named `<release>-http`) exposes port 2480 where Studio and all REST/HTTP clients connect; its type is configurable below.
+The *RPC service* is a headless `ClusterIP` service used only for Raft peer discovery between pods — it is internal-only and not directly controlled by these values.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`service.http.type` | `ClusterIP` | Kubernetes service type for the HTTP service. Use `LoadBalancer` to obtain an external IP, or leave `ClusterIP` and configure <<kubernetes-values-ingress,Ingress>> for a single-entry-point setup.
+|`service.http.port` | `2480` | Port exposed by the HTTP service. Studio and all REST/HTTP clients connect to this port.
+|`service.rpc.port` | `2434` | Raft gRPC port used for HA peer communication. This port is exposed only on the headless internal service; do not expose it externally.
+|===
+
+Example override:
+
+[source,yaml]
+----
+service:
+  http:
+    type: LoadBalancer
+    port: 2480
+----
+
+[[kubernetes-values-ingress]]
+====== Ingress
+
+Use an `Ingress` resource when you want a single external entry point with host-based routing and TLS termination at the edge controller, without assigning a cloud load-balancer IP per service.
+For simpler setups or clouds where a managed load-balancer IP is acceptable, `service.http.type: LoadBalancer` is the lower-configuration alternative.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`ingress.enabled` | `false` | Set to `true` to create an `Ingress` resource for the HTTP service.
+|`ingress.className` | `""` | IngressClass name (e.g. `nginx`, `traefik`). Empty string uses the cluster-default class.
+|`ingress.annotations` | `{}` | Annotations added to the `Ingress` object. Commonly used to configure the ingress controller behavior (e.g. `cert-manager.io/cluster-issuer`).
+|`ingress.hosts` | (see description) | List of host rules. Each entry has a `host` string and a `paths` list (each with `path` and `pathType`). Default example uses host `chart-example.local` with path `/`.
+|`ingress.tls` | `[]` | TLS configuration. Each entry specifies a `secretName` (holding the TLS certificate) and the list of `hosts` it covers.
+|===
+
+Example override (single-host ingress with TLS via cert-manager):
+
+[source,yaml]
+----
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: arcadedb.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: arcadedb-tls
+      hosts:
+        - arcadedb.example.com
+----
+
+[[kubernetes-values-persistence]]
+====== Persistence
+
+ArcadeDB stores its database files under `arcadedb.databaseDirectory` (default `/home/arcadedb/databases`).
+The chart uses a `volumeClaimTemplates` block in the `StatefulSet`, so Kubernetes provisions one `PersistentVolumeClaim` per pod rather than sharing a single volume across replicas.
+
+[NOTE]
+====
+PVCs created by the StatefulSet survive `helm uninstall` by design — Kubernetes preserves data volumes when a workload is deleted.
+To remove them along with the release, run:
 
 [source,shell]
 ----
-$ kubectl apply -f config/arcadedb-statefulset.yaml
+kubectl delete pvc -l app.kubernetes.io/name=arcadedb -n <namespace>
+----
+====
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`persistence.enabled` | `true` | Enable PVC-backed storage. Set to `false` only for ephemeral development deployments; all data is lost when the pod restarts.
+|`persistence.size` | `8Gi` | Requested PVC capacity. Size the volume to hold your databases plus headroom for growth.
+|`persistence.accessMode` | `ReadWriteOnce` | PVC access mode. `ReadWriteOnce` is correct for the `StatefulSet` pattern (one pod per volume).
+|`persistence.storageClass` | `""` | StorageClass name. Empty string uses the cluster-default class (e.g. `standard` on GKE, `gp2` on EKS). Set explicitly to select a faster or differently-billed class.
+|===
+
+Example override (50 Gi PVC on the `gp3` storage class on AWS EKS):
+
+[source,yaml]
+----
+persistence:
+  enabled: true
+  size: 50Gi
+  storageClass: gp3
 ----
 
-For more information on ArcadeDB Kubernetes config https://github.com/ArcadeData/arcadedb/blob/main/package/src/main/config/arcadedb-statefulset.yaml[please check].
+[[kubernetes-values-resources]]
+====== Resources
 
-In order to scale up or down with the number of replicas, use this:
+Container resource requests and limits are deliberately left unset in the chart defaults (`resources: {}`), so you must supply them for any production deployment.
+Size the memory request to match your JVM heap (`-Xms`) so the scheduler places the pod on a node with enough RAM, and set a memory limit slightly above the heap to catch unexpected off-heap growth.
+
+[IMPORTANT]
+====
+Do *not* set a CPU limit on ArcadeDB pods.
+Kubernetes CPU throttling operates on a 100 ms accounting window; when a CPU limit is hit mid-GC cycle, the JVM thread is suspended until the next window, turning a millisecond collection into a multi-hundred-millisecond pause.
+Set a CPU *request* so the scheduler reserves the right amount of CPU for scheduling purposes, and rely on node-level CPU sharing — not a hard limit — to bound consumption.
+Memory limits are safe and recommended: the JVM respects its heap ceiling, and a hard memory limit prevents a runaway process from affecting other pods on the node.
+====
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`resources.requests.cpu` | (absent) | CPU request used by the scheduler to place the pod. Recommended starting point: `500m`. No CPU limit should be set — see the note above.
+|`resources.requests.memory` | (absent) | Memory request. Should equal or slightly exceed the JVM `-Xms` value to guarantee the node has enough RAM at scheduling time.
+|`resources.limits.memory` | (absent) | Memory limit. Set to the JVM `-Xmx` value plus headroom for off-heap buffers (e.g. `4Gi` for a 2 Gi heap). Prevents a single pod from consuming all node memory.
+|===
+
+Example override (2 Gi heap, 4 Gi limit, CPU request only — no CPU limit):
+
+[source,yaml]
+----
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 4Gi
+----
+
+[[kubernetes-values-probes]]
+====== Probes
+
+Kubernetes uses *liveness probes* to decide when to kill and restart a container, and *readiness probes* to decide when a pod is safe to receive traffic.
+Both probes matter for ArcadeDB: on a cold start the JVM and optional persistence rehydration can take several seconds, so tuning `initialDelaySeconds` prevents premature restarts before the server is ready.
+
+The chart configures both probes to poll `GET /api/v1/ready` on the HTTP port (2480).
+Only `httpGet.path` and `httpGet.port` are set by default; all other sub-keys (`initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`, `failureThreshold`, `successThreshold`) are absent and fall back to Kubernetes defaults (0 s delay, 10 s period, 1 s timeout, 3 failures, 1 success).
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`livenessProbe.httpGet.path` | `/api/v1/ready` | HTTP path polled by the liveness probe. Returns 200 when the server is alive.
+|`livenessProbe.httpGet.port` | `http` | Named port (`http`, resolving to 2480) used by the liveness probe.
+|`livenessProbe.initialDelaySeconds` | (absent — Kubernetes default: `0`) | Seconds to wait after container start before the first liveness check. Increase for slow-start environments (cold JVM + persistence rehydration).
+|`livenessProbe.periodSeconds` | (absent — Kubernetes default: `10`) | How often (in seconds) to run the liveness probe.
+|`livenessProbe.timeoutSeconds` | (absent — Kubernetes default: `1`) | Seconds after which a probe attempt times out.
+|`livenessProbe.failureThreshold` | (absent — Kubernetes default: `3`) | Number of consecutive failures before the container is killed and restarted.
+|`livenessProbe.successThreshold` | (absent — Kubernetes default: `1`) | Consecutive successes required to mark the container as live again after a failure.
+|`readinessProbe.httpGet.path` | `/api/v1/ready` | HTTP path polled by the readiness probe. Returns 200 when the server is ready to accept traffic.
+|`readinessProbe.httpGet.port` | `http` | Named port (`http`, resolving to 2480) used by the readiness probe.
+|`readinessProbe.initialDelaySeconds` | (absent — Kubernetes default: `0`) | Seconds to wait after container start before the first readiness check. Increase when the server needs time to rehydrate databases from a PVC before accepting connections.
+|`readinessProbe.periodSeconds` | (absent — Kubernetes default: `10`) | How often (in seconds) to run the readiness probe.
+|`readinessProbe.timeoutSeconds` | (absent — Kubernetes default: `1`) | Seconds after which a probe attempt times out.
+|`readinessProbe.failureThreshold` | (absent — Kubernetes default: `3`) | Number of consecutive failures before the pod is removed from Service endpoints.
+|`readinessProbe.successThreshold` | (absent — Kubernetes default: `1`) | Consecutive successes required to add the pod back to Service endpoints.
+|===
+
+Example override (bumping the initial delay for a slow-start environment with large persisted databases):
+
+[source,yaml]
+----
+livenessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+readinessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+----
+
+[[kubernetes-values-autoscaling]]
+====== Autoscaling
+
+The chart supports Kubernetes `HorizontalPodAutoscaler` (HPA) to scale the number of ArcadeDB pods based on CPU utilization.
+Autoscaling is disabled by default; enable it only after verifying that your storage class supports `ReadWriteOnce` volumes on all potential target nodes, and that your HA configuration can tolerate dynamic replica counts.
+
+[IMPORTANT]
+====
+When autoscaling is enabled in an HA configuration, ensure `minReplicas >= floor(maxReplicas / 2) + 1` so the cluster always retains a Raft majority.
+Falling below the quorum threshold causes writes to stall until enough peers rejoin.
+For example, with `maxReplicas: 5` the minimum safe `minReplicas` is `3`.
+See <<kubernetes-ha,High Availability on Kubernetes>> for further guidance on Raft quorum sizing.
+
+The chart also pre-sizes the internal server list to `maxReplicas` for auto-join purposes; set `maxReplicas` conservatively to avoid advertising pod addresses that may never exist.
+====
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`autoscaling.enabled` | `false` | Set to `true` to create an `HorizontalPodAutoscaler` that scales the `StatefulSet` based on CPU utilization.
+|`autoscaling.minReplicas` | `1` | Minimum number of replicas the HPA will scale down to. In an HA cluster this must be at least `floor(maxReplicas / 2) + 1` to preserve Raft quorum.
+|`autoscaling.maxReplicas` | `5` | Maximum number of replicas the HPA will scale up to. Set conservatively — the chart pre-sizes the peer list to this value.
+|`autoscaling.targetCPUUtilizationPercentage` | `80` | Average CPU utilization target (as a percentage of the pod's CPU request) that triggers scale-out. Lower values scale out earlier; higher values pack more load per pod.
+|===
+
+Example override (autoscaling with Raft-safe quorum bounds):
+
+[source,yaml]
+----
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+----
+
+[[kubernetes-values-security]]
+====== Security context
+
+The chart sets a restrictive security posture by default.
+At the pod level, `podSecurityContext` ensures all processes run as a non-root user and that the filesystem group matches the `arcadedb` user (`1000`) created in the Docker image, so mounted volumes are writable without `chmod`.
+At the container level, `securityContext` pins the UID/GID to `1000`, blocks privilege escalation, and drops all Linux capabilities — the server needs none.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`podSecurityContext.runAsNonRoot` | `true` | Require that the pod's entry-point process runs as a non-root UID. Kubernetes rejects the pod if the image's `USER` is `0`.
+|`podSecurityContext.fsGroup` | `1000` | Supplemental GID applied to mounted volumes. Set to match the `arcadedb` user so PVC data directories are writable by the container process.
+|`securityContext.runAsUser` | `1000` | UID used by the container process. Matches the `arcadedb` user in the image.
+|`securityContext.runAsGroup` | `1000` | Primary GID used by the container process.
+|`securityContext.allowPrivilegeEscalation` | `false` | Prevents the container process from gaining more privileges than its parent (blocks `setuid` binaries, no `CAP_SYS_ADMIN`, etc.).
+|`securityContext.capabilities.drop` | `[ALL]` | Drops every Linux capability from the container. ArcadeDB requires none of the default capabilities.
+|===
+
+Example override (adding `readOnlyRootFilesystem` for maximum hardening — ArcadeDB writes only to its data directory, which is a mounted volume):
+
+[source,yaml]
+----
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 1000
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true
+----
+
+[NOTE]
+====
+`readOnlyRootFilesystem: true` is not set by the chart's default but is safe to add when persistence is enabled — ArcadeDB writes database files to the PVC mount path, not to the container root filesystem.
+If you run without persistence (`persistence.enabled: false`), omit this flag because the container writes databases to the root filesystem.
+====
+
+[[kubernetes-values-service-account]]
+====== Service account
+
+The chart creates a dedicated `ServiceAccount` for ArcadeDB pods by default.
+Disable creation and supply an existing `ServiceAccount` name when you manage service accounts outside Helm — for example, to attach an IRSA annotation (AWS EKS) or a Workload Identity annotation (GKE) that grants the pod cloud-provider permissions such as reading secrets from AWS Secrets Manager or Google Secret Manager.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`serviceAccount.create` | `true` | Create a `ServiceAccount` as part of the release. Set to `false` to reuse a pre-existing account (supply its name in `serviceAccount.name`).
+|`serviceAccount.automount` | `false` | Mount the service account token into pods. ArcadeDB does not call the Kubernetes API, so the token is unnecessary; keeping it unmounted reduces the attack surface.
+|`serviceAccount.annotations` | `{}` | Annotations applied to the `ServiceAccount` object. Used for cloud-provider workload identity (e.g. `eks.amazonaws.com/role-arn` for IRSA, `iam.gke.io/gcp-service-account` for GKE Workload Identity).
+|`serviceAccount.name` | `""` | Name of the `ServiceAccount` to use. When empty and `serviceAccount.create` is `true`, the chart generates a name from the release.
+|===
+
+Example override (reusing an existing service account with a GKE Workload Identity annotation):
+
+[source,yaml]
+----
+serviceAccount:
+  create: false
+  name: arcadedb-wi-sa
+  annotations:
+    iam.gke.io/gcp-service-account: arcadedb@my-gcp-project.iam.gserviceaccount.com
+----
+
+[[kubernetes-values-scheduling]]
+====== Scheduling
+
+`nodeSelector`, `tolerations`, and `affinity` control which nodes the ArcadeDB pods are placed on.
+The chart ships with a default `podAntiAffinity` rule (weight 100) that prefers scheduling each pod on a different node — the most useful pattern for Raft-based HA clusters, since it distributes quorum peers across failure domains and keeps the cluster alive when a single node goes down.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`nodeSelector` | `{}` | Map of node labels that pods must match. Use to restrict ArcadeDB to a specific node pool (e.g. `cloud.google.com/gke-nodepool: db-pool`).
+|`tolerations` | `[]` | List of Kubernetes `Toleration` objects. Needed when ArcadeDB should run on tainted nodes (e.g. dedicated database nodes marked with `NoSchedule`).
+|`affinity` | (pod anti-affinity — see below) | Full `affinity` stanza. The default contains a `preferredDuringSchedulingIgnoredDuringExecution` pod anti-affinity rule that spreads pods across distinct hostnames. Override the entire key to replace it.
+|===
+
+The chart's built-in `affinity` default:
+
+[source,yaml]
+----
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - arcadedb
+          topologyKey: kubernetes.io/hostname
+----
+
+Example override (required anti-affinity across availability zones — stricter than the default preference-based rule):
+
+[source,yaml]
+----
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/instance
+              operator: In
+              values:
+                - my-arcadedb
+        topologyKey: topology.kubernetes.io/zone
+----
+
+[NOTE]
+====
+Switching from `preferredDuringScheduling` to `requiredDuringScheduling` means Kubernetes will leave pods `Pending` rather than co-locate them when there are fewer zones than replicas.
+Verify that your cluster has at least as many zones (or nodes) as `replicaCount` before using `required` rules.
+====
+
+[[kubernetes-values-pod-metadata]]
+====== Pod metadata
+
+`podAnnotations` and `podLabels` attach metadata directly to the pod objects created by the `StatefulSet`.
+Annotations are the standard integration point for cluster tooling: Prometheus scrape configuration, secret injection sidecars (Vault Agent, External Secrets), and service mesh proxy injection all rely on pod annotations.
+Labels supplement the chart-generated selectors and are useful for observability grouping, cost allocation, or policy enforcement tools that filter by label.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`podAnnotations` | `{}` | Annotations applied to every pod. Common uses: Prometheus scrape hints, Vault Agent injection, Datadog APM tracing, Istio sidecar policy.
+|`podLabels` | `{}` | Extra labels applied to every pod. Merged with the chart-generated labels (`app.kubernetes.io/*`). Useful for cost-allocation labels, Cilium network policies that match on custom labels, or PodDisruptionBudget selectors.
+|===
+
+Example override (Prometheus scrape annotations):
+
+[source,yaml]
+----
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "2480"
+  prometheus.io/path: "/metrics"
+----
+
+[NOTE]
+====
+The Prometheus annotations shown above work with the community `prometheus/prometheus` scrape-config style.
+If you use the Prometheus Operator (`ServiceMonitor`/`PodMonitor` CRDs), configure a `PodMonitor` resource instead and omit these annotations.
+Enable the Prometheus plugin (`arcadedb.plugins.prometheus.enabled: true`) to expose the `/metrics` endpoint.
+====
+
+[[kubernetes-values-network-policy]]
+====== Network policy
+
+Setting `networkPolicy.enabled: true` creates a Kubernetes `NetworkPolicy` that restricts traffic to and from ArcadeDB pods: the HTTP port (2480) accepts connections from any pod in the cluster, while the Raft gRPC port (2434) is locked down to ArcadeDB pods only.
+This requires a CNI plugin that enforces `NetworkPolicy` resources — Calico, Cilium, Weave Net, and most managed Kubernetes offerings (GKE, EKS with VPC CNI + policy, ASK Azure CNI) support this; vanilla `kubenet` does not.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`networkPolicy.enabled` | `false` | Create `NetworkPolicy` resources for the release. When `true`, inbound HTTP (2480) is permitted from all pods in the cluster; Raft gRPC (2434) is restricted to pods belonging to the same ArcadeDB release.
+|===
+
+Example override:
+
+[source,yaml]
+----
+networkPolicy:
+  enabled: true
+----
+
+[IMPORTANT]
+====
+Enabling `networkPolicy` has no effect if your cluster's CNI does not enforce `NetworkPolicy` objects.
+Verify enforcement with `kubectl auth can-i create networkpolicies` and test the policy with a known-blocked source after enabling it.
+====
+
+[[kubernetes-values-extras]]
+====== Extras
+
+The escape-hatch keys let you attach resources that the named chart values do not cover: extra Kubernetes manifests rendered alongside the chart, extra volumes and volume mounts injected into the container spec, and additional `volumeClaimTemplates` for the `StatefulSet`.
+These are advanced options intended for cases where a named value does not exist — for example, mounting a `ConfigMap` as a configuration file, adding a sidecar's shared `emptyDir`, or provisioning a separate PVC for WAL logs.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`extraManifests` | `{}` | Map of arbitrary Kubernetes manifests rendered as part of the Helm release. Use to co-deploy `ConfigMap`, `ExternalSecret`, or other objects that must live in the same namespace and lifecycle as the chart.
+|`volumes` | `[]` | List of extra `volume` entries added to the pod spec. Pair with `volumeMounts` to expose the volume inside the container.
+|`volumeMounts` | `[]` | List of extra `volumeMount` entries added to the ArcadeDB container spec. The `mountPath` must not overlap with the persistence mount (`/home/arcadedb/databases`).
+|`volumeClaimTemplates` | `[]` | Extra `volumeClaimTemplates` for the `StatefulSet` (e.g. a dedicated PVC for WAL files, replication logs, or backups). The primary database PVC is controlled by `persistence.enabled` — see <<kubernetes-values-persistence,Persistence>>.
+|===
+
+Example override (mounting an extra `ConfigMap` as a config file):
+
+[source,yaml]
+----
+volumes:
+  - name: custom-config
+    configMap:
+      name: arcadedb-extra-config
+volumeMounts:
+  - name: custom-config
+    mountPath: /home/arcadedb/config/custom.json
+    subPath: custom.json
+    readOnly: true
+----
+
+The corresponding `ConfigMap` can be co-deployed via `extraManifests`:
+
+[source,yaml]
+----
+extraManifests:
+  arcadedb-extra-config:
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: arcadedb-extra-config
+    data:
+      custom.json: |
+        {
+          "key": "value"
+        }
+----
+
+[[kubernetes-operate]]
+===== Operating the cluster
+
+====== Scaling
+
+Use `helm upgrade` to change the replica count persistently:
 
 [source,shell]
 ----
-$ kubectl scale statefulsets arcadedb-server --replicas=<new-number-of-replicas>
+helm upgrade my-arcadedb arcadedb/arcadedb \
+  --namespace arcadedb \
+  --reuse-values \
+  --set replicaCount=5
 ----
 
-Where the value of `<new-number-of-replicas>` is the new number of replicas. Example:
+`kubectl scale statefulset` also works for an immediate, one-off change:
 
 [source,shell]
 ----
-$ kubectl scale statefulsets arcadedb-server --replicas=3
+kubectl -n arcadedb scale statefulset my-arcadedb --replicas=5
 ----
 
-Scaling up and down doesn't affect current workload. There are no pauses when a server enters/exits from the cluster.
+A `kubectl scale` change is reverted on the next `helm upgrade` because Helm reapplies the `replicaCount` from the chart values.
+For persistent changes, prefer `helm upgrade --set replicaCount=N` (or update the values file).
 
-===== Helm Charts
+Scaling does not pause the workload.
+New pods auto-join the Raft cluster, and pods removed during scale-down auto-leave via the `preStop` hook (see <<kubernetes-ha,High Availability on Kubernetes>>).
 
-To facilitate the deployment of ArcadeDB on a Kubernetes cluster a Helm chart can be used.
-To install the template chart with the release name `my-arcadedb` enter:
+====== Upgrading the chart
 
 [source,shell]
 ----
-helm install my-arcadedb ./arcadedb
+helm repo update
+helm upgrade my-arcadedb arcadedb/arcadedb \
+  --namespace arcadedb \
+  --reuse-values
 ----
 
-The command deploys ArcadeDB on the Kubernetes cluster using the default configuration.
-To uninstall/delete the `my-arcadedb` deployment:
+Pin `image.tag` to a specific ArcadeDB version for reproducible upgrades.
+
+====== Uninstalling
 
 [source,shell]
 ----
-helm uninstall my-arcadedb
+helm uninstall my-arcadedb --namespace arcadedb
 ----
 
-The command removes all the Kubernetes components associated with the chart and deletes the release.
-Details about the configurable parameters of the template chart, as well as persistence, ingress, and resource, see the dedicated https://github.com/ArcadeData/arcadedb/blob/main/k8s/helm/README.md[README].
+Persistent volume claims *survive uninstall* by design.
+To remove them too:
 
+[source,shell]
+----
+kubectl -n arcadedb delete pvc -l app.kubernetes.io/name=arcadedb
+----
+
+The `Secret` holding the root password is not managed by Helm and is also retained.
+Delete it explicitly if no longer needed.
+
+[[kubernetes-ha]]
+===== High Availability on Kubernetes
+
+ArcadeDB on Kubernetes uses the standard `StatefulSet` + headless `Service` pattern (the same pattern used by `etcd`, CockroachDB, and Apache Ozone).
+The chart pre-computes the full peer list from `replicaCount` and injects it into each pod via environment variables, so users do not configure `arcadedb.ha.serverList` by hand.
+
+The chart sets the equivalent of:
+
+[source,properties]
+----
+arcadedb.ha.enabled=true
+arcadedb.ha.k8s=true
+arcadedb.ha.k8sSuffix=.my-arcadedb.arcadedb.svc.cluster.local
+arcadedb.ha.serverList=my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local:2434:2480,my-arcadedb-1.my-arcadedb.arcadedb.svc.cluster.local:2434:2480,my-arcadedb-2.my-arcadedb.arcadedb.svc.cluster.local:2434:2480
+----
+
+(Substitute your release name and namespace.)
+
+*Auto-join on scale-up* (since `26.4.1`)::
+When `arcadedb.ha.k8s=true` and a new pod starts without an existing Raft storage directory, the server automatically joins the existing cluster via the Raft `SetConfiguration(ADD)` admin API.
+This enables zero-downtime scale-up: `helm upgrade --set replicaCount=N` (or `kubectl scale statefulset`) adds new pods that join the existing cluster without restarting any existing peer.
+
+*Auto-leave on scale-down*::
+The chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so the terminating pod cleanly transfers leadership (if it holds it) and removes itself from the Raft group before shutdown.
+
+For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
+
+[[kubernetes-troubleshooting]]
 ===== Troubleshooting
 
-The most common issue with using K8S is with the setting of the root password for the server (see at the beginning of this section).
+The most common deployment failure is a missing or incorrectly named `rootPassword` `Secret` -- pods crash-loop with an authentication-related error in the log.
+Verify the secret exists and that the chart's `arcadedb.credentials.rootPassword.secret.name` and `.key` match it.
 
-Following are some useful commands for troubleshooting issues with ArcadeDB and Kubernetes.
-
-Display the status of a pod:
-
-[source,shell]
-----
-$ kubectl describe pod arcadedb-0
-----
-
-Replace "arcadedb-0" with the server container you want to use.
-
-To display the logs of the first server:
+Inspect a pod's events:
 
 [source,shell]
 ----
-$ kubectl logs arcadedb-0
+kubectl -n arcadedb describe pod my-arcadedb-0
 ----
 
-Replace "arcadedb-0" with the server container you want to use.
-
-To remove all the containers and restart the cluster again, execute these 2 commands:
+Read the server log:
 
 [source,shell]
 ----
-$ kubectl delete all --all --namespace default
-$ kubectl apply -f config/arcadedb-statefulset.yaml
+kubectl -n arcadedb logs my-arcadedb-0
 ----
+
+(Replace `my-arcadedb-0` with the pod name you want to inspect.)
+
+To tear down a stuck cluster and start over:
+
+[source,shell]
+----
+helm uninstall my-arcadedb --namespace arcadedb
+kubectl -n arcadedb delete pvc -l app.kubernetes.io/name=arcadedb
+----
+
+Then re-run `helm install` with corrected values.
+
+[[kubernetes-reference-deployment]]
+===== Reference deployment
+
+The https://github.com/ArcadeData/arcadedb-deployments[`ArcadeData/arcadedb-deployments`] repository hosts a working, scripted reference deployment under https://github.com/ArcadeData/arcadedb-deployments/tree/main/kubernetes[`kubernetes/`].
+It pairs a https://kind.sigs.k8s.io/[kind] cluster with the official chart and provides:
+
+* `start.sh` -- creates the kind cluster, runs `helm dependency update` + `helm install --wait`, and starts a port-forward to `localhost:2480`.
+* `stop.sh` -- terminates the port-forward, runs `helm uninstall`, and destroys the kind cluster.
+* `test.sh` -- validates that the cluster is functional.
+* `values.yaml` -- the values overrides used by `start.sh`. Note that this file wraps overrides under a top-level `arcadedb:` key because it consumes the chart as a *subchart*; when installing the chart directly (the path documented above), use the same overrides at the top level.
+
+Use this repository as a starting point for your own setup and as a reproducible bug-report environment.
