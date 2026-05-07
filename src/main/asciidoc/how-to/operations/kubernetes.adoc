@@ -741,6 +741,61 @@ extraManifests:
 [[kubernetes-operate]]
 ===== Operating the cluster
 
+====== Scaling
+
+Use `helm upgrade` to change the replica count persistently:
+
+[source,shell]
+----
+helm upgrade my-arcadedb arcadedb/arcadedb \
+  --namespace arcadedb \
+  --reuse-values \
+  --set replicaCount=5
+----
+
+`kubectl scale statefulset` also works for an immediate, one-off change:
+
+[source,shell]
+----
+kubectl -n arcadedb scale statefulset my-arcadedb --replicas=5
+----
+
+A `kubectl scale` change is reverted on the next `helm upgrade` because Helm reapplies the `replicaCount` from the chart values.
+For persistent changes, prefer `helm upgrade --set replicaCount=N` (or update the values file).
+
+Scaling does not pause the workload.
+New pods auto-join the Raft cluster, and pods removed during scale-down auto-leave via the `preStop` hook (see <<kubernetes-ha,High Availability on Kubernetes>>).
+
+====== Upgrading the chart
+
+[source,shell]
+----
+helm repo update
+helm upgrade my-arcadedb arcadedb/arcadedb \
+  --namespace arcadedb \
+  --reuse-values
+----
+
+Pin `image.tag` to a specific ArcadeDB version for reproducible upgrades.
+
+====== Uninstalling
+
+[source,shell]
+----
+helm uninstall my-arcadedb --namespace arcadedb
+----
+
+Persistent volume claims *survive uninstall* by design.
+To remove them too:
+
+[source,shell]
+----
+kubectl -n arcadedb delete pvc -l app.kubernetes.io/name=arcadedb
+----
+
+The `Secret` holding the root password is not managed by Helm and is also retained.
+Delete it explicitly if no longer needed.
+
 [[kubernetes-ha]]
 ===== High Availability on Kubernetes
 
