@@ -287,11 +287,103 @@ arcadedb:
 [[kubernetes-values-service]]
 ====== Service
 
+The chart creates two Kubernetes `Service` objects for each ArcadeDB deployment.
+The *HTTP service* (named `<release>-http`) exposes port 2480 where Studio and all REST/HTTP clients connect; its type is configurable below.
+The *RPC service* is a headless `ClusterIP` service used only for Raft peer discovery between pods — it is internal-only and not directly controlled by these values.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`service.http.type` | `ClusterIP` | Kubernetes service type for the HTTP service. Use `LoadBalancer` to obtain an external IP, or leave `ClusterIP` and configure <<kubernetes-values-ingress,Ingress>> for a single-entry-point setup.
+|`service.http.port` | `2480` | Port exposed by the HTTP service. Studio and all REST/HTTP clients connect to this port.
+|`service.rpc.port` | `2434` | Raft gRPC port used for HA peer communication. This port is exposed only on the headless internal service; do not expose it externally.
+|===
+
+Example override:
+
+[source,yaml]
+----
+service:
+  http:
+    type: LoadBalancer
+    port: 2480
+----
+
 [[kubernetes-values-ingress]]
 ====== Ingress
 
+Use an `Ingress` resource when you want a single external entry point with host-based routing and TLS termination at the edge controller, without assigning a cloud load-balancer IP per service.
+For simpler setups or clouds where a managed load-balancer IP is acceptable, `service.http.type: LoadBalancer` is the lower-configuration alternative.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`ingress.enabled` | `false` | Set to `true` to create an `Ingress` resource for the HTTP service.
+|`ingress.className` | `""` | IngressClass name (e.g. `nginx`, `traefik`). Empty string uses the cluster-default class.
+|`ingress.annotations` | `{}` | Annotations added to the `Ingress` object. Commonly used to configure the ingress controller behavior (e.g. `cert-manager.io/cluster-issuer`).
+|`ingress.hosts` | (see description) | List of host rules. Each entry has a `host` string and a `paths` list (each with `path` and `pathType`). Default example uses host `chart-example.local` with path `/`.
+|`ingress.tls` | `[]` | TLS configuration. Each entry specifies a `secretName` (holding the TLS certificate) and the list of `hosts` it covers.
+|===
+
+Example override (single-host ingress with TLS via cert-manager):
+
+[source,yaml]
+----
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: arcadedb.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: arcadedb-tls
+      hosts:
+        - arcadedb.example.com
+----
+
 [[kubernetes-values-persistence]]
 ====== Persistence
+
+ArcadeDB stores its database files under `arcadedb.databaseDirectory` (default `/home/arcadedb/databases`).
+The chart uses a `volumeClaimTemplates` block in the `StatefulSet`, so Kubernetes provisions one `PersistentVolumeClaim` per pod rather than sharing a single volume across replicas.
+
+[NOTE]
+====
+PVCs created by the StatefulSet survive `helm uninstall` by design — Kubernetes preserves data volumes when a workload is deleted.
+To remove them along with the release, run:
+
+[source,shell]
+----
+kubectl delete pvc -l app.kubernetes.io/name=arcadedb -n <namespace>
+----
+====
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`persistence.enabled` | `true` | Enable PVC-backed storage. Set to `false` only for ephemeral development deployments; all data is lost when the pod restarts.
+|`persistence.size` | `8Gi` | Requested PVC capacity. Size the volume to hold your databases plus headroom for growth.
+|`persistence.accessMode` | `ReadWriteOnce` | PVC access mode. `ReadWriteOnce` is correct for the `StatefulSet` pattern (one pod per volume).
+|`persistence.storageClass` | `""` | StorageClass name. Empty string uses the cluster-default class (e.g. `standard` on GKE, `gp2` on EKS). Set explicitly to select a faster or differently-billed class.
+|`volumeClaimTemplates` | `[]` | Extra `volumeClaimTemplates` for the StatefulSet (config, replication, backups, log). The primary database PVC is controlled by `persistence.enabled` above.
+|===
+
+Example override (50 Gi PVC on the `gp3` storage class on AWS EKS):
+
+[source,yaml]
+----
+persistence:
+  enabled: true
+  size: 50Gi
+  storageClass: gp3
+----
 
 [[kubernetes-values-resources]]
 ====== Resources
