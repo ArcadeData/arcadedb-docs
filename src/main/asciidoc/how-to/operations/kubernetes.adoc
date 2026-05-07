@@ -8,8 +8,78 @@ The reference for the configuration values below targets chart version *26.4.2*;
 [[kubernetes-prerequisites]]
 ===== Prerequisites
 
+* Kubernetes 1.19 or later
+* Helm 3.0 or later
+* `kubectl` configured for your target cluster
+* (Optional) `kind` and Docker for the local quickstart below
+
 [[kubernetes-quickstart]]
 ===== Quickstart with kind
+
+This walkthrough mirrors https://github.com/ArcadeData/arcadedb-deployments/tree/main/kubernetes[`ArcadeData/arcadedb-deployments/kubernetes`] and produces a 3-node ArcadeDB cluster on a local https://kind.sigs.k8s.io/[kind] cluster in roughly five minutes.
+
+. Create a local Kubernetes cluster:
++
+[source,shell]
+----
+kind create cluster --name arcadedb
+----
+
+. Create the secret holding the `root` user password (replace `<password>`):
++
+[source,shell]
+----
+kubectl create secret generic arcadedb-credentials \
+  --from-literal=rootPassword='<password>'
+----
+
+. Add the ArcadeDB Helm repository and update:
++
+[source,shell]
+----
+helm repo add arcadedb https://helm.arcadedb.com/
+helm repo update
+----
+
+. Save the following overrides to `values.yaml`:
++
+[source,yaml]
+----
+replicaCount: 3
+image:
+  tag: "26.4.2"
+service:
+  http:
+    type: ClusterIP
+credentials:
+  rootPassword:
+    secret:
+      name: arcadedb-credentials
+      key: rootPassword
+----
+
+. Install the chart:
++
+[source,shell]
+----
+helm install my-arcadedb arcadedb/arcadedb -f values.yaml --wait
+----
+
+. Forward the HTTP port to your laptop:
++
+[source,shell]
+----
+kubectl port-forward svc/my-arcadedb-http 2480:2480
+----
+
+. Open http://localhost:2480 in a browser to reach Studio, or use `curl`:
++
+[source,shell]
+----
+curl -u root:<password> http://localhost:2480/api/v1/server
+----
+
+For a scripted version (with `start.sh`, `stop.sh`, and `test.sh`), see the <<kubernetes-reference-deployment,reference deployment>>.
 
 [[kubernetes-install]]
 ===== Installing the chart
