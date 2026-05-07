@@ -388,11 +388,125 @@ persistence:
 [[kubernetes-values-resources]]
 ====== Resources
 
+Container resource requests and limits are deliberately left unset in the chart defaults (`resources: {}`), so you must supply them for any production deployment.
+Size the memory request to match your JVM heap (`-Xms`) so the scheduler places the pod on a node with enough RAM, and set a memory limit slightly above the heap to catch unexpected off-heap growth.
+
+[IMPORTANT]
+====
+Do *not* set a CPU limit on ArcadeDB pods.
+Kubernetes CPU throttling operates on a 100 ms accounting window; when a CPU limit is hit mid-GC cycle, the JVM thread is suspended until the next window, turning a millisecond collection into a multi-hundred-millisecond pause.
+Set a CPU *request* so the scheduler reserves the right amount of CPU for scheduling purposes, and rely on node-level CPU sharing — not a hard limit — to bound consumption.
+Memory limits are safe and recommended: the JVM respects its heap ceiling, and a hard memory limit prevents a runaway process from affecting other pods on the node.
+====
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`resources.requests.cpu` | (absent) | CPU request used by the scheduler to place the pod. Recommended starting point: `500m`. No CPU limit should be set — see the note above.
+|`resources.requests.memory` | (absent) | Memory request. Should equal or slightly exceed the JVM `-Xms` value to guarantee the node has enough RAM at scheduling time.
+|`resources.limits.memory` | (absent) | Memory limit. Set to the JVM `-Xmx` value plus headroom for off-heap buffers (e.g. `4Gi` for a 2 Gi heap). Prevents a single pod from consuming all node memory.
+|===
+
+Example override (2 Gi heap, 4 Gi limit, CPU request only — no CPU limit):
+
+[source,yaml]
+----
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 4Gi
+----
+
 [[kubernetes-values-probes]]
 ====== Probes
 
+Kubernetes uses *liveness probes* to decide when to kill and restart a container, and *readiness probes* to decide when a pod is safe to receive traffic.
+Both probes matter for ArcadeDB: on a cold start the JVM and optional persistence rehydration can take several seconds, so tuning `initialDelaySeconds` prevents premature restarts before the server is ready.
+
+The chart configures both probes to poll `GET /api/v1/ready` on the HTTP port (2480).
+Only `httpGet.path` and `httpGet.port` are set by default; all other sub-keys (`initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`, `failureThreshold`, `successThreshold`) are absent and fall back to Kubernetes defaults (0 s delay, 10 s period, 1 s timeout, 3 failures, 1 success).
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`livenessProbe.httpGet.path` | `/api/v1/ready` | HTTP path polled by the liveness probe. Returns 200 when the server is alive.
+|`livenessProbe.httpGet.port` | `http` | Named port (`http`, resolving to 2480) used by the liveness probe.
+|`livenessProbe.initialDelaySeconds` | (absent — Kubernetes default: `0`) | Seconds to wait after container start before the first liveness check. Increase for slow-start environments (cold JVM + persistence rehydration).
+|`livenessProbe.periodSeconds` | (absent — Kubernetes default: `10`) | How often (in seconds) to run the liveness probe.
+|`livenessProbe.timeoutSeconds` | (absent — Kubernetes default: `1`) | Seconds after which a probe attempt times out.
+|`livenessProbe.failureThreshold` | (absent — Kubernetes default: `3`) | Number of consecutive failures before the container is killed and restarted.
+|`livenessProbe.successThreshold` | (absent — Kubernetes default: `1`) | Consecutive successes required to mark the container as live again after a failure.
+|`readinessProbe.httpGet.path` | `/api/v1/ready` | HTTP path polled by the readiness probe. Returns 200 when the server is ready to accept traffic.
+|`readinessProbe.httpGet.port` | `http` | Named port (`http`, resolving to 2480) used by the readiness probe.
+|`readinessProbe.initialDelaySeconds` | (absent — Kubernetes default: `0`) | Seconds to wait after container start before the first readiness check. Increase when the server needs time to rehydrate databases from a PVC before accepting connections.
+|`readinessProbe.periodSeconds` | (absent — Kubernetes default: `10`) | How often (in seconds) to run the readiness probe.
+|`readinessProbe.timeoutSeconds` | (absent — Kubernetes default: `1`) | Seconds after which a probe attempt times out.
+|`readinessProbe.failureThreshold` | (absent — Kubernetes default: `3`) | Number of consecutive failures before the pod is removed from Service endpoints.
+|`readinessProbe.successThreshold` | (absent — Kubernetes default: `1`) | Consecutive successes required to add the pod back to Service endpoints.
+|===
+
+Example override (bumping the initial delay for a slow-start environment with large persisted databases):
+
+[source,yaml]
+----
+livenessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+readinessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+----
+
 [[kubernetes-values-autoscaling]]
 ====== Autoscaling
+
+The chart supports Kubernetes `HorizontalPodAutoscaler` (HPA) to scale the number of ArcadeDB pods based on CPU utilization.
+Autoscaling is disabled by default; enable it only after verifying that your storage class supports `ReadWriteOnce` volumes on all potential target nodes, and that your HA configuration can tolerate dynamic replica counts.
+
+[IMPORTANT]
+====
+When autoscaling is enabled in an HA configuration, ensure `minReplicas >= floor(maxReplicas / 2) + 1` so the cluster always retains a Raft majority.
+Falling below the quorum threshold causes writes to stall until enough peers rejoin.
+For example, with `maxReplicas: 5` the minimum safe `minReplicas` is `3`.
+See <<kubernetes-ha,High Availability on Kubernetes>> for further guidance on Raft quorum sizing.
+
+The chart also pre-sizes the internal server list to `maxReplicas` for auto-join purposes; set `maxReplicas` conservatively to avoid advertising pod addresses that may never exist.
+====
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`autoscaling.enabled` | `false` | Set to `true` to create an `HorizontalPodAutoscaler` that scales the `StatefulSet` based on CPU utilization.
+|`autoscaling.minReplicas` | `1` | Minimum number of replicas the HPA will scale down to. In an HA cluster this must be at least `floor(maxReplicas / 2) + 1` to preserve Raft quorum.
+|`autoscaling.maxReplicas` | `5` | Maximum number of replicas the HPA will scale up to. Set conservatively — the chart pre-sizes the peer list to this value.
+|`autoscaling.targetCPUUtilizationPercentage` | `80` | Average CPU utilization target (as a percentage of the pod's CPU request) that triggers scale-out. Lower values scale out earlier; higher values pack more load per pod.
+|===
+
+Example override (autoscaling with Raft-safe quorum bounds):
+
+[source,yaml]
+----
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+----
 
 [[kubernetes-values-security]]
 ====== Security context
