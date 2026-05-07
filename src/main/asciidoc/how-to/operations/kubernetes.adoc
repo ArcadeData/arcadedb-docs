@@ -175,14 +175,114 @@ imagePullSecrets:
 [[kubernetes-values-replicas]]
 ====== Replicas
 
+`replicaCount` controls how many ArcadeDB pods the `StatefulSet` runs.
+A single replica (`1`) gives a standalone instance; three replicas is the smallest cluster that tolerates one node failure under Raft majority quorum.
+See <<kubernetes-ha,High Availability on Kubernetes>> for the implications of running a multi-replica cluster.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`replicaCount` | `1` | Number of ArcadeDB pods. Values greater than 1 enable Raft HA automatically; the minimum recommended HA size is 3.
+|===
+
+Example override:
+
+[source,yaml]
+----
+replicaCount: 3
+----
+
 [[kubernetes-values-credentials]]
 ====== Credentials
+
+The chart never stores the root password in its own values; it reads it from a Kubernetes `Secret` at install time.
+If `credentials.rootPassword.secret.name` is `null`, a 32-character random password is auto-generated in a `Secret` named `arcadedb-credentials-secret` — note that GitOps tools such as ArgoCD regenerate this secret on every render, so supply your own secret for production.
+Pods that start without a resolvable secret crash-loop immediately; see <<kubernetes-troubleshooting,Troubleshooting>> for the symptom and fix.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`arcadedb.credentials.rootPassword.secret.name` | `null` | Name of an existing `Secret` containing the root password. `null` triggers auto-generation.
+|`arcadedb.credentials.rootPassword.secret.key` | `null` | Key within the named `Secret` whose value is the root password.
+|===
+
+Create the secret first (see the <<kubernetes-quickstart,Quickstart>> for the full command), then reference it in your `values.yaml`:
+
+[source,yaml]
+----
+arcadedb:
+  credentials:
+    rootPassword:
+      secret:
+        name: arcadedb-credentials
+        key: rootPassword
+----
 
 [[kubernetes-values-database]]
 ====== Database
 
+These keys control where ArcadeDB stores databases inside the container, which databases to create at startup, additional JVM arguments, and arbitrary environment variables passed to the container process.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`arcadedb.databaseDirectory` | `/home/arcadedb/databases` | Path inside the container where database files are stored. Must match the `persistence` mount path if a PVC is used.
+|`arcadedb.defaultDatabases` | `""` | Databases to create automatically at first startup. Use the form `Name[user:password]`, e.g. `Universe[admin:secret]`. Empty string means no databases are pre-created.
+|`arcadedb.extraCommands` | `["-Darcadedb.server.mode=production"]` | List of additional JVM `-D` arguments appended to the ArcadeDB startup command.
+|`arcadedb.extraEnvironment` | `[]` | List of extra environment variables (in `name`/`value` map form) injected into the container.
+|===
+
+Example override:
+
+[source,yaml]
+----
+arcadedb:
+  extraCommands:
+    - -Darcadedb.server.mode=production
+    - -Darcadedb.tx.walFiles=2
+  extraEnvironment:
+    - name: JAVA_TOOL_OPTIONS
+      value: "-XX:+UseG1GC"
+----
+
 [[kubernetes-values-plugins]]
 ====== Plugins
+
+ArcadeDB supports multiple wire protocols alongside its native HTTP API; each protocol is enabled by adding the corresponding key under `arcadedb.plugins`.
+The chart ships with named slots for `gremlin`, `postgres`, `mongo`, `redis`, and `prometheus`, plus an open `custom` slot for user-supplied plugins.
+By default, `arcadedb.plugins` is an empty map (`{}`), meaning no wire-protocol plugins are activated.
+
+[%header,cols="2,1,4"]
+|===
+|Key | Default | Description
+
+|`arcadedb.plugins.gremlin.enabled` | (absent) | Enable the Apache TinkerPop Gremlin server plugin on port `8182`.
+|`arcadedb.plugins.gremlin.port` | `8182` | Port the Gremlin plugin listens on.
+|`arcadedb.plugins.postgres.enabled` | (absent) | Enable the PostgreSQL wire-protocol plugin on port `5432`.
+|`arcadedb.plugins.postgres.port` | `5432` | Port the PostgreSQL plugin listens on.
+|`arcadedb.plugins.mongo.enabled` | (absent) | Enable the MongoDB wire-protocol plugin on port `27017`.
+|`arcadedb.plugins.mongo.port` | `27017` | Port the MongoDB plugin listens on.
+|`arcadedb.plugins.redis.enabled` | (absent) | Enable the Redis wire-protocol plugin on port `6379`.
+|`arcadedb.plugins.redis.port` | `6379` | Port the Redis plugin listens on.
+|`arcadedb.plugins.prometheus.enabled` | (absent) | Enable the Prometheus metrics endpoint.
+|===
+
+Example override (enabling the PostgreSQL and MongoDB wire protocols):
+
+[source,yaml]
+----
+arcadedb:
+  plugins:
+    postgres:
+      enabled: true
+      port: 5432
+    mongo:
+      enabled: true
+      port: 27017
+----
 
 [[kubernetes-values-service]]
 ====== Service
