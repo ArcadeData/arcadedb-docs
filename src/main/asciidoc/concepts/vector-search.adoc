@@ -502,7 +502,12 @@ SELECT expand(`vector.neighbors`(
 ))
 ----
 
-The MVP implements grouping as a post-traversal filter with adaptive over-fetch. Pathological combinations of `limit` and `groupSize` (e.g. `limit=1000, groupSize=1000` would request 5,000,000 candidates) are rejected with an explicit error to bound memory.
+Grouping is integrated into the index traversal proper, not applied as a post-filter on an over-fetched candidate pool:
+
+* *Sparse* (`vector.sparseNeighbors`) -- the BlockMax-WAND DAAT loop runs with a per-group min-heap. A new group opens only while the heap holds fewer than `limit` distinct keys; within each group, a candidate replaces the group's worst member when its score is higher. The pruning threshold tightens to the global per-group worst score once every group has reached `groupSize`, so the BMW pivot can skip whole posting-list regions that cannot beat any group's current worst member. `allowedRIDs` is applied inline -- no over-fetch.
+* *Dense* (`vector.neighbors`) -- a group-aware `Bits` filter is plugged into JVector's HNSW search. Candidates from a full group are rejected before scoring, so the graph traversal stops expanding into regions that cannot contribute new groups. The search budget is sized to `limit * groupSize`. Because `Bits` cannot consult scores (it gates eligibility before scoring), best-per-group is approximate: the first `groupSize` admitted candidates per group are kept, in HNSW visit order. HNSW visits approximately best-first from the entry node so the first encountered are usually among the best, but a strict best-per-group guarantee is not provided -- raise `efSearch` if you need wider coverage.
+
+Pathological combinations of `limit` and `groupSize` (e.g. `limit=1000, groupSize=1000` would size a per-group state past the cap) are still rejected with an explicit `over-fetch budget exceeded` error to bound memory.
 
 ==== Further Reading
 
