@@ -104,6 +104,46 @@ When using PRODUCT quantization, the graph build uses Product Quantization score
 | BINARY | 5 MB | ~3x faster (lower recall)
 |===
 
+[[vector-encoding]]
+==== Vector Encoding (Pre-Quantized Ingest)
+
+NOTE: Available since ArcadeDB v26.5.1.
+
+The `encoding` index option controls the *wire and document-storage* representation of vectors. It is distinct from `quantization`, which controls the *index-internal* compression scheme:
+
+[cols="1,2,2"]
+|===
+| Knob | What it changes | Trade-off
+
+| `encoding` | What the document column stores and what HTTP clients send | Wire payload, bucket bytes, client round trip
+| `quantization` | What the HNSW graph compresses internally | Index memory footprint, recall, search latency
+|===
+
+Two encodings are supported:
+
+* `FLOAT32` *(default)* -- the `embedding` property is `ARRAY_OF_FLOATS` (4 bytes per dimension). Backwards-compatible behaviour for every index created prior to v26.5.1.
+* `INT8` -- the `embedding` property is `BINARY` (one signed byte per dimension). Callers using providers that emit int8 directly (Cohere `int8` endpoints, OpenAI `text-embedding-3-large` reduced precision, Sentence Transformers with int8 quantization) skip a precision-losing client-side `int8 -> float32 -> server` round trip. The HTTP payload and document bucket storage shrink 4x.
+
+The HNSW graph still runs on `float32` internally; the engine dequantizes on the read path using `value / 127.0f` (Cohere/OpenAI calibration). Native int8 HNSW is tracked upstream at https://github.com/datastax/jvector/issues/665[datastax/jvector#665] -- once the JVector contract widens, no schema change will be needed.
+
+[source,sql]
+----
+-- INT8-encoded ingest. Property MUST be BINARY.
+CREATE PROPERTY Doc.embedding BINARY;
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1024,
+  "similarity": "COSINE",
+  "encoding": "INT8"
+};
+----
+
+The factory rejects two misconfigurations at index-creation time so the failure surfaces immediately rather than as silent mis-scaling later:
+
+* `encoding=INT8` with a non-`BINARY` property (or `encoding=FLOAT32` with a `BINARY` property) -- the property type and encoding must agree.
+* `encoding=INT8` combined with `quantization=INT8` -- redundant: the property is already byte-quantized at the wire level, so the index-internal scalar quantizer would re-quantize the dequantized floats. Pick one (`encoding=INT8` for payload/storage savings, `quantization=INT8` for index-internal compression), not both.
+
+When a Cohere-style int8 source is *not* the origin of the bytes, note that Java's `byte` range `[-128, 127]` includes a value the Cohere/OpenAI calibration never emits. The dequantizer clamps `-128` up to `-127` to keep the result inside `[-1, 1]` for COSINE; a one-time WARNING is logged the first time a `-128` byte is encountered in a process so operators can investigate non-conforming sources.
+
 ==== Key Parameters
 
 [cols="1,1,2"]
@@ -112,7 +152,8 @@ When using PRODUCT quantization, the graph build uses Product Quantization score
 
 | `dimensions` | (required) | Must match your embedding model output size
 | `similarity` | `COSINE` | Distance metric: COSINE, DOT_PRODUCT, or EUCLIDEAN
-| `quantization` | `NONE` | Compression: NONE, INT8, BINARY, or PRODUCT. INT8 is recommended for most use cases.
+| `encoding` | `FLOAT32` | Wire / document-storage encoding: FLOAT32 (`ARRAY_OF_FLOATS` property) or INT8 (`BINARY` property, byte per dim, 4x smaller payload). See <<vector-encoding,Vector Encoding>>.
+| `quantization` | `NONE` | Index-internal compression: NONE, INT8, BINARY, or PRODUCT. INT8 is recommended for most use cases.
 | `efSearch` | adaptive | Search beam width at query time. Controls recall vs speed trade-off. See <<adaptive-efsearch>>.
 | `maxConnections` | 16 | Connections per node. Higher = better recall, more memory
 | `beamWidth` | 100 | Search depth during build. Higher = better index quality, slower builds

@@ -1149,6 +1149,28 @@ final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
 final LSMVectorIndex index = builder.create();
 ----
 
+For pre-quantized ingest from an int8 embedding provider, declare the property as `BINARY` and call `withEncoding(VectorEncoding.INT8)` (or the string overload). The factory rejects mismatches between property type and encoding at create time:
+
+[source,java]
+----
+import com.arcadedb.index.vector.VectorEncoding;
+
+// Property MUST be BINARY when encoding=INT8
+schema.createProperty("Document", "embedding", Type.BINARY);
+
+final LSMVectorIndexBuilder builder = new LSMVectorIndexBuilder(
+    database,
+    "Document",
+    new String[]{"embedding"})
+    .withDimensions(1024)
+    .withSimilarity(VectorSimilarityFunction.COSINE)
+    .withEncoding(VectorEncoding.INT8);  // wire/storage encoding, not internal quantization
+
+final LSMVectorIndex index = builder.create();
+----
+
+See <<vector-int8-ingest,INT8 Pre-Quantized Ingest>> for the trade-offs and when to choose this over `quantization=INT8`.
+
 ====== Adding Vectors to the Index
 
 [source,java]
@@ -1182,6 +1204,7 @@ import com.arcadedb.utility.JSONObject;
 final JSONObject metadata = new JSONObject()
     .put("dimensions", 768)
     .put("similarity", "COSINE")
+    .put("encoding", "FLOAT32")         // Optional: FLOAT32 (default) or INT8 for pre-quantized ingest
     .put("maxConnections", 16)
     .put("beamWidth", 100)
     .put("idPropertyName", "id")

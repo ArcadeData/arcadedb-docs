@@ -90,6 +90,39 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
 }
 ----
 
+[[vector-int8-ingest]]
+===== INT8 Pre-Quantized Ingest
+
+NOTE: Available since ArcadeDB v26.5.1. See <<vector-encoding,Vector Encoding>> for the underlying concept.
+
+When your embedding provider already emits signed-int8 vectors (Cohere `int8` endpoints, OpenAI `text-embedding-3-large` reduced precision, Sentence Transformers with int8 quantization), use `encoding: 'INT8'` to keep the bytes byte-shaped end-to-end:
+
+[source,sql]
+----
+CREATE PROPERTY Doc.embedding BINARY;
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1024,
+  "similarity": "COSINE",
+  "encoding": "INT8"
+};
+----
+
+What this saves:
+
+* HTTP payload: 4x smaller (1 byte/dim vs 4 bytes/dim) when sending vectors with the typed-marker convention -- see <<vector-http-typed-markers,HTTP wire convention>>.
+* Document bucket storage: 4x smaller, since the property column is `BINARY` instead of `ARRAY_OF_FLOATS`.
+* No client-side `int8 -> float32 -> server` round trip; the precision the provider already discarded does not get padded back out for the wire.
+
+What this does *not* change today:
+
+* HNSW graph and search internally still run on `float32` (JVector 4.0.0-rc.8 contract). The engine dequantizes once on the read path. Native int8 HNSW is tracked upstream at https://github.com/datastax/jvector/issues/665[datastax/jvector#665].
+* `encoding` is independent of `quantization`. Combining `encoding: 'INT8'` with `quantization: 'INT8'` is rejected at index creation -- pick one, not both.
+
+When *not* to use INT8 encoding:
+
+* Your provider emits `float32` (or `float64`) and you do not have an int8 quantizer client-side. The default `FLOAT32` encoding skips the dequantize hop on every search and keeps full precision in the documents.
+* You want the index-internal compression benefit (search-time memory footprint). That is `quantization: 'INT8'`, not `encoding: 'INT8'`. They are orthogonal.
+
 ===== Tuning for Recall vs Speed
 
 Adjust `maxConnections` and `beamWidth` based on your priorities:

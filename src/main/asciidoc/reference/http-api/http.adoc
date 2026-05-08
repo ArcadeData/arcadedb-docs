@@ -797,7 +797,7 @@ Where:
 - `language` is the query language used.
 is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
 - `command` the command to execute in encoded format
-- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`.
+- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 
 When using the `GET` variant the query needs to be URL encoded.
 
@@ -883,7 +883,7 @@ The payload, as a JSON, accepts the following parameters:
 - `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
 The completion of the command is noted in the log, yet no results of the command can be returned.
 - `limit` (optional) is the maximum number of results to return
-- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`.
+- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 - `retries` (optional), is the number of times the command (transaction) is retried.
 - `autoCommit` (optional) controls transaction behavior:
 ** `true`: Forces the command to execute within an atomic transaction that auto-commits on success
@@ -934,6 +934,54 @@ $ curl -X POST http://localhost:2480/api/v1/command/mydb \
        -H "Content-Type: application/json" \
        --user root:arcadedb-password
 ----
+
+[[vector-http-typed-markers]]
+===== Typed parameter markers (`$bytes`, `$int8`)
+
+NOTE: Available since ArcadeDB v26.5.1.
+
+JSON has no native `byte[]` type, so HTTP/JSON clients cannot send binary parameters with the standard scalar/array shapes. The `query` and `command` endpoints recognise two reserved single-key marker objects in any parameter value (named or positional) and decode them to a Java `byte[]` before the parameter binder sees them. The primary use case is sending an INT8-encoded vector to a `LSM_VECTOR` index without the float32 round trip -- see <<vector-encoding,Vector Encoding>>.
+
+[cols="1,2"]
+|===
+| Marker | Decodes to
+
+| `{"$bytes": "<base64>"}` | `byte[]` from a base64 string. Both standard (RFC 4648 section 4) and URL-safe (section 5, with `-` and `_` in place of `+` and `/`) alphabets are accepted.
+| `{"$int8":  [v0, v1, ...]}` | `byte[]` from an array of integers. Each element must round to an integer in `[-128, 127]`; fractional or out-of-range values are rejected with HTTP 400.
+|===
+
+A single-key map whose key is one of these is decoded; multi-key maps that happen to contain a `$bytes` or `$int8` key are passed through unchanged so user data with leading-`$` keys is not silently transformed. The decoder also recurses into nested arrays and maps, so a list of typed markers (e.g. a batch of int8 vectors as a single parameter) works.
+
+Examples:
+
+[source,shell]
+----
+# Base64-encoded byte array
+curl -X POST http://localhost:2480/api/v1/query/mydb \
+     -H "Content-Type: application/json" \
+     --user root:arcadedb-password \
+     -d '{
+       "language": "sql",
+       "command": "SELECT expand(`vector.neighbors`(\"Doc[embedding]\", :q, 5))",
+       "params": {
+         "q": {"$bytes": "AwIB/38="}
+       }
+     }'
+
+# Integer array form (handy for debugging)
+curl -X POST http://localhost:2480/api/v1/query/mydb \
+     -H "Content-Type: application/json" \
+     --user root:arcadedb-password \
+     -d '{
+       "language": "sql",
+       "command": "SELECT expand(`vector.neighbors`(\"Doc[embedding]\", :q, 5))",
+       "params": {
+         "q": {"$int8": [1, 2, 3, -1, 127, -128]}
+       }
+     }'
+----
+
+Malformed markers (invalid base64, non-numeric `$int8` element, value out of `[-128, 127]`, `null` payload) return `400 Bad Request` with a message naming the marker and the offending value.
 
 [[http-begin]]
 ===== Begin a transaction (POST)
