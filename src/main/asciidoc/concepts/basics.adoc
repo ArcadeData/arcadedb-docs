@@ -626,10 +626,10 @@ In ArcadeDB's SQL, edges are created via the <<sql-create-edge,`CREATE EDGE`>> c
 ==== Referenced Relationships
 
 In Relational databases, tables are linked through `JOIN` commands, which can prove costly on computing resources.
-ArcadeDB manages relationships natively without computing a `JOIN` but storing a direct `LINK` to the target object of the relationship.
-This boosts the load speed for the entire graph of connected objects, such as in graph and object database systems.
+ArcadeDB manages relationships natively without computing a `JOIN` but storing a direct `LINK` to the target object of the relationship: a property on the source record holds the target's <<rid,RID>>, so following the relationship is a single random read rather than a join.
 
-Example
+In the example below, the `Customer` record at `#5:23` has a property `invoice` whose value is the link `#10:2`.
+The `Invoice` record exists independently in its own bucket and keeps its own RID; deleting the customer does not delete the invoice.
 
 .Referenced Relationship
 [d2,referenced-relationship]
@@ -642,31 +642,32 @@ vars: {
 direction: right
 
 A: {
-  shape: circle
-  label: "Record A\nTYPE Customer\nRID #5:23"
+  shape: rectangle
+  label: "Record A\nTYPE Customer\nRID #5:23\n----\nname: 'Acme'\ninvoice: #10:2"
 }
 B: {
-  shape: circle
-  label: "Record B\nTYPE Invoice\nRID #10:2"
+  shape: rectangle
+  label: "Record B\nTYPE Invoice\nRID #10:2\n----\ntotal: 100.00"
 }
 
-A -> B
+A -> B: "property 'invoice'\n(LINK -> #10:2)"
 ....
 
-Note, that referenced relationships differ from edges:
+Note that referenced relationships differ from edges:
 references are properties connecting any record while edges are types connecting vertices, and particularly, graph traversal is only applicable to edges.
 
 ==== Embedded Relationships
 
-When using Embedded relationships, ArcadeDB stores the relationship within the record that embeds it.
-These relationships are stronger than Reference relationships.
-You can represent it as a http://en.wikipedia.org/wiki/Class_diagram#Composition[UML Composition relationship].
+When using Embedded relationships, ArcadeDB stores the related record _inside_ the container record, as the value of one of its properties.
+These relationships are stronger than referenced relationships.
+You can represent them as a http://en.wikipedia.org/wiki/Class_diagram#Composition[UML Composition relationship].
 
-Embedded records do not have their own <<rid,RID>>, so it can't be referenced through other records.
-It is only accessible directly through the container record.
-Furthermore, an embedded record is stored inside the embedding record, and not in an embedded record type's bucket.
-Hence, in the event that you delete the container record, the embedded record is also deleted.
-For example,
+Embedded records do not have their own <<rid,RID>>, so they cannot be referenced from other records.
+They are only accessible by traversing the container record's property, and they are stored inside the container's record (not in a separate bucket for the embedded type).
+Consequently, deleting the container record also deletes its embedded records.
+
+In the example below, the `Account` record at `#5:23` has a property `address` whose value is an embedded `Address` record.
+The embedded record carries its own properties (`city`, `street`) but has no RID of its own — it lives entirely within the account.
 
 .Embedded Relationship
 [d2,embedded-relationship]
@@ -680,19 +681,22 @@ direction: right
 
 A: {
   shape: rectangle
-  label: "Record A\nTYPE Account\nRID #5:23"
+  label: "Record A\nTYPE Account\nRID #5:23\n----\nname: 'Alice'\naddress: { embedded -> }"
 }
 B: {
   shape: rectangle
-  label: "Record B\nTYPE Address\nNO RID"
+  label: "Embedded Record B\nTYPE Address\nNO RID\n----\ncity: 'Rome'\nstreet: 'Via Roma 1'"
 }
 
-A o-> B
+A -> B: "contains as\nproperty 'address'" {
+  style: {
+    stroke-width: 3
+  }
+}
 ....
 
-Here, record `A` contains the entirety of record `B` in the property `address`.
-You can reach record `B` only by traversing the container record.
-For example,
+Because the embedded `Address` is reachable as `address` on `Account`, you query its inner properties through that path.
+The query below returns every account whose embedded address has `city = 'Rome'`:
 
 [source,sql]
 ----
