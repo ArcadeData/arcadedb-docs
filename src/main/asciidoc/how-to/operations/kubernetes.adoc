@@ -823,6 +823,21 @@ The chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so t
 
 For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
 
+[[kubernetes-ha-bootstrap]]
+====== Pre-staging the database on every pod (from v26.5.1)
+
+When you want to scale a single-pod ArcadeDB deployment up to N pods after importing a large (1+ GB) database, pre-stage identical database files on every pod's PVC and let the cluster recognise the matching state at first formation, rather than letting the leader stream the full database to every new replica over HTTP.
+
+The chart leaves the bootstrap feature enabled by default (`arcadedb.ha.bootstrapFromLocalDatabase=true`).
+Operator workflow:
+
+. Install the chart with `replicaCount: 1` (no HA) and import the dataset.
+. After import is complete, tar the database directory or take a regular full ArcadeDB backup.
+. Distribute the archive into every pod's PVC. Common patterns: an init container that pulls from S3/GCS, an `nfs:` volume mount with the archive, baking the archive into the container image, or `kubectl cp` for one-off operator workflows. Each pod's PVC must contain the same database files under `arcadedb.databaseDirectory`.
+. `helm upgrade` the release with `replicaCount: 3` (or more). The new pods come up with non-empty databases and the same fingerprint; the cluster elects the bootstrap source automatically and forms in seconds.
+
+For the underlying protocol and edge cases (different-age peers, late newer joiner, cluster restart with stale data on a node), see <<ha-offline-bootstrap,Offline Cluster Bootstrap>>.
+
 [[kubernetes-troubleshooting]]
 ===== Troubleshooting
 

@@ -260,6 +260,31 @@ Common causes of leader unavailability include:
 
 When a replica rejoins after being offline, it catches up via the Raft log automatically; if it has fallen behind past the log purge boundary, the leader streams a full database snapshot over HTTP and the replica installs it atomically.
 
+[[ha-offline-bootstrap]]
+===== Offline Cluster Bootstrap (from v26.5.1)
+
+By default, when an HA cluster forms for the *first time* and one or more peers already hold a non-empty database on local disk, the peers do *not* download the database over HTTP from a single source.
+Instead, every peer reports a `(fingerprint, lastTxId)` tuple per database, the cluster elects the peer with the highest `lastTxId` as the source via leadership transfer, and any peer whose fingerprint matches the source bootstraps locally in seconds with zero bytes transferred.
+
+This is the recommended path for scaling a single-instance ArcadeDB deployment up to a multi-node HA cluster after a large dataset has already been imported. Operator workflow:
+
+. Import the dataset into a single ArcadeDB instance with HA disabled.
+. Tar the database directory, or take a regular full backup.
+. Distribute the archive out-of-band to every peer's filesystem (init container from S3, NFS read-only mount, baked image layer, `kubectl cp`).
+. Start every peer with HA enabled (`arcadedb.ha.enabled=true`) and the usual `arcadedb.ha.serverList`. No special flag is required; the bootstrap path is on by default via `arcadedb.ha.bootstrapFromLocalDatabase=true`.
+. The peers form the Raft group with everyone already at the same state.
+
+Time-to-cluster goes from "minutes-to-hours of HTTP snapshot transfer per replica" to "seconds, because everyone already has the bytes". For the Kubernetes recipe, see <<kubernetes-ha-bootstrap,Pre-staging the database on every pod>>.
+
+The bootstrap protocol handles the following cases automatically:
+
+* *Identical pre-staged databases*: every peer's fingerprint matches the elected source, all peers bootstrap locally with zero bytes transferred.
+* *Different-age peers*: the peer with the highest `lastTxId` is elected as the source. Older peers reinstall the leader-shipped full snapshot; subsequent transactions are picked up by native Raft replication.
+* *Late newer joiner*: a peer with a strictly newer `lastTxId` than the cluster's chosen baseline refuses to start and logs a SEVERE with the recovery procedure. This prevents a misconfigured rolling deploy from silently overwriting newer data with older data.
+* *Cluster restart*: the bootstrap path is gated on every peer's Raft log being empty. After the cluster has committed at least one Raft entry, restarts use the regular Raft log replay or leader-shipped snapshot path; the bootstrap path does not engage, and stale local data on a single pod cannot cause divergence.
+
+The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is visible in the response to `GET /api/v1/cluster` and in the Studio cluster dashboard.
+
 [[howto-ha-rest]]
 ===== Cluster Management REST API (from v26.4.1)
 
@@ -416,6 +441,14 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |`+arcadedb.ha.snapshotThreshold+`
 |Number of Raft log entries after which the leader takes a snapshot
 |100000
+
+|`+arcadedb.ha.bootstrapFromLocalDatabase+`
+|When `true` (default), at first cluster formation peers exchange `(fingerprint, lastTxId)` per database and the highest-`lastTxId` peer is elected as the bootstrap source. See <<ha-offline-bootstrap,Offline Cluster Bootstrap>>.
+|true
+
+|`+arcadedb.ha.bootstrapTimeoutMs+`
+|Maximum time in ms the bootstrap leader waits for every peer in `serverList` to report its bootstrap state before proceeding.
+|120000
 
 |`+arcadedb.ha.groupCommitQueueSize+` / `+arcadedb.ha.groupCommitOfferTimeout+`
 |Bounded queue size and offer timeout (ms) for Raft group-commit backpressure
