@@ -65,51 +65,54 @@ ArcadeDB uses a leader/replica model with Raft consensus.
 At any time one server holds leadership and accepts writes; the others are replicas that serve reads and stand by for failover.
 
 .Cluster of Servers
-[d2,ha-architecture]
-....
-vars: {
-  d2-config: {
-    sketch: false
-  }
-}
-direction: right
-
-ArcadeDB_1: {
-  shape: rectangle
-  label: "ArcadeDB_1\nReplica"
-}
-
-ArcadeDB_0: {
-  shape: rectangle
-  label: "ArcadeDB_0\nLeader"
-}
-
-ArcadeDB_2: {
-  shape: rectangle
-  label: "ArcadeDB_2\nReplica"
-}
-
-RaftLog_1: {
-  shape: rectangle
-  label: "Raft Log\n{d}"
-}
-
-RaftLog_0: {
-  shape: rectangle
-  label: "Raft Log\n{d}"
-}
-
-RaftLog_2: {
-  shape: rectangle
-  label: "Raft Log\n{d}"
-}
-
-ArcadeDB_0 -> ArcadeDB_1: "append entries (gRPC)"
-ArcadeDB_0 -> ArcadeDB_2: "append entries (gRPC)"
-ArcadeDB_1 -> RaftLog_1
-ArcadeDB_0 -> RaftLog_0
-ArcadeDB_2 -> RaftLog_2
-....
+++++
+<svg class="dgm-svg" viewBox="0 0 1200 420"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="HA cluster: ArcadeDB_0 leader replicates Raft log entries via gRPC to ArcadeDB_1 and ArcadeDB_2 replicas; each server persists its own Raft log.">
+  <defs>
+    <marker id="dgm-arrow-ha" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" class="dgm-arrowhead"/>
+    </marker>
+  </defs>
+  <g class="dgm-box dgm-box-blue">
+    <rect x="470" y="30" width="280" height="100" rx="8"/>
+    <text x="610" y="70" text-anchor="middle" class="dgm-title">ArcadeDB_0</text>
+    <text x="610" y="100" text-anchor="middle" class="dgm-sub">Leader</text>
+  </g>
+  <g class="dgm-box dgm-box-purple">
+    <rect x="60" y="180" width="280" height="100" rx="8"/>
+    <text x="200" y="220" text-anchor="middle" class="dgm-title">ArcadeDB_1</text>
+    <text x="200" y="250" text-anchor="middle" class="dgm-sub">Replica</text>
+  </g>
+  <g class="dgm-box dgm-box-purple">
+    <rect x="880" y="180" width="280" height="100" rx="8"/>
+    <text x="1020" y="220" text-anchor="middle" class="dgm-title">ArcadeDB_2</text>
+    <text x="1020" y="250" text-anchor="middle" class="dgm-sub">Replica</text>
+  </g>
+  <g class="dgm-box dgm-box-gray">
+    <rect x="500" y="320" width="220" height="80" rx="8"/>
+    <text x="610" y="358" text-anchor="middle" class="dgm-title">Raft Log</text>
+    <text x="610" y="385" text-anchor="middle" class="dgm-sub">durable</text>
+  </g>
+  <g class="dgm-box dgm-box-gray">
+    <rect x="90" y="320" width="220" height="80" rx="8"/>
+    <text x="200" y="358" text-anchor="middle" class="dgm-title">Raft Log</text>
+    <text x="200" y="385" text-anchor="middle" class="dgm-sub">durable</text>
+  </g>
+  <g class="dgm-box dgm-box-gray">
+    <rect x="910" y="320" width="220" height="80" rx="8"/>
+    <text x="1020" y="358" text-anchor="middle" class="dgm-title">Raft Log</text>
+    <text x="1020" y="385" text-anchor="middle" class="dgm-sub">durable</text>
+  </g>
+  <path d="M 470 110 C 380 110, 360 180, 340 220" class="dgm-conn" fill="none" marker-end="url(#dgm-arrow-ha)"/>
+  <text x="335" y="160" text-anchor="middle" class="dgm-label">append entries (gRPC)</text>
+  <path d="M 750 110 C 840 110, 860 180, 880 220" class="dgm-conn" fill="none" marker-end="url(#dgm-arrow-ha)"/>
+  <text x="875" y="160" text-anchor="middle" class="dgm-label">append entries (gRPC)</text>
+  <line x1="610" y1="130" x2="610" y2="318" class="dgm-conn" marker-end="url(#dgm-arrow-ha)"/>
+  <line x1="200" y1="280" x2="200" y2="318" class="dgm-conn" marker-end="url(#dgm-arrow-ha)"/>
+  <line x1="1020" y1="280" x2="1020" y2="318" class="dgm-conn" marker-end="url(#dgm-arrow-ha)"/>
+</svg>
+++++
 
 Each server persists its own Raft log segments under `<rootPath>/raft-storage/`.
 The log is used for recovery after restart and to replicate state to peers that fall behind.
@@ -118,60 +121,67 @@ Any read (query) can execute on any server in the cluster.
 All writes must go through the leader: a replica that receives a write transparently forwards it to the current leader via HTTP.
 
 .Read request executed on a replica
-[d2,ha-replica-read]
-....
-vars: {
-  d2-config: {
-    sketch: false
-  }
-}
-direction: right
-
-ClientA: {
-  shape: rectangle
-  label: "Client A"
-}
-
-ArcadeDB_1_Replica: {
-  shape: rectangle
-  label: "ArcadeDB_1\nReplica"
-}
-
-ClientA -> ArcadeDB_1_Replica: {label: "(1) read request"}
-ArcadeDB_1_Replica -> ClientA: {label: "(2) result"}
-....
+++++
+<svg class="dgm-svg" viewBox="0 0 1200 240"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Read request: Client A sends a read request to ArcadeDB_1 (replica), which returns the result directly.">
+  <defs>
+    <marker id="dgm-arrow-ha-read" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" class="dgm-arrowhead"/>
+    </marker>
+  </defs>
+  <g class="dgm-box dgm-box-gray">
+    <rect x="120" y="70" width="280" height="100" rx="8"/>
+    <text x="260" y="128" text-anchor="middle" class="dgm-title">Client A</text>
+  </g>
+  <g class="dgm-box dgm-box-purple">
+    <rect x="800" y="70" width="280" height="100" rx="8"/>
+    <text x="940" y="110" text-anchor="middle" class="dgm-title">ArcadeDB_1</text>
+    <text x="940" y="140" text-anchor="middle" class="dgm-sub">Replica</text>
+  </g>
+  <path d="M 400 100 C 540 90, 660 90, 795 100" class="dgm-conn" fill="none" marker-end="url(#dgm-arrow-ha-read)"/>
+  <text x="600" y="80" text-anchor="middle" class="dgm-label-b">(1) read request</text>
+  <path d="M 795 140 C 660 150, 540 150, 405 140" class="dgm-conn" fill="none" marker-end="url(#dgm-arrow-ha-read)"/>
+  <text x="600" y="180" text-anchor="middle" class="dgm-label-b">(2) result</text>
+</svg>
+++++
 
 .Write request executed on a replica (proxied to leader)
-[d2,ha-replica-forward]
-....
-vars: {
-  d2-config: {
-    sketch: false
-  }
-}
-direction: right
-
-ClientA_Forward: {
-  shape: rectangle
-  label: "Client A"
-}
-
-ArcadeDB_1_Forward: {
-  shape: rectangle
-  label: "ArcadeDB_1\nReplica"
-}
-
-ArcadeDB_0_Leader: {
-  shape: rectangle
-  label: "ArcadeDB_0\nLeader"
-}
-
-ClientA_Forward -> ArcadeDB_1_Forward: {label: "(1) write request"}
-ArcadeDB_1_Forward -> ArcadeDB_0_Leader: {label: "(2) HTTP proxy"}
-ArcadeDB_0_Leader -> ArcadeDB_1_Forward: {label: "(3) 3-phase commit\n(4) replicate via Raft"}
-ArcadeDB_0_Leader -> ArcadeDB_1_Forward: {label: "(5) response"}
-ArcadeDB_1_Forward -> ClientA_Forward: {label: "(6) response"}
-....
+++++
+<svg class="dgm-svg" viewBox="0 0 1200 380"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Write request: Client A sends a write to replica ArcadeDB_1, which proxies it to leader ArcadeDB_0; the leader runs the 3-phase commit and replicates via Raft, then the response flows back to Client A.">
+  <defs>
+    <marker id="dgm-arrow-ha-write" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" class="dgm-arrowhead"/>
+    </marker>
+  </defs>
+  <g class="dgm-box dgm-box-gray">
+    <rect x="40" y="140" width="240" height="100" rx="8"/>
+    <text x="160" y="198" text-anchor="middle" class="dgm-title">Client A</text>
+  </g>
+  <g class="dgm-box dgm-box-purple">
+    <rect x="460" y="140" width="280" height="100" rx="8"/>
+    <text x="600" y="180" text-anchor="middle" class="dgm-title">ArcadeDB_1</text>
+    <text x="600" y="210" text-anchor="middle" class="dgm-sub">Replica</text>
+  </g>
+  <g class="dgm-box dgm-box-blue">
+    <rect x="920" y="140" width="240" height="100" rx="8"/>
+    <text x="1040" y="180" text-anchor="middle" class="dgm-title">ArcadeDB_0</text>
+    <text x="1040" y="210" text-anchor="middle" class="dgm-sub">Leader</text>
+  </g>
+  <line x1="280" y1="165" x2="455" y2="165" class="dgm-conn" marker-end="url(#dgm-arrow-ha-write)"/>
+  <text x="367" y="148" text-anchor="middle" class="dgm-label-b">(1) write request</text>
+  <line x1="740" y1="165" x2="915" y2="165" class="dgm-conn" marker-end="url(#dgm-arrow-ha-write)"/>
+  <text x="828" y="148" text-anchor="middle" class="dgm-label-b">(2) HTTP proxy</text>
+  <text x="1040" y="265" text-anchor="middle" class="dgm-label-b">(3) 3-phase commit on leader</text>
+  <text x="1040" y="287" text-anchor="middle" class="dgm-label-b">(4) replicate via Raft</text>
+  <line x1="915" y1="215" x2="745" y2="215" class="dgm-conn" marker-end="url(#dgm-arrow-ha-write)"/>
+  <text x="828" y="237" text-anchor="middle" class="dgm-label-b">(5) response</text>
+  <line x1="455" y1="215" x2="285" y2="215" class="dgm-conn" marker-end="url(#dgm-arrow-ha-write)"/>
+  <text x="367" y="237" text-anchor="middle" class="dgm-label-b">(6) response</text>
+</svg>
+++++
 
 Internally, every committed write follows a *replicate-first, commit-after* three-phase commit:
 
