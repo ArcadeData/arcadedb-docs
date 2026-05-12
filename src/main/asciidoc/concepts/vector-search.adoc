@@ -144,6 +144,48 @@ The factory rejects two misconfigurations at index-creation time so the failure 
 
 When a Cohere-style int8 source is *not* the origin of the bytes, note that Java's `byte` range `[-128, 127]` includes a value the Cohere/OpenAI calibration never emits. The dequantizer clamps `-128` up to `-127` to keep the result inside `[-1, 1]` for COSINE; a one-time WARNING is logged the first time a `-128` byte is encountered in a process so operators can investigate non-conforming sources.
 
+[[vector-external-storage]]
+==== Store Embeddings in an `EXTERNAL` Property
+
+NOTE: Available since ArcadeDB v26.5.1.
+
+A vector embedding is typically the largest field on a record — a `FLOAT32` 1,536-dim embedding alone weighs 6 KB, an order of magnitude bigger than the topology (id, label, edge lists) it sits next to.
+Stored inline, every traversal, scan, or projection that does not touch the embedding still pages those 6 KB into the buffer cache.
+On a graph of a few million vertices that is enough to evict the useful topology working set long before the dataset is exhausted.
+
+TIP: Declare the embedding property as `EXTERNAL true` so the bytes move to a paired *external bucket*. The main record then carries only an 8-byte pointer; the embedding is loaded lazily, on the queries that actually need it (vector search, similarity scoring, hybrid retrieval). See <<sql-external-properties,External property storage>> for the full description, including the per-bucket pairing, compression, and tiered-storage options.
+
+[source,sql]
+----
+-- FLOAT32 embedding stored in a paired external bucket.
+CREATE PROPERTY Doc.embedding ARRAY_OF_FLOATS (EXTERNAL true);
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1536,
+  "similarity": "COSINE"
+};
+
+-- Same idea with INT8 wire/storage encoding -- still external, 4x smaller payload.
+CREATE PROPERTY Doc.embedding BINARY (EXTERNAL true);
+CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
+  "dimensions": 1024,
+  "similarity": "COSINE",
+  "encoding": "INT8"
+};
+----
+
+When you should opt in:
+
+* The embedding is large compared to the rest of the record (any modern dense embedding qualifies).
+* Most of your workload is not vector search — graph traversals, filters by other properties, or full-record reads that project everything except the embedding all benefit immediately.
+* You plan to put the heavy payload on a different volume (e.g. embeddings on bulk storage, topology on NVMe) — set `arcadedb.externalPropertyBucketPath` before creating the property; see <<sql-external-properties-tiered,Tiered storage>>.
+
+When inline storage is still the right default:
+
+* Records are tiny and the embedding is your hottest field (every query reads it). The extra pointer lookup is a per-read cost that adds up.
+* You are running a vector-only workload where every query projects `embedding`. There is nothing to save.
+
+To migrate an existing populated type to external storage in one step, use `ALTER PROPERTY ... EXTERNAL true` followed by `REBUILD TYPE`; see <<sql-external-properties-migration,Migrating existing records>>.
+
 ==== Key Parameters
 
 [cols="1,1,2"]
