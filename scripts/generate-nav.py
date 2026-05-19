@@ -169,6 +169,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("tools/studio/information.adoc", "Studio: Information"),
                 ("tools/studio/server.adoc", "Studio: Server"),
                 ("tools/studio/api.adoc", "Studio: API"),
+                ("tools/studio/ai.adoc", "Studio: AI Assistant"),
                 "tools/console.adoc",
                 ("tools/swaggerui.adoc", "Swagger UI"),
                 ("tools/tools.adoc", "Other Tools"),
