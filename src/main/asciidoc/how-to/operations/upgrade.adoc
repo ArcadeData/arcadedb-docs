@@ -1,17 +1,133 @@
 [[upgrade]]
 ==== Upgrade ArcadeDB
 
-ArcadeDB is able to automatically upgrade a database when a newer version of ArcadeDB is used.
-The migration is completely automatic and transparent.
+ArcadeDB automatically upgrades a database to a newer on-disk format when a newer version of ArcadeDB opens it.
+The migration is transparent and happens lazily on first open, so the only operator step is to point the new binaries at your existing data.
 
-===== Steps
+[[upgrade-single-server]]
+===== Single-server upgrade
 
-1. Download and extract a newer version of ArcadeDB in the local file system
-2. Stop any ArcadeDB running servers (or close manually the database by using the HTTP command "<<http-servercommand,close database>>").
-3. Copy the databases directory from the old server to the new one
-4. Start the new server
+. Download and extract the new ArcadeDB release in a separate directory (do not overwrite the old install).
+. Stop the running server (or close every open database via the HTTP `<<http-servercommand,close database>>` command).
+. Copy the directories listed in <<upgrade-what-to-copy,What to copy>> from the old install into the new install, preserving the original paths.
+. Start the new server.
 
+When the server starts, every database is opened with the new code and any required format migration is applied in place.
+
+[[upgrade-what-to-copy]]
+===== What to copy
+
+ArcadeDB's root directory contains a fixed set of folders.
+Only a few of them hold user-owned state; the rest are recreated from the release archive on every install.
+
+[%header,cols="20%,15%,65%"]
+|===
+|Folder |Action |Notes
+
+|`databases/`
+|*Copy*
+|The actual database data. Every subdirectory is one database. This is the only folder strictly required for an upgrade.
+
+|`config/`
+|*Copy selected files*
+|The release ships a default `config/` directory. Carry over only the files you have actually modified — listing below.
+
+|`backups/`
+|Copy if you want history
+|Backup archives produced by manual or automatic backups. The server does not need them to start; copy them only if you want to keep the backup history reachable from the Studio Backup tab and from `RESTORE DATABASE` commands.
+
+|`log/`
+|Skip
+|Server log files. Safe to start with an empty `log/` directory; the release ships an empty one. Copy only if you want to keep historical logs alongside the new install.
+
+|`raft-storage-<peerId>/` (HA only)
+|Skip
+|Per-node Raft log segments, created at runtime when HA is enabled. By default this directory is recreated on every restart, so there is nothing to migrate. See <<upgrade-ha-cluster,HA cluster upgrade>> for details.
+
+|`replication/`
+|Skip
+|Legacy directory from the pre-Raft replication implementation. Not used by the current HA stack.
+
+|`lib/`, `bin/`
+|Use the new release as-is
+|Java artifacts and start scripts. Always take them from the new release — do not copy from the old install. The only exception is custom JARs you have dropped into `lib/` yourself; carry those over by hand.
+|===
+
+[[upgrade-config-files]]
+====== Files to carry over from `config/`
+
+The `config/` directory ships with a small set of defaults.
+You only need to copy the files that you have actually changed:
+
+[%header,cols="35%,65%"]
+|===
+|File |When to copy
+
+|`server-users.jsonl`
+|Always, unless you create users only via REST/SQL on every upgrade.
+This is where ArcadeDB persists local users and their per-database group assignments.
+
+|`server-groups.json`
+|If you have customised the security policy (custom groups, type-level permissions, result-set limits). See <<security-policy,Security Policy>>.
+
+|`backup.json`
+|If you have configured the auto-backup scheduler (schedule, retention, target directory). See <<auto-backup,Automatic Backup>>.
+
+|`arcadedb-log.properties`
+|If you have tuned `java.util.logging` settings (log levels, rolling file size, etc.).
+
+|`gremlin-server.yaml`, `gremlin-server.groovy`, `gremlin-server.properties`
+|Only if you use the embedded Gremlin Server and have edited any of these.
+|===
+
+Everything else under `config/` (`arcadedb-log-all.properties`, `arcadedb-statefulset.yaml`, …) ships unchanged with each release; take the new version.
+
+NOTE: ArcadeDB does *not* read a `config/server-configuration.json` file in normal operation.
+Server-wide settings come from JVM system properties, environment variables and the `arcadedb-server.sh` arguments — see <<server,Server Configuration>>.
+
+[[upgrade-ha-cluster]]
+===== HA cluster upgrade
+
+An HA cluster (see <<ha-concepts,High Availability>>) is upgraded one node at a time.
+The per-node procedure is the same as <<upgrade-single-server,single-server>> above, with the following clarifications.
+
+What to migrate on each node:
+
+* *`databases/`* — copy, exactly as in the single-server case.
+* *`config/`* — copy the same files as in the single-server case.
+The cluster's identity is derived from `arcadedb.ha.clusterName` and the `root` password (the inter-node token is computed from them at startup), so as long as every node keeps the same cluster name and the same root password, the upgraded cluster reattaches to itself without any extra step.
+* *`raft-storage-<peerId>/`* — *do not copy*.
+This directory holds the local Raft log and is wiped and re-created on every restart.
+After the upgraded node rejoins the cluster, the leader replays missing entries via Raft or, if the node has fallen behind the purge boundary, streams a full snapshot over HTTP automatically.
+* *`backups/` and `log/`* — same as single-server.
+
+Recommended rolling upgrade flow (zero downtime, requires quorum at all times):
+
+. Pick a non-leader node first.
+. Stop the node, install the new release in a separate directory, copy the folders listed above, start the new binary.
+. Wait until `GET /api/v1/cluster` reports the node as healthy and caught up (replication lag near zero).
+.. The <<studio-cluster,Studio Cluster tab>> shows the same information visually.
+. Repeat for every remaining replica.
+. Step the leader down with `POST /api/v1/cluster/stepdown` (or simply stop it — Raft will elect a new leader) and upgrade it last.
+
+For first-time HA bring-up with a pre-existing database (e.g. when you scale a single-node install into a cluster), see <<ha-offline-bootstrap,Offline Cluster Bootstrap>>.
+
+[[upgrade-docker]]
+===== Docker / Kubernetes
+
+When you run ArcadeDB from the official container image, the release is replaced atomically by changing the image tag.
+The only data that survives across container restarts is what lives on a persistent volume, so:
+
+* Mount `/home/arcadedb/databases` on a persistent volume — this is the equivalent of "copy the `databases/` folder".
+* Mount `/home/arcadedb/config` only if you have edited the files listed in <<upgrade-config-files>>; otherwise let the image ship its defaults.
+* Do *not* mount `/home/arcadedb/raft-storage-*` on a persistent volume; the Raft log is ephemeral and is rebuilt from peers on every pod restart.
+* Mount `/home/arcadedb/backups` if you want to retain backup archives across pod restarts.
+
+For Kubernetes specifics (StatefulSet, headless service, init container for pre-staging a database), see <<kubernetes,Kubernetes>>.
+
+[[downgrade]]
 ==== Downgrade ArcadeDB
 
-In the case you need to downgrade to an older version of ArcadeDB, check the binary compatibility between the versions.
-ArcadeDB uses the https://semver.org[semantic versioning] with 100% compatibility for migration of databases up or down between patch version (the Z in X.Y.Z). To downgrade to a minor or major, the safest way is to export the database with the newest version and re-import the database with the older version.
+In case you need to downgrade to an older version of ArcadeDB, check the binary compatibility between the versions.
+ArcadeDB uses https://semver.org[semantic versioning] with 100% on-disk compatibility for migration of databases up or down between *patch* versions (the `Z` in `X.Y.Z`).
+For minor or major downgrades the safest path is to export the database with the newer version and re-import it with the older version.

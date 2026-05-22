@@ -366,8 +366,9 @@ See <<studio,Studio>>.
 ===== Security
 
 *Cluster token*:: Inter-node HTTP forwarding (replica -> leader proxy, snapshot downloads) is authenticated with a shared *cluster token* sent as the `X-ArcadeDB-Cluster-Token` HTTP header.
-If `arcadedb.ha.clusterToken` is not set explicitly, the token is auto-generated on first startup and persisted under `raft-storage/`; all subsequent nodes must start with the same token (or with `HA_CLUSTER_TOKEN` unset so they can read it from the same storage).
-Set it explicitly for production deployments to coordinate the token across nodes.
+If `arcadedb.ha.clusterToken` is not set explicitly, the token is derived deterministically from `arcadedb.ha.clusterName` and the `root` password via PBKDF2-HMAC-SHA256 — it is *not* persisted on disk.
+Every node that starts with the same cluster name and the same root password ends up with the same token automatically.
+Set `arcadedb.ha.clusterToken` (or `HA_CLUSTER_TOKEN`) explicitly when you need to rotate the token without changing the root password, or when each peer has a different root password.
 
 *Peer allowlist*:: Inbound Raft gRPC connections are filtered against the DNS-resolved hosts in `arcadedb.ha.serverList`; connections from other addresses are rejected.
 This closes the "any host that knows the port can inject log entries" vector.
