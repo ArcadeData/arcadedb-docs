@@ -36,7 +36,72 @@ ArcadeDB was created from the same original developers of OrientDB, but it was b
 - **No BLOB/Binary type**: ArcadeDB does not have a dedicated BLOB or ORecordBytes type. Binary data should be stored as Base64-encoded strings or managed externally.
 - **No LINKBAG**: ArcadeDB uses simpler edge management for graphs and does not use the LINKBAG (ridbag) structure.
 - **No CUSTOM field type**: The `CUSTOM` field type from OrientDB is not available.
+- **No embedded geometry types**: ArcadeDB has no `OPoint`, `OLineString`, or `OPolygon` embedded types. Geometries are stored as WKT strings in `STRING` properties (see <<orientdb-spatial,Geospatial Data>> below).
 - **Record IDs**: ArcadeDB uses Record IDs (RIDs) with the same `#bucket:position` format, but the internal storage is different.
+
+[[orientdb-spatial]]
+===== Geospatial Data (OPoint and other spatial types)
+
+OrientDB's spatial module stored geometries as embedded documents of dedicated classes such as `OPoint`, `OLineString`, and `OPolygon`, each with a `coordinates` field. ArcadeDB has no embedded geometry type: geometries are stored as a plain `STRING` property containing the geometry in https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry[Well-Known Text (WKT)] format, and are queried with the built-in `geo.*` SQL functions (backed by JTS and Spatial4j). See <<geospatial,Geospatial Index>> for the full reference.
+
+Both engines use the same axis order, *longitude first then latitude* (the GeoJSON/WKT convention), so coordinate values migrate directly without swapping.
+
+[cols="1,2,2",options="header"]
+|===
+| | OrientDB | ArcadeDB
+
+| Storage
+| Embedded `OPoint` with `coordinates: [lon, lat]`
+| `STRING` property with WKT: `POINT (lon lat)`
+
+| Construction
+| `ST_GeomFromText('POINT(12.5 41.9)')`
+| <<geo-point,`geo.point(12.5, 41.9)`>> or the literal WKT string
+
+| Functions
+| `ST_*` (e.g. `ST_Distance`, `ST_Within`)
+| `geo.*` (e.g. <<geo-distance,`geo.distance`>>, `geo.within`)
+
+| Index
+| Lucene spatial index
+| `CREATE INDEX ... GEOSPATIAL` (see <<geospatial-create,Creating a Geospatial Index>>)
+|===
+
+To migrate `OPoint` data:
+
+. Define the target property as `STRING`:
++
+[source,sql]
+----
+CREATE PROPERTY City.location STRING
+----
+. Convert each `OPoint` to WKT on insert. An OrientDB export serializes an `OPoint` as `{"@class":"OPoint","coordinates":[12.5,41.9]}`; map `coordinates[0]` to longitude (x) and `coordinates[1]` to latitude (y):
++
+[source,sql]
+----
+INSERT INTO City SET name = 'Rome', location = 'POINT (12.5 41.9)'
+-- or build it from the coordinates programmatically:
+INSERT INTO City SET name = 'Rome', location = geo.point(12.5, 41.9)
+----
+. Create a geospatial index (used automatically by `geo.within` and `geo.intersects`):
++
+[source,sql]
+----
+CREATE INDEX ON City (location) GEOSPATIAL
+----
+. Translate `ST_*` queries to their `geo.*` equivalents:
++
+[source,sql]
+----
+-- distance with the Haversine formula (unit: 'km' default, or 'm')
+SELECT geo.distance(location, geo.point(12.49, 41.90), 'km') AS dist_km FROM City
+
+-- containment / proximity (index-accelerated). geo.buffer distance is in degrees
+-- (~0.01 deg ≈ 1.1 km at the equator)
+SELECT FROM City WHERE geo.within(location, geo.buffer(geo.point(12.5, 41.9), 0.01)) = true
+----
+
+The same pattern applies to other OrientDB spatial types: use <<geo-line-string,`geo.lineString(...)`>> for `OLineString` and <<geo-polygon,`geo.polygon(...)`>> for `OPolygon`, or insert the corresponding `LINESTRING (...)` / `POLYGON ((...))` WKT directly. Use <<geo-x,`geo.x()`>> / <<geo-y,`geo.y()`>> to extract raw coordinates (for example to validate migrated values against the originals) and <<geo-as-geo-json,`geo.asGeoJson()`>> for GeoJSON output.
 
 ===== SQL
 
