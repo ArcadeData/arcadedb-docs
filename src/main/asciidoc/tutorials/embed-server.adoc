@@ -80,6 +80,19 @@ config.setValue(GlobalConfiguration.HA_REPLICATION_INCOMING_HOST, "0.0.0.0");
 config.setValue(GlobalConfiguration.HA_ENABLED, true);
 ----
 
+IMPORTANT: High availability is no longer part of `arcadedb-server`. Since the migration to Apache Ratis, the HA implementation lives in a separate module, `arcadedb-ha-raft`, and is discovered at startup via the Java `ServiceLoader`. If you embed only `arcadedb-server`, setting `HA_ENABLED=true` (or a non-blank `HA_SERVER_LIST`) is *not* enough: with no HA plugin on the classpath the node starts STANDALONE with no replication. Add the dependency explicitly:
+
+[source,xml, subs="+attributes"]
+----
+<dependency>
+    <groupId>com.arcadedb</groupId>
+    <artifactId>arcadedb-ha-raft</artifactId>
+    <version>{revnumber}</version>
+</dependency>
+----
+
+The official server distribution and Docker image already bundle this module, so this step only applies to embedded deployments that manage their own dependencies. When HA is requested but no plugin is found, the server logs a `WARNING` at startup and records a server event under the `HA` component.
+
 When you embed the server, you should always get the database instance from the server itself.
 This assures the database instance is just one in the entire JVM.
 If you try to create or open another database instance from the `DatabaseFactory`, you will receive an error that the underlying database is locked by another process.
