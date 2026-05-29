@@ -15,6 +15,7 @@ re-emits it from current state.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -152,11 +153,11 @@ def strip_orphan_subheadings(text: str) -> str:
     return "\n".join(head + out).rstrip() + "\n"
 
 
-def render_card(page_path: Path, page_rel: str) -> str | None:
+def render_card(page_path: Path, href: str) -> str | None:
     title = first_heading(page_path) or page_path.stem.replace("-", " ").title()
     title_attr = title.replace('"', "&quot;")
     return (
-        f'  <a class="chapter-card" href="{page_rel.replace(".adoc", ".html")}">'
+        f'  <a class="chapter-card" href="{href}">'
         f'<span class="chapter-card-title">{title_attr}</span>'
         f"</a>"
     )
@@ -223,7 +224,16 @@ def process(chapter: Path) -> bool:
         page_path = PAGES / child_rel
         if not page_path.exists():
             continue
-        rendered = render_card(page_path, child_rel)
+        # The card is emitted as a raw HTML <a href> inside a passthrough
+        # block, so Antora does NOT rewrite it — the browser resolves it
+        # relative to the chapter page's own URL directory. Compute the
+        # href relative to the chapter's directory (the Antora output
+        # mirrors the pages tree) instead of using the pages-root path,
+        # which would double the directory prefix for chapters in
+        # subdirectories (e.g. how-to/operations/how-to/operations/...).
+        target_html = page_path.with_suffix(".html")
+        href = Path(os.path.relpath(target_html, chapter.parent)).as_posix()
+        rendered = render_card(page_path, href)
         if rendered:
             cards.append(rendered)
     if not cards:
