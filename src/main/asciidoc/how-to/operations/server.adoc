@@ -123,10 +123,19 @@ The server can be started in one of three modes, which affect the studio, loggin
 | Mode | Studio | Logging | WAL Flush | LOAD CSV file access
 | `development` | Yes | Detailed | No flush (`0`) | Enabled
 | `test` | Yes | Brief | No flush (`0`) | Enabled
-| `production` | No | Brief | Auto-set to `1` if not configured | Auto-disabled if not configured
+| `production` | No (can be force-enabled) | Brief | Auto-set to `1` if not configured | Auto-disabled if not configured
 |===
 
 The mode is controlled by the <<setting-table,`server.mode`>> setting with a default mode `development`.
+
+In `production` mode the Studio web tool is not served by default, to reduce the attack surface. If you need it (for example to inspect a database running in production), force-enable it with the <<setting-table,`studio.enabled`>> setting:
+
+[source,shell]
+----
+$ bin/server.sh -Darcadedb.server.mode=production -Darcadedb.studio.enabled=true
+----
+
+When enabling Studio in production, restrict network access to the HTTP port (for example with a firewall, a reverse proxy, or by enabling SSL), since it exposes a web UI on the public-facing server.
 
 [[production-mode-defaults]]
 ====== Production mode defaults
@@ -135,6 +144,7 @@ When the server starts in `production` mode, ArcadeDB automatically applies safe
 
 * **WAL flush** (`arcadedb.txWalFlush`): set to `1` (flush without metadata) for transaction durability. If you explicitly set it to `0`, a warning is logged. See <<wal-flush-durability>> for details.
 * **LOAD CSV file access** (`arcadedb.opencypher.loadCsv.allowFileUrls`): disabled to prevent Cypher queries from reading local files on the server. Set to `true` explicitly if needed.
+* **Studio web tool** (`arcadedb.studio.enabled`): the Studio web UI is not served. Set it to `true` to force-enable Studio in production (see <<server-modes>>).
 
 These defaults are only applied when the setting has not been explicitly configured by the user (via system property, environment variable, or API call). Explicit settings are always respected.
 
@@ -148,6 +158,7 @@ INFO  - SSL: disabled. Consider enabling for encrypted connections
 INFO  - High availability: disabled. Consider enabling for fault tolerance
 INFO  - LOAD CSV file access: disabled [OK]
 INFO  - Backup support: enabled [OK]
+INFO  - Studio web tool: disabled [OK]
 ----
 
 ===== Create default database(s)
