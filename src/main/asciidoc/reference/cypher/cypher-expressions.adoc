@@ -539,13 +539,41 @@ RETURN reverse([1, 2, 3])  // Returns [3, 2, 1]
 [[cypher-id]]
 ====== id()
 
-Returns the internal ID (RID) of a node or relationship.
+Returns the internal ID of a node or relationship as a numeric (`Long`) value, matching the Neo4j semantics where `id()` returns an `INTEGER`. The two
+components of an ArcadeDB RID (`bucketId`, `position`) are packed into a single non-negative number so it can be used in numeric predicates such as
+`WHERE id(n) >= 0`.
 
 [source,cypher]
 ----
 MATCH (p:Person)
-RETURN id(p)  // Returns e.g. '#12:0'
+RETURN id(p)  // Returns e.g. 786432
 ----
+
+The packing uses 63 of the 64 bits of the `Long` (the sign bit is kept clear so the value is never negative): the upper bits hold the `bucketId` and the lower
+bits the record `position`. The split is controlled by the global setting `arcadedb.opencypher.idBucketBits` (see <<arcadedb-settings,Settings>>). The default of `16`
+reserves 16 bits for the bucketId (up to 65536 buckets) and 47 bits for the position (~1.4e14 records per bucket), which covers the vast majority of use cases:
+
+* Increase it (e.g. `20`) for databases that allocate a very large number of buckets across many types.
+* Decrease it for buckets that hold an extremely high number of records.
+
+[source,shell]
+----
+# Reserve 20 bits for the bucketId (up to ~1M buckets)
+java ... -Darcadedb.opencypher.idBucketBits=20
+----
+
+To put the position field in perspective with the default `16`: it reserves 47 bits, enough to address `2^47` ≈ 1.4e14 positions per bucket. A single bucket is
+internally limited to ~2.1 billion pages (the page index is a 32-bit integer), so with a standard 64KB page holding on average ~500 records that is about
+`2.1e9 × 500` ≈ *1 trillion records (~137 TB) in one bucket* - and the 47-bit position field covers that roughly 30x over. In other words, the numeric `id()`
+never runs out of range before the bucket is physically full, so for almost every database the only setting worth tuning is the bucketId width (the bucket
+*count*), not the position width.
+
+[NOTE]
+====
+`id()` fails with an error if a RID cannot be packed with the configured split (for example a `bucketId` beyond the reserved bits), so an out-of-range value is
+reported instead of silently colliding with another id. Because the value is computed from the split, changing `arcadedb.opencypher.idBucketBits` alters the
+numeric output: encode and decode must use the same setting. For a stable, opaque identifier that does not depend on this setting, use `elementId()` instead.
+====
 
 [[cypher-labels]]
 ====== labels()
