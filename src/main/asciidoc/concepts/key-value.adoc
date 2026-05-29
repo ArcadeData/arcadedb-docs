@@ -16,17 +16,99 @@ In addition to RIDs, you can layer your own keys on top:
 * **Bucket-based keys** -- group records into <<buckets,buckets>> and use the bucket as a key/value namespace where records are inserted and retrieved by RID without requiring a type schema.
 * **Composite keys** -- create indexes spanning multiple properties when the natural key is not a single value (for example, `(tenantId, accountId)`).
 
-==== HTTP Key/Value Patterns
+==== Key/Value with the Redis Wire Protocol
 
-The most typical use cases of the Key/Value model are exposed directly through the <<http-json-api,HTTP API>>:
+ArcadeDB speaks the <<redis-protocol,Redis wire protocol>>, so any Redis client (here Jedis) can use it as a drop-in key/value backend.
+Simple string commands (`SET`, `GET`, `INCR`, ...) operate on a fast in-memory namespace:
 
-[cols="1,3,2", options="header"]
-|===
-| Operation | HTTP Call | Effect
-| **Store**  | `POST /<bucket>/<key>`   | Save the value as the payload of the call
-| **Read**   | `GET /<bucket>/<key>`    | Return the value as the response payload
-| **Delete** | `DELETE /<bucket>/<key>` | Remove the value identified by the key
-|===
+[source,java]
+----
+final Jedis jedis = new Jedis("localhost", 6379);
+
+jedis.set("foo", "1");                 // store
+String value = jedis.get("foo");       // read -> "1"
+boolean present = jedis.exists("foo"); // check
+jedis.incr("foo");                     // atomic increment -> 2
+jedis.incrBy("foo", 3);                // -> 5
+String removed = jedis.getDel("foo");  // read + delete atomically
+----
+
+To persist values as queryable documents, back the key with a unique <<indexes,index>> and use the hash commands.
+The `HGET`/`HEXISTS`/`HDEL` key uses the form `database.Type[indexName]`:
+
+[source,java]
+----
+// One-time schema: a type plus a unique index acting as the key
+database.command("sqlscript",
+    "CREATE DOCUMENT TYPE Account;" +
+    "CREATE PROPERTY Account.id LONG;" +
+    "CREATE INDEX ON Account (id) UNIQUE;" +
+    "CREATE PROPERTY Account.email STRING;" +
+    "CREATE INDEX ON Account (email) UNIQUE;");
+
+// Store a JSON value under the "Account" type
+jedis.hset("mydb", "Account", "{'id':1,'email':'jay@commodore.com','firstName':'Jay'}");
+
+// Read it back by the indexed key (id == 1)
+JSONObject doc = new JSONObject(jedis.hget("mydb.Account[id]", "1"));
+
+// ...or by the email key
+doc = new JSONObject(jedis.hget("mydb.Account[email]", "jay@commodore.com"));
+
+boolean present = jedis.hexists("mydb.Account[id]", "1");
+jedis.hdel("mydb.Account[id]", "1");   // delete by key
+----
+
+Records can also be addressed directly by their <<rid,RID>>: `jedis.hget("mydb", "#13:432")`.
+
+==== Key/Value with the Java API
+
+Create a unique index on the property you want to use as the key, then look records up with `lookupByKey`:
+
+[source,java]
+----
+database.command("sql",
+    "CREATE DOCUMENT TYPE Account;" +
+    "CREATE PROPERTY Account.id LONG;" +
+    "CREATE INDEX ON Account (id) UNIQUE");
+
+// Single-key lookup
+final IndexCursor result = database.lookupByKey("Account", "id", 12345L);
+if (result.hasNext())
+  Document value = result.next().asDocument();
+
+// Composite-key lookup (e.g. multi-tenant natural keys)
+final IndexCursor composite = database.lookupByKey("Account",
+    new String[] { "tenantId", "accountId" },
+    new Object[] { "acme", 42L });
+----
+
+For ephemeral, in-memory state (session data, counters) that does not need its own type, use database global variables, which are also readable from SQL:
+
+[source,java]
+----
+database.setGlobalVariable("myKey", "myValue");
+Object value = database.getGlobalVariable("myKey");   // "myValue"
+// SELECT $myKey returns the value from SQL
+----
+
+==== Key/Value over HTTP
+
+Over the <<http-json-api,HTTP API>>, key/value access is expressed as SQL through the `/api/v1/command/<database>` endpoint.
+A lookup by indexed key is a simple parameterized query:
+
+[source,shell]
+----
+# Read the value whose key id = 1
+curl -X POST "http://localhost:2480/api/v1/command/mydb" \
+  -u root:password -H "Content-Type: application/json" \
+  -d '{"language":"sql","command":"SELECT FROM Account WHERE id = :id","params":{"id":1}}'
+
+# Store / upsert a value by key
+curl -X POST "http://localhost:2480/api/v1/command/mydb" \
+  -u root:password -H "Content-Type: application/json" \
+  -d '{"language":"sql","command":"UPDATE Account SET email = :e UPSERT WHERE id = :id","params":{"id":1,"e":"jay@commodore.com"}}'
+----
 
 This makes ArcadeDB usable as a drop-in key/value backend for caches, session stores, configuration stores, or any pattern where direct addressing by identifier is the primary access mode.
 
@@ -56,5 +138,5 @@ ArcadeDB treats every value as a structured record:
 
 * <<rid,Record ID (RID)>> -- how RIDs work and how to use them as primary keys
 * <<buckets,Buckets>> -- physical storage units that double as key/value namespaces
-* <<http-json-api,HTTP API>> -- REST endpoints for POST/GET/DELETE on records
+* <<http-json-api,HTTP API>> -- run SQL commands and queries (including key lookups) over REST
 * <<redis-protocol,Redis Wire Protocol>> -- speak the Redis protocol against ArcadeDB
