@@ -50,7 +50,7 @@ DEFINE FUNCTION <library>.<name> "<body>" [PARAMETERS [<parameter>,*]] LANGUAGE 
 * `<name>` - The function's name
 * `<body>` - The function's body as a string in the chosen language's syntax
 * `[<parameter>,*]` - A list of parameter identifiers used in the function body. Omit the `PARAMETERS []` block for functions without parameters
-* `<language>` - One of: `sql`, `js` (JavaScript), `opencypher` (or `cypher`), or Java class name
+* `<language>` - One of: `sql`, `js` (JavaScript), or `opencypher` (alias `cypher`). Java is not a valid `LANGUAGE` value: Java functions are registered programmatically (see <<user-functions-java,User Functions in Java>> below)
 
 ====== SQL Language Functions
 
@@ -205,55 +205,147 @@ DELETE FUNCTION extra.tsum;
 DELETE FUNCTION math.obsolete;
 ----
 
+[[user-functions-java]]
 ===== User Functions in Java
 
-Java functions provide maximum performance and access to the full Java ecosystem.
+Java functions provide maximum performance and access to the full Java ecosystem. Unlike the SQL, JavaScript and OpenCypher functions described above, Java functions *cannot* be created with `DEFINE FUNCTION ... LANGUAGE java`: they must be registered programmatically through the Java API. There is no auto-discovery (no `ServiceLoader`, no annotation or classpath scan) for user functions: registration is always an explicit API call.
 
-Before using them in queries, you need to register them:
+[IMPORTANT]
+====
+**Where does the JAR go, and when is the function registered?**
 
-[source,java]
-----
-SQLQueryEngine sqlEngine = (SQLQueryEngine) database.getQueryEngine("sql");
+. **Deploy the JAR.** Copy the JAR containing your function classes into the `lib/` directory of the ArcadeDB installation (`$ARCADEDB_HOME/lib/`). The server start script (`server.sh` / `server.bat`) puts the whole `lib/` folder on the classpath (`-cp "$ARCADEDB_HOME/lib/*"`), so your classes become loadable with `Class.forName(...)`.
+. **Register the function.** Because there is no auto-discovery, you must call the registration API yourself. *When* and *where* depends on how you run ArcadeDB:
++
+* **Embedded** (ArcadeDB as a library inside your application): register right after opening the database, before running queries that use the function.
+* **Standalone server**: registration has to run inside the server JVM. Package the registration logic as a <<server-plugin,Server Plugin>> and register the function from its `startService()` method (see the server example below). Drop the same JAR in `lib/plugins/` and enable it with the `arcadedb.server.plugins` setting.
+====
 
-// REGISTER 'BIGGER' FUNCTION WITH FIXED 2 PARAMETERS (MIN/MAX=2)
-SQLEngine.getInstance().registerFunction("bigger",
-                                          new SQLFunctionAbstract("bigger", 2, 2) {
-  public String getSyntax() {
-    return "bigger(<first>, <second>)";
-  }
+There are two independent ways to expose Java code as functions.
 
-  public Object execute(Object[] iParameters) {
-    if (iParameters[0] == null || iParameters[1] == null)
-      // CHECK BOTH EXPECTED PARAMETERS
-      return null;
+====== Option A: Register a Java class or method as a function library
 
-    if (!(iParameters[0] instanceof Number) || !(iParameters[1] instanceof Number))
-      // EXCLUDE IT FROM THE RESULT SET
-      return null;
+A function library registered on the schema is callable from *all* query languages, exactly like the SQL/JavaScript/Cypher functions above. Use `JavaClassFunctionLibraryDefinition` to expose every public method of a class, or `JavaMethodFunctionLibraryDefinition` to expose a single method. The library name becomes the namespace and each method name becomes a function in it.
 
-    // USE DOUBLE TO AVOID LOSS OF PRECISION
-    final double v1 = ((Number) iParameters[0]).doubleValue();
-    final double v2 = ((Number) iParameters[1]).doubleValue();
-
-    return Math.max(v1, v2);
-  }
-
-  public boolean aggregateResults() {
-    return false;
-  }
-});
-----
-
-Now you can execute it from any query language:
+Given this class deployed in a JAR under `lib/`:
 
 [source,java]
 ----
-// From SQL
-ResultSet result = database.command("sql", "SELECT FROM Account WHERE bigger(salary, 10) > 10");
+package com.example;
+
+public class MathFunctions {
+  // Instance method: invoked on a new instance created via the no-arg constructor
+  public int sum(final int a, final int b) {
+    return a + b;
+  }
+
+  // Static method: invoked directly, no instance needed
+  public static double max(final double a, final double b) {
+    return Math.max(a, b);
+  }
+}
+----
+
+Register it on the database schema (embedded usage shown):
+
+[source,java]
+----
+// Register the whole class as a library named "math".
+// Every public method (sum, max, ...) becomes a function in that library.
+database.getSchema().registerFunctionLibrary(
+    new JavaClassFunctionLibraryDefinition("math", "com.example.MathFunctions"));
+
+// ...or pass the Class directly:
+database.getSchema().registerFunctionLibrary(
+    new JavaClassFunctionLibraryDefinition("math", com.example.MathFunctions.class));
+
+// ...or register a single method as a one-function library:
+database.getSchema().registerFunctionLibrary(
+    new JavaMethodFunctionLibraryDefinition("math",
+        com.example.MathFunctions.class.getMethod("sum", Integer.TYPE, Integer.TYPE)));
+----
+
+NOTE: A library name can be registered only once. Re-registering the same name throws `IllegalArgumentException`. Remove it first with `database.getSchema().unregisterFunctionLibrary("math")`.
+
+Once registered, call the function from any query language using the `library.name` form:
+
+[source,java]
+----
+// Direct invocation through the API
+Object r = database.getSchema().getFunction("math", "sum").execute(20, 7);  // 27
+
+// From SQL (backtick-quote the library.function reference)
+database.command("sql", "SELECT `math.sum`(20, 7) AS result");
 
 // From Cypher
-ResultSet result = database.query("opencypher", "MATCH (a:Account) WHERE bigger(a.salary, 10) > 10 RETURN a");
+database.query("opencypher", "RETURN math.sum(20, 7) AS result");
 ----
+
+====== Option B: The dedicated "java" query engine
+
+The `java` query engine invokes a Java method directly as a command, without going through the schema. For security, every class or method must be added to an allow-list with `registerFunctions(...)` before it can be called; calling anything that was not registered throws a `SecurityException`.
+
+[source,java]
+----
+// Allow-list a single method (Class::method) or a whole class
+database.getQueryEngine("java").registerFunctions("com.example.MathFunctions::sum");
+database.getQueryEngine("java").registerFunctions("com.example.MathFunctions"); // all methods
+
+// Invoke it (positional parameters follow the command string)
+ResultSet result = database.command("java", "com.example.MathFunctions::sum", 5, 3);
+int value = (int) result.next().getProperty("value");  // 8
+
+// Remove the allow-list when done
+database.getQueryEngine("java").unregisterFunctions();
+----
+
+The `java` engine supports only `command(...)` (not `query(...)`) and positional parameters; it matches overloaded methods by argument count and type.
+
+[[java-function-server-plugin]]
+====== Registering Java functions on a standalone server
+
+On a standalone server there is no application code to call `registerFunctionLibrary(...)`, so wrap the registration in a <<server-plugin,Server Plugin>>. Build a JAR containing both the function class and a plugin like the one below, place it in `lib/plugins/`, and enable it.
+
+[source,java]
+----
+package com.example;
+
+import com.arcadedb.ContextConfiguration;
+import com.arcadedb.function.java.JavaClassFunctionLibraryDefinition;
+import com.arcadedb.server.ArcadeDBServer;
+import com.arcadedb.server.ServerPlugin;
+
+public class MathFunctionsPlugin implements ServerPlugin {
+  private ArcadeDBServer server;
+
+  @Override
+  public void configure(final ArcadeDBServer arcadeDBServer, final ContextConfiguration configuration) {
+    this.server = arcadeDBServer;
+  }
+
+  @Override
+  // Run after the databases are open so they are available for registration
+  public PluginInstallationPriority getInstallationPriority() {
+    return PluginInstallationPriority.AFTER_DATABASES_OPEN;
+  }
+
+  @Override
+  public void startService() {
+    // Register the library on every database that needs it
+    server.getDatabase("mydb").getSchema().registerFunctionLibrary(
+        new JavaClassFunctionLibraryDefinition("math", "com.example.MathFunctions"));
+  }
+}
+----
+
+Enable the plugin with the `arcadedb.server.plugins` setting, using the `<pluginName>:<pluginFullClassName>` format (comma-separate multiple plugins):
+
+[source,shell]
+----
+-Darcadedb.server.plugins=Math:com.example.MathFunctionsPlugin
+----
+
+After the server starts, the functions are available from SQL, Cypher and the other query languages (for example ```SELECT `math.sum`(20, 7)```), including over the HTTP/REST API.
 
 ===== Best Practices
 
