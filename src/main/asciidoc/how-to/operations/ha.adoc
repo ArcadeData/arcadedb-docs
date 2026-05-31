@@ -369,6 +369,7 @@ See <<studio,Studio>>.
 If `arcadedb.ha.clusterToken` is not set explicitly, the token is derived deterministically from `arcadedb.ha.clusterName` and the `root` password via PBKDF2-HMAC-SHA256 — it is *not* persisted on disk.
 Every node that starts with the same cluster name and the same root password ends up with the same token automatically.
 Set `arcadedb.ha.clusterToken` (or `HA_CLUSTER_TOKEN`) explicitly when you need to rotate the token without changing the root password, or when each peer has a different root password.
+To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`), set `arcadedb.ha.clusterTokenPath` to a file the server reads at startup, e.g. a Kubernetes Secret mounted on `tmpfs`. It is read only when `arcadedb.ha.clusterToken` is not set, and its content is trimmed of surrounding whitespace so a trailing newline does not break the token comparison between nodes. _Since v26.6.1_
 
 *Peer allowlist*:: Inbound Raft gRPC connections are filtered against the DNS-resolved hosts in `arcadedb.ha.serverList`; connections from other addresses are rejected.
 This closes the "any host that knows the port can inject log entries" vector.
@@ -476,6 +477,10 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |`+arcadedb.ha.clusterToken+`
 |Shared secret for inter-node authentication. If empty, auto-generated at first startup and persisted under `raft-storage/`
 |(empty)
+
+|`+arcadedb.ha.clusterTokenPath+`
+|Path to a file containing the cluster token. Read only when `arcadedb.ha.clusterToken` is not set; the content is trimmed. Keeps the secret off the command line (e.g. a Kubernetes Secret mounted on `tmpfs`)
+|null
 
 |`+arcadedb.ha.logVerbose+`
 |Verbose HA logging: 0=off, 1=basic, 2=detailed, 3=trace
