@@ -123,9 +123,14 @@ This pattern works in every modern browser and degrades gracefully (the diagram 
 5. Run `bash scripts/migrate.sh && npm run build` and inspect `build/site/<page>.html` to confirm the SVG and CSS arrived.
 6. Push — CI deploys to `docs.arcadedb.com`.
 
-### Algolia DocSearch
+### Full-text search (Pagefind)
 
-DocSearch is wired into the Antora UI bundle. It's enabled in CI when the `ALGOLIA_APP_ID`, `ALGOLIA_API_KEY` (search-only key), and `ALGOLIA_INDEX_NAME` repo secrets are set — `cloudflare-deploy.yml` and `antora-preview.yml` both pick them up and turn on the search UI by setting `SITE_SEARCH_PROVIDER=algolia`. Locally, export the same three env vars plus `SITE_SEARCH_PROVIDER=algolia` before `npm run build` to preview search.
+Search is powered by [Pagefind](https://pagefind.app) — a fully static, self-hosted search index. There is **no external service and no API key**: the index is built from the generated HTML as a post-build step and shipped as static files under `build/site/pagefind/`, deployed to Cloudflare Pages alongside the rest of the site.
+
+- **How it's wired**: `npm run build` runs `antora` and then `npm run index` (`pagefind --site build/site`). Because indexing is part of the build, the search index is **rebuilt from scratch on every commit** — no separate reindex step, no secrets in CI. `pagefind` is a normal devDependency installed by `npm ci`.
+- **UI**: the navbar search box is `<div id="search">` in `docs/ui/supplemental/partials/header-content.hbs`; `footer-scripts.hbs` loads `pagefind/pagefind-ui.js` and calls `new PagefindUI({...})`; `head-styles.hbs` loads `pagefind/pagefind-ui.css`. All three reference the index via `{{{siteRootPath}}}/pagefind/...` so paths resolve from any depth. Brand theming (Pagefind CSS variables) lives in `docs/ui/supplemental/css/arcadedb.css`.
+- **Preview locally**: `npm run build && npm run serve` then open http://localhost:8080 — search works fully offline against the static index. (A bare `antora` build without `npm run index` ships no index, so the search box returns nothing until you run `npm run index`.)
+- Pagefind 1.5+ also offers a richer "Component UI" modal (Cmd-K, like the old DocSearch) at `pagefind-modular-ui` — swap the UI init in `footer-scripts.hbs` if a modal is preferred over the inline navbar drawer.
 
 ### Using Docker (no local Maven installation needed)
 ```shell
