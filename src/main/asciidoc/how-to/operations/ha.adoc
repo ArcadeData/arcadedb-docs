@@ -14,7 +14,7 @@ To start an ArcadeDB server with HA enabled, at minimum you need to:
 
 1. Set `arcadedb.ha.enabled` to `true`.
 2. Define the list of peers in the cluster via `arcadedb.ha.serverList` (if you are deploying on Kubernetes, see <<kubernetes,Kubernetes>>).
-   The value is a comma-separated list of entries in the format `[name@]host:raftPort:httpPort[:priority]`.
+   The value is a comma-separated list of peer entries. Each entry can use the readable *object form* `host:{raft:2434,http:2480,https:2490,priority:10}` (recommended) or the *positional form* `host:raftPort:httpPort[:priority[:httpsPort]]`; see <<ha-server-list-format,Server List Entry Format>>.
    The optional `name@` prefix is described in <<ha-named-peers,Named Peers>>.
 3. Optionally set the local server name via `arcadedb.server.name`. Each node must have a unique name.
    If not specified, the default is `ArcadeDB_0`.
@@ -32,6 +32,53 @@ The Raft gRPC port is `2434` by default and is configurable via `arcadedb.ha.raf
 The HTTP port in each entry is required so that replicas can forward non-idempotent requests to the leader over HTTP.
 
 NOTE: The cluster name is `arcadedb` by default; set `arcadedb.ha.clusterName=<name>` to run multiple independent clusters on the same network.
+
+[[ha-server-list-format]]
+===== Server List Entry Format
+
+Each comma-separated entry in `arcadedb.ha.serverList` can be written in either of two interchangeable forms. The two forms may be freely mixed in the same list, and both accept the optional `name@` prefix (see <<ha-named-peers,Named Peers>>).
+
+*Object form (recommended)*::
+A brace-delimited set of named fields, which avoids the positional ambiguity of long colon-separated entries:
++
+[source,text]
+----
+[name@]host:{raft:2434,http:2480,https:2490,priority:10}
+----
++
+Fields are unordered and all optional, with these defaults:
++
+[cols="1,4",options="header"]
+|===
+|Field |Meaning
+|`raft` |Raft gRPC consensus port. Defaults to `arcadedb.ha.raftPort` (`2434`) when omitted.
+|`http` |HTTP port, used by replicas to forward non-idempotent requests to the leader. Omit if not needed.
+|`https` |HTTPS port, used for *encrypted* peer-to-peer transfers (e.g. snapshot download) when `arcadedb.ssl.enabled=true`. See <<ha-ssl,TLS/SSL>>.
+|`priority` |Leader-election preference (integer, default `0`). The node with the highest priority is preferred as leader.
+|===
+
+*Positional form*::
+A colon-separated entry where each field is identified by position:
++
+[source,text]
+----
+[name@]host:raftPort:httpPort:priority:httpsPort
+----
++
+Trailing fields are optional, so `host`, `host:raftPort`, `host:raftPort:httpPort`, and `host:raftPort:httpPort:priority` are all valid. The `httpsPort` is the fifth field and therefore requires `priority` to be present.
+
+TIP: Prefer the object form when an entry specifies a priority or an HTTPS port - it is far easier to read `db1:{raft:2434,http:2480,https:2490,priority:10}` than `db1:2434:2480:10:2490`.
+
+The following two entries are equivalent:
+
+[source,shell]
+----
+# Object form (recommended)
+-Darcadedb.ha.serverList=db1:{raft:2434,http:2480,https:2490,priority:10}
+
+# Positional form
+-Darcadedb.ha.serverList=db1:2434:2480:10:2490
+----
 
 [[ha-named-peers]]
 ===== Named Peers (from v26.5.1)
@@ -375,6 +422,30 @@ To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`),
 This closes the "any host that knows the port can inject log entries" vector.
 It is *not* a substitute for mTLS: deploy HA behind a private network, NetworkPolicy, or service mesh on untrusted networks.
 
+[[ha-ssl]]
+===== TLS/SSL for peer-to-peer transfers
+
+When `arcadedb.ssl.enabled=true`, the server binds an HTTPS listener on `arcadedb.server.httpsIncomingPort` (default `2490`) *in addition to* the plain HTTP listener on `arcadedb.server.httpIncomingPort` (default `2480`). The two listeners use different ports.
+
+Peer-to-peer transfers such as snapshot download and cross-node verify travel over HTTP. To send them encrypted, declare each peer's HTTPS port in `arcadedb.ha.serverList` using the `https` field (object form) or the fifth positional field:
+
+[source,shell]
+----
+$ bin/server.sh -Darcadedb.ha.enabled=true \
+                -Darcadedb.ssl.enabled=true \
+                -Darcadedb.ssl.keyStore=/etc/arcadedb/keystore.p12 \
+                -Darcadedb.ssl.keyStorePassword=... \
+                -Darcadedb.ssl.trustStore=/etc/arcadedb/truststore.jks \
+                -Darcadedb.ssl.trustStorePassword=... \
+                -Darcadedb.ha.serverList=db1:{raft:2434,http:2480,https:2490},db2:{raft:2434,http:2480,https:2490},db3:{raft:2434,http:2480,https:2490}
+----
+
+The peer certificate is validated against the configured *trust store* (`arcadedb.ssl.trustStore`).
+
+If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP, logging a one-time warning. _Since v26.6.1_
+
+NOTE: Declaring an HTTPS port that points at the plain HTTP port (e.g. `https:2480`) causes a TLS handshake failure (`Unsupported or unrecognized SSL message`). Always point `https` at the HTTPS listener's port.
+
 ===== Kubernetes
 
 For Kubernetes deployments using the official Helm chart -- including the `StatefulSet` + headless `Service` pattern, auto-join on scale-up, and the `preStop` auto-leave hook -- see <<kubernetes-ha,High Availability on Kubernetes>> in the Kubernetes guide.
@@ -423,7 +494,7 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |arcadedb
 
 |`+arcadedb.ha.serverList+`
-|Comma-separated list of peers in the format `[name@]host:raftPort:httpPort[:priority]`. The optional `name@` prefix (since v26.5.1) gives the peer a human-readable name used in logs and Studio; see <<ha-named-peers,Named Peers>>. The optional priority (integer, default 0) prefers higher-valued nodes during elections. Example: `frankfurt@localhost:2434:2480:10,london@192.168.0.1:2434:2480:0`
+|Comma-separated list of peers. Each entry uses the readable object form `[name@]host:{raft:2434,http:2480,https:2490,priority:10}` (recommended) or the positional form `[name@]host:raftPort:httpPort[:priority[:httpsPort]]`; see <<ha-server-list-format,Server List Entry Format>>. The optional `name@` prefix (since v26.5.1) gives the peer a human-readable name used in logs and Studio; see <<ha-named-peers,Named Peers>>. The optional priority (integer, default 0) prefers higher-valued nodes during elections. The optional `https` port (since v26.6.1) encrypts peer-to-peer transfers when `arcadedb.ssl.enabled=true`; see <<ha-ssl,TLS/SSL>>. Example: `frankfurt@db1:{raft:2434,http:2480,https:2490,priority:10},london@db2:{raft:2434,http:2480,https:2490}`
 |(empty)
 
 |`+arcadedb.ha.raftPort+`
