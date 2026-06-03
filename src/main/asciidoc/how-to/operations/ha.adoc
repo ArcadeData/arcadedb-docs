@@ -421,6 +421,14 @@ To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`),
 *Peer allowlist*:: Inbound Raft gRPC connections are filtered against the DNS-resolved hosts in `arcadedb.ha.serverList`; connections from other addresses are rejected.
 This closes the "any host that knows the port can inject log entries" vector.
 It is *not* a substitute for mTLS: deploy HA behind a private network, NetworkPolicy, or service mesh on untrusted networks.
++
+On Kubernetes a pod's headless-service DNS record is only published once the pod is `Ready`, so peers routinely come up before each other's names resolve and the allowlist starts out incomplete. To avoid a self-inflicted partition during that window, the filter is hardened in three ways _(since v26.6.1)_:
+
+* *Fast convergence*: while the allowlist has never been complete, a connection from an unknown address re-resolves DNS on a short floor (~1s) instead of waiting the full `arcadedb.ha.grpcAllowlistRefreshMs` interval.
+* *Sticky entries*: when a host that resolved before temporarily stops resolving (transient DNS outage, pod-IP churn mid-restart), its last-known-good IPs are retained for `arcadedb.ha.peerAllowlistStickyTtlMs` (default 5 min) rather than being evicted immediately.
+* *Startup fail-open grace*: until every peer host has resolved at least once, and for at most `arcadedb.ha.peerAllowlistStartupGraceMs` (default 60s) from startup, an unmatched address is accepted with a warning instead of rejected. Once the peer set has fully resolved once, or the window elapses, the filter enforces strictly and does not fail open again.
++
+For a security-strict deployment that should reject from the very first connection, set `arcadedb.ha.peerAllowlistStartupGraceMs=0`. If you previously saw `Rejecting Raft gRPC connection from non-peer address` storms with peers failing to form a cluster on startup, this hardening removes that failure mode.
 
 [[ha-ssl]]
 ===== TLS/SSL for peer-to-peer transfers
