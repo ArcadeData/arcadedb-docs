@@ -547,6 +547,33 @@ securityContext:
 ====
 `readOnlyRootFilesystem: true` is not set by the chart's default but is safe to add when persistence is enabled — ArcadeDB writes database files to the PVC mount path, not to the container root filesystem.
 If you run without persistence (`persistence.enabled: false`), omit this flag because the container writes databases to the root filesystem.
+
+With `readOnlyRootFilesystem: true` you must also relocate the *log directory* to a writable mount, otherwise the server fails at startup with `java.nio.file.FileSystemException: ./log/arcadedb.log.0.lck: Read-only file system`.
+By default the server writes logs to `./log` (relative to the working directory), which is read-only under this hardening.
+Mount a writable volume (for example an `emptyDir`) and point the log directory at it by forwarding the `ARCADEDB_LOG_DIR` environment variable (it maps to the `<<arcadedb-settings,arcadedb.server.logsDirectory>>` setting), available since v26.6.1:
+
+[source,yaml]
+----
+extraEnvironment:
+  - name: ARCADEDB_LOG_DIR
+    value: /writable/log
+volumes:
+  - name: arcadedb-log
+    emptyDir: {}
+volumeMounts:
+  - name: arcadedb-log
+    mountPath: /writable/log
+----
+
+When running an HA cluster with `readOnlyRootFilesystem: true`, also relocate the *Raft storage directory*.
+By default each node creates a dynamically-named `raft-storage-<nodeName>` folder under the server root path, which is both read-only under this hardening and awkward to mount in a `StatefulSet` because the name varies per pod.
+Set `<<arcadedb-settings,arcadedb.ha.raftStorageDirectory>>` (available since v26.6.1) to a fixed, writable path backed by a per-pod PVC (an extra `volumeClaimTemplates` entry), so the `raft-storage-*` folder is always created under the same configured path:
+
+[source,yaml]
+----
+extraCommands:
+  - -Darcadedb.ha.raftStorageDirectory=/var/lib/arcadedb/raft
+----
 ====
 
 [[kubernetes-values-service-account]]
