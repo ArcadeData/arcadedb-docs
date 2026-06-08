@@ -1191,6 +1191,7 @@ ArcadeDB maps Cypher constraints to its native schema features:
 * **IS UNIQUE** → Creates a unique LSM-Tree index on the specified properties
 * **IS NOT NULL** → Sets the property as mandatory in the schema
 * **IS NODE KEY** / **IS KEY** → Creates a unique index and sets the property as mandatory
+* **IS TYPED `<type>`** → Declares the property's data type in the schema (see <<cypher-is-typed,IS TYPED data types>>)
 
 *Syntax:*
 
@@ -1207,6 +1208,10 @@ REQUIRE variable.property IS NOT NULL
 CREATE CONSTRAINT [name] [IF NOT EXISTS]
 FOR (variable:Label)
 REQUIRE variable.property IS NODE KEY
+
+CREATE CONSTRAINT [name] [IF NOT EXISTS]
+FOR (variable:Label)
+REQUIRE variable.property IS TYPED <type>
 ----
 
 *Examples:*
@@ -1231,11 +1236,41 @@ CREATE CONSTRAINT FOR (p:Person) REQUIRE p.id IS NODE KEY
 
 // Relationship constraint
 CREATE CONSTRAINT FOR ()-[r:KNOWS]-() REQUIRE r.since IS NOT NULL
+
+// Typed constraint: declare the property's data type
+CREATE CONSTRAINT FOR (m:Measure) REQUIRE m.temperature IS TYPED FLOAT32
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.age IS TYPED INT16
 ----
 
 NOTE: If the property does not already exist in the schema, ArcadeDB will automatically create it as a STRING type. For other types, define the property first using SQL (`ALTER TYPE Person CREATE PROPERTY email STRING`).
 
 NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple times will not cause an error if the constraint already exists.
+
+[[cypher-is-typed]]
+*IS TYPED data types:*
+
+`IS TYPED <type>` declares the property's data type in the schema. ArcadeDB maps the ISO/IEC 39075 (GQL) type names onto its native types. Numeric values are stored and reloaded at the declared width, so a value written to a property declared `IS TYPED INT16` round-trips as a 16-bit integer and continues to satisfy the `x IS TYPED INT16` value-type predicate.
+
+[options="header",cols="2,1,3"]
+|===
+| GQL / Cypher type | ArcadeDB type | Notes
+
+| `BOOLEAN`, `BOOL`                              | `BOOLEAN`  |
+| `STRING`, `VARCHAR`                            | `STRING`   |
+| `INT8`, `INTEGER8`                             | `BYTE`     | 8-bit signed integer
+| `INT16`, `INTEGER16`                           | `SHORT`    | 16-bit signed integer
+| `INT`, `INT32`, `INTEGER32`                    | `INTEGER`  | 32-bit signed integer (`INT` is the alias for `INT32`)
+| `INTEGER`, `INT64`, `INTEGER64`, `SIGNED INTEGER` | `LONG`  | 64-bit signed integer (`INTEGER` is the generic integer type)
+| `FLOAT32`                                      | `FLOAT`    | 32-bit IEEE 754 floating point
+| `FLOAT`, `FLOAT64`                             | `DOUBLE`   | 64-bit IEEE 754 floating point
+| `DATE`                                         | `DATE`     |
+| `LOCAL DATETIME`, `ZONED DATETIME`             | `DATETIME` |
+| `DURATION`                                     | `LONG`     |
+| `LIST`                                         | `LIST`     |
+| `MAP`                                          | `MAP`      |
+|===
+
+NOTE: Following Cypher 25 / GQL, `INTEGER` is the 64-bit generic integer type while `INT` is the alias for the 32-bit `INT32`. A property declared `IS TYPED INT` therefore holds 32-bit values; use `IS TYPED INTEGER` (or `INT64`) for 64-bit values.
 
 ---
 
@@ -1415,3 +1450,76 @@ ALTER USER bob SET PASSWORD 'NewSecurePass456!'
 ----
 
 NOTE: The user must already exist. If the user does not exist, an error is returned.
+
+---
+
+[[cypher-transaction-control]]
+===== Transaction Control (START TRANSACTION, COMMIT, ROLLBACK)
+
+ISO/IEC 39075 (GQL) transaction control statements manage a transaction from within the query language, in addition to the driver/HTTP API. A transaction opened with `START TRANSACTION` stays open across subsequent commands and is finalized only by an explicit `COMMIT` or `ROLLBACK`. They mirror the SQL `BEGIN` / `COMMIT` / `ROLLBACK` statements.
+
+*Syntax:*
+
+[source,cypher]
+----
+START TRANSACTION [ISOLATION <READ_COMMITTED | REPEATABLE_READ>]
+COMMIT
+ROLLBACK
+----
+
+*Examples:*
+
+[source,cypher]
+----
+START TRANSACTION
+CREATE (p:Person {name: 'Alice'})
+CREATE (p:Person {name: 'Bob'})
+COMMIT
+
+// Discard the work instead
+START TRANSACTION
+CREATE (p:Person {name: 'Charlie'})
+ROLLBACK
+----
+
+The optional `ISOLATION` clause is an ArcadeDB extension — GQL does not define isolation levels for `START TRANSACTION`. It accepts `READ_COMMITTED` (the default) or `REPEATABLE_READ`, matching the SQL `BEGIN ISOLATION` statement.
+
+NOTE: To span multiple requests the transaction needs a stateful session. Over HTTP, pass a session id (the `arcadedb-session-id` header); over Bolt, the connection provides the session. Over stateless HTTP without a session each request runs in its own transaction.
+
+NOTE: `COMMIT` with no active transaction reports an error; `ROLLBACK` with no active transaction is a no-op. A second `START TRANSACTION` while one is already active opens a nested transaction (as with SQL `BEGIN`). The GQL access modes `READ ONLY` / `READ WRITE` are not implemented (ArcadeDB has no read-only transaction mode); `START TRANSACTION READ ONLY` reports a parse error.
+
+---
+
+[[cypher-session-management]]
+===== Session Management (SESSION SET, SESSION RESET, SESSION CLOSE)
+
+ISO/IEC 39075 (GQL) session management statements operate on the current server session:
+
+* **SESSION SET `$name` = `<value>`** binds a named query parameter on the session. Subsequent commands in the same session see it as `$name` (a value supplied with the request wins on a name clash). The value may reference an earlier session parameter.
+* **SESSION RESET** clears the session parameters.
+* **SESSION CLOSE** releases the session.
+
+*Syntax:*
+
+[source,cypher]
+----
+SESSION SET $parameter = <value>
+SESSION RESET
+SESSION CLOSE
+----
+
+*Examples:*
+
+[source,cypher]
+----
+SESSION SET $threshold = 21
+MATCH (p:Person) WHERE p.age >= $threshold RETURN p.name
+SESSION RESET
+SESSION CLOSE
+----
+
+NOTE: Session statements require a server session — over HTTP the `arcadedb-session-id` header, over Bolt the connection. In embedded mode they report an actionable error. Session parameters are resolved by the OpenCypher engine, so they apply to both the `/command` and `/query` endpoints.
+
+NOTE: `SESSION CLOSE` is transport-specific: over HTTP it also rolls back the session transaction and invalidates the session id, whereas over Bolt it clears the session parameters and leaves the connection (and its transaction) live.
+
+NOTE: Session state is node-local and is not replicated across an HA cluster. In an HA setup without session affinity, a `SESSION SET` on one node followed by a query routed to another node will not see the parameter.

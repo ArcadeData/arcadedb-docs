@@ -135,6 +135,32 @@ The following Cypher features are not currently implemented:
 
 * **Index hints**: `USING INDEX n:Person(name)` - Query planning is automatic via cost-based optimizer
 
+[[cypher-25-strictness]]
+===== Cypher 25 / GQL Strictness
+
+Following ISO/IEC 39075 (GQL) and Cypher 25, ArcadeDB rejects removed legacy syntax with an actionable error that points at the supported replacement:
+
+* **`PERIODIC COMMIT` is removed** — use `CALL { ... } IN TRANSACTIONS [OF n ROWS]` for batched writes. `USING PERIODIC COMMIT` reports an error with this hint.
+* **Legacy `{param}` parameters are removed** — use `$param`. The old curly-brace parameter form reports an error with this hint (map projections such as `n{.name}` and quantified path quantifiers such as `{1,5}` are unaffected).
+* **Ambiguous aggregation grouping is rejected** — a `RETURN` (or `WITH`) that mixes an aggregating expression with a non-grouping reference raises `AmbiguousAggregationExpression`. Aggregations are not allowed in `WHERE`.
+
+[[cypher-three-valued-logic]]
+===== Three-Valued Logic (UNKNOWN)
+
+ArcadeDB follows the GQL three-valued logic: the `UNKNOWN` truth value is represented as `null` in boolean context (no separate `UNKNOWN` value type). `AND` / `OR` / `NOT` / `XOR` propagate `null`, comparisons against `null` evaluate to `null`, and a `null` condition in `WHERE` is treated as non-matching, while `RETURN` preserves the `null`.
+
+[source,cypher]
+----
+RETURN true AND null AS a    // null
+RETURN false AND null AS b   // false
+RETURN true OR null AS c     // true
+RETURN null = null AS d      // null
+----
+
+===== Strict Numeric Types
+
+The `IS TYPED` value-type predicate and `CREATE CONSTRAINT ... IS TYPED <type>` honor the GQL numeric width hierarchy (`INT8`/`INT16`/`INT32`/`INT64`, `FLOAT32`/`FLOAT64`), mapping each onto a native ArcadeDB width so a declared property persists and reloads at that width. See <<cypher-is-typed,IS TYPED data types>> for the full mapping.
+
 ===== Architectural Differences from Neo4j
 
 While implementing the OpenCypher standard, ArcadeDB differs from Neo4j in these intentional design choices:
