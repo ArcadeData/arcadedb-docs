@@ -1450,3 +1450,76 @@ ALTER USER bob SET PASSWORD 'NewSecurePass456!'
 ----
 
 NOTE: The user must already exist. If the user does not exist, an error is returned.
+
+---
+
+[[cypher-transaction-control]]
+===== Transaction Control (START TRANSACTION, COMMIT, ROLLBACK)
+
+ISO/IEC 39075 (GQL) transaction control statements manage a transaction from within the query language, in addition to the driver/HTTP API. A transaction opened with `START TRANSACTION` stays open across subsequent commands and is finalized only by an explicit `COMMIT` or `ROLLBACK`. They mirror the SQL `BEGIN` / `COMMIT` / `ROLLBACK` statements.
+
+*Syntax:*
+
+[source,cypher]
+----
+START TRANSACTION [ISOLATION <READ_COMMITTED | REPEATABLE_READ>]
+COMMIT
+ROLLBACK
+----
+
+*Examples:*
+
+[source,cypher]
+----
+START TRANSACTION
+CREATE (p:Person {name: 'Alice'})
+CREATE (p:Person {name: 'Bob'})
+COMMIT
+
+// Discard the work instead
+START TRANSACTION
+CREATE (p:Person {name: 'Charlie'})
+ROLLBACK
+----
+
+The optional `ISOLATION` clause is an ArcadeDB extension — GQL does not define isolation levels for `START TRANSACTION`. It accepts `READ_COMMITTED` (the default) or `REPEATABLE_READ`, matching the SQL `BEGIN ISOLATION` statement.
+
+NOTE: To span multiple requests the transaction needs a stateful session. Over HTTP, pass a session id (the `arcadedb-session-id` header); over Bolt, the connection provides the session. Over stateless HTTP without a session each request runs in its own transaction.
+
+NOTE: `COMMIT` with no active transaction reports an error; `ROLLBACK` with no active transaction is a no-op. A second `START TRANSACTION` while one is already active opens a nested transaction (as with SQL `BEGIN`). The GQL access modes `READ ONLY` / `READ WRITE` are not implemented (ArcadeDB has no read-only transaction mode); `START TRANSACTION READ ONLY` reports a parse error.
+
+---
+
+[[cypher-session-management]]
+===== Session Management (SESSION SET, SESSION RESET, SESSION CLOSE)
+
+ISO/IEC 39075 (GQL) session management statements operate on the current server session:
+
+* **SESSION SET `$name` = `<value>`** binds a named query parameter on the session. Subsequent commands in the same session see it as `$name` (a value supplied with the request wins on a name clash). The value may reference an earlier session parameter.
+* **SESSION RESET** clears the session parameters.
+* **SESSION CLOSE** releases the session.
+
+*Syntax:*
+
+[source,cypher]
+----
+SESSION SET $parameter = <value>
+SESSION RESET
+SESSION CLOSE
+----
+
+*Examples:*
+
+[source,cypher]
+----
+SESSION SET $threshold = 21
+MATCH (p:Person) WHERE p.age >= $threshold RETURN p.name
+SESSION RESET
+SESSION CLOSE
+----
+
+NOTE: Session statements require a server session — over HTTP the `arcadedb-session-id` header, over Bolt the connection. In embedded mode they report an actionable error. Session parameters are resolved by the OpenCypher engine, so they apply to both the `/command` and `/query` endpoints.
+
+NOTE: `SESSION CLOSE` is transport-specific: over HTTP it also rolls back the session transaction and invalidates the session id, whereas over Bolt it clears the session parameters and leaves the connection (and its transaction) live.
+
+NOTE: Session state is node-local and is not replicated across an HA cluster. In an HA setup without session affinity, a `SESSION SET` on one node followed by a query routed to another node will not see the parameter.
