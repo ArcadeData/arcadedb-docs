@@ -51,6 +51,64 @@ RemoteDatabase database = new RemoteDatabase("localhost", 2480, "mydb", "root", 
 
 NOTE: The `RemoteDatabase` is not thread-safe. It holds a backend session. If a thread closes a transaction, it also closes the session, so that any request performed by a concurrent thread using the same RemoteDatabase instance leads to unexpected behavior. To avoid concurrency problems you should not hold RemoteDatabase instances as fields on the heap, but rather create a new instance in method scope as a variable on the stack.
 
+[[remote-vertex]]
+==== RemoteImmutableVertex and RemoteMutableVertex
+
+Vertices retrieved through `RemoteDatabase` are instances of `RemoteImmutableVertex` (or `RemoteMutableVertex` after calling `modify()`).
+These classes expose graph-traversal methods that translate directly into SQL queries over HTTP -- there is no per-vertex round trip.
+
+===== Traversal methods
+
+[cols="1,3"]
+|===
+|Method|Description
+
+|`getVertices(direction, edgeTypes...)`
+|Returns all neighbor vertices, transparently paginating in batches of `DEFAULT_PAGE_SIZE` (2,000) records per HTTP call.
+
+|`getVerticesPaged(direction, pageSize, edgeTypes...)`
+|Same as above but with an explicit page size. Use to tune round-trip vs. payload trade-off for supernodes.
+
+|`getVertices(direction, limit, skip, edgeTypes...)`
+|Returns a single page of up to `limit` neighbor vertices starting at offset `skip`. Useful for implementing your own pagination.
+
+|`getEdges(direction, edgeTypes...)`
+|Returns all connected edges, transparently paginating with `DEFAULT_PAGE_SIZE` per HTTP call.
+
+|`getEdgesPaged(direction, pageSize, edgeTypes...)`
+|Same as above but with an explicit page size.
+
+|`getEdges(direction, limit, skip, edgeTypes...)`
+|Returns a single page of up to `limit` edges starting at offset `skip`.
+
+|`countEdges(direction, edgeTypes...)`
+|Returns the number of connected edges (single HTTP call, no result materialization).
+|===
+
+`DEFAULT_PAGE_SIZE = 2_000` is the batch size used by `getVertices()` / `getEdges()`. Values up to 20,000 are safe against the server's default result limit.
+
+===== Example
+
+[source,java]
+----
+RemoteDatabase db = new RemoteDatabase("localhost", 2480, "mydb", "root", "playwithdata");
+
+// standard traversal -- paginates automatically, no cast needed
+Vertex hub = db.lookupByRID(new RID(db, "#1:0"), true);
+for (Vertex neighbor : hub.getVertices(Vertex.DIRECTION.OUT, "Knows")) {
+    System.out.println(neighbor.getString("name"));
+}
+
+// supernode -- explicit page size requires cast to the concrete remote type
+RemoteImmutableVertex hubRemote = (RemoteImmutableVertex) hub;
+for (Vertex neighbor : hubRemote.getVerticesPaged(Vertex.DIRECTION.OUT, 5_000, "Knows")) {
+    System.out.println(neighbor.getString("name"));
+}
+----
+
+NOTE: Each page uses a `SKIP/LIMIT` SQL clause, so the edge list is re-scanned from the beginning on every page.
+For supernodes with millions of edges prefer a SQL query with a server-side `WHERE` filter to narrow results before fetching them.
+
 The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the `RemoteDatabase` make sure that the database exists, or, if it doesn't, create it:
 
 [source,java]

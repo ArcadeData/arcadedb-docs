@@ -302,7 +302,7 @@ You have basically three ways to do that (<<database-api,Java API>>, <<sql,SQL>>
 |Speed|* * *|* *|* *|* *
 |Flexibility|* * *|*|* *|* *
 |<<embedded-server,Embedded>> mode|Yes|Yes|Yes|Yes
-|Remote mode|No|Yes|Yes (through the <<gremlin-server,Gremlin Server>> plugin)|Yes (through the <<gremlin-server,Gremlin Server>> plugin)
+|Remote mode|Yes (via `RemoteImmutableVertex`)|Yes|Yes (through the <<gremlin-server,Gremlin Server>> plugin)|Yes (through the <<gremlin-server,Gremlin Server>> plugin)
 |===
 
 When using the API, when the SQL and Apache Gremlin?
@@ -411,6 +411,48 @@ try( Database db = databaseFactory.open(); ){
   });
 }
 ----
+
+[[remote-graph-traversal]]
+====== Traverse via API (Remote)
+
+When working with a `RemoteDatabase`, graph traversal uses the same `getVertices()` and `getEdges()` methods on the vertex object returned from a lookup.
+Each call translates to a SQL query executed over HTTP -- there is no per-vertex round trip.
+
+[source,java]
+----
+RemoteDatabase db = new RemoteDatabase("localhost", 2480, "school", "root", "playwithdata");
+
+// lookupByRID returns a RemoteImmutableVertex when connected remotely
+Vertex albert = db.lookupByRID(new RID(db, "#1:0"), true);
+
+// iterate all outgoing "IsFriendOf" neighbors -- automatically paginates
+for (Vertex friend : albert.getVertices(Vertex.DIRECTION.OUT, "IsFriendOf")) {
+    System.out.println(friend.getString("name"));
+}
+----
+
+NOTE: `getVertices()` and `getEdges()` on a remote vertex automatically paginate results in batches of 2,000 records per HTTP call (`RemoteImmutableVertex.DEFAULT_PAGE_SIZE`), so they work correctly even when the vertex has tens of thousands of neighbors without hitting the server result limit.
+
+For a vertex with an extremely large number of edges (a _supernode_), you can tune the page size by casting to `RemoteImmutableVertex` and calling `getVerticesPaged()`:
+
+[source,java]
+----
+RemoteImmutableVertex albert = (RemoteImmutableVertex) db.lookupByRID(new RID(db, "#1:0"), true);
+
+// fetch 5,000 neighbors per HTTP call instead of the default 2,000
+for (Vertex friend : albert.getVerticesPaged(Vertex.DIRECTION.OUT, 5_000, "IsFriendOf")) {
+    System.out.println(friend.getString("name"));
+}
+
+// manual offset-based page (e.g. records 1001-2000)
+for (Vertex friend : albert.getVertices(Vertex.DIRECTION.OUT, 1_000, 1_000, "IsFriendOf")) {
+    System.out.println(friend.getString("name"));
+}
+----
+
+NOTE: Each page uses a `SKIP/LIMIT` SQL clause on the server.
+For supernodes with millions of edges the edge list is re-scanned from the beginning on every page (O(n^2^) total).
+In that case, prefer a targeted SQL query with a server-side `WHERE` filter to narrow the result set before returning it.
 
 ====== Traverse via SQL
 
