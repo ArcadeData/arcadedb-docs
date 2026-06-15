@@ -81,12 +81,15 @@ Returns the dimension of a vector (length of the underlying array).
 
 *Syntax:* `vector.dimension(<vector>)`
 
-*Returns:* Integer - Vector dimension
+*Returns:* Integer - Vector dimension. A `NULL` argument returns `0` (consistent with `.size()`/`.length()`).
 
 [source,sql]
 ----
 SELECT vector.dimension([1.0, 2.0, 3.0])
 -- Returns: 3
+
+SELECT vector.dimension(null)
+-- Returns: 0
 ----
 
 [source,cypher]
@@ -99,9 +102,10 @@ RETURN vector.dimension([1.0, 2.0, 3.0]) AS dim
 [[vector-add-ext]]
 ====== vector.add()
 
-Returns element-wise sum of two vectors.
+Returns element-wise sum of two vectors, or adds a scalar to every element (broadcasting). The scalar
+may be either argument since addition is commutative.
 
-*Syntax:* `vector.add(<vector1>, <vector2>)`
+*Syntax:* `vector.add(<vector1>, <vector2> | <scalar>)`
 
 *Returns:* Vector - Sum vector
 
@@ -109,6 +113,9 @@ Returns element-wise sum of two vectors.
 ----
 SELECT vector.add([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
 -- Returns: [3.0, 5.0, 7.0]
+
+SELECT vector.add([1.0, 2.0, 3.0], 4.0)
+-- Returns: [5.0, 6.0, 7.0]  (scalar broadcasting)
 ----
 
 '''
@@ -116,9 +123,11 @@ SELECT vector.add([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
 [[vector-subtract-ext]]
 ====== vector.subtract()
 
-Returns element-wise difference of two vectors.
+Returns element-wise difference of two vectors, or subtracts with a scalar (broadcasting). Order is
+preserved: `vector - scalar` subtracts the scalar from each element, while `scalar - vector` subtracts
+each element from the scalar.
 
-*Syntax:* `vector.subtract(<vector1>, <vector2>)`
+*Syntax:* `vector.subtract(<vector1> | <scalar>, <vector2> | <scalar>)`
 
 *Returns:* Vector - Difference vector
 
@@ -126,6 +135,12 @@ Returns element-wise difference of two vectors.
 ----
 SELECT vector.subtract([3.0, 5.0, 7.0], [1.0, 2.0, 3.0])
 -- Returns: [2.0, 3.0, 4.0]
+
+SELECT vector.subtract([1.0, 2.0, 3.0], 1.0)
+-- Returns: [0.0, 1.0, 2.0]  (vector - scalar)
+
+SELECT vector.subtract(10.0, [1.0, 2.0, 3.0])
+-- Returns: [9.0, 8.0, 7.0]  (scalar - vector)
 ----
 
 '''
@@ -150,7 +165,8 @@ SELECT vector.scale([1.0, 2.0, 3.0], 2.0)
 [[vector-clip-ext]]
 ====== vector.clip()
 
-Clips vector elements to a specified range [min, max].
+Clips (clamps) vector elements to a specified range [min, max]. Also available as `vector.clamp()` /
+`vectorClamp()`.
 
 *Syntax:* `vector.clip(<vector>, <min>, <max>)`
 
@@ -160,6 +176,9 @@ Clips vector elements to a specified range [min, max].
 ----
 SELECT vector.clip([1.0, 5.0, 10.0], 2.0, 8.0)
 -- Returns: [2.0, 5.0, 8.0]
+
+SELECT vector.clamp([1.0, 5.0, 10.0], 2.0, 8.0)
+-- Returns: [2.0, 5.0, 8.0]  (clamp is an alias of clip)
 ----
 
 '''
@@ -300,7 +319,8 @@ SELECT vector.isnormalized([0.6, 0.8])
 [[vector-magnitude-ext]]
 ====== vector.magnitude()
 
-Computes L2 norm (Euclidean length) of vector.
+Computes L2 norm (Euclidean length) of vector. Also available as `vector.l2Norm()` / `vectorL2Norm()`,
+symmetric with `vector.l1Norm()` and `vector.lInfNorm()`.
 
 *Syntax:* `vector.magnitude(<vector>)`
 
@@ -310,6 +330,9 @@ Computes L2 norm (Euclidean length) of vector.
 ----
 SELECT vector.magnitude([3.0, 4.0])
 -- Returns: 5.0
+
+SELECT vector.l2Norm([3.0, 4.0])
+-- Returns: 5.0  (l2Norm is an alias of magnitude)
 ----
 
 '''
@@ -488,8 +511,9 @@ Transforms scores using various functions.
 *Methods:*
 
 * `'LINEAR'` - No transformation
-* `'SIGMOID'` - Logistic function
-* `'LOG'` - Natural logarithm
+* `'SIGMOID'` - Logistic function, maps to (0, 1)
+* `'TANH'` - Hyperbolic tangent, maps to (-1, 1)
+* `'LOG'` / `'LN'` - Natural logarithm (requires a positive score); `LN` is the clearer synonym
 * `'EXP'` - Exponential function
 
 *Returns:* Double - Transformed score
@@ -497,6 +521,12 @@ Transforms scores using various functions.
 [source,sql]
 ----
 SELECT vector.scoretransform(0.5, 'SIGMOID')
+
+SELECT vector.scoretransform(0.5, 'TANH')
+-- Returns: 0.4621172
+
+SELECT vector.scoretransform(2.5, 'LN')
+-- Returns: 0.9162907  (same as 'LOG')
 ----
 
 '''
@@ -659,16 +689,32 @@ SELECT vector.sparsedot(
 [[vector-sparsity-ext]]
 ====== vector.sparsity()
 
-Returns fraction of elements below a threshold.
+Returns a sparsity measure of a vector. The threshold is optional and defaults to `sqrt(eps)` for float
+(~3.45e-4). An optional third argument selects the measure.
 
-*Syntax:* `vector.sparsity(<vector>, <threshold>)`
+*Syntax:* `vector.sparsity(<vector> [, <threshold> [, <mode>]])`
 
-*Returns:* Double - Sparsity ratio (0 to 1)
+*Modes:*
+
+* `'FRACTION'` (default) - fraction of elements with `|x| < threshold`, in [0, 1]
+* `'L0'` - the L0 pseudonorm: count of "significant" elements with `|x| >= threshold` (integer)
+* `'GMEAN'` - geometric mean of the absolute values, `exp(mean(ln|x|))`; returns 0 if any element is 0
+
+*Returns:* Double (FRACTION, GMEAN) or Integer (L0)
 
 [source,sql]
 ----
 SELECT vector.sparsity([0.01, 0.1, 0.05, 0.02], 0.06)
 -- Returns: 0.75 (3 of 4 elements are below 0.06)
+
+SELECT vector.sparsity([0.0, 1.0, 2.0, 3.0])
+-- Returns: 0.25 (uses the default threshold; one near-zero element)
+
+SELECT vector.sparsity([0.0, 1.0, 2.0, 3.0], 0.5, 'L0')
+-- Returns: 3 (three significant elements)
+
+SELECT vector.sparsity([1.0, 2.0, 4.0], 0.0, 'GMEAN')
+-- Returns: 2.0 (geometric mean)
 ----
 
 '''
@@ -710,7 +756,8 @@ SELECT vector.stddev([1.0, 2.0, 3.0])
 [[vector-hasnan-ext]]
 ====== vector.hasnan()
 
-Checks if vector contains NaN values.
+Checks if vector contains NaN values. A `NULL` element (e.g. produced by an invalid math op such as
+`sqrt(-1.0)` that the engine coerces to `NULL` inside a collection) is treated as NaN.
 
 *Syntax:* `vector.hasnan(<vector>)`
 
@@ -720,6 +767,9 @@ Checks if vector contains NaN values.
 ----
 SELECT vector.hasnan([1.0, 2.0, 3.0])
 -- Returns: false
+
+SELECT vector.hasnan([1.0, sqrt(-1.0), 3.0])
+-- Returns: true (the NULL element counts as NaN)
 ----
 
 '''
@@ -727,7 +777,8 @@ SELECT vector.hasnan([1.0, 2.0, 3.0])
 [[vector-hasinf-ext]]
 ====== vector.hasinf()
 
-Checks if vector contains infinity values.
+Checks if vector contains infinity values. A `NULL` element is treated as NaN, which is not infinite, so
+it does not trigger a true result.
 
 *Syntax:* `vector.hasinf(<vector>)`
 
@@ -736,6 +787,28 @@ Checks if vector contains infinity values.
 [source,sql]
 ----
 SELECT vector.hasinf([1.0, 10e400, 2.0])
+-- Returns: true
+----
+
+'''
+
+[[vector-hasnull-ext]]
+====== vector.hasnull()
+
+Checks if a vector contains any `NULL` element. Unlike `vector.hasnan()`, this distinguishes a genuine
+`NULL` (a missing element) from a NaN float value. Primitive `float[]`/`double[]`/`int[]`/`long[]` inputs
+can never hold a `NULL` and therefore always return `false`.
+
+*Syntax:* `vector.hasnull(<vector>)`
+
+*Returns:* Boolean - true if contains a NULL element
+
+[source,sql]
+----
+SELECT vector.hasnull([1.0, 2.0, 3.0])
+-- Returns: false
+
+SELECT vector.hasnull([1.0, sqrt(-1.0), 3.0])
 -- Returns: true
 ----
 

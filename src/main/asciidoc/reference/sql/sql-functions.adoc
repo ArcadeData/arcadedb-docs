@@ -1418,9 +1418,11 @@ Vector functions are also available under the `vector.*` namespace for consisten
 | `vectorCosineSimilarity()` | `vector.cosinesimilarity()`
 | `vectorDotProduct()` | `vector.dotproduct()`
 | `vectorMagnitude()` | `vector.magnitude()`
+| `vectorL2Norm()` | `vector.l2norm()` (alias of `vector.magnitude()`)
 | `vectorAdd()` | `vector.add()`
 | `vectorSubtract()` | `vector.subtract()`
 | `vectorScale()` | `vector.scale()`
+| `vectorClamp()` | `vector.clamp()` (alias of `vector.clip()`)
 | `vectorQuantizeInt8()` | `vector.quantizeint8()`
 | `vectorQuantizeBinary()` | `vector.quantizebinary()`
 |===
@@ -1432,14 +1434,18 @@ Both forms work identically and can be used interchangeably. The namespaced form
 ====== vectorAdd() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Returns vector of element-wise sums of argument vectors, which are expected to be of the same size.
+Alternatively, when one argument is a scalar the scalar is added to every element (broadcasting).
 
-Syntax: `vector(&lt;vector|field&gt;, &lt;vector|field&gt;)`
+Syntax: `vectorAdd(&lt;vector|field&gt;, &lt;vector|field|scalar&gt;)`
 
 *Examples*
 
 [source,sql]
 ----
 SELECT vectorAdd([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
+
+SELECT vectorAdd([1.0, 2.0, 3.0], 4.0)
+-- Returns: [5.0, 6.0, 7.0]
 ----
 
 '''
@@ -1484,7 +1490,8 @@ SELECT vectorAvg(myvector) FROM doc
 ====== vectorClip() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Forces every vector element to the range between min and max arguments, where min less or equal to max is assumed.
-Elements exceeding this ranged are set to min or max respectively
+Elements exceeding this ranged are set to min or max respectively.
+Also available as `vectorClamp()` (the standard Java/Math term).
 
 Syntax: `vectorClip(&lt;vector|field&gt;, &lt;scalar&gt;,  &lt;scalar&gt;)`
 
@@ -1493,6 +1500,9 @@ Syntax: `vectorClip(&lt;vector|field&gt;, &lt;scalar&gt;,  &lt;scalar&gt;)`
 [source,sql]
 ----
 SELECT vectorClip([1.0, 5.0, 10.0], 2.0, 8.0)
+
+SELECT vectorClamp([1.0, 5.0, 10.0], 2.0, 8.0)
+-- Returns: [2.0, 5.0, 8.0]  (clamp is an alias of clip)
 ----
 
 '''
@@ -1550,6 +1560,7 @@ SELECT vectorDequantizeInt8(vectorQuantizeInt8([1.0, 2.0, 3.0]), 1.0, 3.0)
 ====== vectorDimension() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Returns the dimension of argument vector, being the length of its underlying array.
+A `NULL` argument returns `0` (consistent with `.size()`/`.length()`).
 
 Syntax: `vectorDimension(&lt;vector|field&gt;)`
 
@@ -1558,6 +1569,9 @@ Syntax: `vectorDimension(&lt;vector|field&gt;)`
 [source,sql]
 ----
 SELECT vectorDimension([1.0, 2.0, 3.0])
+
+SELECT vectorDimension(null)
+-- Returns: 0
 ----
 
 '''
@@ -1582,6 +1596,7 @@ SELECT vectorDotProduct([1.0, 0.0, 1.0], [0.0, 1.0, 1.0])
 ====== vectorHasInf() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Returns true if one or more elements in argument vector are positive or negative infinity.
+A `NULL` element is treated as NaN (not infinite) and does not trigger a true result.
 
 Syntax: `vectorHasInf(&lt;vector|field&gt;)`
 
@@ -1596,8 +1611,30 @@ SELECT vectorHasInf([1.0, 10e400, 2.0])
 ====== vectorHasNaN() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Returns true if one or more elements in argument vector are https://en.wikipedia.org/wiki/NaN[NaN (not-a-number)], a special value in IEEE floating point numbers.
+A `NULL` element (e.g. from an invalid math op such as `sqrt(-1.0)` coerced to `NULL` inside a collection) is treated as NaN.
 
 Syntax: `vectorHasNaN(&lt;vector|field&gt;)`
+
+[source,sql]
+----
+SELECT vectorHasNaN([1.0, sqrt(-1.0), 3.0])
+-- Returns: true
+----
+
+'''
+
+[[vector-has-null]]
+====== vectorHasNull() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
+
+Returns true if one or more elements in argument vector are `NULL`. Unlike `vectorHasNaN()`, this distinguishes a genuine `NULL` (missing element) from a NaN float value. Primitive array inputs can never hold a `NULL` and therefore always return false.
+
+Syntax: `vectorHasNull(&lt;vector|field&gt;)`
+
+[source,sql]
+----
+SELECT vectorHasNull([1.0, sqrt(-1.0), 3.0])
+-- Returns: true
+----
 
 '''
 
@@ -1685,6 +1722,7 @@ SELECT vectorLInfNorm([1.0, 2.0, 3.0])
 ====== vectorMagnitude() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Computes https://en.wikipedia.org/wiki/Euclidean_space#Euclidean_norm[L2 norm (Euclidean norm)] of argument vector.
+Also available as `vectorL2Norm()`, symmetric with `vectorL1Norm()` and `vectorLInfNorm()`.
 
 Syntax: `vectorMagnitude(&lt;vector|field&gt;)`
 
@@ -1693,6 +1731,9 @@ Syntax: `vectorMagnitude(&lt;vector|field&gt;)`
 [source,sql]
 ----
 SELECT vectorMagnitude([1.0, 2.0, 3.0])
+
+SELECT vectorL2Norm([3.0, 4.0])
+-- Returns: 5.0  (l2Norm is an alias of magnitude)
 ----
 
 '''
@@ -1894,12 +1935,13 @@ SELECT vectorScale([1.0, 2.0, 3.0], 4.0)
 [[vector-score-transform]]
 ====== vectorScoreTransform() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
-Transform score to ehsape score distribution.
+Transform score to reshape score distribution.
 Supported transformations:
 
 * `'LINEAR'` no transformation
 * `'SIGMOID'` S-shaped curve, see https://en.wikipedia.org/wiki/Logistic_function[Logistic function]
-* `'LOG'` natural logarithm
+* `'TANH'` https://en.wikipedia.org/wiki/Hyperbolic_functions[hyperbolic tangent], S-shaped curve to (-1, 1)
+* `'LOG'` / `'LN'` natural logarithm (requires a positive score); `LN` is the clearer synonym
 * `'EXP'` exponential function
 
 Syntax: `vectorScoreTransform(&lt;scalar&gt;, &lt;string&gt;)`
@@ -1909,6 +1951,10 @@ Syntax: `vectorScoreTransform(&lt;scalar&gt;, &lt;string&gt;)`
 [source,sql]
 ----
 SELECT vectorScoreTransform(0.5, 'SIGMOID')
+
+SELECT vectorScoreTransform(0.5, 'TANH')
+
+SELECT vectorScoreTransform(2.5, 'LN')
 ----
 
 '''
@@ -1966,15 +2012,28 @@ SELECT vectorSparseToDense(vectorSparseCreate([0, 2], [0.5, 0.3]))
 [[vector-sparsity]]
 ====== vectorSparsity() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
-Returns the fraction of elements an argument vector with absolute values below an argument threshold.
+Returns a sparsity measure of an argument vector. The threshold is optional and defaults to `sqrt(eps)`
+for float (~3.45e-4). An optional third argument selects the measure: `'FRACTION'` (default, fraction of
+elements with `|x| < threshold`), `'L0'` (the L0 pseudonorm, count of elements with `|x| >= threshold`),
+or `'GMEAN'` (geometric mean of absolute values, `0` if any element is `0`).
 
-Syntax: `vectorSparsity(&lt;vector&gt;, &lt;scalar&gt;)`
+Syntax: `vectorSparsity(&lt;vector&gt; [, &lt;scalar&gt; [, &lt;string&gt;]])`
 
 *Examples*
 
 [source,sql]
 ----
 SELECT vectorSparsity([0.01, 0.1, 0.05, 0.02], 0.06)
+-- Returns: 0.75
+
+SELECT vectorSparsity([0.0, 1.0, 2.0, 3.0])
+-- Returns: 0.25  (uses the default threshold)
+
+SELECT vectorSparsity([0.0, 1.0, 2.0, 3.0], 0.5, 'L0')
+-- Returns: 3
+
+SELECT vectorSparsity([1.0, 2.0, 4.0], 0.0, 'GMEAN')
+-- Returns: 2.0
 ----
 
 '''
@@ -1999,14 +2058,23 @@ SELECT vectorStdDev([1.0, 2.0, 3.0])
 ====== vectorSubtract() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Returns vector of element-wise differences of argument vectors, which are expected to be of the same size.
+Alternatively, when one argument is a scalar it is broadcast against the vector, preserving order:
+`vector - scalar` subtracts the scalar from each element, while `scalar - vector` subtracts each element
+from the scalar.
 
-Syntax: `vectorSubtract(&lt;vector|field&gt;, &lt;vector|field&gt;)`
+Syntax: `vectorSubtract(&lt;vector|field|scalar&gt;, &lt;vector|field|scalar&gt;)`
 
 *Examples*
 
 [source,sql]
 ----
 SELECT vectorSubtract([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])
+
+SELECT vectorSubtract([1.0, 2.0, 3.0], 1.0)
+-- Returns: [0.0, 1.0, 2.0]
+
+SELECT vectorSubtract(10.0, [1.0, 2.0, 3.0])
+-- Returns: [9.0, 8.0, 7.0]
 ----
 
 '''
