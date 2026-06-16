@@ -55,6 +55,37 @@ This registers an OTLP meter registry alongside Prometheus; the scrape path is u
 [[observability-tracing]]
 ===== Distributed tracing
 
+Distributed tracing is an **optional plugin** (the `tracing` module, shipped only in the `full` distribution). When absent or disabled, the in-core `Observation` calls are no-ops with zero span overhead. When enabled, the same instrumentation points used by the metrics timers also emit OpenTelemetry spans.
+
+Enable tracing and point it at your OTLP collector:
+
+[source,properties]
+----
+arcadedb.serverMetrics.tracing.enabled=true
+arcadedb.serverMetrics.tracing.endpoint=http://otel-collector:4317
+arcadedb.serverMetrics.tracing.samplingRate=0.1
+----
+
+* `tracing.endpoint` is an **OTLP/gRPC** endpoint (default port `4317`).
+* `tracing.samplingRate` is a parent-based ratio in `[0.0, 1.0]`: `1.0` samples every trace, `0.0` (default) disables sampling.
+* If the endpoint is unreachable, tracing self-disables and logs an error -- server startup is never blocked.
+
+Two span types are produced and nest correctly (query spans are children of the HTTP span within one trace):
+
+[%header,cols="35%,65%"]
+|===
+| Span | Attributes
+| `arcadedb.http.server.requests` | `method`, `path` (route template), `db`, `status`
+| `arcadedb.query` | `protocol`, `db`, `language`, `type`, and `db.statement` (the full query/command text)
+|===
+
+[WARNING]
+====
+The `db.statement` span attribute contains the full query/command text, which may include sensitive data. Secure your OTLP collector endpoint and apply collector-side redaction if required.
+====
+
+ArcadeDB continues an upstream trace by reading the inbound W3C `traceparent` HTTP header. Resource attributes (`service.name`, `service.instance.id`), `OTEL_RESOURCE_ATTRIBUTES`, and trace-context propagation over the replication (Raft) and binary wire protocols are not yet implemented; each non-HTTP request starts a fresh root span.
+
 [[observability-logging]]
 ===== Structured logging and correlation IDs
 
