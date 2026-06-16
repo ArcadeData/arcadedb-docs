@@ -5,6 +5,121 @@ ArcadeDB exposes a vendor-neutral observability stack for production (Kubernetes
 
 The design follows an _instrument-once_ principle: each hot path (HTTP request, query/command, transaction) is wrapped in a single Micrometer `Observation`. When only metrics are enabled, an `Observation` is a timer; when the optional tracing plugin is loaded, the *same* instrumentation also emits a span. A correlation ID then ties the resulting metric, span, and log line together.
 
+++++
+<svg class="obs-svg" viewBox="0 0 1200 460"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="The observation spine: a single Observation on the HTTP to query to transaction request path fans out into a timer, a span, and a JSON log line; the timer is scraped by Prometheus and pushed by OTLP into an OpenTelemetry Collector, the span flows to the Collector via traceparent, and the JSON log carries the same traceId to stdout or a log shipper.">
+
+  <!-- Request-path pill under the Observation -->
+  <g class="obs-path">
+    <rect x="60" y="60" width="320" height="44" rx="999"/>
+    <text x="220" y="88" text-anchor="middle" class="obs-path-label">HTTP → query → tx</text>
+  </g>
+
+  <!-- The single Observation box on the request path -->
+  <g class="obs-source">
+    <rect x="60" y="170" width="320" height="120" rx="10"/>
+    <text x="220" y="218" text-anchor="middle" class="obs-source-title">Observation</text>
+    <text x="220" y="248" text-anchor="middle" class="obs-source-sub">one Micrometer instrument</text>
+    <text x="220" y="274" text-anchor="middle" class="obs-source-sub">correlation id attached</text>
+  </g>
+
+  <!-- Three sinks: Timer (blue), Span (purple), JSON log (green) -->
+  <g class="obs-sink obs-sink-timer">
+    <rect x="560" y="40" width="300" height="100" rx="8"/>
+    <text x="710" y="78"  text-anchor="middle" class="obs-sink-title">Timer</text>
+    <text x="710" y="104" text-anchor="middle" class="obs-sink-sub">/prometheus (scrape)</text>
+    <text x="710" y="126" text-anchor="middle" class="obs-sink-sub">OTLP push</text>
+  </g>
+  <g class="obs-sink obs-sink-span">
+    <rect x="560" y="180" width="300" height="100" rx="8"/>
+    <text x="710" y="218" text-anchor="middle" class="obs-sink-title">Span</text>
+    <text x="710" y="250" text-anchor="middle" class="obs-sink-sub">traceparent</text>
+  </g>
+  <g class="obs-sink obs-sink-log">
+    <rect x="560" y="320" width="300" height="100" rx="8"/>
+    <text x="710" y="358" text-anchor="middle" class="obs-sink-title">JSON log</text>
+    <text x="710" y="390" text-anchor="middle" class="obs-sink-sub">traceId / requestId</text>
+  </g>
+
+  <!-- OpenTelemetry Collector — convergence point for span + OTLP push -->
+  <g class="obs-collector">
+    <rect x="990" y="120" width="180" height="120" rx="10"/>
+    <text x="1080" y="168" text-anchor="middle" class="obs-collector-title">OpenTelemetry</text>
+    <text x="1080" y="194" text-anchor="middle" class="obs-collector-title">Collector</text>
+    <text x="1080" y="222" text-anchor="middle" class="obs-collector-sub">traces + metrics</text>
+  </g>
+
+  <!-- Prometheus pull target and stdout/log shipper -->
+  <g class="obs-target obs-target-prom">
+    <rect x="990" y="40" width="180" height="56" rx="8"/>
+    <text x="1080" y="65"  text-anchor="middle" class="obs-target-title">Prometheus</text>
+    <text x="1080" y="86"  text-anchor="middle" class="obs-target-sub">pull / scrape</text>
+  </g>
+  <g class="obs-target obs-target-log">
+    <rect x="990" y="344" width="180" height="56" rx="8"/>
+    <text x="1080" y="369" text-anchor="middle" class="obs-target-title">stdout</text>
+    <text x="1080" y="390" text-anchor="middle" class="obs-target-sub">log shipper</text>
+  </g>
+
+  <!-- Fan-out legs: Observation → each sink -->
+  <path id="obs-fan-timer" d="M 380 220 C 460 220, 480 90,  560 90"  class="obs-conn obs-conn-timer"/>
+  <path id="obs-fan-span"  d="M 380 230 C 470 230, 480 230, 560 230" class="obs-conn obs-conn-span"/>
+  <path id="obs-fan-log"   d="M 380 240 C 460 240, 480 370, 560 370" class="obs-conn obs-conn-log"/>
+
+  <!-- Convergence legs into the Collector and the pull/log targets -->
+  <path id="obs-otlp"   d="M 860 110 C 920 110, 930 160, 990 165" class="obs-conn obs-conn-timer"/>
+  <path id="obs-scrape" d="M 990 68  C 930 68,  920 90,  860 95"  class="obs-conn obs-conn-timer obs-conn-pull"/>
+  <path id="obs-span-c" d="M 860 230 C 920 230, 930 200, 990 195" class="obs-conn obs-conn-span"/>
+  <path id="obs-log-c"  d="M 860 370 C 910 370, 930 372, 990 372" class="obs-conn obs-conn-log"/>
+
+  <!-- Pull arrowhead for the Prometheus scrape (Collector ← timer) -->
+  <defs>
+    <marker id="obs-arrow-pull" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" class="obs-arrowhead-pull"/>
+    </marker>
+  </defs>
+
+  <!-- One Observation → three correlated outputs, fired in lockstep, looping forever. -->
+
+  <!-- Leg 1: Timer (blue) -->
+  <circle r="7" class="obs-dot obs-dot-timer" opacity="0">
+    <animateMotion id="obs-l1" dur="0.7s" begin="0s; obs-c1.end+1.0s" fill="freeze"><mpath href="#obs-fan-timer"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; obs-c1.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="obs-l1.end"/>
+  </circle>
+  <circle r="7" class="obs-dot obs-dot-timer" opacity="0">
+    <animateMotion id="obs-c1" dur="0.7s" begin="obs-l1.end+0.25s" fill="freeze"><mpath href="#obs-otlp"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="obs-l1.end+0.25s"/>
+    <set attributeName="opacity" to="0" begin="obs-c1.end"/>
+  </circle>
+
+  <!-- Leg 2: Span (purple) -->
+  <circle r="7" class="obs-dot obs-dot-span" opacity="0">
+    <animateMotion id="obs-l2" dur="0.7s" begin="0s; obs-c1.end+1.0s" fill="freeze"><mpath href="#obs-fan-span"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; obs-c1.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="obs-l2.end"/>
+  </circle>
+  <circle r="7" class="obs-dot obs-dot-span" opacity="0">
+    <animateMotion dur="0.7s" begin="obs-l2.end+0.25s" fill="freeze"><mpath href="#obs-span-c"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="obs-l2.end+0.25s"/>
+    <set attributeName="opacity" to="0" begin="obs-l2.end+0.95s"/>
+  </circle>
+
+  <!-- Leg 3: JSON log (green) -->
+  <circle r="7" class="obs-dot obs-dot-log" opacity="0">
+    <animateMotion id="obs-l3" dur="0.7s" begin="0s; obs-c1.end+1.0s" fill="freeze"><mpath href="#obs-fan-log"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; obs-c1.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="obs-l3.end"/>
+  </circle>
+  <circle r="7" class="obs-dot obs-dot-log" opacity="0">
+    <animateMotion dur="0.7s" begin="obs-l3.end+0.25s" fill="freeze"><mpath href="#obs-log-c"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="obs-l3.end+0.25s"/>
+    <set attributeName="opacity" to="0" begin="obs-l3.end+0.95s"/>
+  </circle>
+</svg>
+++++
+
 [[observability-metrics]]
 ===== Metrics depth
 
