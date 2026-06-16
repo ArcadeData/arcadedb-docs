@@ -117,6 +117,44 @@ arcadedb.server.logIncludeTrace=true
 [[observability-health]]
 ===== Health probes
 
+ArcadeDB exposes two complementary, unauthenticated endpoints so orchestrators can tell a *live* process from a *ready* one. See <<http-checkhealth,the HTTP API reference>> for response details.
+
+[%header,cols="22%,18%,60%"]
+|===
+| Endpoint | Probe | Behavior
+| `GET /api/v1/health` | liveness | Returns `204` whenever the HTTP layer is up. Performs no database I/O and never returns a busy/`503` status, so a node that is merely warming up is not killed.
+| `GET /api/v1/ready` | readiness | Returns `204` once the server is `ONLINE`; `503` (`Server not started yet`) before that. Unchanged by default.
+|===
+
+Use `/api/v1/health` for the liveness probe and `/api/v1/ready` for the readiness probe:
+
+[source,yaml]
+----
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 2480
+  initialDelaySeconds: 10
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: 2480
+  initialDelaySeconds: 20
+  periodSeconds: 10
+----
+
+====== HA-aware readiness
+
+On a High Availability cluster you can make readiness reflect Raft membership so traffic is withheld until a node has joined the group:
+
+[source,properties]
+----
+arcadedb.server.readinessRequiresHA=true
+----
+
+When this flag is `true` and HA is active, `/api/v1/ready` returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected, then `204`. The default (`false`) preserves current readiness behavior. See <<kubernetes,Kubernetes deployment>> for the full StatefulSet example.
+
 ===== Further reading
 
 * <<howto-monitoring,Monitoring>> -- Prometheus and Grafana setup
