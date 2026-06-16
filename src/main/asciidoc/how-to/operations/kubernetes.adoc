@@ -8,10 +8,11 @@ The reference for the configuration values below targets chart version *26.4.2*;
 [[kubernetes-prerequisites]]
 ===== Prerequisites
 
-* Kubernetes 1.19 or later
-* Helm 3.0 or later
+* Kubernetes 1.27 or later
+* Helm 3.16 or later
 * `kubectl` configured for your target cluster
-* (Optional) `kind` and Docker for the local quickstart below
+* A storage class that provides `ReadWriteOnce` volumes (the cluster defaults on EKS, GKE, AKS, and DigitalOcean all work)
+* (Optional) `kind` 0.24 or later and Docker for the local quickstart below
 
 [[kubernetes-quickstart]]
 ===== Quickstart with kind
@@ -347,6 +348,12 @@ ingress:
       hosts:
         - arcadedb.example.com
 ----
+
+[NOTE]
+====
+Studio and the HTTP API authenticate every request, but do not expose them directly to the public internet without an extra layer.
+Place public access behind the ingress controller with TLS (as above), an OIDC/SSO authentication proxy, or a VPN, so the database is never the sole gatekeeper of a publicly reachable endpoint.
+====
 
 [[kubernetes-values-persistence]]
 ====== Persistence
@@ -775,6 +782,28 @@ extraManifests:
 [[kubernetes-operate]]
 ===== Operating the cluster
 
+====== Inspecting cluster status and testing failover
+
+The `/api/v1/server` endpoint reports the live HA state -- current leader, replicas, and roles.
+Port-forward the HTTP service and read the `ha` object:
+
+[source,shell]
+----
+kubectl -n arcadedb port-forward svc/my-arcadedb-http 2480:2480 &
+curl -u root:<password> http://localhost:2480/api/v1/server | jq .ha
+----
+
+To confirm automatic failover works, delete the leader pod and watch the cluster re-elect a new leader and restart the deleted pod:
+
+[source,shell]
+----
+kubectl -n arcadedb delete pod my-arcadedb-0
+kubectl -n arcadedb get pods -w
+----
+
+The cluster re-elects a leader within seconds; the `StatefulSet` then recreates the deleted pod, which rejoins as a replica and catches up via the Raft log.
+See <<ha-concepts,High Availability>> for the underlying election and catch-up semantics.
+
 ====== Scaling
 
 Use `helm upgrade` to change the replica count persistently:
@@ -800,6 +829,9 @@ For persistent changes, prefer `helm upgrade --set replicaCount=N` (or update th
 Scaling does not pause the workload.
 New pods auto-join the Raft cluster, and pods removed during scale-down auto-leave via the `preStop` hook (see <<kubernetes-ha,High Availability on Kubernetes>>).
 
+For cluster sizing, three to five nodes covers most workloads; seven is the practical upper end before Raft replication overhead outweighs the added fault tolerance.
+When scaling down, remove one pod at a time and never drop below the Raft majority -- losing quorum stalls writes until enough peers rejoin.
+
 ====== Upgrading the chart
 
 [source,shell]
@@ -811,6 +843,20 @@ helm upgrade my-arcadedb arcadedb/arcadedb \
 ----
 
 Pin `image.tag` to a specific ArcadeDB version for reproducible upgrades.
+
+====== Backups
+
+Direct the backup output to a volume *outside* the database PVC -- for example a dedicated `volumeClaimTemplates` entry (see <<kubernetes-values-extras,Extras>>) or an object-store target -- so a backup never competes with live data for space and survives deletion of the database volume.
+In an HA cluster, take the backup at the *leader* for a consistent snapshot of committed state.
+
+====== Observability
+
+Enable the Prometheus plugin (`arcadedb.plugins.prometheus.enabled: true`) to expose ArcadeDB metrics on the HTTP port, then scrape them with Prometheus (see <<kubernetes-values-pod-metadata,Pod metadata>> for scrape annotations or a `PodMonitor`).
+Beyond the usual host and JVM metrics, alert on:
+
+* *Raft leader changes* -- frequent re-elections signal node instability or network problems.
+* *replication lag* -- a follower falling persistently behind risks a full snapshot transfer and weakens read freshness.
+* *PVC capacity* -- ArcadeDB stops accepting writes when the database volume fills; alert well before the PVC is full.
 
 ====== Uninstalling
 
