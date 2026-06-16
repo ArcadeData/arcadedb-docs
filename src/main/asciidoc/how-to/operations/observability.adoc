@@ -89,6 +89,31 @@ ArcadeDB continues an upstream trace by reading the inbound W3C `traceparent` HT
 [[observability-logging]]
 ===== Structured logging and correlation IDs
 
+By default the server logs human-readable text, byte-identical to previous releases. Set `arcadedb.server.logFormat=json` to emit one JSON object per line instead, suitable for log shippers (Loki, ELK):
+
+[source,properties]
+----
+arcadedb.server.logFormat=json
+----
+
+Each JSON line contains: `timestamp` (local time, `yyyy-MM-dd'T'HH:mm:ss.SSS`), `level`, `logger`, `thread`, `message`, and -- when present -- `requestId`, `db`, `traceId`, `spanId`, and `exception` (full stack trace). Example:
+
+[source,json]
+----
+{"timestamp":"2026-06-16T10:15:30.123","level":"INFO","logger":"com.arcadedb.server.ArcadeDBServer","thread":"http-1","message":"Query executed","requestId":"req-abc","db":"mydb","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"0123456789abcdef"}
+----
+
+====== Correlation IDs
+
+Every HTTP request is tagged with a `requestId`: ArcadeDB reuses the inbound `X-Request-Id` header when present (sanitized, capped at 128 characters) or generates a UUID, and echoes it on the response. The `db` field is taken from the request's database path parameter. When the tracing plugin is active, `traceId`/`spanId` are added too -- but `requestId` works for correlation even with tracing disabled.
+
+For operators who keep text logs, `arcadedb.server.logIncludeTrace=true` appends ` [traceId=...]` to each line while a trace is active (default off, preserving current output):
+
+[source,properties]
+----
+arcadedb.server.logIncludeTrace=true
+----
+
 [[observability-health]]
 ===== Health probes
 
