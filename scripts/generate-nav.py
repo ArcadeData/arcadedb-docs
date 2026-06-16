@@ -151,6 +151,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/auto-backup.adoc", "Automatic Backup"),
                 ("how-to/operations/restore.adoc", "Restore"),
                 "how-to/operations/monitoring.adoc",
+                ("how-to/operations/observability.adoc", "Cloud Observability"),
                 ("how-to/operations/upgrade.adoc", "Upgrade ArcadeDB"),
             ]),
             ("Security", [

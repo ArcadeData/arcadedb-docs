@@ -1,0 +1,277 @@
+[[howto-observability]]
+==== Cloud Observability
+
+ArcadeDB exposes a vendor-neutral observability stack for production (Kubernetes) deployments: always-on RED metrics, OpenTelemetry distributed tracing, structured JSON logging with correlation IDs, and standard health probes. Everything described here is **opt-in and behavior-preserving** -- with no new configuration, an upgraded server behaves exactly as before. The existing `/prometheus` scrape endpoint, `/api/v1/server` JSON, and `/api/v1/ready` semantics are never changed, only added to.
+
+The design follows an _instrument-once_ principle: each hot path (HTTP request, query/command, transaction) is wrapped in a single Micrometer `Observation`. When only metrics are enabled, an `Observation` is a timer; when the optional tracing plugin is loaded, the *same* instrumentation also emits a span. A correlation ID then ties the resulting metric, span, and log line together.
+
+++++
+<svg class="obs-svg" viewBox="0 0 1200 460"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="The observation spine: a single Observation on the HTTP to query to transaction request path fans out into a timer, a span, and a JSON log line; the timer is scraped by Prometheus and pushed by OTLP into an OpenTelemetry Collector, the span flows to the Collector via traceparent, and the JSON log carries the same traceId to stdout or a log shipper.">
+
+  <!-- Request-path pill under the Observation -->
+  <g class="obs-path">
+    <rect x="60" y="60" width="320" height="44" rx="999"/>
+    <text x="220" y="88" text-anchor="middle" class="obs-path-label">HTTP → query → tx</text>
+  </g>
+
+  <!-- The single Observation box on the request path -->
+  <g class="obs-source">
+    <rect x="60" y="170" width="320" height="120" rx="10"/>
+    <text x="220" y="218" text-anchor="middle" class="obs-source-title">Observation</text>
+    <text x="220" y="248" text-anchor="middle" class="obs-source-sub">one Micrometer instrument</text>
+    <text x="220" y="274" text-anchor="middle" class="obs-source-sub">correlation id attached</text>
+  </g>
+
+  <!-- Three sinks: Timer (blue), Span (purple), JSON log (green) -->
+  <g class="obs-sink obs-sink-timer">
+    <rect x="560" y="40" width="300" height="100" rx="8"/>
+    <text x="710" y="78"  text-anchor="middle" class="obs-sink-title">Timer</text>
+    <text x="710" y="104" text-anchor="middle" class="obs-sink-sub">/prometheus (scrape)</text>
+    <text x="710" y="126" text-anchor="middle" class="obs-sink-sub">OTLP push</text>
+  </g>
+  <g class="obs-sink obs-sink-span">
+    <rect x="560" y="180" width="300" height="100" rx="8"/>
+    <text x="710" y="218" text-anchor="middle" class="obs-sink-title">Span</text>
+    <text x="710" y="250" text-anchor="middle" class="obs-sink-sub">traceparent</text>
+  </g>
+  <g class="obs-sink obs-sink-log">
+    <rect x="560" y="320" width="300" height="100" rx="8"/>
+    <text x="710" y="358" text-anchor="middle" class="obs-sink-title">JSON log</text>
+    <text x="710" y="390" text-anchor="middle" class="obs-sink-sub">traceId / requestId</text>
+  </g>
+
+  <!-- OpenTelemetry Collector — convergence point for span + OTLP push -->
+  <g class="obs-collector">
+    <rect x="990" y="120" width="180" height="120" rx="10"/>
+    <text x="1080" y="168" text-anchor="middle" class="obs-collector-title">OpenTelemetry</text>
+    <text x="1080" y="194" text-anchor="middle" class="obs-collector-title">Collector</text>
+    <text x="1080" y="222" text-anchor="middle" class="obs-collector-sub">traces + metrics</text>
+  </g>
+
+  <!-- Prometheus pull target and stdout/log shipper -->
+  <g class="obs-target obs-target-prom">
+    <rect x="990" y="40" width="180" height="56" rx="8"/>
+    <text x="1080" y="65"  text-anchor="middle" class="obs-target-title">Prometheus</text>
+    <text x="1080" y="86"  text-anchor="middle" class="obs-target-sub">pull / scrape</text>
+  </g>
+  <g class="obs-target obs-target-log">
+    <rect x="990" y="344" width="180" height="56" rx="8"/>
+    <text x="1080" y="369" text-anchor="middle" class="obs-target-title">stdout</text>
+    <text x="1080" y="390" text-anchor="middle" class="obs-target-sub">log shipper</text>
+  </g>
+
+  <!-- Fan-out legs: Observation → each sink -->
+  <path id="obs-fan-timer" d="M 380 220 C 460 220, 480 90,  560 90"  class="obs-conn obs-conn-timer"/>
+  <path id="obs-fan-span"  d="M 380 230 C 470 230, 480 230, 560 230" class="obs-conn obs-conn-span"/>
+  <path id="obs-fan-log"   d="M 380 240 C 460 240, 480 370, 560 370" class="obs-conn obs-conn-log"/>
+
+  <!-- Convergence legs into the Collector and the pull/log targets -->
+  <path id="obs-otlp"   d="M 860 110 C 920 110, 930 160, 990 165" class="obs-conn obs-conn-timer"/>
+  <path id="obs-scrape" d="M 990 68  C 930 68,  920 90,  860 95"  class="obs-conn obs-conn-timer obs-conn-pull" marker-end="url(#obs-arrow-pull)"/>
+  <path id="obs-span-c" d="M 860 230 C 920 230, 930 200, 990 195" class="obs-conn obs-conn-span"/>
+  <path id="obs-log-c"  d="M 860 370 C 910 370, 930 372, 990 372" class="obs-conn obs-conn-log"/>
+
+  <!-- Pull arrowhead for the Prometheus scrape (Collector ← timer) -->
+  <defs>
+    <marker id="obs-arrow-pull" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" class="obs-arrowhead-pull"/>
+    </marker>
+  </defs>
+
+  <!-- One Observation → three correlated outputs, fired in lockstep, looping forever. -->
+
+  <!-- Leg 1: Timer (blue) -->
+  <circle r="7" class="obs-dot obs-dot-timer" opacity="0">
+    <animateMotion id="obs-l1" dur="0.7s" begin="0s; obs-c1.end+1.0s" fill="freeze"><mpath href="#obs-fan-timer"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; obs-c1.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="obs-l1.end"/>
+  </circle>
+  <circle r="7" class="obs-dot obs-dot-timer" opacity="0">
+    <animateMotion id="obs-c1" dur="0.7s" begin="obs-l1.end+0.25s" fill="freeze"><mpath href="#obs-otlp"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="obs-l1.end+0.25s"/>
+    <set attributeName="opacity" to="0" begin="obs-c1.end"/>
+  </circle>
+
+  <!-- Leg 2: Span (purple) -->
+  <circle r="7" class="obs-dot obs-dot-span" opacity="0">
+    <animateMotion id="obs-l2" dur="0.7s" begin="0s; obs-c1.end+1.0s" fill="freeze"><mpath href="#obs-fan-span"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; obs-c1.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="obs-l2.end"/>
+  </circle>
+  <circle r="7" class="obs-dot obs-dot-span" opacity="0">
+    <animateMotion dur="0.7s" begin="obs-l2.end+0.25s" fill="freeze"><mpath href="#obs-span-c"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="obs-l2.end+0.25s"/>
+    <set attributeName="opacity" to="0" begin="obs-l2.end+0.95s"/>
+  </circle>
+
+  <!-- Leg 3: JSON log (green) -->
+  <circle r="7" class="obs-dot obs-dot-log" opacity="0">
+    <animateMotion id="obs-l3" dur="0.7s" begin="0s; obs-c1.end+1.0s" fill="freeze"><mpath href="#obs-fan-log"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="0s; obs-c1.end+1.0s"/>
+    <set attributeName="opacity" to="0" begin="obs-l3.end"/>
+  </circle>
+  <circle r="7" class="obs-dot obs-dot-log" opacity="0">
+    <animateMotion dur="0.7s" begin="obs-l3.end+0.25s" fill="freeze"><mpath href="#obs-log-c"/></animateMotion>
+    <set attributeName="opacity" to="1" begin="obs-l3.end+0.25s"/>
+    <set attributeName="opacity" to="0" begin="obs-l3.end+0.95s"/>
+  </circle>
+</svg>
+++++
+
+[[observability-metrics]]
+===== Metrics depth
+
+ArcadeDB builds on the Micrometer framework already in the server. Metrics are enabled by default (`arcadedb.serverMetrics=true`) and exposed on the Prometheus scrape endpoint `/prometheus` (see <<howto-monitoring,Monitoring>> for scrape and Grafana setup). The series below are *additive* -- existing metrics and the `/prometheus` output shape are unchanged.
+
+====== RED latency timers
+
+Two always-on timers record request/query latency with a percentile histogram (server-side p50/p95/p99). Query text is never used as a tag, keeping cardinality bounded.
+
+[%header,cols="30%,45%,25%"]
+|===
+| Timer | Tags | Prometheus series
+| `arcadedb.http.requests` | `method`, `path` (route template, e.g. `/query/{database}` -- never the raw URI), `status`, `db` | `arcadedb_http_requests_seconds_*`
+| `arcadedb.query.duration` | `protocol` (`http`, `bolt`, `postgres`, `mongo`, `grpc`, `redis`, `internal`), `db`, `language` (`sql`, `opencypher`, `gremlin`, `graphql`, `mongo`), `type` (`query` or `command`) | `arcadedb_query_duration_seconds_*`
+|===
+
+NOTE: The `protocol` tag defaults to `internal` for embedded/in-process callers; dashboards typically filter `protocol!="internal"` to isolate client traffic. Redis commands and unfiltered Mongo scans do not pass through the query engine and are therefore not recorded by `arcadedb.query.duration`.
+
+====== Engine gauges
+
+`EngineMetricsBinder` bridges the internal engine `Profiler` into Micrometer gauges (engine-wide aggregates, refreshed from a one-second-memoized snapshot):
+
+[%header,cols="50%,50%"]
+|===
+| Gauge | Meaning
+| `arcadedb.engine.page.cache.hits` / `.page.cache.misses` | Page cache hit/miss counters
+| `arcadedb.engine.pages.read` / `.pages.written` | Pages read from / written to disk
+| `arcadedb.engine.wal.bytes.written` / `.wal.files` | Write-ahead-log bytes and file count
+| `arcadedb.engine.mvcc.conflicts` | MVCC concurrent-modification conflicts
+| `arcadedb.engine.files.open` | Open file handles
+| `arcadedb.engine.tx.write` / `.tx.read` / `.tx.rollbacks` | Write/read transactions and rollbacks
+| `arcadedb.engine.queries` / `.commands` | Query and command counts
+| `arcadedb.engine.databases` | Number of open databases
+|===
+
+====== Optional OTLP metrics export
+
+To push metrics to an OpenTelemetry Collector (in addition to the unchanged `/prometheus` scrape), enable the OTLP registry:
+
+[source,properties]
+----
+arcadedb.serverMetrics.otlp.enabled=true
+arcadedb.serverMetrics.otlp.endpoint=http://otel-collector:4317
+----
+
+This registers an OTLP meter registry alongside Prometheus; the scrape path is unaffected whether or not OTLP is enabled. The OTLP exporter lives in the optional `metrics` module bundled with the standard distributions.
+
+[[observability-tracing]]
+===== Distributed tracing
+
+Distributed tracing is an **optional plugin** (the `tracing` module, shipped only in the `full` distribution). When absent or disabled, the in-core `Observation` calls are no-ops with zero span overhead. When enabled, the same instrumentation points used by the metrics timers also emit OpenTelemetry spans.
+
+Enable tracing and point it at your OTLP collector:
+
+[source,properties]
+----
+arcadedb.serverMetrics.tracing.enabled=true
+arcadedb.serverMetrics.tracing.endpoint=http://otel-collector:4317
+arcadedb.serverMetrics.tracing.samplingRate=0.1
+----
+
+* `tracing.endpoint` is an **OTLP/gRPC** endpoint (default port `4317`).
+* `tracing.samplingRate` is a parent-based ratio in `[0.0, 1.0]`: `1.0` samples every trace, `0.0` (default) disables sampling.
+* If the endpoint is unreachable, tracing self-disables and logs an error -- server startup is never blocked.
+
+Two span types are produced and nest correctly (query spans are children of the HTTP span within one trace):
+
+[%header,cols="35%,65%"]
+|===
+| Span | Attributes
+| `arcadedb.http.server.requests` | `method`, `path` (route template), `db`, `status`
+| `arcadedb.query` | `protocol`, `db`, `language`, `type`, and `db.statement` (the full query/command text)
+|===
+
+[WARNING]
+====
+The `db.statement` span attribute contains the full query/command text, which may include sensitive data. Secure your OTLP collector endpoint and apply collector-side redaction if required.
+====
+
+ArcadeDB continues an upstream trace by reading the inbound W3C `traceparent` HTTP header. Resource attributes (`service.name`, `service.instance.id`), `OTEL_RESOURCE_ATTRIBUTES`, and trace-context propagation over the replication (Raft) and binary wire protocols are not yet implemented; each non-HTTP request starts a fresh root span.
+
+[[observability-logging]]
+===== Structured logging and correlation IDs
+
+By default the server logs human-readable text, byte-identical to previous releases. Set `arcadedb.server.logFormat=json` to emit one JSON object per line instead, suitable for log shippers (Loki, ELK):
+
+[source,properties]
+----
+arcadedb.server.logFormat=json
+----
+
+Each JSON line contains: `timestamp` (local time, `yyyy-MM-dd'T'HH:mm:ss.SSS`), `level`, `logger`, `thread`, `message`, and -- when present -- `requestId`, `db`, `traceId`, `spanId`, and `exception` (full stack trace). Example:
+
+[source,json]
+----
+{"timestamp":"2026-06-16T10:15:30.123","level":"INFO","logger":"com.arcadedb.server.ArcadeDBServer","thread":"http-1","message":"Query executed","requestId":"req-abc","db":"mydb","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"0123456789abcdef"}
+----
+
+====== Correlation IDs
+
+Every HTTP request is tagged with a `requestId`: ArcadeDB reuses the inbound `X-Request-Id` header when present (sanitized, capped at 128 characters) or generates a UUID, and echoes it on the response. The `db` field is taken from the request's database path parameter. When the tracing plugin is active, `traceId`/`spanId` are added too -- but `requestId` works for correlation even with tracing disabled.
+
+For operators who keep text logs, `arcadedb.server.logIncludeTrace=true` appends ` [traceId=...]` to each line while a trace is active (default off, preserving current output):
+
+[source,properties]
+----
+arcadedb.server.logIncludeTrace=true
+----
+
+[[observability-health]]
+===== Health probes
+
+ArcadeDB exposes two complementary, unauthenticated endpoints so orchestrators can tell a *live* process from a *ready* one. See <<http-checkhealth,the HTTP API reference>> for response details.
+
+[%header,cols="22%,18%,60%"]
+|===
+| Endpoint | Probe | Behavior
+| `GET /api/v1/health` | liveness | Returns `204` whenever the HTTP layer is up. Performs no database I/O and never returns a busy/`503` status, so a node that is merely warming up is not killed.
+| `GET /api/v1/ready` | readiness | Returns `204` once the server is `ONLINE`; `503` (`Server not started yet`) before that. Unchanged by default.
+|===
+
+Use `/api/v1/health` for the liveness probe and `/api/v1/ready` for the readiness probe:
+
+[source,yaml]
+----
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 2480
+  initialDelaySeconds: 10
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: 2480
+  initialDelaySeconds: 20
+  periodSeconds: 10
+----
+
+====== HA-aware readiness
+
+On a High Availability cluster you can make readiness reflect Raft membership so traffic is withheld until a node has joined the group:
+
+[source,properties]
+----
+arcadedb.server.readinessRequiresHA=true
+----
+
+When this flag is `true` and HA is active, `/api/v1/ready` returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected, then `204`. The default (`false`) preserves current readiness behavior. See <<kubernetes,Kubernetes deployment>> for the full StatefulSet example.
+
+===== Further reading
+
+* <<howto-monitoring,Monitoring>> -- Prometheus and Grafana setup
+* <<kubernetes,Kubernetes deployment>> -- Helm chart and probe configuration
+* <<arcadedb-settings,Settings>> -- all configuration keys

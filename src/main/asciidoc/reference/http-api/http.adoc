@@ -8,6 +8,7 @@
 | *Action*                                         | *Method* | *Endpoint*
 | <<http-openapi,Get OpenAPI definition>>       | GET      | `/api/v1/openapi.json`
 | <<http-checkready,Get server status>>            | GET      | `/api/v1/ready`
+| <<http-checkhealth,Check server liveness>>       | GET      | `/api/v1/health`
 | <<http-serverinfo,Get server information>>       | GET      | `/api/v1/server`
 | <<http-servercommand,Send server command>>       | POST     | `/api/v1/server`
 | <<http-listdatabases,List databases>>            | GET      | `/api/v1/databases`
@@ -249,17 +250,47 @@ Returns a header-only (no content) status about if the ArcadeDB server is ready.
 
 URL Syntax: `/api/v1/ready`
 
-This endpoint accepts (GET) requests without authentication, and is useful for remote monitoring of server readiness.
+This endpoint accepts (GET) requests without authentication, and is useful for remote monitoring of server readiness. Use it as a Kubernetes *readiness* probe.
 
-Response:
+Responses:
 
-* https://httpstatuses.io/204[`204`] OK
+* https://httpstatuses.io/204[`204`] OK -- server is `ONLINE`
+* https://httpstatuses.io/503[`503`] server not started yet
+
+When `arcadedb.server.readinessRequiresHA=true` and HA is active, readiness additionally requires the node to have joined the Raft group: it returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected. The default (`false`) preserves the behavior above. See <<observability-health,Health probes>>.
 
 Example:
 
 [source,shell]
 ----
 $ curl -I -X GET "http://localhost:2480/api/v1/ready"
+----
+
+Return:
+
+[source,shell]
+----
+HTTP/1.1 204 OK
+----
+
+[[http-checkhealth]]
+===== Check server liveness (GET)
+
+Returns a header-only (no content) liveness status. Use it as a Kubernetes *liveness* probe.
+
+URL Syntax: `/api/v1/health`
+
+This endpoint accepts (GET) requests without authentication and performs no database I/O. It returns `204` whenever the server process and HTTP layer are up; unlike readiness it never reports a busy state, so a warming-up node is not restarted. See <<observability-health,Health probes>>.
+
+Response:
+
+* https://httpstatuses.io/204[`204`] OK -- server process and HTTP layer are up
+
+Example:
+
+[source,shell]
+----
+$ curl -I -X GET "http://localhost:2480/api/v1/health"
 ----
 
 Return:
