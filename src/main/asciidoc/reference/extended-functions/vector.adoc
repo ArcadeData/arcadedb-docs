@@ -8,6 +8,18 @@ NOTE: Vector functions are also available with the legacy `vectorXXX()` naming c
 
 ===== Aggregation Functions
 
+[NOTE]
+====
+There are two distinct categories of "statistics" functions, which is easy to confuse:
+
+* *Row aggregates that return a vector* - `vector.sum()`, `vector.avg()`, `vector.min()`, `vector.max()`
+fold a column of vectors *element-wise across rows*. For example `vector.avg(embedding)` returns the
+*centroid* (the element-wise arithmetic mean) of all the embeddings in the result set.
+* *Per-vector element statistics that return a scalar* - `vector.variance()` and `vector.stddev()` operate
+on a *single* vector and return the variance / standard deviation of *that vector's elements*. They are
+intentionally *not* row aggregates (unlike the scalar SQL `variance()`/`stddev()`).
+====
+
 [[vector-sum-ext]]
 ====== vector.sum()
 
@@ -302,7 +314,9 @@ SELECT vector.normalize([3.0, 4.0])
 [[vector-is-normalized-ext]]
 ====== vector.isnormalized()
 
-Checks if vector is normalized (L2 norm ≈ 1.0).
+Checks if vector is normalized (L2 norm ≈ 1.0). The optional `tolerance` defaults to `0.001`, which is an
+appropriate loose bound for ArcadeDB's `float` vectors (`sqrt(float eps) ≈ 3.45e-4`); pass a smaller value
+to tighten the check.
 
 *Syntax:* `vector.isnormalized(<vector>, [tolerance])`
 
@@ -392,15 +406,18 @@ SELECT vector.quantizeint8([0.1, 0.5, 0.9])
 [[vector-dequantizeint8-ext]]
 ====== vector.dequantizeint8()
 
-Dequantizes 8-bit integers back to float vector (approximate recovery).
+Dequantizes 8-bit integers back to float vector (approximate recovery). Pass the result of
+`vector.quantizeint8()` directly (the `min`/`max` are read from it), or supply the bytes with explicit
+`min`/`max`.
 
-*Syntax:* `vector.dequantizeint8(<quantized>, <min>, <max>)`
+*Syntax:* `vector.dequantizeint8(<result>)` or `vector.dequantizeint8(<quantized>, <min>, <max>)`
 
 *Returns:* Vector - Dequantized vector
 
 [source,sql]
 ----
-SELECT vector.dequantizeint8(vector.quantizeint8([1.0, 2.0, 3.0]), 1.0, 3.0)
+SELECT vector.dequantizeint8(vector.quantizeint8([1.0, 2.0, 3.0]))
+-- Returns: ~[1.0, 2.0, 3.0]
 ----
 
 '''
@@ -408,7 +425,9 @@ SELECT vector.dequantizeint8(vector.quantizeint8([1.0, 2.0, 3.0]), 1.0, 3.0)
 [[vector-quantizebinary-ext]]
 ====== vector.quantizebinary()
 
-Quantizes vector to binary (1 bit per dimension) using median threshold.
+Quantizes vector to binary (1 bit per dimension) using median threshold. The median is used (rather than a
+fixed value like 0) so the bits split ~50/50, which maximizes the information retained per bit for
+arbitrarily-centered embeddings.
 
 *Syntax:* `vector.quantizebinary(<vector>)`
 
@@ -489,10 +508,13 @@ SELECT vector.multiscore([0.9, 0.7, 0.8], 'MAX')
 
 Computes Reciprocal Rank Fusion (RRF) for combining multiple rankings.
 
-*Syntax:* `vector.rrfscore(<rank1>, <rank2>, ..., [{ k: <long> }])`
+*Syntax:* `vector.rrfscore(<rank1>, <rank2>, ..., [{ k: <long> }])` or
+`vector.rrfscore([<ranks>], [{ k: <long> }])`
 
-Every positional numeric argument is treated as a rank. The center constant `k` (default 60) is set only
-via the trailing options map `{ k: <long> }` - a bare trailing number is always a rank, never `k`.
+Ranks may be passed as variadic arguments or grouped in a single array/list (consistent with
+`vector.multiscore`). Every positional numeric argument is treated as a rank. The center constant `k`
+(default 60) is set only via the trailing options map `{ k: <long> }` - a bare trailing number is always a
+rank, never `k`.
 
 *Parameters:*
 
@@ -505,7 +527,7 @@ via the trailing options map `{ k: <long> }` - a bare trailing number is always 
 SELECT vector.rrfscore(1, 2, 4)
 -- Returns: 1/61 + 1/62 + 1/64
 
-SELECT vector.rrfscore(1, 2, 4, { k: 100 })
+SELECT vector.rrfscore([1, 2, 4], { k: 100 })
 -- Returns: 1/101 + 1/102 + 1/104
 ----
 
@@ -617,23 +639,26 @@ SELECT vector.l2distance([0.0, 0.0], [3.0, 4.0])
 [[vector-approxdistance-ext]]
 ====== vector.approxdistance()
 
-Computes approximate distance between quantized vectors without full dequantization.
+Computes approximate distance between quantized vectors without full dequantization. When you pass the
+result objects of `vector.quantizeint8()`/`vector.quantizebinary()`, the mode is inferred and the third
+argument can be omitted; the explicit mode is still required for raw byte arrays.
 
-*Syntax:* `vector.approxdistance(<quantized1>, <quantized2>, <mode>)`
+*Syntax:* `vector.approxdistance(<quantized1>, <quantized2> [, <mode>])`
 
 *Modes:*
 
-* `'INT8'` - Faster than floats, preserves ranking order
+* `'INT8'` - Faster than floats; preserves the top-k ordering of the true distances (the approximate
+  scalar distances rank in the same order, even though their absolute values differ)
 * `'BINARY'` - Very fast Hamming distance, 8x fewer operations
 
 *Returns:* Double - Approximate distance
 
 [source,sql]
 ----
+-- mode inferred from the quantization result objects
 SELECT vector.approxdistance(
   vector.quantizeint8([1.0, 2.0, 3.0]),
-  vector.quantizeint8([1.0, 3.0, 3.0]),
-  'INT8'
+  vector.quantizeint8([1.0, 3.0, 3.0])
 )
 ----
 
@@ -857,6 +882,7 @@ Converts vector to string representation. Equivalent to the `asString()` method 
 * `'PRETTY'` - Multi-line with formatting
 * `'PYTHON'` - Python list format
 * `'MATLAB'` - space-separated row vector `[1.0 2.0 3.0]`
+* `'MATLAB_COLUMN'` - semicolon-separated column vector `[1.0; 2.0; 3.0]`
 * `'JULIA'` - Julia vector literal `[1.0, 2.0, 3.0]`
 * `'NUMPY'` - bare comma-separated `1.0, 2.0, 3.0` (no brackets), for `numpy.fromstring(..., sep=",")`
 

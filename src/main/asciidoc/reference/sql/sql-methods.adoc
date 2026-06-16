@@ -499,7 +499,8 @@ Transforms the field into a string type.
 
 For numeric vectors (a `float[]`/`double[]` field, or an array/list of numbers) it produces the same
 output as `vector.toString()`. An optional format argument selects the layout: `'COMPACT'` (default),
-`'PRETTY'`, `'PYTHON'`, `'MATLAB'`, `'JULIA'`, or `'NUMPY'` (bare comma-separated for `numpy.fromstring`).
+`'PRETTY'`, `'PYTHON'`, `'MATLAB'` (space-separated row), `'MATLAB_COLUMN'` (semicolon-separated column),
+`'JULIA'`, or `'NUMPY'` (bare comma-separated for `numpy.fromstring`).
 Non-vector values are returned in their natural string form. The inverse (string to vector) is `asVector()`.
 
 Syntax: `&lt;value&gt;.asString([&lt;format&gt;])`
@@ -537,8 +538,9 @@ SELECT embedding.asString('NUMPY') FROM docs
 
 Parses a value into a vector (`float[]`). This is the inverse of `asString()` for vectors and accepts every
 format `asString()` / `vector.toString()` can emit: bracketed or bare, comma-separated
-(COMPACT/PYTHON/JULIA/NUMPY), space-separated (MATLAB) and multi-line (PRETTY). It also accepts an array/list
-of numbers (normalized to `float[]`) and a single number (wrapped into a one-element vector).
+(COMPACT/PYTHON/JULIA/NUMPY), space-separated (MATLAB), semicolon-separated (MATLAB_COLUMN) and multi-line
+(PRETTY). It also accepts an array/list of numbers (normalized to `float[]`) and a single number (wrapped
+into a one-element vector).
 
 Syntax: `&lt;value&gt;.asVector()`
 
@@ -563,6 +565,32 @@ SELECT '1.0, 2.0, 3.0'.asVector()
 
 -- Round-trips with asString():
 SELECT embedding.asString('MATLAB').asVector() FROM docs
+----
+
+'''
+
+[[assparse]]
+====== asSparse()
+
+Converts a dense vector value into a sparse vector, dropping elements whose absolute value is at or below an
+optional threshold (default `0.0`, i.e. drops exact zeros). The method form of `vector.denseToSparse()`,
+consistent with `asString()` / `asVector()`.
+
+Syntax: `&lt;value&gt;.asSparse([&lt;threshold&gt;])`
+
+Applies to the following types:
+
+- array / list of numbers
+
+*Examples*
+
+[source,sql]
+----
+SELECT [0.5, 0.0, 0.3].asSparse()
+-- sparse vector with indices [0, 2] and values [0.5, 0.3]
+
+SELECT embedding.asSparse(0.01) FROM docs
+-- drops values with |value| <= 0.01
 ----
 
 '''

@@ -1454,18 +1454,20 @@ SELECT vectorAdd([1.0, 2.0, 3.0], 4.0)
 ====== vectorApproxDistance() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Computes approximate distance between quantized vectors without intermediate full dequantization.
+When the arguments are the result objects of `vectorQuantizeInt8()`/`vectorQuantizeBinary()` the mode is
+inferred and the third argument can be omitted; raw byte arrays still need the explicit mode.
 Two modes are supported:
 
-* `'INT8'` faster than floats, preserves ranking order
+* `'INT8'` faster than floats; preserves the top-k ordering of the true distances (the approximate scalar distances rank in the same order)
 * `'BINARY'` very fast (count differing bits), reduces operations eight-fold, returns normalized https://en.wikipedia.org/wiki/Hamming_distance[Hamming distance]
 
-Syntax: `vector(&lt;vector|field&gt;, &lt;vector|field&gt; [, &lt;string&gt;])`
+Syntax: `vectorApproxDistance(&lt;quantized&gt;, &lt;quantized&gt; [, &lt;string&gt;])`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT vectorApproxDistance(vectorQuantizeInt8([1.0, 2.0, 3.0]), vectorQuantizeInt8([1.0, 3.0, 3.0]),'INT8')
+SELECT vectorApproxDistance(vectorQuantizeInt8([1.0, 2.0, 3.0]), vectorQuantizeInt8([1.0, 3.0, 3.0]))
 ----
 
 '''
@@ -1544,14 +1546,16 @@ SELECT vectorDenseToSparse([0.5, 0.0, 0.1], 0.2)
 ====== vectorDequantizeInt8() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Dequantized byte array to float vector using min-max scaling, recovering original vector only approximately.
+Pass the result of `vectorQuantizeInt8()` directly (min/max read from it), or supply the bytes with
+explicit `min`/`max`.
 
-Syntax: `vectorDequantizeInt8(&lt;vector|field&gt;, &lt;scalar&gt;, &lt;scalar&gt;)`
+Syntax: `vectorDequantizeInt8(&lt;result&gt;)` or `vectorDequantizeInt8(&lt;bytes&gt;, &lt;min&gt;, &lt;max&gt;)`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT vectorDequantizeInt8(vectorQuantizeInt8([1.0, 2.0, 3.0]), 1.0, 3.0)
+SELECT vectorDequantizeInt8(vectorQuantizeInt8([1.0, 2.0, 3.0]))
 ----
 
 '''
@@ -1886,7 +1890,9 @@ SELECT vectorQuantizeInt8([0.1, 0.5, 0.9])
 [[vector-quantize-binary]]
 ====== vectorQuantizeBinary() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
-Quantize argument vector to binary elements (1 bit per dimension) using median threshold.
+Quantize argument vector to binary elements (1 bit per dimension) using median threshold. The median is
+used (rather than a fixed value like 0) so the bits split ~50/50, maximizing the information retained per
+bit for arbitrarily-centered embeddings.
 
 Syntax: `vectorQuantizeBinary(&lt;vector|field&gt;)`
 
@@ -1922,10 +1928,11 @@ SELECT vectorDequantizeBinary(vectorQuantizeBinary([0.1, 0.5, 0.9]))
 ====== vectorRRFScore() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
 Compute https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a[reciprocal rank fusion (RRF)] for combining multiple ranks.
-Every positional numeric argument is a rank. The center constant `k` (default `60`) is set only via a
-trailing options map `{ k: <long> }` - a bare trailing number is always a rank, never `k`.
+Ranks may be passed as variadic arguments or grouped in a single array/list. Every positional numeric
+argument is a rank. The center constant `k` (default `60`) is set only via a trailing options map
+`{ k: <long> }` - a bare trailing number is always a rank, never `k`.
 
-Syntax: `vectorRRFScore(&lt;rank&gt;, &lt;rank&gt;, ... [, { k: &lt;long&gt; }])`
+Syntax: `vectorRRFScore(&lt;rank&gt;, &lt;rank&gt;, ... [, { k }])` or `vectorRRFScore([&lt;ranks&gt;], [{ k }])`
 
 *Examples*
 
@@ -1933,7 +1940,7 @@ Syntax: `vectorRRFScore(&lt;rank&gt;, &lt;rank&gt;, ... [, { k: &lt;long&gt; }])
 ----
 SELECT vectorRRFScore(1, 2, 4)
 
-SELECT vectorRRFScore(1, 2, 4, { k: 100 })
+SELECT vectorRRFScore([1, 2, 4], { k: 100 })
 ----
 
 '''
@@ -2127,6 +2134,7 @@ method on a vector value (e.g. `embedding.asString('PYTHON')`); both share the s
 * `'PRETTY'` Multi-line with formatting
 * `'PYTHON'` Python list format
 * `'MATLAB'` space-separated row vector `[1.0 2.0 3.0]`
+* `'MATLAB_COLUMN'` semicolon-separated column vector `[1.0; 2.0; 3.0]`
 * `'JULIA'` Julia vector literal `[1.0, 2.0, 3.0]`
 * `'NUMPY'` bare comma-separated `1.0, 2.0, 3.0` (no brackets), for `numpy.fromstring(..., sep=",")`
 
