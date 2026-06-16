@@ -8,6 +8,50 @@ The design follows an _instrument-once_ principle: each hot path (HTTP request, 
 [[observability-metrics]]
 ===== Metrics depth
 
+ArcadeDB builds on the Micrometer framework already in the server. Metrics are enabled by default (`arcadedb.serverMetrics=true`) and exposed on the Prometheus scrape endpoint `/prometheus` (see <<howto-monitoring,Monitoring>> for scrape and Grafana setup). The series below are *additive* -- existing metrics and the `/prometheus` output shape are unchanged.
+
+====== RED latency timers
+
+Two always-on timers record request/query latency with a percentile histogram (server-side p50/p95/p99). Query text is never used as a tag, keeping cardinality bounded.
+
+[%header,cols="30%,45%,25%"]
+|===
+| Timer | Tags | Prometheus series
+| `arcadedb.http.requests` | `method`, `path` (route template, e.g. `/query/{database}` -- never the raw URI), `status`, `db` | `arcadedb_http_requests_seconds_*`
+| `arcadedb.query.duration` | `protocol` (`http`, `bolt`, `postgres`, `mongo`, `grpc`, `redis`, `internal`), `db`, `language` (`sql`, `opencypher`, `gremlin`, `graphql`, `mongo`), `type` (`query` or `command`) | `arcadedb_query_duration_seconds_*`
+|===
+
+NOTE: The `protocol` tag defaults to `internal` for embedded/in-process callers; dashboards typically filter `protocol!="internal"` to isolate client traffic. Redis commands and unfiltered Mongo scans do not pass through the query engine and are therefore not recorded by `arcadedb.query.duration`.
+
+====== Engine gauges
+
+`EngineMetricsBinder` bridges the internal engine `Profiler` into Micrometer gauges (engine-wide aggregates, refreshed from a one-second-memoized snapshot):
+
+[%header,cols="50%,50%"]
+|===
+| Gauge | Meaning
+| `arcadedb.engine.page.cache.hits` / `.page.cache.misses` | Page cache hit/miss counters
+| `arcadedb.engine.pages.read` / `.pages.written` | Pages read from / written to disk
+| `arcadedb.engine.wal.bytes.written` / `.wal.files` | Write-ahead-log bytes and file count
+| `arcadedb.engine.mvcc.conflicts` | MVCC concurrent-modification conflicts
+| `arcadedb.engine.files.open` | Open file handles
+| `arcadedb.engine.tx.write` / `.tx.read` / `.tx.rollbacks` | Write/read transactions and rollbacks
+| `arcadedb.engine.queries` / `.commands` | Query and command counts
+| `arcadedb.engine.databases` | Number of open databases
+|===
+
+====== Optional OTLP metrics export
+
+To push metrics to an OpenTelemetry Collector (in addition to the unchanged `/prometheus` scrape), enable the OTLP registry:
+
+[source,properties]
+----
+arcadedb.serverMetrics.otlp.enabled=true
+arcadedb.serverMetrics.otlp.endpoint=http://otel-collector:4317
+----
+
+This registers an OTLP meter registry alongside Prometheus; the scrape path is unaffected whether or not OTLP is enabled. The OTLP exporter lives in the optional `metrics` module bundled with the standard distributions.
+
 [[observability-tracing]]
 ===== Distributed tracing
 
