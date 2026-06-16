@@ -421,6 +421,26 @@ SELECT vector.quantizebinary([0.1, 0.5, 0.9])
 
 '''
 
+[[vector-dequantizebinary-ext]]
+====== vector.dequantizebinary()
+
+Reconstructs an approximate float vector from a binary-quantized result. Binary quantization keeps only
+one bit per dimension (the sign relative to the median), so this is lossy: each bit maps to `highValue`
+(default `1.0`) when set or `lowValue` (default `-1.0`) when clear. Accepts the result of
+`vector.quantizebinary()` directly.
+
+*Syntax:* `vector.dequantizebinary(<quantized> [, <lowValue>, <highValue>])`
+
+*Returns:* Vector - Reconstructed (sign) vector
+
+[source,sql]
+----
+SELECT vector.dequantizebinary(vector.quantizebinary([0.1, 0.5, 0.9]))
+-- Returns: [-1.0, 1.0, 1.0]
+----
+
+'''
+
 ===== Scoring and Fusion
 
 [[vector-hybridscore-ext]]
@@ -469,17 +489,24 @@ SELECT vector.multiscore([0.9, 0.7, 0.8], 'MAX')
 
 Computes Reciprocal Rank Fusion (RRF) for combining multiple rankings.
 
-*Syntax:* `vector.rrfscore(<rank1>, <rank2>, ..., [k])`
+*Syntax:* `vector.rrfscore(<rank1>, <rank2>, ..., [{ k: <long> }])`
+
+Every positional numeric argument is treated as a rank. The center constant `k` (default 60) is set only
+via the trailing options map `{ k: <long> }` - a bare trailing number is always a rank, never `k`.
 
 *Parameters:*
 
-* `k` - Center rank constant (default: 60)
+* `k` - Center rank constant (default: 60), via `{ k: <long> }`
 
 *Returns:* Double - RRF score
 
 [source,sql]
 ----
-SELECT vector.rrfscore(1, 2, 4, 60)
+SELECT vector.rrfscore(1, 2, 4)
+-- Returns: 1/61 + 1/62 + 1/64
+
+SELECT vector.rrfscore(1, 2, 4, { k: 100 })
+-- Returns: 1/101 + 1/102 + 1/104
 ----
 
 '''

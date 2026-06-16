@@ -1899,19 +1899,41 @@ SELECT vectorQuantizeBinary([0.1, 0.5, 0.9])
 
 '''
 
-[[vector-rrf-score]]
-====== vectorRRFScore() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
+[[vector-dequantize-binary]]
+====== vectorDequantizeBinary() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
 
-Compute https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a[reciprocal rank fusion (RRF)] for combining multiple ranks.
-The last argument k is the center rank with a default value of `60`.
+Reconstructs an approximate float vector from a binary-quantized result. Lossy: binary quantization keeps
+only the sign relative to the median, so each bit maps to `highValue` (default `1.0`) when set or
+`lowValue` (default `-1.0`) when clear. Accepts the result of `vectorQuantizeBinary()` directly.
 
-Syntax: `vectorRRFScore(&lt;scalar&gt;, &lt;scalar&gt;, ... [, &lt;scalar&gt;])`
+Syntax: `vectorDequantizeBinary(&lt;quantized&gt; [, &lt;lowValue&gt;, &lt;highValue&gt;])`
 
 *Examples*
 
 [source,sql]
 ----
-SELECT vectorRRFScore(1.0, 2.0, 4.0, 60)
+SELECT vectorDequantizeBinary(vectorQuantizeBinary([0.1, 0.5, 0.9]))
+-- Returns: [-1.0, 1.0, 1.0]
+----
+
+'''
+
+[[vector-rrf-score]]
+====== vectorRRFScore() pass:[<span class="fn-badge fn-badge-vector">vector</span>]
+
+Compute https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a[reciprocal rank fusion (RRF)] for combining multiple ranks.
+Every positional numeric argument is a rank. The center constant `k` (default `60`) is set only via a
+trailing options map `{ k: <long> }` - a bare trailing number is always a rank, never `k`.
+
+Syntax: `vectorRRFScore(&lt;rank&gt;, &lt;rank&gt;, ... [, { k: &lt;long&gt; }])`
+
+*Examples*
+
+[source,sql]
+----
+SELECT vectorRRFScore(1, 2, 4)
+
+SELECT vectorRRFScore(1, 2, 4, { k: 100 })
 ----
 
 '''
