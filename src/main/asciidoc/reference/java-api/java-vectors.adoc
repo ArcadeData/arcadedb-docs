@@ -826,7 +826,7 @@ System.out.println("Fetched from documents: " + stats.get("vectorFetchFromDocume
 [source,sql]
 ----
 -- Same query works for all quantization types
-SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+SELECT expand(vector.neighbors('Document[embedding]', $queryVector, 10))
 ----
 
 . *Two-Stage Search with BINARY*: For very large datasets, use BINARY quantization as a fast pre-filter, then rerank with full precision:
@@ -992,7 +992,7 @@ For detailed benchmarking methodology, see the JMH benchmark implementation at:
 
 ===== Querying Vector Indexes with SQL
 
-Use the `vectorNeighbors()` function to perform similarity searches:
+Use the `vector.neighbors()` function to perform similarity searches:
 
 ====== Basic Similarity Search
 
@@ -1001,10 +1001,10 @@ Find the 10 most similar documents to a query vector:
 [source,sql]
 ----
 -- Returns rows with .record (full document) and .distance
-SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+SELECT expand(vector.neighbors('Document[embedding]', $queryVector, 10))
 ----
 
-The `vectorNeighbors()` function takes the *index name* (format: `'TypeName[propertyName]'`) as its first argument and returns a list of maps. Each map contains all document properties (e.g., `name`, `title`), plus `distance` (the similarity score), `@rid`, `@type`, and `record` (the full document object). Use `expand()` to flatten the list into individual result rows so you can access these fields directly (e.g., `SELECT name, distance FROM (SELECT expand(...))`). The `distance` semantics depend on the similarity metric (for COSINE: 0 = identical, higher = more different). Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
+The `vector.neighbors()` function takes the *index name* (format: `'TypeName[propertyName]'`) as its first argument and returns a list of maps. Each map contains all document properties (e.g., `name`, `title`), plus `distance` (the similarity score), `@rid`, `@type`, and `record` (the full document object). Use `expand()` to flatten the list into individual result rows so you can access these fields directly (e.g., `SELECT name, distance FROM (SELECT expand(...))`). The `distance` semantics depend on the similarity metric (for COSINE: 0 = identical, higher = more different). Use named parameters (e.g., `$queryVector`) instead of hardcoded vectors for real-world applications.
 
 ====== Combining with Other Filters
 
@@ -1013,7 +1013,7 @@ Perform a vector search and filter results client-side, or use a subquery:
 [source,sql]
 ----
 -- Find the 10 nearest neighbors
-SELECT expand(vectorNeighbors('Document[embedding]', $queryVector, 10))
+SELECT expand(vector.neighbors('Document[embedding]', $queryVector, 10))
 ----
 
 NOTE: After `expand()`, each row contains the document's properties and a `distance` field. You can filter with a WHERE clause in the outer query (e.g., `SELECT ... FROM (SELECT expand(...)) WHERE source = 'wiki'`) or in your application code.
@@ -1041,10 +1041,10 @@ CREATE INDEX ON MultiModalRecord (textEmbedding) LSM_VECTOR METADATA {
 };
 
 -- Query by image modality
-SELECT expand(vectorNeighbors('MultiModalRecord[imageEmbedding]', [0.1, 0.2, ...], 5))
+SELECT expand(vector.neighbors('MultiModalRecord[imageEmbedding]', [0.1, 0.2, ...], 5))
 
 -- Query by text modality
-SELECT expand(vectorNeighbors('MultiModalRecord[textEmbedding]', [0.2, 0.3, ...], 5))
+SELECT expand(vector.neighbors('MultiModalRecord[textEmbedding]', [0.2, 0.3, ...], 5))
 ----
 
 ====== Retrieving Neighbor Details
@@ -1054,10 +1054,10 @@ Get detailed information about nearest neighbors:
 [source,sql]
 ----
 -- Returns array of objects with distance and keys
-SELECT vectorNeighbors('Document[embedding]', $queryVector, 10) AS neighbors;
+SELECT vector.neighbors('Document[embedding]', $queryVector, 10) AS neighbors;
 ----
 
-*Note*: The first argument to `vectorNeighbors()` must always be the *index name* in `'TypeName[propertyName]'` format (e.g., `'Document[embedding]'`). Without `expand()`, you get a single row with the `neighbors` field containing the entire list. Use `expand()` to flatten the results into individual rows where you can access document properties and `distance` directly.
+*Note*: The first argument to `vector.neighbors()` must always be the *index name* in `'TypeName[propertyName]'` format (e.g., `'Document[embedding]'`). Without `expand()`, you get a single row with the `neighbors` field containing the entire list. Use `expand()` to flatten the results into individual rows where you can access document properties and `distance` directly.
 
 ====== Type-Specific Search with Inheritance
 
@@ -1087,7 +1087,7 @@ CREATE VERTEX TYPE AudioEmbedding EXTENDS Embedding;
 
 [source,sql]
 ----
-SELECT expand(vectorNeighbors('ImageEmbedding[vector]', $queryVector, 50))
+SELECT expand(vector.neighbors('ImageEmbedding[vector]', $queryVector, 50))
 ----
 
 All results will be of type `ImageEmbedding` - records from `DocumentEmbedding` and `AudioEmbedding` are excluded.
@@ -1096,7 +1096,7 @@ All results will be of type `ImageEmbedding` - records from `DocumentEmbedding` 
 
 [source,sql]
 ----
-SELECT expand(vectorNeighbors('Embedding[vector]', $queryVector, 50))
+SELECT expand(vector.neighbors('Embedding[vector]', $queryVector, 50))
 ----
 
 Results may include records from any child type (`ImageEmbedding`, `DocumentEmbedding`, `AudioEmbedding`) based on similarity.
@@ -1234,7 +1234,7 @@ float[] queryVector = new float[] {0.1f, 0.2f, 0.3f}; // Vector must match index
 
 // Perform similarity search using SQL
 final ResultSet resultSet = database.query("sql",
-    "SELECT expand(vectorNeighbors('Document[embedding]', ?, 10))",
+    "SELECT expand(vector.neighbors('Document[embedding]', ?, 10))",
     queryVector);
 
 while (resultSet.hasNext()) {
@@ -1377,7 +1377,7 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 };
 
 -- Query for the 10 nearest documents
-SELECT expand(vectorNeighbors('Document[embedding]', $queryEmbedding, 10))
+SELECT expand(vector.neighbors('Document[embedding]', $queryEmbedding, 10))
 ----
 
 ====== Image Similarity Search
@@ -1394,7 +1394,7 @@ CREATE INDEX ON Image (features) LSM_VECTOR METADATA {
 };
 
 -- Find the 5 most similar images
-SELECT expand(vectorNeighbors('Image[features]', $imageFeatures, 5))
+SELECT expand(vector.neighbors('Image[features]', $imageFeatures, 5))
 ----
 
 ====== Recommendation System
@@ -1410,11 +1410,11 @@ CREATE INDEX ON Product (embedding) LSM_VECTOR METADATA {
 };
 
 -- Find the 20 most similar products for recommendations
-SELECT expand(vectorNeighbors('Product[embedding]', $userPreferenceVector, 20))
+SELECT expand(vector.neighbors('Product[embedding]', $userPreferenceVector, 20))
 ----
 
 For more information, see:
 
 * <<indexes, Indexes>>
 * <<sql-create-index, CREATE INDEX>>
-* <<vector-neighbors-ext, vectorNeighbors()>>
+* <<vector-neighbors-ext, vector.neighbors()>>
