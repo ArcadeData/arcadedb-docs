@@ -1,7 +1,7 @@
 [[full-text-index]]
 ==== Full-Text Index
 
-ArcadeDB's full-text index is built on https://lucene.apache.org[Apache Lucene] and supports configurable analyzers, advanced Lucene query syntax, multi-property indexing, relevance scoring, and "More Like This" similarity search.
+ArcadeDB's full-text index is built on https://lucene.apache.org[Apache Lucene] and supports configurable analyzers, advanced Lucene query syntax, multi-property indexing, native *BM25 relevance scoring* (with tunable parameters and per-field boosts), and "More Like This" similarity search.
 
 [[full-text-index-create]]
 ===== Creating a Full-Text Index
@@ -68,6 +68,26 @@ CREATE INDEX ON Article (content) FULL_TEXT
 | string
 | —
 | Per-field analyzer override, e.g. `"title_analyzer"`
+
+| `similarity`
+| `"BM25"` \| `"CLASSIC"`
+| `"BM25"`
+| Relevance model (see <<full-text-index-scoring>>). `BM25` is the default for newly created indexes; `CLASSIC` is the legacy term-coordination (match-count) model
+
+| `bm25_k1`
+| float
+| `1.2`
+| BM25 term-frequency saturation (must be >= 0). Higher values let repeated terms keep increasing the score
+
+| `bm25_b`
+| float
+| `0.75`
+| BM25 document-length normalization, in `[0, 1]` (`0` disables length normalization)
+
+| `<field>_boost`
+| float
+| `1.0`
+| Per-field BM25 boost multiplier applied to field-qualified matches on that field (must be >= 0), e.g. `"title_boost"`
 |===
 
 ====== Common Analyzers
@@ -248,11 +268,93 @@ SELECT * FROM Article WHERE SEARCH_INDEX('Article[title,body]', 'title:database'
 SELECT * FROM Article WHERE SEARCH_INDEX('Article[title,body]', '+title:"multi model" -nosql')
 ----
 
-[[full-text-index-score]]
-===== Relevance Score ($score)
+====== Boosting Terms (Caret)
 
-Every match carries a relevance score.
-Use `$score` in projections or `ORDER BY` clauses:
+Append `^N` to a term, phrase, field-qualified term, or parenthesized group to weight it more (or less, with `N < 1`) when scoring.
+This follows the Lucene/Elasticsearch convention and applies to BM25 indexes:
+
+[source,sql]
+----
+-- Make "java" count three times as much as "database" in the ranking
+SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java^3 database') ORDER BY $score DESC
+
+-- Boost a field-qualified term, combined with a required term
+SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[title,body]', '+database title:java^5') ORDER BY $score DESC
+
+-- Boost a whole OR group
+SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[title,body]', '(title:java OR title:python)^3 body:cooking') ORDER BY $score DESC
+----
+
+The query-time caret combines multiplicatively with any configured per-field boost (see <<full-text-index-scoring>>): the effective weight is `caret * field_boost`.
+
+[[full-text-index-scoring]]
+===== Relevance Scoring
+
+[[full-text-index-similarity]]
+====== Similarity Models: BM25 and CLASSIC
+
+Full-text indexes rank results with one of two similarity models, selected by the `similarity` metadata option:
+
+[%header,cols="1,5"]
+|===
+| Model | Description
+
+| `BM25` (default)
+| Industry-standard https://en.wikipedia.org/wiki/Okapi_BM25[Okapi BM25] ranking: combines term frequency (TF), inverse document frequency (IDF, so rare terms count more than common ones) and document-length normalization (shorter documents matching the same term rank higher). Tunable via `bm25_k1` and `bm25_b`.
+
+| `CLASSIC`
+| Legacy term-coordination model: the score is simply the number of distinct query terms a document matches. Kept for backward compatibility.
+|===
+
+`BM25` is the default for newly created indexes. Configure it explicitly, optionally tuning `bm25_k1`/`bm25_b`:
+
+[source,sql]
+----
+-- BM25 with tuned parameters
+CREATE INDEX ON Article (content) FULL_TEXT
+  METADATA { "similarity": "BM25", "bm25_k1": 1.2, "bm25_b": 0.75 }
+
+-- Keep the legacy match-count scoring
+CREATE INDEX ON Article (content) FULL_TEXT
+  METADATA { "similarity": "CLASSIC" }
+----
+
+[[full-text-index-field-boosts]]
+====== Per-Field Boosts
+
+On a multi-property index, give a field a default BM25 weight with `<field>_boost`, so matches in that field contribute more to the score:
+
+[source,sql]
+----
+CREATE INDEX ON Article (title, body) FULL_TEXT
+  METADATA { "similarity": "BM25", "title_boost": 3.0 }
+----
+
+A field boost applies to *field-qualified* query terms on that field (e.g. `title:java`). Unqualified terms score against the field-agnostic token with boost `1.0`. Per-field boosts and query-time caret boosts compose: the effective weight is `caret * field_boost`.
+
+====== From the Java API
+
+The same configuration is available on the index builder:
+
+[source,java]
+----
+database.getSchema().buildTypeIndex("Article", new String[] { "title", "body" })
+    .withType(Schema.INDEX_TYPE.FULL_TEXT).withFullTextType()
+    .withBM25(1.2f, 0.75f)          // similarity = BM25, k1, b
+    .withFieldBoost("title", 3.0f)  // per-field boost
+    .create();
+----
+
+Use `withSimilarity("CLASSIC")` to select the legacy model instead of `withBM25(...)`.
+
+[[full-text-index-score]]
+====== Relevance Score ($score)
+
+Every match carries a floating-point relevance score, exposed as the query variable `$score`.
+Use it in projections or `ORDER BY` clauses:
 
 [source,sql]
 ----
@@ -262,8 +364,6 @@ WHERE SEARCH_INDEX('Article[content]', 'java programming')
 ORDER BY $score DESC
 ----
 
-Documents that match more query terms receive higher scores.
-
 [source,sql]
 ----
 SELECT title, $score AS relevance
@@ -271,6 +371,24 @@ FROM Article
 WHERE SEARCH_FIELDS(['content'], 'java programming')
 ORDER BY relevance DESC
 LIMIT 10
+----
+
+With BM25, documents matching rarer, more discriminative terms (and shorter documents matching the same term) rank higher. With CLASSIC, documents that match more distinct query terms rank higher.
+
+[NOTE]
+====
+`$score` is always a floating-point number, including for `CLASSIC` indexes (where it is the match count widened to a float, e.g. `3.0`). Application code that previously read `$score` as an integer must read it as a `Number`/float.
+====
+
+[[full-text-index-explain]]
+====== Inspecting Scores with EXPLAIN / PROFILE
+
+`EXPLAIN` (or `PROFILE`) of a query whose `WHERE` uses `SEARCH_INDEX(...)` annotates the full-text fetch step with a `SCORING` line: the similarity model, the `k1`/`b` parameters, the corpus statistics, and, per query term, its document frequency (`df`), `idf` and applied `boost`.
+
+[source,sql]
+----
+EXPLAIN SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java database') = true
 ----
 
 [[full-text-index-mlt]]
@@ -501,11 +619,104 @@ ORDER BY $similarity DESC
 LIMIT 10
 ----
 
+[[full-text-index-hybrid]]
+====== Hybrid Retrieval: Fusing BM25 with Vector Search
+
+With native BM25, the full-text index becomes a first-class leg of *hybrid retrieval*: exact keyword relevance (BM25), dense semantic similarity, and learned-sparse recall can be merged into a single ranked top-K, server-side, with `vector.fuse` (see <<hybrid-search>>).
+
+This is the accuracy-first pattern behind enterprise document search - for example legal/government case files, where matching an exact statute or case number (keyword) matters as much as semantic similarity. Here a `Case` type carries the report `content` (full-text, BM25), a `dense` embedding, and learned-sparse `tokens`/`weights`. `RRF` fusion tolerates the very different score scales (BM25 in `[0, +inf)`, cosine in `[-1, 1]`):
+
+[source,sql]
+----
+SELECT title, caseNumber, score
+FROM (
+  SELECT expand(`vector.fuse`(
+      `vector.neighbors`('Case[dense]', :denseVec, 100),
+      `vector.sparseNeighbors`('Case[tokens,weights]', :qIdx, :qVal, 100),
+      (SELECT @rid, $score FROM Case WHERE SEARCH_INDEX('Case[content]', :keywords) = true),
+      { fusion: 'RRF', k: 60 }
+  ))
+)
+ORDER BY score DESC
+LIMIT 10
+----
+
+Because the fused candidates are records, the graph can be expanded in the same statement - rank the most relevant cases, then traverse to their related cases, circulars, and evidence:
+
+[source,sql]
+----
+SELECT caseNumber, title
+FROM (
+  SELECT expand(out('RELATED_TO'))
+  FROM (
+    SELECT expand(`vector.fuse`(
+        `vector.neighbors`('Case[dense]', :denseVec, 100),
+        (SELECT @rid, $score FROM Case WHERE SEARCH_INDEX('Case[content]', :keywords) = true),
+        { fusion: 'RRF' }
+    )) LIMIT 10
+  )
+)
+----
+
+[[full-text-index-maintenance]]
+===== Maintenance: BM25 Corpus Statistics
+
+BM25 maintains per-type corpus counters (document count and total document length) that feed the average-document-length normalizer.
+They are updated incrementally as documents are indexed and removed.
+Because they are not transactionally reversed on rollback, a workload with many rolled-back transactions can let them drift slightly over time, which only affects length normalization (suboptimal, never wrong, scores).
+The first BM25 query of a session self-corrects them with a cheap check; for an exact repair without a full reindex, run:
+
+[source,sql]
+----
+-- Re-derive the corpus statistics for one index...
+REBUILD INDEX `Article[content]` WITH statsOnly = true
+
+-- ...or for every full-text index
+REBUILD INDEX * WITH statsOnly = true
+----
+
+This is also a good way to "pre-warm" the counters of a BM25 index migrated from an older version before serving traffic (otherwise the first query does a one-time full scan to build them).
+
+[[full-text-index-upgrade-notes]]
+===== Behavior Changes When Upgrading
+
+When BM25 support was introduced, existing full-text indexes keep their `CLASSIC` ranking (BM25 is opt-in for existing data, see <<full-text-index-existing-bm25>>), but the following user-visible behaviors changed for *all* full-text indexes, including CLASSIC ones. Review them before upgrading.
+
+[%header,cols="2,3,3"]
+|===
+| Change | Impact | Migration
+
+| `$score` is now a *float*
+| It was an `Integer` match count for CLASSIC indexes and is now the same value widened to a `Float` (e.g. `3` -> `3.0`). Code reading `$score` as a `java.lang.Integer` will fail (e.g. `ClassCastException`).
+| Read `$score` as a `Number`/`Float`, e.g. `((Number) result.getProperty("$score")).floatValue()`. SQL that only sorts/filters on `$score` is unaffected.
+
+| Cursor order is now *most-relevant-first*
+| The CLASSIC full-text cursor previously returned matches in *ascending* score order (least relevant first) and ignored the result `limit`. It now returns descending score (with a stable tiebreaker) and honors `limit` - consistent with BM25. Applications that consumed the raw `Index.get(...)` order without an explicit `ORDER BY` will see it reversed, and a `limit` now truncates to the top-N.
+| Add an explicit `ORDER BY $score ASC` if you relied on the old order; SQL queries already using `ORDER BY $score DESC` are unaffected.
+
+| `IndexCursorEntry` identity excludes the score (extension API)
+| `equals()`/`hashCode()` now use only `(record, keys)`. Code that put `IndexCursorEntry` objects into a `Set` (or used them as map keys) expecting score-differentiated entries now deduplicates on `(record, keys)` only.
+| Treat `(record, keys)` as the identity. Affects only code working directly with the low-level index cursor API.
+|===
+
+[[full-text-index-existing-bm25]]
+===== Getting BM25 on Existing Indexes
+
+Indexes created before BM25 support open and keep scoring with `CLASSIC` (apart from the behavior changes in <<full-text-index-upgrade-notes>>).
+To switch existing data to BM25, *rebuild* the index: term frequencies were never stored before, so there is no in-place migration.
+
+[source,sql]
+----
+REBUILD INDEX `Article[content]`
+----
+
 [[full-text-index-notes]]
 ===== Notes
 
 * Full-text indexes require all indexed properties to be of type `STRING`.
 * Full-text indexes cannot be marked `UNIQUE`.
-* Without a `METADATA` block, indexes use `StandardAnalyzer` with `OR` default operator and leading wildcards disabled.
-* Indexes created without metadata continue to work with `SEARCH_INDEX` and `SEARCH_INDEX_MORE` exactly as before.
+* Without a `METADATA` block, newly created indexes use `StandardAnalyzer` with `OR` default operator, leading wildcards disabled, and *BM25* similarity.
 * `$score` and `$similarity` are always available as query variables for matching documents; non-matching documents receive `0`.
+* `$score` is a floating-point value (for `CLASSIC` indexes too, where it is the match count as a float).
+* BM25 is scored per bucket (like an Elasticsearch shard): on a multi-bucket type, `$score` is not globally calibrated across buckets, so prefer `ORDER BY $score` over comparing absolute scores across documents in different buckets.
+* The direct `Index.get(text)` Java API does simple token matching only; use `SEARCH_INDEX(...)` for the full Lucene query syntax (boolean operators, phrases, wildcards, caret boosts).
