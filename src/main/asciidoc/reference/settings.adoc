@@ -105,6 +105,7 @@ The following plugins are available for ArcadeDB Server:
 - `Postgres` (`com.arcadedb.postgres.PostgresProtocolPlugin`) - Implements the Postgres wire protocol
 - `Redis` (`com.arcadedb.redis.RedisProtocolPlugin`) - Implements the Redis wire protocol
 - `Http` (`com.arcadedb.server.http.HttpServerPlugin`) - Implements the HTTP/REST API
+- `gRPC` (`com.arcadedb.server.grpc.GrpcServerPlugin`) - Implements the <<grpc-api,gRPC API>>. Bundled in the `full` distribution but not started until it is added to `server.plugins` (see <<grpc-settings,gRPC settings>>)
 
 ===== SERVER
 
@@ -273,8 +274,40 @@ The following plugins are available for ArcadeDB Server:
 |===
 | Name       | `server.plugins`-String
 | Gremlin    | `GremlinServer:com.arcadedb.server.gremlin.GremlinServerPlugin`
+| gRPC       | `gRPC:com.arcadedb.server.grpc.GrpcServerPlugin`
 | MongoDB    | `MongoDB:com.arcadedb.mongo.MongoDBProtocolPlugin`
 | Postgres   | `Postgres:com.arcadedb.postgres.PostgresProtocolPlugin`
 | Prometheus | `Prometheus:com.arcadedb.metrics.prometheus.PrometheusMetricsPlugin`
 | Redis      | `Redis:com.arcadedb.redis.RedisProtocolPlugin`
+|===
+
+[[grpc-settings]]
+===== gRPC
+
+The gRPC server is implemented by the `GrpcServerPlugin`, which is bundled in the `full` distribution but *not started by default*. To enable it, register the plugin in `server.plugins` (see <<available-plugins,available plugins>>):
+
+[source]
+----
+-Darcadedb.server.plugins=gRPC:com.arcadedb.server.grpc.GrpcServerPlugin
+----
+
+Once enabled, the server listens on port `50051` by default. The settings below are read by the plugin itself and are *not* part of the registered server settings above, so they only take effect as JVM system properties (`-Darcadedb.grpc.*`); they are not resolved from environment variables. The `server.plugins` setting itself is a standard server setting and can be supplied either way.
+
+[%header,cols="25%,50%,10%,15%",stripes=even]
+|===
+|Name|Description|Type|Default Value
+|`grpc.enabled`|Start the gRPC server when the plugin is registered. Set to `false` to keep the plugin loaded but the listener stopped|Boolean|true
+|`grpc.port`|Port for the standard gRPC server|Integer|50051
+|`grpc.host`|Host/interface to bind to|String|0.0.0.0
+|`grpc.mode`|Server mode: `standard`, `xds`, or `both`|String|standard
+|`grpc.xds.port`|Port for the xDS server (used when `grpc.mode` is `xds` or `both`)|Integer|50052
+|`grpc.tls.enabled`|Enable TLS for the gRPC server|Boolean|false
+|`grpc.tls.cert`|Path to the TLS certificate chain file (required when `grpc.tls.enabled=true`)|String|(none)
+|`grpc.tls.key`|Path to the TLS private key file (required when `grpc.tls.enabled=true`)|String|(none)
+|`grpc.maxMessageSize`|Maximum inbound message size, in MB|Integer|100
+|`grpc.reflection.enabled`|Enable the gRPC server reflection service (used by tools such as `grpcurl`)|Boolean|true
+|`grpc.health.enabled`|Enable the standard gRPC health-checking service|Boolean|true
+|`grpc.compression.enabled`|Advertise support for message compression|Boolean|true
+|`grpc.compression.force`|Force compression on all outbound messages|Boolean|false
+|`grpc.compression.type`|Compression algorithm used when `grpc.compression.force=true`|String|gzip
 |===

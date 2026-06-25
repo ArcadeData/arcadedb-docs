@@ -5,6 +5,22 @@ ArcadeDB exposes a gRPC interface for high-performance, strongly-typed access fr
 
 Proto definition: https://github.com/ArcadeData/arcadedb/blob/main/grpc/src/main/proto/arcadedb-server.proto[arcadedb-server.proto]
 
+[[grpc-enable]]
+==== Enabling the gRPC server
+
+The gRPC module is bundled in the `full` distribution, but the server is implemented as a plugin (`com.arcadedb.server.grpc.GrpcServerPlugin`) that is *not started by default*. If the server is not listening on any gRPC port, it is because the plugin has not been registered yet.
+
+Enable it by adding the plugin to the `arcadedb.server.plugins` setting, then start the server:
+
+[source,bash]
+----
+-Darcadedb.server.plugins=gRPC:com.arcadedb.server.grpc.GrpcServerPlugin
+----
+
+The format is `<pluginName>:<pluginFullClass>` (comma-separated when registering several plugins). Once enabled, the server listens on port `50051` by default. Confirm it started by looking for a `gRPC server started` line in the server log, or with `grpcurl -plaintext localhost:50051 list`.
+
+Host, port, TLS, message size and the other gRPC options are configured through `arcadedb.grpc.*` system properties - see <<grpc-settings,gRPC settings>> for the full list. These plugin-level options are read as JVM system properties (`-Darcadedb.grpc.*`) and, unlike `arcadedb.server.plugins`, are not resolved from environment variables.
+
 [[grpc-services]]
 ==== Services
 
@@ -119,7 +135,7 @@ import grpc
 import arcadedb_server_pb2 as pb
 import arcadedb_server_pb2_grpc as rpc
 
-channel = grpc.insecure_channel('localhost:2424')
+channel = grpc.insecure_channel('localhost:50051')
 stub = rpc.ArcadeDbServiceStub(channel)
 
 # Execute a query
@@ -146,7 +162,7 @@ const packageDef = protoLoader.loadSync('arcadedb-server.proto');
 const proto = grpc.loadPackageDefinition(packageDef).arcadedb;
 
 const client = new proto.ArcadeDbService(
-  'localhost:2424', grpc.credentials.createInsecure()
+  'localhost:50051', grpc.credentials.createInsecure()
 );
 
 client.ExecuteQuery({
