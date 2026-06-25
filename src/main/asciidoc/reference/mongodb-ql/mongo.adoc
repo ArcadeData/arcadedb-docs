@@ -110,3 +110,30 @@ The Server output will contain this line:
 ----
 2018-10-09 18:47:01:692 INFO  <ArcadeDB_0> - MongoDB Protocol plugin started [ArcadeDBServer]
 ----
+
+[[mongodb-protocol-authentication]]
+===== Authentication
+
+The MongoDB Protocol Plugin supports authentication through the SASL `PLAIN` mechanism (https://datatracker.ietf.org/doc/html/rfc4616[RFC 4616]).
+Credentials are validated against the ArcadeDB <<security,server users>>, exactly like the <<postgres-driver,PostgreSQL protocol>>.
+
+Because ArcadeDB stores passwords as one-way hashes, the challenge-response mechanisms `SCRAM-SHA-1` and `SCRAM-SHA-256` (the default negotiated by most MongoDB drivers and by `mongosh`) cannot be supported: they would require the clear-text password to be available on the server side.
+For this reason the client must explicitly request the `PLAIN` mechanism.
+
+Example using a connection string:
+
+[source,shell]
+----
+mongosh "mongodb://root:playwithdata@localhost:27017/mydb?authMechanism=PLAIN"
+----
+
+Or, from an already opened shell:
+
+[source,javascript]
+----
+db.auth({ user: "root", pwd: "playwithdata", mechanism: "PLAIN" })
+----
+
+The `user` and `pwd` are the ArcadeDB server credentials, and the authentication database is checked against the databases the user is authorized to access.
+
+NOTE: The `PLAIN` mechanism transmits the credentials in clear text. In production always use it over a TLS-encrypted connection, the same recommendation that applies to the PostgreSQL wire protocol.
