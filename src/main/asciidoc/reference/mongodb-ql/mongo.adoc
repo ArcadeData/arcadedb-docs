@@ -111,6 +111,54 @@ The Server output will contain this line:
 2018-10-09 18:47:01:692 INFO  <ArcadeDB_0> - MongoDB Protocol plugin started [ArcadeDBServer]
 ----
 
+[[mongodb-protocol-commands]]
+===== Supported commands
+
+The plugin implements a subset of the MongoDB protocol, focused on CRUD operations, queries and index creation:
+
+[%header,cols="1,3"]
+|===
+| Command | Driver helpers
+
+| `find`, `count`, `aggregate` | `find()`, `countDocuments()`, `aggregate()`
+| `insert` | `insertOne()`, `insertMany()`
+| `update` | `updateOne()`, `updateMany()`, `replaceOne()`, `replaceMany()`
+| `delete` | `deleteOne()`, `deleteMany()`
+| `create` | `createCollection()`
+| `createIndexes` | `createIndex()`, `createIndexes()`
+|===
+
+[[mongodb-protocol-update-delete]]
+====== Updating and deleting documents
+
+The `update` and `delete` commands accept the same filter operators as `find` (`$eq`, `$ne`, `$lt`, `$lte`, `$gt`, `$gte`, `$in`, `$nin`, `$and`, `$or`, `$not`, `$exists`, ...).
+
+[source,javascript]
+----
+// Delete the first matching document
+db.doc.deleteOne({ test: { $eq: "abcde" } })
+
+// Delete all matching documents
+db.doc.deleteMany({ counter: { $gte: 5 } })
+
+// Replace the whole document (replaceOne / replaceMany)
+db.doc.replaceOne({ test: { $eq: "abcde" } }, { test: "vwxyz" })
+
+// Update with operators ($set, $unset, $inc)
+db.doc.updateOne({ test: "v2" }, { $set: { name: "Jay" } })
+db.doc.updateMany({ counter: { $gte: 8 } }, { $inc: { counter: 100 } })
+db.doc.updateOne({ test: "v1" }, { $unset: { counter: "" } })
+
+// Upsert: insert when nothing matches
+db.doc.updateOne({ test: "missing" }, { $set: { counter: 999 } }, { upsert: true })
+----
+
+Notes:
+
+* `deleteOne()`, `updateOne()` and `replaceOne()` affect a single matching document; `deleteMany()` and `updateMany()` affect all matches.
+* A replacement document (no `$`-prefixed keys) fully replaces the matched document's fields. The supported update operators are `$set`, `$unset` and `$inc`.
+* With `upsert: true`, when no document matches a new one is inserted, seeded from the filter's equality conditions plus the update, and its generated `_id` is returned.
+
 [[mongodb-protocol-authentication]]
 ===== Authentication
 
