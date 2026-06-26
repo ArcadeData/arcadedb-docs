@@ -137,3 +137,29 @@ db.auth({ user: "root", pwd: "playwithdata", mechanism: "PLAIN" })
 The `user` and `pwd` are the ArcadeDB server credentials, and the authentication database is checked against the databases the user is authorized to access.
 
 NOTE: The `PLAIN` mechanism transmits the credentials in clear text. In production always use it over a TLS-encrypted connection, the same recommendation that applies to the PostgreSQL wire protocol.
+
+[[mongodb-protocol-indexes]]
+===== Index management
+
+The MongoDB Protocol Plugin supports the `createIndexes` command, used by the driver helpers `createIndex()` and `createIndexes()`.
+Each requested index is mapped to an ArcadeDB <<sql-create-index,LSM-Tree index>> over the same property list.
+
+[source,javascript]
+----
+// Single-field index
+db.doc.createIndex({ test: 1 })
+
+// Unique index
+db.doc.createIndex({ email: 1 }, { unique: true })
+
+// Compound index
+db.doc.createIndex({ lastName: 1, firstName: -1 })
+----
+
+Notes:
+
+* If the target collection does not exist yet, it is created automatically (the response reports `createdCollectionAutomatically: true`).
+* Because MongoDB collections are schemaless, properties that are not yet declared on the type are kept free-form and the index serializes their keys as strings, preserving the stored value type.
+* The sort direction (`1` ascending, `-1` descending) is accepted for compatibility but ignored: ArcadeDB LSM-Tree indexes can be scanned in both directions.
+* Re-creating an existing index is a no-op, matching MongoDB semantics.
+* Specialized index types (`text`, `2dsphere`, `hashed`, ...) are created as standard LSM-Tree indexes on the indexed fields.
