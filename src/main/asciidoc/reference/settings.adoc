@@ -107,6 +107,7 @@ The following plugins are available for ArcadeDB Server:
 - `Http` (`com.arcadedb.server.http.HttpServerPlugin`) - Implements the HTTP/REST API
 - `gRPC` (`com.arcadedb.server.grpc.GrpcServerPlugin`) - Implements the <<grpc-api,gRPC API>>. Bundled in the `full` distribution but not started until it is added to `server.plugins` (see <<grpc-settings,gRPC settings>>)
 
+[[setting-server]]
 ===== SERVER
 
 [%header,cols="20%,55%,10%,15%",stripes=even]
@@ -209,6 +210,9 @@ The following plugins are available for ArcadeDB Server:
 |`server.readinessRequiresHA`|When true and HA is active, `/api/v1/ready` also requires the node to have joined the Raft group (a leader has been elected). Default false preserves current readiness behavior. See <<observability-health,Health probes>>. _(Available since v26.7.1)_|Boolean|false
 |`server.logFormat`|Console log format: `text` (default, human-readable) or `json` (one JSON object per line with correlation fields). See <<observability-logging,Structured logging>>. _(Available since v26.7.1)_|String|text
 |`server.logIncludeTrace`|In text log mode, append `[traceId=...]` to each line while a trace is active. Default false preserves current text output. _(Available since v26.7.1)_|Boolean|false
+|`server.grpcQueryMaxResultRows`|Hard ceiling on the number of rows the gRPC unary `ExecuteQuery` materializes. A request limit at or below this cap is honored; a result that would exceed it fails the call with `RESOURCE_EXHAUSTED` (consistent with the `StreamQuery` `MATERIALIZE_ALL` path) rather than silently truncating, and a client cannot bypass it with a larger limit. Bounds heap usage and protects against limitless-query denial-of-service. The default is lower than `server.grpcStreamMaxMaterializedRows` because the unary response is built and returned as a single gRPC message (also bounded by the max message size), whereas `StreamQuery` emits incrementally. Set to `-1` or `0` for unlimited (removes the DoS protection). _(Available since v26.7.1)_|Integer|100000
+|`server.grpcStreamMaxMaterializedRows`|Maximum number of rows the gRPC `StreamQuery` `MATERIALIZE_ALL` retrieval mode buffers in memory before emitting. Exceeding the cap fails the call with `RESOURCE_EXHAUSTED` so clients fall back to `CURSOR`/`PAGED` streaming instead of running the server out of memory. Set to `-1` or `0` for unlimited (removes the DoS protection). _(Available since v26.7.1)_|Integer|1000000
+|`server.grpcStreamWriteTimeoutMs`|Maximum time in milliseconds a gRPC `StreamQuery` worker waits for the client transport to become ready to accept the next batch before aborting the stream. Prevents a slow or abandoned client from pinning the worker thread (and the open `ResultSet`/transaction) indefinitely. Set to `-1` to wait forever (removes the DoS protection). _(Available since v26.7.1)_|Long|60000
 |`serverMetrics`|True to enable metrics|Boolean|true
 |`serverMetrics.logging`|True to enable metrics logging|Boolean|true
 |`serverMetrics.prometheus.requireAuthentication`|Require authentication on the `/prometheus` scrape endpoint exposed by the Prometheus metrics plugin (plugin-level key, read by the optional `metrics` module).|Boolean|true
@@ -311,3 +315,5 @@ Once enabled, the server listens on port `50051` by default. The settings below 
 |`grpc.compression.force`|Force compression on all outbound messages|Boolean|false
 |`grpc.compression.type`|Compression algorithm used when `grpc.compression.force=true`|String|gzip
 |===
+
+In addition to the plugin-level keys above, the gRPC service honors three registered SERVER settings that bound result materialization and protect against limitless or slow clients pinning worker threads and exhausting heap: `server.grpcQueryMaxResultRows`, `server.grpcStreamMaxMaterializedRows`, and `server.grpcStreamWriteTimeoutMs` (see the <<setting-server,SERVER settings>> table). Unlike the `grpc.*` keys, these are standard server settings and can be supplied as JVM system properties or environment variables. _(Available since v26.7.1)_
