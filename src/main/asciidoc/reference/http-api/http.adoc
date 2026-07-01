@@ -257,7 +257,7 @@ Responses:
 * https://httpstatuses.io/204[`204`] OK -- server is `ONLINE`
 * https://httpstatuses.io/503[`503`] server not started yet
 
-When `arcadedb.server.readinessRequiresHA=true` and HA is active, readiness additionally requires the node to have joined the Raft group: it returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected. The default (`false`) preserves the behavior above. See <<observability-health,Health probes>>.
+When `arcadedb.server.readinessRequiresHA=true` and HA is active, readiness additionally requires the node to have joined the Raft group: it returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected. Once a leader is known, a second gate requires the node to be a member of the current Raft configuration and, for a follower, to have replayed the committed log to within `arcadedb.server.readinessHAMaxLag` entries of the commit index; until then it returns `503` (`Node is not yet in the Raft configuration or has not caught up`). This keeps a (re)joined follower with a wiped or lagging log out of traffic during a rolling restart, so the write quorum is not dropped. The default (`false` for `readinessRequiresHA`) preserves the behavior above. See <<observability-health,Health probes>>.
 
 Example:
 
