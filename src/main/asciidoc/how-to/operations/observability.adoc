@@ -268,7 +268,7 @@ On a High Availability cluster you can make readiness reflect Raft membership so
 arcadedb.server.readinessRequiresHA=true
 ----
 
-When this flag is `true` and HA is active, `/api/v1/ready` returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected, then `204`. The default (`false`) preserves current readiness behavior. See <<kubernetes,Kubernetes deployment>> for the full StatefulSet example.
+When this flag is `true` and HA is active, `/api/v1/ready` returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected. Once a leader is known, a second gate checks that the node is a member of the current Raft configuration and, for a follower, that it has caught up to within `arcadedb.server.readinessHAMaxLag` log entries (default `100`) of the commit index; until then it keeps returning `503` (`Node is not yet in the Raft configuration or has not caught up`). Only then does it return `204`. This prevents a (re)joined follower with a wiped or lagging log from being marked ready mid-catch-up, which would otherwise let a rolling restart drop the write quorum. The default (`false` for `readinessRequiresHA`) preserves current readiness behavior. See <<kubernetes,Kubernetes deployment>> for the full StatefulSet example.
 
 ===== Further reading
 
