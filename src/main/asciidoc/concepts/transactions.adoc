@@ -149,12 +149,55 @@ The `arcadedb.txWalFlush` setting controls whether the WAL is flushed (fsynced) 
 | Value | Behavior | Durability guarantee
 | `0` (default) | No flush. WAL is written to the OS page cache but not fsynced. | Safe against process crashes (OS page cache survives). *Not safe against power loss or OS crash* - committed transactions may be lost.
 | `1` | Flush without metadata (`fdatasync`). WAL content is fsynced to the storage device. | Safe against power loss. Recommended for production.
-| `2` | Full flush (`fsync`). WAL content and filesystem metadata (timestamps, file size) are fsynced. | Maximum durability guarantee. Slightly slower than `1`, but ensures all metadata is consistent.
+| `2` | Full flush (`fsync`). WAL content and all filesystem metadata (including timestamps) are fsynced. | No additional recovery value over `1`: `fdatasync` already flushes the metadata needed to read back the appended records (POSIX). Benchmarks show no measurable performance difference either.
 |===
+
+===== Why write order is not persistence order
+
+At commit time ArcadeDB always issues the WAL `write()` *before* the data pages are published, so the write-ahead
+ordering holds in program order. With `txWalFlush=0`, however, both writes only land in the OS page cache as dirty
+pages: the kernel's writeback persists dirty pages based on memory pressure, LRU and expiry timers, *with no ordering
+guarantee between them*, and the block layer and the drive cache can reorder further. Ordering on the physical medium
+is only ever enforced by an explicit barrier (`fsync`/`fdatasync`). On a power loss or kernel panic it is therefore
+possible for a data page to have reached the disk while its WAL record did not - despite the WAL having been written
+first.
+
+The consequence is worse than losing the most recent transactions: a multi-page transaction can persist some pages and
+not others, with *no WAL record to replay or repair from* - torn records across pages and indexes pointing at data that
+never persisted. This is structural corruption, which is why `txWalFlush=1` is the production recommendation: it makes
+the WAL record durable at commit, after which data pages may lag arbitrarily because recovery replays them from the
+WAL.
+
+Two technical notes:
+
+* `txWalFlush=1` (`fdatasync`-class) is sufficient for the WAL's append-only pattern: POSIX `fdatasync` also flushes
+  the metadata needed to *read the data back*, which includes the file-size extension of an append. Level `2` adds
+  only timestamp-class metadata, with no recovery value - benchmarks show no measurable difference between the two.
+* `txWalFlush=0` *is* safe against process crashes (the OS page cache survives the process), only power loss and
+  kernel panics are at risk.
+
+===== Measured cost
+
+Commit-heavy benchmark (one small insert per transaction, so the WAL flush dominates; Apple silicon laptop, macOS):
+
+[%header,cols="2,1,1,1,1"]
+|===
+| Level | TPS (1 thread) | Latency (1 thread) | TPS (8 threads) | Latency (8 threads)
+| `0` (no flush) | 24,813 | 40 us | 68,772 | 116 us
+| `1` (fdatasync) | 282 | 3.5 ms | 587 | 13.6 ms
+| `2` (full fsync) | 305 | 3.3 ms | 620 | 12.9 ms
+|===
+
+NOTE: The dramatic gap on macOS is platform-specific: Java's `force()` issues `F_FULLFSYNC` there, which drains the
+entire drive write cache (~3 ms on Apple SSDs). On Linux server hardware with NVMe, `fdatasync` typically costs
+30-100 us, so the production penalty is far smaller than this laptop measurement suggests. Reproduce on your own
+hardware with `mvn -pl engine test -Dtest=WALFlushBenchmark` from the ArcadeDB source tree.
 
 IMPORTANT: In `production` server mode (`arcadedb.server.mode=production`), ArcadeDB automatically sets `txWalFlush=1` if you have not explicitly configured it.
 This ensures that production deployments are durable by default.
 If you explicitly set `txWalFlush=0` in production mode, a warning is logged at startup.
+Note the server mode *defaults to* `development`, so a server that never sets the mode - and any embedded application -
+runs with `txWalFlush=0`: set the mode (or the setting) explicitly for durability.
 
 The WAL flush setting can also be changed per-database or per-transaction via the Java API:
 
