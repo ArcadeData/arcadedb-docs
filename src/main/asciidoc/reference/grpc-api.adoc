@@ -127,6 +127,38 @@ The `GrpcValue` message uses a `oneof` to represent any ArcadeDB value:
 | `InsertOptions` | Transaction mode, conflict handling, and batch size configuration
 |===
 
+===== Command Results & Write Statistics
+
+`ExecuteCommand` returns an `ExecuteCommandResponse`:
+
+[cols="2,3"]
+|===
+| Field | Meaning
+
+| `success` / `message` | Whether the command succeeded, and an optional message
+| `affected_records` | Server-computed count of affected elements and numeric scalars
+| `execution_time_ms` | Server-side execution time
+| `records` | Optional row payload, returned when `return_rows` is set on the request
+| `stats` | A `QueryUpdateStats` message, *present only for write commands that mutated data* (since v26.7.2)
+|===
+
+`QueryUpdateStats` carries the same write counters the HTTP `stats` object and the Bolt result summary expose — including counts aggregated across OpenCypher `UNION` branches and `CALL { ... }` subqueries:
+
+[cols="2,3"]
+|===
+| Field | Meaning
+
+| `nodes_created` / `nodes_deleted` | Vertices created / deleted
+| `relationships_created` / `relationships_deleted` | Edges created / deleted
+| `properties_set` | Properties assigned a value
+| `labels_added` / `labels_removed` | Type/label memberships added / removed
+| `indexes_added` / `indexes_removed` | Indexes created / dropped
+| `constraints_added` / `constraints_removed` | Constraints added / removed
+| `contains_updates` | `true` when any counter above is non-zero
+|===
+
+The equivalent HTTP response object is documented at <<http-write-statistics,Write statistics>>.
+
 ===== Connecting from Python
 
 [source,python]

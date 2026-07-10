@@ -966,6 +966,62 @@ $ curl -X POST http://localhost:2480/api/v1/command/mydb \
        --user root:arcadedb-password
 ----
 
+[[http-write-statistics]]
+===== Write statistics (`stats`)
+
+NOTE: Available since ArcadeDB v26.7.2.
+
+When a command *modifies* data, the `POST /api/v1/command/{database}` response includes a `stats` object alongside `result`, reporting how many entities the command created, deleted or changed. The object is *omitted for read-only queries* (a command that changes nothing has no `stats` field). It is populated for OpenCypher writes — including counts aggregated across `UNION` branches and `CALL { ... }` subqueries — and mirrors the counters the Bolt driver exposes through its result summary.
+
+The shape is an ArcadeDB-native camelCase object with a stable set of keys (each counter is always present, `0` when unused):
+
+[cols="1,3"]
+|===
+| Key | Meaning
+
+| `nodesCreated` / `nodesDeleted` | Vertices created / deleted
+| `relationshipsCreated` / `relationshipsDeleted` | Edges created / deleted
+| `propertiesSet` | Properties assigned a value
+| `labelsAdded` / `labelsRemoved` | Type/label memberships added / removed
+| `indexesAdded` / `indexesRemoved` | Indexes created / dropped
+| `constraintsAdded` / `constraintsRemoved` | Constraints (`UNIQUE`, `NOT_NULL`, `KEY`, `TYPED`) added / removed
+| `containsUpdates` | `true` when any counter above is non-zero
+|===
+
+Example — a Cypher write returns the counters it produced:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/school \
+       -d '{"language": "cypher", "command": "CREATE (a:Person {name:$n})-[:KNOWS]->(b:Person)", "params": {"n": "Ada"}}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+[source,json]
+----
+{
+  "user": "root",
+  "result": [],
+  "stats": {
+    "nodesCreated": 2,
+    "nodesDeleted": 0,
+    "relationshipsCreated": 1,
+    "relationshipsDeleted": 0,
+    "propertiesSet": 1,
+    "labelsAdded": 2,
+    "labelsRemoved": 0,
+    "indexesAdded": 0,
+    "indexesRemoved": 0,
+    "constraintsAdded": 0,
+    "constraintsRemoved": 0,
+    "containsUpdates": true
+  }
+}
+----
+
+The gRPC service carries the same counters in the write-result summary of `ExecuteCommand`; see <<grpc-api,gRPC API>>.
+
 [[vector-http-typed-markers]]
 ===== Typed parameter markers (`$bytes`, `$int8`)
 
