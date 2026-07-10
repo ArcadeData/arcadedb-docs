@@ -317,6 +317,32 @@ Common causes of leader unavailability include:
 
 When a replica rejoins after being offline, it catches up via the Raft log automatically; if it has fallen behind past the log purge boundary, the leader streams a full database snapshot over HTTP and the replica installs it atomically.
 
+Since v26.7.2, the leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP. Previously such a follower stayed silently disconnected and the cluster ran at bare quorum until an operator forced a leadership transfer; the leader now re-resolves the peer and re-establishes the channel on its own.
+
+[[ha-durable-raft-storage]]
+===== Durable Raft Storage (from v26.7.2)
+
+[IMPORTANT]
+====
+Since v26.7.2, `arcadedb.ha.raftPersistStorage` defaults to `true` (it was `false` before). The per-node Raft log under `raft-storage-<nodeName>` is now *persisted across restarts*, and `arcadedb.ha.raftStorageDirectory` must live on *durable* storage (a persistent volume, not an ephemeral or `tmpfs` mount).
+====
+
+With ephemeral Raft storage, wiping the log on restart could leave the cluster in a broken state:
+
+* a lagging follower that came back after a *full-cluster cold restart* could permanently diverge and fail to rejoin, surfacing as a `WALVersionGapException`; or
+* the cluster could silently re-form as a fresh single-node cluster, dropping committed history.
+
+Durable storage lets a restarted node rejoin by *replaying its own persisted log* rather than always requiring a full snapshot resync from the leader.
+
+*Migration:* the per-node directory is named `raft-storage-<nodeName>` dynamically, which container runtimes and Kubernetes cannot mount as a volume (a wildcard like `raft-storage-*` is created as a literal directory, not expanded). Set `arcadedb.ha.raftStorageDirectory` to a *static* path (e.g. `/home/arcadedb/raft-storage`) and mount *that* path on durable storage before upgrading. On Kubernetes, back it with a `PersistentVolumeClaim` — see <<kubernetes,Kubernetes>>. On a plain filesystem you can instead copy the existing `raft-storage-<nodeName>` directory across the upgrade. A throwaway or test cluster that intentionally wants ephemeral behavior can opt out with `arcadedb.ha.raftPersistStorage=false`.
+
+[[ha-remote-commit-contract]]
+===== Committed-remotely response contract (from v26.7.2)
+
+When a write is forwarded from a replica to the leader (or issued directly to the leader), it is possible for the transaction to be *committed cluster-wide by quorum* and then fail to apply on the node that is answering the client. This is a distinct outcome from an ordinary failure: the data is durably committed, so retrying would create a duplicate.
+
+Since v26.7.2 this case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
+
 [[ha-offline-bootstrap]]
 ===== Offline Cluster Bootstrap (from v26.5.1)
 
@@ -546,8 +572,12 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |10000 / 100
 
 |`+arcadedb.ha.raftPersistStorage+`
-|If true, the Raft storage directory is preserved across restarts, enabling rejoin without a full snapshot resync
-|false
+|If true, the Raft storage directory is preserved across restarts, enabling rejoin by replaying the persisted log instead of a full snapshot resync. *Defaults to `true` since v26.7.2* (previously `false`); ensure `raftStorageDirectory` lives on durable storage. See <<ha-durable-raft-storage,Durable Raft Storage>>
+|true
+
+|`+arcadedb.ha.raftStorageDirectory+`
+|Parent directory for the per-node `raft-storage-<nodeName>` sub-folder. Empty (default) uses the server root path. With durable storage enabled by default, point this at a persistent volume. See <<ha-durable-raft-storage,Durable Raft Storage>>
+|(empty)
 
 |`+arcadedb.ha.stopServerOnReplicationFailure+`
 |If true, the JVM exits after exhausting step-down retries on a phase-2 replication failure. Default false keeps the server up and logs CRITICAL
