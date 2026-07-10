@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.7.2 — Durable Raft storage is now the default
+
+`arcadedb.ha.raftPersistStorage` now defaults to `true` (previously `false`). The per-node Raft log under `raft-storage-<nodeName>` is persisted across restarts so a node can rejoin by replaying its own log instead of always requiring a full snapshot resync. Wiping the log on restart could previously diverge a lagging follower after a full-cluster cold restart (`WALVersionGapException`) or silently re-form a fresh single-node cluster.
+
+*Impact:* HA clusters only.
+
+*Action:* ensure `arcadedb.ha.raftStorageDirectory` (or the default `raft-storage-*` location under the server root) lives on *durable* storage — a persistent volume, not an ephemeral or `tmpfs` mount. On Kubernetes, back it with a `PersistentVolumeClaim`. A throwaway/test cluster can opt out with `arcadedb.ha.raftPersistStorage=false`. See <<ha-durable-raft-storage,Durable Raft Storage>>.
+
+[discrete]
+====== 26.7.2 — Bolt temporal values are now native PackStream types
+
+Over the Neo4j Bolt protocol, `date`, `time`, `localtime`, `datetime` and `localdatetime` are now carried as *native PackStream temporal structures* in both directions, matching Neo4j. Previously they were serialized as ISO-8601 strings (and inbound datetime query parameters were silently dropped).
+
+*Impact:* Bolt/Neo4j-driver clients that read a temporal property as a `String`.
+
+*Action:* read temporal properties with the driver's native temporal accessors (e.g. `Value.asZonedDateTime()`, `asLocalDate()`), exactly as you would against Neo4j. See <<bolt-datatypes,Bolt data type mapping>>.
+
+[discrete]
 ====== 26.7.1 — Cypher `IS TYPED INT` is now 32-bit (`INTEGER`)
 
 A Cypher constraint `REQUIRE p.x IS TYPED INT` now declares a 32-bit `INTEGER` property, where it previously declared a 64-bit `LONG`. This aligns the write side with the value-type predicate (`x IS TYPED INT`), which already evaluated `INT` as the 32-bit `INT32` alias per ISO/IEC 39075 (GQL) / Cypher 25 — so a value larger than `Integer.MAX_VALUE` stored in such a column already failed its own `IS TYPED INT` predicate.
@@ -55,8 +73,8 @@ Only a few of them hold user-owned state; the rest are recreated from the releas
 |Server log files. Safe to start with an empty `log/` directory; the release ships an empty one. Copy only if you want to keep historical logs alongside the new install.
 
 |`raft-storage-<peerId>/` (HA only)
-|Skip
-|Per-node Raft log segments, created at runtime when HA is enabled. By default this directory is recreated on every restart, so there is nothing to migrate. See <<upgrade-ha-cluster,HA cluster upgrade>> for details.
+|*Copy* (since v26.7.2)
+|Per-node Raft log segments, created at runtime when HA is enabled. Since v26.7.2 this storage is *durable by default* (`arcadedb.ha.raftPersistStorage=true`) and must be preserved so a node can rejoin by replaying its log instead of a full snapshot resync. On releases before v26.7.2, or when `raftPersistStorage` is explicitly `false`, it is ephemeral and can be skipped. See <<upgrade-ha-cluster,HA cluster upgrade>> for details.
 
 |`replication/`
 |Skip
@@ -110,9 +128,10 @@ What to migrate on each node:
 * *`databases/`* — copy, exactly as in the single-server case.
 * *`config/`* — copy the same files as in the single-server case.
 The cluster's identity is derived from `arcadedb.ha.clusterName` and the `root` password (the inter-node token is computed from them at startup), so as long as every node keeps the same cluster name and the same root password, the upgraded cluster reattaches to itself without any extra step.
-* *`raft-storage-<peerId>/`* — *do not copy*.
-This directory holds the local Raft log and is wiped and re-created on every restart.
-After the upgraded node rejoins the cluster, the leader replays missing entries via Raft or, if the node has fallen behind the purge boundary, streams a full snapshot over HTTP automatically.
+* *`raft-storage-<peerId>/`* — *copy* (since v26.7.2).
+Since v26.7.2 the local Raft log is durable by default (`arcadedb.ha.raftPersistStorage=true`), so preserve this directory across the upgrade to let the node rejoin by replaying its own log.
+Whether or not it is preserved, after the upgraded node rejoins the cluster the leader replays any missing entries via Raft or, if the node has fallen behind the purge boundary, streams a full snapshot over HTTP automatically.
+On releases before v26.7.2 (or with `raftPersistStorage=false`) this directory is ephemeral and can be skipped.
 * *`backups/` and `log/`* — same as single-server.
 
 Recommended rolling upgrade flow (zero downtime, requires quorum at all times):
@@ -134,7 +153,7 @@ The only data that survives across container restarts is what lives on a persist
 
 * Mount `/home/arcadedb/databases` on a persistent volume — this is the equivalent of "copy the `databases/` folder".
 * Mount `/home/arcadedb/config` only if you have edited the files listed in <<upgrade-config-files>>; otherwise let the image ship its defaults.
-* Do *not* mount `/home/arcadedb/raft-storage-*` on a persistent volume; the Raft log is ephemeral and is rebuilt from peers on every pod restart.
+* Mount `/home/arcadedb/raft-storage-*` (or the path set by `arcadedb.ha.raftStorageDirectory`) on a persistent volume. Since v26.7.2 the Raft log is durable by default (`arcadedb.ha.raftPersistStorage=true`) so a restarted pod can replay its own log instead of resyncing from peers. On releases before v26.7.2, or with `raftPersistStorage=false`, the log is ephemeral and this mount is unnecessary.
 * Mount `/home/arcadedb/backups` if you want to retain backup archives across pod restarts.
 
 For Kubernetes specifics (StatefulSet, headless service, init container for pre-staging a database), see <<kubernetes,Kubernetes>>.
