@@ -482,8 +482,11 @@ SELECT expand(`vector.sparseNeighbors`('Doc[tokens,weights]', :qIdx, :qVal, 50))
 
 For server-side hybrid retrieval (dense + sparse + full-text fused into one ranked top-K), see <<hybrid-search,Hybrid Search with `vector.fuse`>>.
 
+TIP: After a large bulk load, run <<sql-compact-index,`COMPACT INDEX`>> to merge the index segments and get lower, more stable query latency without waiting for the background compaction.
+
 For more information, see:
 
+* <<sql-compact-index, `COMPACT INDEX`>>
 * <<sql-drop-index, `DROP INDEX`>>
 * <<indexes, `Indexes`>>
 
@@ -528,7 +531,49 @@ ArcadeDB> REBUILD INDEX *
 For more information, see:
 
 * <<sql-create-index,`CREATE INDEX`>>
+* <<sql-compact-index,`COMPACT INDEX`>>
 * <<sql-drop-index,`DROP INDEX`>>
+* <<indexes,Indexes>>
+
+[[sql-compact-index]]
+===== SQL - `COMPACT INDEX`
+
+
+Forces an immediate compaction of automatic indexes, merging their on-disk segments into a compacted form.
+
+ArcadeDB compacts indexes automatically in the background. `COMPACT INDEX` lets you trigger it on demand, which is useful right after a bulk load to settle an index and get lower, more stable query latency without waiting for the background schedule. Unlike <<sql-rebuild-index,`REBUILD INDEX`>>, it does not re-index the data: it only merges the existing segments, so it is much faster.
+
+It works for standard <<index-lsm-tree,LSM-Tree>> indexes as well as vector and sparse-vector indexes, and runs synchronously (it returns when the compaction has finished). Because it is a regular SQL command, it can be executed from any client, including the HTTP `/command` endpoint.
+
+*Syntax*
+
+[source,sql]
+----
+COMPACT INDEX <index-name>
+----
+
+* *`&lt;index-name&gt;`* It is the index name that you want to compact.
+Use `*` to compact all automatic indexes.
+Quote the index name if it contains special characters like square brackets.
+
+*Examples*
+
+* Compact the sparse-vector index on the `tokens` and `weights` properties of the type `Doc`:
+
+----
+ArcadeDB> COMPACT INDEX `Doc[tokens,weights]`
+----
+
+* Compact all indexes:
+
+----
+ArcadeDB> COMPACT INDEX *
+----
+
+For more information, see:
+
+* <<sql-create-index,`CREATE INDEX`>>
+* <<sql-rebuild-index,`REBUILD INDEX`>>
 * <<indexes,Indexes>>
 
 [[sql-drop-index]]
