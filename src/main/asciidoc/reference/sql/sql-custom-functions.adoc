@@ -59,6 +59,18 @@ DEFINE FUNCTION <library>.<name> "<body>" [PARAMETERS [<parameter>,*]] LANGUAGE 
 Functions defined with `DEFINE FUNCTION` (SQL, JavaScript and OpenCypher) are stored with the database schema: they survive a restart and, in a High Availability cluster, are automatically replicated to all the servers. `DELETE FUNCTION` removes them permanently. Java functions are the exception, they are registered programmatically at startup (see <<user-functions-java,User Functions in Java>> below).
 ====
 
+[IMPORTANT]
+====
+**Required privileges (since v26.7.2)**
+
+Defining a function over a remote connection is gated by the caller's group permissions (see <<groups,Groups>>):
+
+* `DEFINE FUNCTION ... LANGUAGE sql` and `LANGUAGE opencypher` require the `updateSchema` permission, like any other schema change.
+* `DEFINE FUNCTION ... LANGUAGE js` requires the stronger `updateSecurity` permission, because a JavaScript body runs host code. Before v26.7.2 the SQL route to JavaScript bypassed this gate, letting a user with only schema access define and run arbitrary JavaScript.
+
+Embedded databases, schema loading and HA replication are unaffected — the guard only applies to remote commands.
+====
+
 ====== SQL Language Functions
 
 SQL functions execute SQL queries and return the result of the first row's projection.
@@ -85,6 +97,13 @@ SELECT `utils.currentYear`();
 ====== JavaScript Language Functions
 
 JavaScript functions use GraalVM's JavaScript engine for complex calculations and data transformations.
+
+[NOTE]
+====
+**Sandbox (since v26.7.2)**
+
+The polyglot engine that runs a `LANGUAGE js` function is locked down: it executes with host file/URL access disabled (`IOAccess.NONE`, so `load(path|url)` cannot read local files or reach network resources) and cross-language access disabled (`PolyglotAccess.NONE`, so it cannot pivot into another guest language). Combined with the `updateSecurity` requirement above, this confines JavaScript functions to pure in-process computation over their arguments.
+====
 
 *Examples*
 

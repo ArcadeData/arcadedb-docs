@@ -21,8 +21,9 @@ Where:
 The wildcard "`*`" represents all the types that are not defined in this configuration.
 * `access` is the array containing the allowed permissions for the group.
 The supported permission at group level are:
-** `updateSecurity`: to update the security settings (create, modify and delete users, groups, etc.)
+** `updateSecurity`: to update the security settings (create, modify and delete users, groups, etc.). Since v26.7.2 this also gates defining a JavaScript function via `DEFINE FUNCTION ... LANGUAGE js` — see <<user-functions,User Functions>>.
 ** `updateSchema`: to update the database schema (create, modify and drop buckets, types and indexes)
+** `updateDatabaseSettings` (since v26.7.2): to change per-database settings — e.g. `ALTER DATABASE`, `ALTER TYPE ... BUCKETSELECTIONSTRATEGY`, materialized-view / continuous-aggregate refresh and downsampling policies. Previously several of these mutators were reachable without a dedicated privilege.
 * `readTimeout` if present, specify the maximum timeout for read operations. -1 means no limits.
 If set, all the read operations (lookups and queries) will be limited to maximum `<readTimeout>` milliseconds.
 This is useful to limit users to execute expensive commands and queries impacting the performance of the server and therefore other connected users.
@@ -71,7 +72,8 @@ The default settings for the `admin` group are:
 {
   "access": [
     "updateSecurity",
-    "updateSchema"
+    "updateSchema",
+    "updateDatabaseSettings"
   ],
   "resultSetLimit": -1,
   "readTimeout": -1,
@@ -88,7 +90,9 @@ The default settings for the `admin` group are:
 }
 ```
 
-Which allows to execute any operation against the security, the schema and records.
+Which allows to execute any operation against the security, the schema, the database settings and records.
+
+NOTE: The `updateDatabaseSettings` permission was added in v26.7.2. When ArcadeDB opens an older `server-groups.json`, it automatically migrates existing `admin` groups to include it, so upgraded clusters keep full administrative access without a manual edit.
 
 Here is an example for an append-only group:
 
