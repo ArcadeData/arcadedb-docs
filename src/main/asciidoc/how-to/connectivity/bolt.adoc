@@ -9,13 +9,20 @@ BOLT protocol support is available starting from ArcadeDB version **26.2.1**.
 ArcadeDB Server supports the https://neo4j.com/docs/bolt/current/[Neo4j BOLT protocol], enabling connectivity from any BOLT-compatible client or driver.
 This allows you to use the official Neo4j drivers with ArcadeDB, leveraging the native <<cypher,OpenCypher>> query engine for graph operations.
 
+The BOLT implementation is certified against all five official Neo4j drivers (Java, JavaScript, Python, .NET, and Go) through a shared https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/spec.yaml[conformance spec].
+See the <<bolt-compatibility,Driver Compatibility Matrix>> for the exact, per-driver certification status.
+
 The BOLT protocol implementation supports:
 
-* **BOLT v3.0, v4.0, and v4.4** protocol versions
+* **BOLT v3.0, v4.0, v4.4, and v5.0–v5.4** protocol versions, negotiated automatically with the client
 * **Full Cypher query support** via ArcadeDB's native OpenCypher implementation
 * **Parameterized queries** for security and performance
-* **Explicit transactions** with BEGIN/COMMIT/ROLLBACK
-* **Multi-database support** with database selection per connection or query
+* **TLS/SSL** encrypted connections (`bolt+s://`, `neo4j+s://`)
+* **Explicit and managed transactions**, including automatic retry on transient errors
+* **Bookmarks** for causal consistency across sessions
+* **Multi-database support** with database selection per session
+* **HA-aware routing** so `neo4j://` discovery reflects the actual cluster topology
+* **Native BOLT structures** for graph (Node, Relationship, Path), temporal, `Duration`, and spatial `Point` values
 * **Multi-label vertices** following Neo4j's node labeling conventions
 
 ===== Setup
@@ -69,9 +76,10 @@ The BOLT plugin supports the following configuration options:
 | Setting | Default | Description
 | `arcadedb.bolt.port` | 7687 | TCP/IP port for BOLT connections
 | `arcadedb.bolt.host` | 0.0.0.0 | Host/IP address to bind to
-| `arcadedb.bolt.defaultDatabase` | (none) | Default database when not specified by client
+| `arcadedb.bolt.defaultDatabase` | (none) | Default database when not specified by the client; if unset, the first available database is used
 | `arcadedb.bolt.maxConnections` | 0 | Maximum concurrent connections (0 = unlimited)
-| `arcadedb.bolt.routing.ttl` | 300 | Time-to-live in seconds for routing table entries
+| `arcadedb.bolt.ssl` | DISABLED | TLS mode for BOLT connections: `DISABLED`, `OPTIONAL`, or `REQUIRED` (see <<bolt-tls,TLS/SSL>>)
+| `arcadedb.bolt.routing.ttl` | 300 | Time-to-live in seconds for routing table entries returned to `neo4j://` clients
 | `arcadedb.bolt.debug` | false | Enable BOLT protocol debug logging
 |===
 
@@ -83,6 +91,60 @@ bin/server.sh -Darcadedb.server.plugins="Bolt:com.arcadedb.bolt.BoltProtocolPlug
               -Darcadedb.bolt.port=7687 \
               -Darcadedb.bolt.defaultDatabase=mydatabase
 ----
+
+[[bolt-tls]]
+===== TLS/SSL
+
+The BOLT plugin supports encrypted connections. Set `arcadedb.bolt.ssl` to one of:
+
+[%header,cols="1,4"]
+|===
+| Mode | Behavior
+| `DISABLED` | (default) plaintext only. Clients connect with `bolt://` / `neo4j://` and encryption off.
+| `OPTIONAL` | the server auto-detects the connection: a TLS handshake is served encrypted, a plaintext connection is served in the clear. Useful during migration.
+| `REQUIRED` | only encrypted connections are accepted. Clients must use `bolt+s://` / `neo4j+s://`.
+|===
+
+When TLS is enabled (`OPTIONAL` or `REQUIRED`), the plugin reuses the server's shared HTTPS keystore and truststore. Configure them with the standard network settings:
+
+[source,shell]
+----
+bin/server.sh -Darcadedb.server.plugins="Bolt:com.arcadedb.bolt.BoltProtocolPlugin" \
+              -Darcadedb.bolt.ssl=REQUIRED \
+              -Darcadedb.network.ssl.keyStore=/path/to/keystore.p12 \
+              -Darcadedb.network.ssl.keyStorePassword=secret \
+              -Darcadedb.network.ssl.trustStore=/path/to/truststore.jks \
+              -Darcadedb.network.ssl.trustStorePassword=secret
+----
+
+The keystore defaults to PKCS12 and the truststore to JKS. Connect from a driver using the `bolt+s://` (or `neo4j+s://` for routing) scheme.
+
+[[bolt-server-identity]]
+===== Server Identity and Feature Envelope
+
+Neo4j drivers gate feature negotiation off the server identity they receive during the initial handshake. ArcadeDB deliberately advertises a Neo4j-compatible identity so that the official drivers enable the correct feature set:
+
+* In the `HELLO`/`SUCCESS` response the server reports itself as `Neo4j/5.26.0 compatible (ArcadeDB <version>)`.
+* `CALL dbms.components()` returns `Neo4j Kernel`, version `5.26.0`, edition `community`.
+
+This advertised identity is the contract against which every certification result is measured: it declares the Neo4j 5.26-era feature envelope the drivers may assume. The following capabilities are **certified as working** against the official drivers:
+
+* Protocol negotiation for BOLT 3.0/4.0/4.4 and 5.0–5.4.
+* Basic authentication.
+* Autocommit, explicit (`BEGIN`/`COMMIT`/`ROLLBACK`), and managed transactions with retry-on-transient.
+* Bookmarks (causal consistency) and per-session database selection.
+* Streaming (`PULL`/`DISCARD`) with accurate result-summary counters.
+* Native BOLT structures for Node, Relationship, Path, temporal types, `Duration`, spatial `Point`, byte arrays, and nested lists/maps.
+* Structured `Neo.ClientError.*` and `Neo.TransientError.*` error codes.
+* HA-aware `neo4j://` routing.
+
+Explicit, documented differences from a real Neo4j server (never silent omissions):
+
+* The `none` authentication scheme is **intentionally rejected** — ArcadeDB always requires credentials.
+* `RID` and `UUID` values are serialized as strings (there is no native BOLT type for them).
+* `BigDecimal` and out-of-range `BigInteger` values are down-converted to `double`, which may lose precision.
+* Aura and enterprise-clustering-specific driver behaviors are out of scope.
+* The advertised `server_agent` version (`5.26.0`) is a fixed, deliberate choice; changing it is a compatibility-affecting decision.
 
 ===== Compatible Drivers
 
@@ -99,7 +161,20 @@ You can use them with ArcadeDB's BOLT protocol implementation:
 | Go | https://github.com/neo4j/neo4j-go-driver[neo4j-go-driver] | `go get github.com/neo4j/neo4j-go-driver/v5`
 |===
 
+Each driver is certified across a pinned version range that is re-tested nightly against driver-side releases. The exact versions are tracked in the https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/driver-versions.md[driver-version matrix]; see the <<bolt-compatibility,Driver Compatibility Matrix>> for per-scenario results.
+
 For the complete list of community drivers, check the https://neo4j.com/docs/create-applications/[Neo4j Driver documentation].
+
+===== Connection URI Schemes
+
+[%header,cols="1,4"]
+|===
+| Scheme | Meaning
+| `bolt://` | Direct connection to a single server, plaintext.
+| `bolt+s://` | Direct connection to a single server, TLS-encrypted.
+| `neo4j://` | Routing/discovery connection — the driver asks the server for the cluster routing table (HA-aware).
+| `neo4j+s://` | Routing/discovery connection, TLS-encrypted.
+|===
 
 ===== Java Example
 
@@ -217,6 +292,57 @@ try {
 }
 ----
 
+===== Go Example
+
+[source,go]
+----
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/neo4j/neo4j-go-driver/v5/neo4j"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Create driver (empty realm string for basic auth)
+    driver, err := neo4j.NewDriverWithContext(
+        "bolt://localhost:7687",
+        neo4j.BasicAuth("root", "playwithdata", ""),
+    )
+    if err != nil {
+        panic(err)
+    }
+    defer driver.Close(ctx)
+
+    session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: "mydatabase"})
+    defer session.Close(ctx)
+
+    // Simple query
+    result, err := session.Run(ctx,
+        "MATCH (n:Person) RETURN n.name AS name LIMIT 10", nil)
+    if err != nil {
+        panic(err)
+    }
+    for result.Next(ctx) {
+        fmt.Println(result.Record().AsMap()["name"])
+    }
+
+    // Managed write transaction with automatic retry on transient errors
+    _, err = session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+        return tx.Run(ctx,
+            "CREATE (n:Person {name: $name, age: $age})",
+            map[string]any{"name": "Alice", "age": 30})
+    })
+    if err != nil {
+        panic(err)
+    }
+}
+----
+
 ===== Cypher Query Examples
 
 Since BOLT protocol uses Cypher as its query language, you can execute any query supported by ArcadeDB's <<cypher,OpenCypher>> implementation:
@@ -247,11 +373,11 @@ RETURN avg(p.age) AS averageAge, count(p) AS totalPeople
 
 ===== Transactions
 
-BOLT protocol supports explicit transactions:
+The BOLT protocol supports three transaction styles:
 
-* **Auto-commit mode**: Single queries outside a transaction are automatically committed
-* **Explicit transactions**: Use BEGIN/COMMIT/ROLLBACK for multi-statement transactions
-* **Rollback on error**: Transactions are automatically rolled back if an error occurs
+* **Auto-commit mode**: single queries run outside a transaction are automatically committed.
+* **Explicit transactions**: use `BEGIN`/`COMMIT`/`ROLLBACK` for multi-statement transactions. Transactions are automatically rolled back if an error occurs.
+* **Managed transactions**: the driver's `executeRead`/`executeWrite` transaction functions run your work in a retried transaction. If the server returns a `Neo.TransientError.*` (for example, a write-write conflict), the driver **automatically retries** the transaction function. Prefer this style for write paths that may contend.
 
 [source,java]
 ----
@@ -266,18 +392,86 @@ try (Transaction tx = session.beginTransaction()) {
     tx.commit();
 }
 
-// Transaction rollback example
-try (Transaction tx = session.beginTransaction()) {
-    tx.run("CREATE (n:Person {name: 'Frank'})");
-    // Rollback - changes will not be persisted
-    tx.rollback();
+// Managed transaction — retried automatically on a transient error
+session.executeWrite(tx -> {
+    tx.run("CREATE (n:Person {name: $name})", Values.parameters("name", "Grace"));
+    return null;
+});
+----
+
+===== Causal Consistency (Bookmarks)
+
+Bookmarks let a client guarantee it reads its own (or another session's) writes. Capture the bookmarks from one session and pass them to the next; the server will not serve the follow-up read until it has caught up to that bookmark. This works across sessions and is exercised by the certification suite.
+
+[source,java]
+----
+Bookmark bookmark;
+try (Session write = driver.session(SessionConfig.forDatabase("mydatabase"))) {
+    write.run("CREATE (n:Person {name: 'Heidi'})").consume();
+    bookmark = write.lastBookmark();
+}
+
+// A later session reads with the bookmark to observe the write
+try (Session read = driver.session(SessionConfig.builder()
+        .withDatabase("mydatabase")
+        .withBookmarks(bookmark)
+        .build())) {
+    read.run("MATCH (n:Person {name: 'Heidi'}) RETURN n").list();
 }
 ----
 
+===== Data Type Mapping
+
+ArcadeDB emits native BOLT/PackStream structures for the following, so drivers receive typed objects (not strings):
+
+[%header,cols="1,3"]
+|===
+| Category | Types
+| Graph | Node, Relationship, Path
+| Temporal | `Date`, `Time`, `LocalTime`, `DateTime`, `LocalDateTime` (DateTime uses the UTC encoding on BOLT 5.0+, legacy encoding on 4.x)
+| Other structured | `Duration`, spatial `Point` (2D/3D), byte arrays, nested lists and maps, null
+|===
+
+Values without a native BOLT type — `RID` and `UUID` — are serialized as strings. `BigDecimal` and out-of-range `BigInteger` values are converted to `double` and may lose precision.
+
+===== Error Codes
+
+Server errors are mapped to Neo4j-style structured status codes so driver-side error handling and retry logic behave as expected:
+
+[%header,cols="2,3"]
+|===
+| Code | Raised when
+| `Neo.ClientError.Security.Unauthorized` | authentication failed or credentials were missing
+| `Neo.ClientError.Security.Forbidden` | an operation is not permitted for the user
+| `Neo.ClientError.Statement.SyntaxError` | the Cypher statement failed to parse
+| `Neo.ClientError.Statement.SemanticError` | the statement parsed but is semantically invalid
+| `Neo.ClientError.Transaction.TransactionNotFound` | a transaction reference is unknown
+| `Neo.ClientError.Request.Invalid` | a malformed or out-of-sequence protocol message
+| `Neo.TransientError.Transaction.DeadlockDetected` | a concurrent-modification / lock-timeout conflict — drivers retry managed transactions on this code
+| `Neo.DatabaseError.General.UnknownError` | an unexpected server-side failure
+|===
+
+[[bolt-routing-ha]]
+===== Routing and High Availability
+
+`neo4j://` clients ask the server for a routing table. The response is HA-aware:
+
+* **Single-node deployment**: the node advertises itself for all roles (WRITE, READ, ROUTE).
+* **HA cluster with a known leader**: the leader is returned as WRITE + ROUTE and the followers as READ + ROUTE, so driver-side load balancing works.
+* **HA cluster mid-election** (leader unknown): the node is advertised as READ + ROUTE only, never WRITE, until a leader is elected.
+
+The routing table's time-to-live is controlled by `arcadedb.bolt.routing.ttl` (default 300 s).
+
+[NOTE]
+====
+For clusters where nodes expose the BOLT port on **different** ports, each node's client-reachable BOLT address must be declared using the object form of `arcadedb.ha.serverList` (`host:{raft:..,http:..,bolt:..}`). When omitted, each peer's BOLT address is derived from its Raft host plus this node's BOLT port, which is correct only for homogeneous deployments (for example, a Kubernetes StatefulSet).
+====
+
 ===== Current Limitations
 
-* **TLS/SSL**: The current implementation does not support encrypted connections. Use network-level security (VPN, SSH tunnel) for production deployments requiring encryption.
-* **Routing**: Single-server routing only. In cluster deployments, the routing table returns the connected server for all roles (READ, WRITE, ROUTE).
+* **Authentication**: the `none` scheme is not accepted — ArcadeDB always requires credentials. This is intentional, not a bug.
+* **Type fidelity**: `RID` and `UUID` are returned as strings; `BigDecimal` / oversized `BigInteger` are down-converted to `double`.
+* **Heterogeneous cluster ports**: see the note under <<bolt-routing-ha,Routing and High Availability>>.
 
 ===== Troubleshooting
 
@@ -285,23 +479,26 @@ If you encounter connection issues:
 
 1. **Enable debug logging**: Start the server with `-Darcadedb.bolt.debug=true` to see detailed protocol messages.
 2. **Check port availability**: Ensure port 7687 (or your configured port) is not in use by another service.
-3. **Verify authentication**: ArcadeDB requires authentication. Ensure you're providing valid credentials.
-4. **Disable encryption in drivers**: If using Neo4j drivers, configure them to connect without encryption since TLS is not yet supported.
+3. **Verify authentication**: ArcadeDB always requires authentication. Ensure you're providing valid credentials — the `none` scheme is rejected.
+4. **Match the encryption mode**: If the server runs with `arcadedb.bolt.ssl=REQUIRED`, connect with `bolt+s://` / `neo4j+s://`. If TLS is `DISABLED` (the default), connect with `bolt://` / `neo4j://` and encryption turned off in the driver.
 
-For Java driver:
+To connect without encryption against a plaintext server:
+
 [source,java]
 ----
+// Java
 Config.builder().withoutEncryption().build()
 ----
 
-For Python driver:
 [source,python]
 ----
+# Python
 driver = GraphDatabase.driver(uri, auth=auth, encrypted=False)
 ----
 
 ===== See Also
 
+* <<bolt-compatibility,Bolt Driver Compatibility Matrix>>
 * <<cypher,OpenCypher Query Language>>
 * <<postgres-driver,PostgreSQL Protocol Plugin>>
 * https://neo4j.com/docs/bolt/current/[Neo4j BOLT Protocol Specification]

@@ -93,7 +93,9 @@ NAV_STRUCTURE: list[dict] = [
             (("api-integration.adoc", "API & Integration"), [
                 ("reference/http-api/http.adoc", "HTTP API"),
                 ("reference/grpc-api.adoc", "gRPC API"),
-                ("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"),
+                (("how-to/connectivity/bolt.adoc", "Neo4j BOLT Protocol"), [
+                    ("how-to/connectivity/bolt-compatibility.adoc", "Driver Compatibility Matrix"),
+                ]),
                 ("how-to/connectivity/postgres.adoc", "PostgreSQL Wire Protocol"),
                 ("reference/mcp/mcp.adoc", "MCP Server"),
             ]),
