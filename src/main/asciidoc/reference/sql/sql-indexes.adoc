@@ -450,10 +450,28 @@ CREATE PROPERTY Doc.tokens  ARRAY_OF_INTEGERS
 CREATE PROPERTY Doc.weights ARRAY_OF_FLOATS
 
 CREATE INDEX ON Doc (tokens, weights) LSM_SPARSE_VECTOR
-  METADATA { dimensions: 105000, modifier: 'IDF' }
+  METADATA { dimensions: 105000, modifier: 'IDF', weightQuantization: 'FP32' }
 ----
 
 The two parallel array properties carry the non-zero dimension ids and matching weights for each record. `dimensions` declares the vocabulary cap and rejects out-of-range ids at write time (set to `0` to disable the cap). `modifier: 'IDF'` enables Robertson-Sparck-Jones IDF weighting at query time; omit it (or set to `'NONE'`) for plain dot-product scoring.
+
+`weightQuantization` (since v26.7.2) controls how posting weights are stored on disk, bringing the sparse index to parity with the dense `LSM_VECTOR` index's quantization knob:
+
+[%header,cols="1,3"]
+|===
+| Value | Storage / trade-off
+
+| `INT8`
+| 1 byte per weight (the default, and the only behavior before v26.7.2). Smallest index; scores are approximate.
+
+| `FP16`
+| 2 bytes per weight. Half the size of `FP32` with near-exact scoring.
+
+| `FP32`
+| 4 bytes per weight. Exact scoring; largest index. Choose this when approximate weights measurably hurt ranking quality.
+|===
+
+Omit `weightQuantization` to keep the `INT8` default. The setting is fixed at index-creation time; to change it, drop and recreate (or `REBUILD INDEX`) the index.
 
 Query with `vector.sparseNeighbors`:
 

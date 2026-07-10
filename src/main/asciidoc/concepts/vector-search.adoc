@@ -137,7 +137,7 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
 };
 ----
 
-The factory rejects two misconfigurations at index-creation time so the failure surfaces immediately rather than as silent mis-scaling later:
+The factory rejects two misconfigurations at index-creation time so the failure surfaces immediately rather than as silent incorrect scaling later:
 
 * `encoding=INT8` with a non-`BINARY` property (or `encoding=FLOAT32` with a `BINARY` property) -- the property type and encoding must agree.
 * `encoding=INT8` combined with `quantization=INT8` -- redundant: the property is already byte-quantized at the wire level, so the index-internal scalar quantizer would re-quantize the dequantized floats. Pick one (`encoding=INT8` for payload/storage savings, `quantization=INT8` for index-internal compression), not both.
@@ -505,7 +505,9 @@ Options map (5th argument) supports `filter` (allowed-RIDs whitelist), `groupBy`
 
 Retrieval uses document-at-a-time WAND with per-dim `max_weight` upper bounds: per-dim cursors traverse postings in RID order, the algorithm pivots to the smallest RID whose cumulative upper bound can still beat the current K-th best score, and skips cursors below the pivot via direct seeks. Only dot-product similarity is supported (cosine on sparse vectors is conventionally handled by L2-normalizing both the query and stored vectors at insert time).
 
-The MVP works well up to roughly 10M sparse vectors. The scaling story past that point (BlockMax-WAND with per-page bounds, weight quantization, parallel per-segment scoring) is tracked separately.
+The MVP works well up to roughly 10M sparse vectors. The scaling story past that point (BlockMax-WAND with per-page bounds, parallel per-segment scoring) is tracked separately.
+
+Posting-weight quantization is configurable since v26.7.2 via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against scoring exactness. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
 
 [[hybrid-search]]
 ==== Hybrid Search with `vector.fuse`
