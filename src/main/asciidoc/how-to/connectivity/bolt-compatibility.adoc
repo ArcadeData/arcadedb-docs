@@ -1,0 +1,90 @@
+[[bolt-compatibility]]
+==== Bolt Driver Compatibility Matrix
+
+ArcadeDB's <<bolt-driver,Neo4j BOLT protocol>> implementation is certified against every official Neo4j driver — Java, JavaScript, Python, .NET, and Go — driven by a single, language-neutral conformance spec. Every driver is proven against the full feature matrix, and every unsupported cell is an explicitly documented limitation, never a silent omission.
+
+[NOTE]
+====
+The full driver × feature × version matrix is **generated from CI** and is the authoritative source. It is published and kept current in the ArcadeDB repository:
+
+* https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/COMPATIBILITY.md[Compatibility matrix (COMPATIBILITY.md)] — one cell per scenario × driver × pinned version, with a "last verified" timestamp and a link to the CI run that produced it.
+* https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/spec.yaml[Conformance spec (spec.yaml)] — the shared, language-neutral scenario definitions.
+* https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/driver-versions.md[Driver-version matrix (driver-versions.md)] — the pinned driver versions, re-tested nightly against new driver releases.
+
+The matrix on this page summarizes the certified feature areas. Consult the generated matrix above for exact per-version results.
+====
+
+===== Certified Feature Areas
+
+[%header,cols="1,3,1"]
+|===
+| Area | Scenarios | Status
+
+| Connection
+| `bolt://`, `bolt+s://` (TLS required), `neo4j://` routing (single-node and HA), TLS `OPTIONAL` fallback
+| Certified
+
+| Authentication
+| Basic auth (valid / invalid credentials); scheme `none` rejected (intentional)
+| Certified
+
+| Transactions
+| Autocommit; explicit `BEGIN`/`COMMIT`/`ROLLBACK`; managed `executeRead`/`executeWrite` with retry-on-transient
+| Certified
+
+| Causal consistency
+| Bookmarks (read-after-write across sessions)
+| Certified
+
+| Multi-database
+| Per-session named-database selection; isolation across databases
+| Certified
+
+| Result handling
+| Streaming `PULL n`, `DISCARD`, accurate `ResultSummary` counters
+| Certified
+
+| Type round-trip
+| Node, Relationship, Path; temporal (`Date`, `Time`, `LocalTime`, `DateTime`, `LocalDateTime`); `Duration`; spatial `Point`; byte array; nested lists/maps; null
+| Certified
+
+| Errors
+| `Neo.ClientError.*` (syntax, semantic, security) and `Neo.TransientError.*` (drives driver retry)
+| Certified
+
+| Protocol
+| BOLT 3.0 / 4.0 / 4.4 and 5.0–5.4 negotiation; `RESET` mid-stream
+| Certified
+|===
+
+===== Documented Limitations
+
+These cells are deliberate, documented differences rather than defects:
+
+* **Auth `none`** — always rejected; ArcadeDB requires credentials.
+* **Unauthenticated `RUN`** — the "reject a query before authentication" scenario cannot be exercised through any official driver, because every driver completes the handshake before exposing query methods. It is therefore marked not-applicable rather than tested.
+* **Heterogeneous HA BOLT ports** — clusters whose nodes expose BOLT on different ports must declare each node's client-reachable address in `arcadedb.ha.serverList` (see <<bolt-routing-ha,Routing and High Availability>>).
+* **`RID` / `UUID`** — serialized as strings (no native BOLT type).
+* **`BigDecimal` / oversized `BigInteger`** — down-converted to `double` (possible precision loss).
+
+===== Certified Drivers and Versions
+
+Each driver is pinned for PR-gating CI and re-tested nightly across a wider version band, so a driver-side release that breaks compatibility is caught quickly. The pinned versions live in the https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/driver-versions.md[driver-version matrix].
+
+[%header,cols="1,2,2"]
+|===
+| Language | Driver | Certified version bands
+| Java | `neo4j-java-driver` | 4.4.x (legacy), 5.x, 6.x
+| JavaScript | `neo4j-driver` | 5.x, 6.x
+| Python | `neo4j` | 5.x (LTS), 6.x
+| .NET | `Neo4j.Driver` | 5.x, 6.x
+| Go | `neo4j-go-driver/v5` | 5.x
+|===
+
+For the advertised server identity these results are measured against, see <<bolt-server-identity,Server Identity and Feature Envelope>>.
+
+===== See Also
+
+* <<bolt-driver,Neo4j BOLT Protocol>>
+* <<cypher,OpenCypher Query Language>>
+* https://github.com/ArcadeData/arcadedb/blob/main/bolt/conformance/COMPATIBILITY.md[Generated compatibility matrix]
