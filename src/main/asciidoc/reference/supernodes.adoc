@@ -1,0 +1,66 @@
+[[supernodes]]
+=== Super-Nodes (Hot Vertices)
+
+A _super-node_ is a vertex with a very large or fast-growing number of edges: a treasury account receiving every transaction, a popular product, the hub of a star schema. Since v26.8.1 ArcadeDB handles super-nodes with two complementary mechanisms: the *commutative edge-append merge* (since v26.7.2) removes the retry storm when many transactions insert edges into the same vertex concurrently, and the *adaptive striped edge list* removes the file-level serialization that caps throughput, especially under High Availability.
+
+Both mechanisms are enabled by default and require no schema change or migration.
+
+==== Why super-nodes are hard
+
+Every vertex keeps its adjacency list (per direction) as a linked list of _edge chunks_, stored in one file per vertex bucket. Two properties of this layout hurt when many transactions append edges to the same vertex at once:
+
+1. *Page contention*: every append lands on the same head-chunk page, so each commit must build on the previous committed page version. Without mitigation, concurrent appends fail with `ConcurrentModificationException` and retry - a retry storm where throughput collapses as concurrency grows.
+2. *File-lock serialization*: at commit, ArcadeDB locks every touched _file_ and, under High Availability, holds those locks across the whole replication round. All of a vertex's edge-list chunks live in one file, so concurrent appends to the same hub queue on that file's lock - one replication round-trip at a time - no matter how many writers there are.
+
+==== Commutative edge-append merge
+
+Two transactions that only _append_ edges to the same chunk do not really conflict: appends commute. When the only difference between the transaction's page and the newer committed version is concurrent in-chunk appends, ArcadeDB replays the transaction's appends on top of the newer version at commit time instead of failing it. Removals, chunk re-links and other structural changes never merge - those still conflict and retry, preserving correctness.
+
+This is controlled by `arcadedb.graph.edgeAppendMerge` (default `true`) and works with both the classic and the striped layout.
+
+==== Adaptive striped edge list
+
+When a vertex's edge list (per direction) grows past `arcadedb.graph.supernodeThreshold` (default 4096, `0` disables), it is _promoted_: the vertex's head pointer is flipped from the classic chunk chain to a small *stripe directory* record that lists the head of `arcadedb.graph.supernodeStripes` (default 16) independent chains - the _stripes_ - hosted in a per-type pool of dedicated bucket files.
+
+After promotion, each new edge is routed to a stripe by a deterministic hash of the _neighbour_ vertex RID. Concurrent appends therefore land in *different files*, take different commit locks, and replicate in parallel - removing both bottlenecks at once.
+
+Key properties of the design:
+
+* *Zero migration*: the pre-promotion chain is untouched (it becomes _generation 0_ of the directory); promotion happens at the moment a chunk fills up, costs one small transaction, and existing databases are unaffected until a vertex actually crosses the threshold.
+* *Localized lookups*: because placement hashes the neighbour RID, connectivity checks (`isConnectedTo`, edge removal by vertex) visit one stripe per generation instead of scanning the whole list. Generation 0 remains a single chain bounded by the threshold, so the cost is `O(threshold + degree/stripes)`.
+* *Per-type pool*: the stripe files (`<Type>_sn_stripe_<n>`) are created once per vertex type, at its first promotion, and shared by all promoted vertices of that type and by both directions. A type without super-nodes costs no files.
+* *Growable*: the directory is organized in generations, so the stripe count can grow in the future without moving data. The stripe count in effect is recorded per vertex at promotion time; changing the setting affects only future promotions.
+
+==== Measured effect
+
+3-node High Availability cluster (Raft), 8 concurrent writers inserting edges into a single hub vertex:
+
+[%header,cols="40%,20%,40%"]
+|===
+|Configuration|Throughput|Average commit latency
+|Classic layout|51 edges/s|156 ms
+|Striped, 8 stripes|79 edges/s|100 ms
+|Striped, 16 stripes (default)|104 edges/s|75 ms
+|Striped, 32 stripes|117 edges/s|67 ms
+|===
+
+At the default 16 stripes the super-node workload matches the throughput of the same cluster writing to distinct vertices - the hot vertex is no longer a bottleneck. Single-writer embedded throughput is unaffected (~135K edges/s in both layouts).
+
+==== Trade-offs to be aware of
+
+[WARNING]
+====
+*Forward incompatibility (one-way)*: the first promotion writes a new record type to the database. From that moment the database *cannot be opened by releases older than v26.8.1*, and promotion cannot be undone. Since promotion triggers automatically when a vertex crosses the threshold, set `arcadedb.graph.supernodeThreshold = 0` _before_ upgrading if you need to preserve a rollback path to an older release.
+====
+
+* *Iteration order is approximate on promoted vertices*: the classic layout returns edges in reverse-insertion order (newest first). A striped list cannot preserve a global order across stripes; iteration returns newest-generation-first, with order preserved only within each stripe. Non-promoted vertices are unaffected.
+* *Reads are best-effort under write concurrency*: while a concurrent commit is publishing its pages, a count or iteration on a promoted vertex can transiently under-report. Mutating operations and neighbour-keyed lookups (`isConnectedTo`, edge removal) are strict: they surface the same transient window as a retryable conflict instead.
+* *Bulk import*: `GraphBatch` bulk edge import into an already-promoted vertex fails with a clear error (it manipulates head pointers directly). Use the standard API for such hubs, or disable promotion during the import.
+
+==== Tuning
+
+* `arcadedb.graph.supernodeThreshold` (default 4096): lower it if hot vertices are known in advance and heavily written concurrently; raise it (or set `0`) to keep more vertices on the classic layout with its exact iteration order.
+* `arcadedb.graph.supernodeStripes` (default 16): the scaling lever under concurrency. Throughput saturates around the number of concurrent writers; values beyond the CPU cores rarely help. Values below 2 disable promotion.
+* `arcadedb.graph.edgeAppendMerge` (default `true`): leave it on; it benefits every concurrent edge-insertion workload, classic or striped.
+
+See <<settings-sql,Settings>> for how to change these per database.
