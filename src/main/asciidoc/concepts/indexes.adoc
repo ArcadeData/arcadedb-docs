@@ -42,7 +42,7 @@ Each index can additionally be made *unique* (rejects duplicates), *case-insensi
 [[index-lsm-tree]]
 ==== LSM Tree (default)
 
-ArcadeDB's default index uses a https://en.wikipedia.org/wiki/Log-structured_merge-tree[Log-Structured Merge Tree]. New keys land in an in-memory write buffer; when the buffer fills, it is flushed to disk as an immutable sorted page. Background compaction periodically merges these pages so that lookups visit only a handful of files even as the index grows. You can also trigger a compaction on demand with <<sql-compact-index,`COMPACT INDEX`>>, for example to settle an index right after a bulk load.
+ArcadeDB's default index uses a https://en.wikipedia.org/wiki/Log-structured_merge-tree[Log-Structured Merge Tree]. New keys land in an in-memory write buffer; when the buffer fills, it is flushed to disk as an immutable sorted page. Background compaction periodically merges these pages so that lookups visit only a handful of files even as the index grows. You can also trigger a compaction on demand with <<sql-compact-index,`COMPACT INDEX`>>, for example to settle an index right after a bulk load. When you need to build a large LSM index over data that is *already loaded*, the <<index-sorted-bulk-build,sorted bulk build>> constructs it directly in compacted form and is dramatically faster than the record-at-a-time build.
 
 Why ArcadeDB picks LSM by default:
 
@@ -188,6 +188,47 @@ When to reach for it:
 * *Deduplication*: a uniqueness constraint that ignores case.
 * *Replacing `toLowerCase()` patterns*: the conversion happens once at insert time instead of on every query.
 
+[[index-sorted-bulk-build]]
+==== Building a large index over existing data (sorted bulk build)
+
+NOTE: Available since ArcadeDB v26.8.1. Currently exposed through the Java API only (no SQL keyword yet).
+
+Creating an index on a type that already holds data has to read every existing record and add its key to the index. The default path inserts those keys one at a time through the normal write buffer, exactly as if the records were being indexed live. That is fine for small and medium types, but it does not scale linearly: as the index grows, each insert does more work and the buffer flushes and compacts repeatedly mid-build, so the effective build rate *degrades as it runs*. On tens of millions of records the index step, not the data load, becomes the bottleneck.
+
+The *sorted bulk build* is an opt-in, offline build strategy for exactly this situation. Instead of inserting keys one at a time, it:
+
+1. scans the records and extracts the same index keys the normal path would (scalars, composites, list/map expansions, nulls, and collation are all preserved);
+2. builds bounded, sorted runs in memory and spills them to disk when a configurable memory budget is reached, so the build stays within RAM regardless of dataset size;
+3. k-way merges the runs into one globally sorted key stream; and
+4. writes that stream directly as compacted on-disk pages.
+
+Because the keys arrive already sorted, this replaces a growing sequence of against-a-growing-tree inserts with a bounded external sort followed by a sequential page write. The output is already in compacted form, so you also skip the post-build <<sql-compact-index,`COMPACT INDEX`>> step. On a 10-million-key index this reaches equivalent compacted output several times faster than the default build followed by a compaction.
+
+[source,java]
+----
+database.getSchema().buildTypeIndex("Document", new String[] { "uri" })
+    .withType(Schema.INDEX_TYPE.LSM_TREE)
+    .withUnique(true)                // both unique and non-unique are supported
+    .withBuildMode(IndexBuildMode.SORTED)
+    .withBuildMemoryBudget(1L << 30) // optional: RAM budget in bytes; 0 (default) auto-sizes from the heap
+    .withBuildMergeFanIn(8)          // optional: number of runs merged per pass (default 8, min 2)
+    .create();
+----
+
+All three build options are optional: `withBuildMemoryBudget` bounds the RAM used before spilling (defaults to a fraction of the heap), `withBuildMergeFanIn` sets how many sorted runs are merged per pass, and `withBuildSpillDirectory(Path)` chooses where the temporary spill files are written (defaults to the database directory). They are ignored under `IndexBuildMode.DEFAULT`.
+
+For a *unique* index, uniqueness is enforced directly on the globally sorted stream: two records that produce the same key are adjacent after the sort, so a duplicate is detected in a single pass (across all buckets, with no extra sort or in-memory hash set) and the build throws `DuplicatedKeyException` and publishes nothing. As with online unique indexes, an all-null key is exempt (SQL `NULL != NULL`), while a partial-null composite key is still constrained; the null strategy (`SKIP`, `ERROR`, `INDEX`) behaves exactly as it does for a normal build.
+
+The sorted mode is an *explicit operator choice with strict preconditions*. It is restricted to:
+
+* the *`LSM_TREE`* index type (unique or non-unique),
+* a *single-server, non-replicated* database (not part of an HA cluster), and
+* *no active transaction* on the calling thread (the build runs in its own exclusive window).
+
+If any precondition is not met, the build *fails immediately, before creating any file* -- it does not silently fall back to the slower default path, so you always get the strategy you asked for. Everything else (online reads and writes, HA replication) is unaffected because unsupported requests are rejected up front. Leave `withBuildMode` unset (or set it to `IndexBuildMode.DEFAULT`) to keep the standard record-at-a-time build.
+
+Parallel construction, an automatic warn-and-fall-back mode, HA/replicated operation, and a SQL syntax are planned as follow-ups.
+
 [[indexable-property-types]]
 ==== What can be indexed
 
@@ -211,6 +252,7 @@ Unique and non-unique modes are available for the scalar and composite cases. Fo
 ==== See also
 
 * <<schema-indexes,Indexes in the Schema concepts page>> -- the one-paragraph entry point with cross-refs.
+* <<index-sorted-bulk-build,Sorted bulk build>> -- fast offline construction of a large LSM index over existing data.
 * <<lsm-tree,LSM-Tree Internals>> -- on-disk format, compaction, page layout.
 * <<vector-search-concepts,Vector Search>> -- full reference for dense and sparse vectors and hybrid retrieval.
 * <<full-text-index,Full-Text Index>> -- analyzers, query syntax, scoring, MLT.
