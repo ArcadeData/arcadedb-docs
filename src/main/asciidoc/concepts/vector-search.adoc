@@ -197,7 +197,7 @@ To migrate an existing populated type to external storage in one step, use `ALTE
 | `encoding` | `FLOAT32` | Wire / document-storage encoding: FLOAT32 (`ARRAY_OF_FLOATS` property) or INT8 (`BINARY` property, byte per dim, 4x smaller payload). See <<vector-encoding,Vector Encoding>>.
 | `quantization` | `NONE` | Index-internal compression: NONE, INT8, BINARY, or PRODUCT. INT8 is recommended for most use cases.
 | `efSearch` | adaptive | Search beam width at query time. Controls recall vs speed trade-off. See <<adaptive-efsearch>>.
-| `maxConnections` | 16 | Connections per node. Higher = better recall, more memory
+| `maxConnections` | 32 | Graph connections per node, per layer (Vamana degree). Higher = better recall, more memory. This is *not* doubled at the base layer like hnswlib's `M`: to match an hnswlib `M`, set `maxConnections = 2 * M`. See <<maxconnections-hnswlib,note below>>.
 | `beamWidth` | 100 | Search depth during build. Higher = better index quality, slower builds
 | `addHierarchy` | false | Enable multi-layer HNSW for large/complex datasets
 | `storeVectorsInGraph` | false | Co-locate vectors in graph file for faster retrieval at large scale
@@ -368,8 +368,16 @@ When creating LSMVectorIndex instances, the following parameters can be configur
 
 - `dimensions`: The dimensionality of the vectors (must match your embedding model output)
 - `similarity`: The distance function for similarity calculation (COSINE, DOT_PRODUCT, EUCLIDEAN, etc.)
-- `maxConnections`: Maximum number of connections per layer in the HNSW graph (default: 16, increase for better recall)
+- `maxConnections`: Maximum number of graph connections per node, per layer (default: 32, increase for better recall)
 - `beamWidth`: Beam width for approximate nearest neighbor search (default: 100, increase for more accurate results)
+
+[[maxconnections-hnswlib]]
+[NOTE]
+====
+`maxConnections` is the Vamana per-layer graph degree used by the underlying engine. It is applied to every layer, *including the base layer* -- it is **not** doubled at the base layer the way hnswlib (used by Chroma and most HNSW tools) treats its `M` parameter, which allocates `2*M` links at the base layer.
+
+If you are porting a configuration from an hnswlib-based system, set `maxConnections = 2 * M` to get the same graph density (for example, hnswlib `M=16` corresponds to `maxConnections=32`). Leaving it at half the intended value silently halves base-layer density and lowers recall. The default was raised from 16 to 32 to match hnswlib `M=16` out of the box; the extra density costs proportionally more build-time heap.
+====
 
 [[similarity]]
 ==== Supported Similarity Functions
