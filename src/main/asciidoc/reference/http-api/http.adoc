@@ -693,6 +693,48 @@ Return:
 {"result": true}
 ----
 
+[[http-progress]]
+===== Get operation progress (GET)
+
+Returns the long-running maintenance operations currently in progress on this server for one database, with their step-by-step progress. `CHECK DATABASE`, `REBUILD INDEX`, `COMPACT INDEX`, `BACKUP DATABASE` and `IMPORT DATABASE` publish their progress here while they run. The endpoint answers from an in-memory snapshot without touching the database, so it is safe to poll at any frequency (the console and Studio poll it to render a live progress bar). In a cluster each server reports its own operations.
+
+URL Syntax: `/api/v1/progress/{database}`
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] no database passed
+* https://httpstatuses.io/403[`403`] the user is not authorized on the database
+
+Example:
+
+[source,shell]
+----
+$ curl -X GET http://localhost:2480/api/v1/progress/school \
+       --user root:arcadedb-password
+----
+
+Return (one entry per running operation, empty array when nothing is running):
+
+[source,json,subs="+attributes"]
+----
+{"result": [{
+  "id": 3,
+  "database": "school",
+  "operation": "check database fix",
+  "stepName": "Checking vertices 'Account'",
+  "stepIndex": 3,
+  "totalSteps": 9,
+  "done": 421000,
+  "total": 1000000,
+  "percentage": 42,
+  "startedOn": 1786370000000,
+  "elapsedMs": 154000
+}]}
+----
+
+`percentage` is `-1` when the current step's total is unknown (for example the backup or the import, whose sizes cannot be computed upfront).
+
 [[http-login]]
 ===== Login - Get Authentication Token (POST)
 

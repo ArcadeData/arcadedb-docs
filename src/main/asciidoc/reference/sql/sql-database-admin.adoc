@@ -102,6 +102,15 @@ Executes an integrity check and in case of a repair of the database. This comman
 * edges: scan all the edges and check the incoming and outgoing links are consistent in the relative vertices. If not, the edges can
  be automatically removed if the `FIX` option is enabled.
 
+When a vertex's edge list is unreadable (for example a lost or corrupted chunk of the adjacency linked list), the `FIX` mode does
+not delete anything: every edge record stores its own endpoint identities, so the adjacency list is rebuilt from the surviving edge
+records. After the rebuild, a full-scope `FIX` (no `TYPE`/`BUCKET` filter) also reclaims the orphaned edge-list segments the old,
+unreachable chains left on disk.
+
+While the check runs, its progress (current step and percentage) is visible live in the <<console,console>>, in Studio, and
+through the <<http-progress,HTTP progress endpoint>>. Run `FIX` in a maintenance window: like every repair, it assumes no
+concurrent writers.
+
 *Syntax*
 
 [source,sql]
@@ -155,6 +164,9 @@ The command returns the integrity check report in one record with the fields:
              It should be zero.
 | `autoFix` | counter of autofix operations executed by the check database under the hood when corrupted records have been encountered.
               Some operations, like broken edges, can be fixed and restored automatically.
+| `orphanedEdgeSegments` | number of unreachable edge-list segments found in the dedicated edge-list buckets
+                           (garbage left behind by repaired adjacency lists). Only present on a full-scope `FIX`.
+| `orphanedEdgeSegmentsReclaimed` | number of orphaned edge-list segments actually deleted by the `FIX`. Only present on a full-scope `FIX`.
 |===
 
 *Examples*
