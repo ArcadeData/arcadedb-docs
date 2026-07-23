@@ -46,7 +46,8 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
 | `allowDelete` | `false` | Allow DELETE operations.
 | `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc.).
 | `allowAdmin` | `false` | Allow administrative operations.
-| `allowedUsers` | `["*"]` | List of usernames allowed to use the MCP server. Use `"*"` to allow all authenticated users.
+| `allowedUsers` | `["root"]` | List of usernames allowed to use the MCP server. Use `"*"` to allow all authenticated users.
+| `allowedOrigins` | `[]` | Extra browser `Origin` values accepted by the HTTP transport, on top of the loopback and same-host origins that are always allowed. See <<mcp-transport>>.
 |===
 
 [[mcp-config-endpoint]]
@@ -107,7 +108,11 @@ curl -u root:arcadedb-password \
 
 ==== Available Tools
 
-The MCP server exposes five tools that AI clients can invoke.
+The MCP server exposes thirteen tools that AI clients can invoke.
+The five most commonly used ones are described in detail below; the remaining ones are `full_text_search`,
+`upsert_entity`, `upsert_relationship`, `profiler_start`, `profiler_stop`, `profiler_status`,
+`get_server_settings` and `set_server_setting`.
+Call `tools/list` for the authoritative list, including the full input schema of every tool.
 
 [[mcp-tool-list-databases]]
 ===== `list_databases`
@@ -314,6 +319,46 @@ curl -u root:arcadedb-password \
 
 NOTE: The `ha` field is only included when High Availability is enabled and the user has admin permissions.
 
+[[mcp-transport]]
+==== Transport
+
+The HTTP endpoint follows the Streamable HTTP transport rules of MCP 2025-03-26.
+
+*HTTP methods.* JSON-RPC is carried over `POST` only.
+The server does not offer a Server-Sent Events stream, so any other method (including `GET`) is answered with
+`405 Method Not Allowed` and an `Allow: POST` header.
+
+*Requests and notifications.* A request must carry an `id` that is a string or an integer; `null`, fractional
+and structured ids are rejected with JSON-RPC error `-32600`.
+A notification is a message with a `method` and no `id`: the server never answers one, and a `POST` that
+carried only notifications returns `202 Accepted` with an empty body.
+
+NOTE: Before version 26.8.1 a notification-only `POST` returned `204 No Content`, and notifications other than
+`notifications/initialized` were answered with a `Method not found` error carrying a null id.
+
+*Batches.* A top-level JSON array is accepted on both the HTTP and the stdio transport.
+Every element is dispatched independently and only the elements that are requests contribute a response, so a
+batch of notifications alone yields `202 Accepted` with no body and a mixed batch yields an array holding just
+the request responses.
+
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"tools/list"}]' \
+  http://localhost:2480/api/v1/mcp
+----
+
+[[mcp-origin]]
+*Origin validation.* To mitigate DNS rebinding, a request carrying an `Origin` header is accepted only when the
+origin is a loopback address, matches the host the request was addressed to, or is listed in `allowedOrigins`.
+Anything else is rejected with `403`.
+A request with no `Origin` is accepted, because non-browser MCP clients do not send one and the header is
+attached by the browser precisely in the case the check is meant to catch.
+Setting `allowedOrigins` to `["*"]` accepts any origin and disables this protection: use it only when the
+endpoint is fronted by a proxy that performs its own origin control.
+
 ==== Security
 
 The MCP server enforces multiple layers of security:
@@ -322,6 +367,7 @@ The MCP server enforces multiple layers of security:
 * **User authorization** -- Users can only access databases they are authorized for in the ArcadeDB security configuration.
 * **MCP permissions** -- The MCP configuration controls which operations are allowed (reads, inserts, updates, deletes, schema changes, admin).
 * **User allow-list** -- The `allowedUsers` setting restricts which users can access the MCP server.
+* **Origin validation** -- Cross-origin browser requests are rejected to mitigate DNS rebinding. See <<mcp-origin>>.
 * **Semantic analysis** -- Queries and commands are analyzed to detect their operation type and enforce the appropriate permission.
 
 ==== Using with AI Clients
