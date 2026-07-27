@@ -172,7 +172,7 @@ curl -u root:arcadedb-password \
 
 The MCP server exposes a version-dependent set of tools that AI clients can invoke.
 The commonly used tools described below include `list_databases`, `get_schema`, `query`, `execute_command`,
-`server_status`, and `vector_search`.
+`server_status`, `sample_records`, and `vector_search`.
 Other registered tools include `full_text_search`, `upsert_entity`, `upsert_relationship`, `profiler_start`,
 `profiler_stop`, `profiler_status`, `get_server_settings`, and `set_server_setting`.
 Call `tools/list` for the authoritative list, including the full input schema of every tool.
@@ -381,6 +381,55 @@ curl -u root:arcadedb-password \
 ----
 
 NOTE: The `ha` field is only included when High Availability is enabled and the user has admin permissions.
+
+[[mcp-tool-sample-records]]
+===== `sample_records`
+
+Returns the first records in storage order from selected database types so an agent can inspect actual property-value
+shapes before constructing a query.
+This is not a random or representative sample.
+
+*Parameters:*
+[cols="15,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `database` | Yes | The name of the database.
+| `types` | No | Up to 20 type names. Explicit names may include edge types. When omitted, ArcadeDB selects the first 20 vertex and document type names in alphabetical order and excludes edge types.
+| `limit` | No | Maximum records per type, from 1 through 20 (default: 3).
+|===
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sample_records","arguments":{"database":"mydb","types":["Person","Company"],"limit":3}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "samples": {
+    "Person": [
+      {"@rid": "#1:0", "@type": "Person", "name": "Alice"}
+    ],
+    "Company": [
+      {"@rid": "#2:0", "@type": "Company", "name": "Acme"}
+    ]
+  },
+  "sampledTypes": 2,
+  "availableTypes": 2,
+  "recordsReturned": 2,
+  "truncated": false
+}
+----
+
+When `types` is omitted, `availableTypes` reports the number of eligible vertex and document types and `truncated`
+indicates that more than 20 eligible types exist.
+The generated queries are checked as read-only, and serialized records do not include vertex edge collections.
 
 [[mcp-tool-vector-search]]
 ===== `vector_search`
