@@ -108,10 +108,11 @@ curl -u root:arcadedb-password \
 
 ==== Available Tools
 
-The MCP server exposes thirteen tools that AI clients can invoke.
-The five most commonly used ones are described in detail below; the remaining ones are `full_text_search`,
-`upsert_entity`, `upsert_relationship`, `profiler_start`, `profiler_stop`, `profiler_status`,
-`get_server_settings` and `set_server_setting`.
+The MCP server exposes a version-dependent set of tools that AI clients can invoke.
+The commonly used tools described below include `list_databases`, `get_schema`, `query`, `execute_command`,
+`server_status`, and `vector_search`.
+Other registered tools include `full_text_search`, `upsert_entity`, `upsert_relationship`, `profiler_start`,
+`profiler_stop`, `profiler_status`, `get_server_settings`, and `set_server_setting`.
 Call `tools/list` for the authoritative list, including the full input schema of every tool.
 
 [[mcp-tool-list-databases]]
@@ -318,6 +319,75 @@ curl -u root:arcadedb-password \
 ----
 
 NOTE: The `ha` field is only included when High Availability is enabled and the user has admin permissions.
+
+[[mcp-tool-vector-search]]
+===== `vector_search`
+
+Searches a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index with a pre-computed query vector.
+ArcadeDB does not generate embeddings; the caller must supply the vector produced by its embedding model.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `database` | Yes | The name of the database.
+| `indexName` | Yes | The name of an `LSM_VECTOR` or `LSM_SPARSE_VECTOR` index.
+| `queryVector` | Yes | Dense vector values, or sparse weights corresponding to `queryIndices`.
+| `queryIndices` | Sparse only | Sparse dimension identifiers corresponding to the weights in `queryVector`. Omit to use each `queryVector` position as its dimension.
+| `k` | Yes | Maximum results, from 1 through 1,000.
+| `efSearch` | No | Dense-index search beam width. Higher values can improve recall at additional cost. This option is rejected for sparse indexes.
+| `filter` | No | Read-only SQL `WHERE` predicate applied to a bounded candidate set.
+| `sparse` | No | Use `vector.sparseNeighbors` against an `LSM_SPARSE_VECTOR` index (default: false).
+|===
+
+The optional `filter` is evaluated against each expanded neighbor row.
+Record properties are flattened into that row, and `@rid`, `@type`, `record`, plus `distance` for dense results or
+`score` for sparse results are also available.
+
+*Dense-vector example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"vector_search","arguments":{"database":"research","indexName":"Paper[embedding]","queryVector":[0.12,-0.08,0.31],"k":20,"efSearch":100,"filter":"publishedYear >= 2024"}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "indexName": "Paper[embedding]",
+  "sparse": false,
+  "scoring": "distance_lower_is_better:COSINE",
+  "candidateLimit": 160,
+  "truncated": true,
+  "count": 20,
+  "results": [
+    {
+      "rid": "#12:34",
+      "type": "Paper",
+      "distance": 0.083,
+      "properties": {
+        "title": "Example paper",
+        "publishedYear": 2025
+      }
+    }
+  ]
+}
+----
+
+Dense results expose only `distance`, where lower is better.
+Sparse results expose only `score`, where higher is better.
+The response-level `scoring` value also records the active dense similarity function or sparse scoring modifier.
+
+Without a filter, `candidateLimit` equals `k`.
+With a filter, ArcadeDB examines up to `min(k * 8, 8000)` vector candidates before applying the predicate.
+`truncated` is true when the returned result window is full (`count` equals `k`), so more matches may exist.
+When it is false, fewer than `k` matches survived the current candidate window.
+For a filtered search, that does not prove that no matching vectors exist beyond `candidateLimit`; increasing `k`
+also expands the candidate window until the 8,000-candidate ceiling is reached.
 
 [[mcp-transport]]
 ==== Transport
