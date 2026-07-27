@@ -1,0 +1,180 @@
+[[howto-logging]]
+==== Logging
+
+ArcadeDB writes its own logs through a small internal facade, `com.arcadedb.log.Logger`, which has two implementations:
+
+* **`DefaultLogger`** (the default) writes to `java.util.logging` (JUL), configured by `config/arcadedb-log.properties`. This is what the server distribution uses, and its output is the familiar colored console plus a rotating file under `log/`.
+* **`Slf4jLogger`** (opt-in) routes every line through the SLF4J facade instead, so an application that embeds ArcadeDB receives the engine's logs in whatever backend it already uses (Logback, Log4j2, reload4j, or JUL again via `slf4j-jdk14`).
+
+Selecting an implementation is a startup decision, made with a system property and no code change:
+
+[source,shell]
+----
+-Darcadedb.log.impl=slf4j     # default, or omitted: java.util.logging
+----
+
+An unrecognized value falls back to the default logger and reports the fact on `stderr`, so a typo does not silently look like a working configuration.
+
+[[logging-default]]
+===== The default logger (java.util.logging)
+
+The server reads its JUL configuration from the first of these that exists:
+
+. The file named by the `java.util.logging.config.file` system property. The `server.sh` and `server.bat` scripts set this to `$ARCADEDB_HOME/config/arcadedb-log.properties`, anchored to the installation directory rather than the working directory.
+. An `arcadedb-log.properties` resource on the classpath, which is how embedded applications ship their own configuration.
+. `config/arcadedb-log.properties`, relative to the working directory.
+
+If none is found, JUL defaults apply and a warning goes to `stderr`.
+
+The shipped file configures a console handler and a rotating file handler:
+
+[source,properties]
+----
+handlers = java.util.logging.ConsoleHandler, java.util.logging.FileHandler
+
+.level = INFO
+com.arcadedb.level = INFO
+
+java.util.logging.ConsoleHandler.level = INFO
+java.util.logging.ConsoleHandler.formatter = com.arcadedb.utility.AnsiLogFormatter
+
+java.util.logging.FileHandler.level = INFO
+java.util.logging.FileHandler.pattern = ${arcadedb.server.logsDirectory}/arcadedb.log
+java.util.logging.FileHandler.formatter = com.arcadedb.log.LogFormatter
+java.util.logging.FileHandler.limit = 100000000
+java.util.logging.FileHandler.count = 10
+----
+
+`limit` and `count` give ten rotating files of 100 MB each, so the log directory is bounded at roughly 1 GB.
+
+[[logging-levels]]
+===== Per-package verbosity
+
+Logger names follow the emitting class, so any package prefix can be given its own level. To trace one subsystem without drowning in everything else:
+
+[source,properties]
+----
+com.arcadedb.level = INFO
+com.arcadedb.query.sql.level = FINE
+com.arcadedb.server.ha.level = FINE
+----
+
+The same mechanism silences noisy third-party libraries. The shipped configuration uses it to suppress the Apache Ratis per-retry replication flood, which repeats while a follower is briefly unreachable:
+
+[source,properties]
+----
+org.apache.ratis.grpc.server.GrpcLogAppender.level = SEVERE
+----
+
+Handlers filter independently of loggers, so raising a logger to `FINE` also requires lowering the handler: a `ConsoleHandler.level` of `INFO` discards `FINE` records no matter what the logger allows.
+
+[[logging-directory]]
+===== Log directory
+
+The file handler pattern supports `${...}` placeholders, resolved before JUL opens the file. The default pattern uses `${arcadedb.server.logsDirectory}`, which resolves, in order, from:
+
+. the `arcadedb.server.logsDirectory` system property,
+. the environment variable of the same name,
+. the `server.logsDirectory` setting,
+. the default `./log`.
+
+The `server.sh` and `server.bat` scripts forward the `ARCADEDB_LOG_DIR` environment variable to that system property, which is the usual way to relocate logs in a container:
+
+[source,shell]
+----
+ARCADEDB_LOG_DIR=/var/log/arcadedb ./bin/server.sh
+----
+
+This matters on a read-only root filesystem, such as a Kubernetes pod with `readOnlyRootFilesystem: true`, where `./log` is not writable. Point `ARCADEDB_LOG_DIR` at a writable volume mount. The directory is created at startup if it does not exist.
+
+An unresolvable placeholder falls back to `./log` rather than failing startup, so a typo in the pattern shows up as logs in an unexpected place rather than as a dead server.
+
+[[logging-console-format]]
+===== Console format
+
+The console formatter is chosen by the `server.logFormat` setting: `text` (the default, human-readable and colored) or `json` (one JSON object per line, for log shippers such as Loki or ELK). The JSON form carries the correlation fields `requestId`, `db`, `traceId`, and `spanId` when they are present. See <<observability-logging,Structured logging and correlation IDs>> for the field list and examples, and `server.logIncludeTrace` for appending the trace ID to text lines.
+
+To leave the console handler entirely alone, so that only `arcadedb-log.properties` decides the formatter, disable the automatic install:
+
+[source,shell]
+----
+-Darcadedb.installCustomFormatter=false
+----
+
+[[logging-slf4j]]
+===== Routing through SLF4J when embedding
+
+An application that embeds ArcadeDB usually already has a logging backend and wants the engine's output in it, in the same format, filtered by the same rules. Setting `arcadedb.log.impl=slf4j` makes ArcadeDB log through `slf4j-api` and nothing else: the engine pins no backend, so the host application keeps whichever one it uses, and needs no dependency exclusions.
+
+_(Available since v26.8.1)_
+
+Add exactly one SLF4J binding. With Logback, which Spring Boot already brings in:
+
+[source,xml]
+----
+<dependency>
+  <groupId>ch.qos.logback</groupId>
+  <artifactId>logback-classic</artifactId>
+</dependency>
+----
+
+With Log4j2:
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.apache.logging.log4j</groupId>
+  <artifactId>log4j-slf4j2-impl</artifactId>
+</dependency>
+<dependency>
+  <groupId>org.apache.logging.log4j</groupId>
+  <artifactId>log4j-core</artifactId>
+</dependency>
+----
+
+Then select the logger at startup:
+
+[source,shell]
+----
+java -Darcadedb.log.impl=slf4j -jar my-application.jar
+----
+
+or programmatically, before the first database is opened:
+
+[source,java]
+----
+LogManager.instance().setLogger(new Slf4jLogger());
+----
+
+Levels map onto SLF4J's five by numeric weight, so custom JUL levels also resolve: `SEVERE` to `ERROR`, `WARNING` to `WARN`, `INFO` to `INFO`, `FINE` to `DEBUG`, anything lower to `TRACE`. Logger names are unchanged (`com.arcadedb.*`), so the per-package filtering above translates directly:
+
+[source,xml]
+----
+<logger name="com.arcadedb" level="INFO"/>
+<logger name="com.arcadedb.query.sql" level="DEBUG"/>
+----
+
+Per-request correlation is published to the SLF4J MDC, namespaced so it cannot clobber the host application's own keys: `arcadedb.requestId`, `arcadedb.database`, `arcadedb.traceId`, and `arcadedb.spanId`. Reference them from a pattern with `%X{arcadedb.requestId}`, or rely on a JSON encoder, which includes the MDC automatically. Any value already present under one of those keys is restored after the call.
+
+Ready-to-use `logback.xml` and `log4j2.xml` files, reproducing both native formats, are in https://github.com/ArcadeData/arcadedb/tree/main/examples/logging[`examples/logging`] in the source repository.
+
+WARNING: The SLF4J logger leaves all configuration to the backend and therefore never reads `config/arcadedb-log.properties`. On a packaged server, which bundles the `slf4j-jdk14` binding, setting `arcadedb.log.impl=slf4j` still logs through JUL, but the file handler and formatters declared in that file are not installed, so the rotating `log/arcadedb.log.*` files stop being written. Either keep the default logger on the standalone server, or point JUL at the file yourself with `-Djava.util.logging.config.file=config/arcadedb-log.properties`.
+
+[[logging-custom]]
+===== Custom logger implementations
+
+Both implementations satisfy `com.arcadedb.log.Logger`, a two-method interface. An application that needs to capture the engine's output directly, rather than route it to a backend, can install its own:
+
+[source,java]
+----
+LogManager.instance().setLogger(new MyLogger());
+----
+
+Message parameters use printf-style formatting (`%s`), not SLF4J's `{}` placeholders, because that is how ArcadeDB messages are written. A custom implementation should check whether the level is enabled before formatting, since the engine passes format arguments unformatted precisely so that a disabled level costs nothing.
+
+===== Further Reading
+
+* <<howto-observability,Cloud Observability>> -- RED metrics, OTLP export, tracing, and health probes
+* <<observability-logging,Structured logging and correlation IDs>> -- the JSON console format and correlation fields
+* <<arcadedb-settings,Server Settings>> -- `server.logFormat`, `server.logIncludeTrace`, `server.logsDirectory`
+* <<kubernetes,Kubernetes deployment>> -- read-only root filesystems and log volume mounts
