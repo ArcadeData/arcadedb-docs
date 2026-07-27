@@ -32,6 +32,7 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
   "allowDelete": false,
   "allowSchemaChange": false,
   "allowAdmin": false,
+  "profile": "rag",
   "allowedUsers": ["root", "analyst"],
   "databases": {
     "analytics": {
@@ -52,10 +53,40 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
 | `allowDelete` | `false` | Allow DELETE operations.
 | `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc.).
 | `allowAdmin` | `false` | Allow administrative operations.
+| `profile` | `"all"` | Tool profile: `"all"`, `"rag"`, or `"admin"`. See <<mcp-tool-profiles>>.
 | `allowedUsers` | `["root"]` | List of usernames allowed to use the MCP server. Use `"*"` to allow all authenticated users.
 | `allowedOrigins` | `[]` | Extra browser `Origin` values accepted by the HTTP transport, on top of the loopback and same-host origins that are always allowed. See <<mcp-transport>>.
 | `databases` | `{}` | Optional per-database permission and user restrictions. See <<mcp-database-scoping>>.
 |===
+
+[[mcp-tool-profiles]]
+==== Tool Profiles
+
+Tool profiles keep the surface presented to an agent focused.
+The selected profile filters `tools/list` and is enforced again by `tools/call`, so a client cannot invoke a hidden
+tool directly.
+A profile never grants an operation: read, write, schema, administrative, user, origin, and native database
+authorization checks remain independent and mandatory.
+
+[cols="18,~",options="header"]
+|===
+| Profile | Tool membership
+| `all` | Every tool registered by the running ArcadeDB version. This is the default.
+| `rag` | `list_databases`, `get_schema`, `query`, `sample_records`, `vector_search`, `hybrid_search`, `full_text_search`, `upsert_entity`, and `upsert_relationship`.
+| `admin` | `list_databases`, `get_schema`, `query`, `execute_command`, `server_status`, `profiler_start`, `profiler_stop`, `profiler_status`, `get_server_settings`, and `set_server_setting`.
+|===
+
+Only registered tools are advertised.
+For example, a version that does not include `hybrid_search` does not expose it merely because the name belongs to
+the `rag` profile.
+The agent-memory upsert tools in `rag` remain unavailable unless their independent write permissions are enabled;
+all write permissions default to false.
+
+The `profile` setting is currently server-global.
+Per-database overrides restrict permissions and users only; they cannot select a different profile.
+See <<mcp-database-scoping>>.
+Serving different profiles to different authenticated principals requires separate ArcadeDB server instances until
+principal-specific profiles are implemented.
 
 [[mcp-database-scoping]]
 ==== Per-Database Scoping
@@ -500,6 +531,7 @@ The MCP server enforces multiple layers of security:
 * **MCP permissions** -- The MCP configuration controls which operations are allowed (reads, inserts, updates, deletes, schema changes, admin).
 * **User allow-list** -- The `allowedUsers` setting restricts which users can access the MCP server.
 * **Per-database restrictions** -- Optional database entries can further restrict operations and users without granting authority above the global policy.
+* **Tool profiles** -- Hidden tools are removed from discovery and rejected if invoked directly; profiles do not grant permissions.
 * **Origin validation** -- Cross-origin browser requests are rejected to mitigate DNS rebinding. See <<mcp-origin>>.
 * **Semantic analysis** -- Queries and commands are analyzed to detect their operation type and enforce the appropriate permission.
 
