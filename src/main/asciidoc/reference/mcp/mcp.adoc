@@ -32,7 +32,13 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
   "allowDelete": false,
   "allowSchemaChange": false,
   "allowAdmin": false,
-  "allowedUsers": ["root", "analyst"]
+  "allowedUsers": ["root", "analyst"],
+  "databases": {
+    "analytics": {
+      "allowInsert": false,
+      "allowedUsers": ["analyst"]
+    }
+  }
 }
 ----
 
@@ -48,7 +54,63 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
 | `allowAdmin` | `false` | Allow administrative operations.
 | `allowedUsers` | `["root"]` | List of usernames allowed to use the MCP server. Use `"*"` to allow all authenticated users.
 | `allowedOrigins` | `[]` | Extra browser `Origin` values accepted by the HTTP transport, on top of the loopback and same-host origins that are always allowed. See <<mcp-transport>>.
+| `databases` | `{}` | Optional per-database permission and user restrictions. See <<mcp-database-scoping>>.
 |===
+
+[[mcp-database-scoping]]
+==== Per-Database Scoping
+
+Entries under `databases` further restrict the server-global MCP policy for named databases.
+An omitted local field inherits its global value.
+A local `false` can deny an operation, but a local `true` cannot enable an operation denied globally.
+Similarly, a local `allowedUsers` list is an additional restriction: an authenticated principal must satisfy both
+the global and local lists.
+ArcadeDB's native database authorization remains an independent mandatory check.
+
+Each database override accepts `allowReads`, `allowInsert`, `allowUpdate`, `allowDelete`, `allowSchemaChange`,
+`allowAdmin`, and `allowedUsers`.
+Unknown fields are rejected rather than silently inherited.
+An override naming a database that does not currently exist produces a startup warning but is retained so it can
+apply if that database is created later.
+
+.Example per-database restrictions
+[source,json]
+----
+{
+  "enabled": true,
+  "allowReads": true,
+  "allowInsert": true,
+  "allowedUsers": ["root", "tenant-agent"],
+  "databases": {
+    "tenant-graph": {
+      "allowInsert": false,
+      "allowedUsers": ["tenant-agent"]
+    }
+  }
+}
+----
+
+The runtime configuration endpoint merges updates by database name.
+A non-null entry replaces the complete override for that database, so fields omitted from the replacement inherit
+the global policy.
+Set one database entry to `null` to remove that override, or set the top-level `databases` value to `null` to clear
+all database overrides:
+
+[source,json]
+----
+{
+  "databases": {
+    "tenant-graph": null,
+    "reporting": {
+      "allowReads": true,
+      "allowInsert": false
+    }
+  }
+}
+----
+
+Database discovery, server status, and schema resources omit databases whose effective policy denies the
+authenticated principal or read access.
 
 [[mcp-config-endpoint]]
 ==== Configuration Endpoint
@@ -367,6 +429,7 @@ The MCP server enforces multiple layers of security:
 * **User authorization** -- Users can only access databases they are authorized for in the ArcadeDB security configuration.
 * **MCP permissions** -- The MCP configuration controls which operations are allowed (reads, inserts, updates, deletes, schema changes, admin).
 * **User allow-list** -- The `allowedUsers` setting restricts which users can access the MCP server.
+* **Per-database restrictions** -- Optional database entries can further restrict operations and users without granting authority above the global policy.
 * **Origin validation** -- Cross-origin browser requests are rejected to mitigate DNS rebinding. See <<mcp-origin>>.
 * **Semantic analysis** -- Queries and commands are analyzed to detect their operation type and enforce the appropriate permission.
 
