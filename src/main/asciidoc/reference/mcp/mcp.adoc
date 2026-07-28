@@ -262,8 +262,8 @@ The MCP server exposes a version-dependent set of tools that AI clients can invo
 The commonly used tools described below include `list_databases`, `get_schema`, `query`, `execute_command`,
 `server_status`, `sample_records`, `vector_search`, `full_text_search`, `hybrid_search`, `upsert_entity`, and
 `upsert_relationship`.
-Other registered tools include `profiler_start`, `profiler_stop`, `profiler_status`, `get_server_settings`, and
-`set_server_setting`.
+The operator tools `profiler_start`, `profiler_stop`, `profiler_status`, `get_server_settings`, and
+`set_server_setting` are described below as well.
 Call `tools/list` for the authoritative list, including the full input schema of every tool.
 
 [[mcp-tool-list-databases]]
@@ -881,6 +881,197 @@ curl -u root:arcadedb-password \
 
 The edge properties are written in a trailing assignment, so the edge is keyed by its endpoints and type alone and
 is never duplicated by a change to its properties.
+
+===== `profiler_start`
+
+Starts the query profiler, which records every query with its execution time and plan.
+Requires admin permission.
+
+The profiler auto-stops after `timeoutSeconds`, so a session left running does not profile indefinitely.
+Use `profiler_stop` to end it early and collect the results, or `profiler_status` to check progress while it runs.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `timeoutSeconds` | No | Recording duration, from 1 through 3,600 seconds (default: 60). The profiler stops itself when it elapses.
+|===
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"profiler_start","arguments":{"timeoutSeconds":120}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "status": "started",
+  "timeoutSeconds": 120,
+  "message": "Query profiler started. It will auto-stop after 120 seconds. Use profiler_stop to stop early and retrieve results."
+}
+----
+
+Only one profiling session runs at a time.
+Starting the profiler while it is already recording does *not* restart it, extend it, or raise an error: the call
+returns `status: "already_recording"` and leaves the session untouched, so an agent retrying a start cannot
+silently discard the data collected so far.
+
+===== `profiler_stop`
+
+Stops the query profiler and returns the data captured during the session.
+Requires admin permission.
+Takes no parameters.
+
+Results are aggregated per query and include execution counts, timing (minimum, maximum, average, and p99), and
+execution-plan step costs.
+They are also written to disk, so a session can be retrieved after the fact.
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"profiler_stop","arguments":{}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+If the profiler was not recording, the call returns `status: "not_recording"` rather than an error, so stopping an
+already-stopped profiler is safe to retry.
+
+===== `profiler_status`
+
+Reports whether the profiler is recording and returns the current or most recent results.
+Requires admin permission.
+Takes no parameters.
+
+Where `profiler_stop` ends the session, this reads it without disturbing it, so it is the safe call for an agent
+that wants to check progress mid-session.
+Alongside the captured queries and their timing statistics, the response carries server metric snapshots taken
+during the session.
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"profiler_status","arguments":{}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+===== `get_server_settings`
+
+Returns the server-level configuration settings with their current values, defaults, and descriptions.
+Takes no parameters.
+
+[NOTE]
+====
+This tool requires *read* permission, not admin permission, even though it belongs to the `admin` tool profile.
+Profile membership and permission gating are independent: see <<mcp-tool-profiles>>.
+====
+
+Only settings whose scope is the server are returned; database-scoped settings are excluded.
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_server_settings","arguments":{}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "settings": [
+    {
+      "key": "arcadedb.asyncWorkerThreads",
+      "value": 7,
+      "description": "Number of asynchronous worker threads. 0 (default) = available cores minus 1",
+      "overridden": true,
+      "default": 0
+    },
+    {
+      "key": "arcadedb.ha.clusterToken",
+      "value": "*****",
+      "description": "Token to authenticate a server joining the cluster",
+      "overridden": true,
+      "default": "*****"
+    }
+  ]
+}
+----
+
+`overridden` is true when the setting has been given an explicit value rather than inheriting its default.
+
+[IMPORTANT]
+====
+Secret settings are masked as `*****` in both `value` and `default`.
+The rule covers the HA cluster token and every key containing `password`, and it is applied by the server rather
+than by the client, so a secret is never serialized into the response in the first place.
+====
+
+===== `set_server_setting`
+
+Updates a server configuration setting at runtime.
+Requires admin permission.
+
+Changes take effect immediately.
+Whether they survive a restart depends on the individual setting, so treat this as a runtime adjustment rather than
+a way to persist configuration.
+Call `get_server_settings` first to see the available keys and their current values.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `key` | Yes | The configuration key, for example `arcadedb.asyncWorkerThreads`.
+| `value` | Yes | The new value, as a string.
+|===
+
+An unknown key is rejected by name rather than silently accepted, so a typo cannot masquerade as a successful
+update.
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_server_setting","arguments":{"key":"arcadedb.asyncWorkerThreads","value":"8"}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "key": "arcadedb.asyncWorkerThreads",
+  "previousValue": "7",
+  "newValue": "8",
+  "message": "Setting 'arcadedb.asyncWorkerThreads' updated successfully."
+}
+----
+
+The response reports the replaced value so a change can be reverted without a separate read.
+
+[IMPORTANT]
+====
+For a secret setting, `previousValue` is masked as `*****`, using the same rule `get_server_settings` applies.
+Otherwise the setter would disclose through the value it replaced exactly what the getter withholds.
+The mask depends on the setting rather than on whether it currently holds a value, so an unset secret cannot be
+distinguished from a set one.
+====
 
 [[mcp-resources]]
 ==== Resources
