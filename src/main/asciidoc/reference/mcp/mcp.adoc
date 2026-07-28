@@ -34,6 +34,9 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
   "allowAdmin": false,
   "profile": "rag",
   "allowedUsers": ["root", "analyst"],
+  "principalProfiles": {
+    "analyst": "rag"
+  },
   "databases": {
     "analytics": {
       "allowInsert": false,
@@ -53,7 +56,8 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
 | `allowDelete` | `false` | Allow DELETE operations.
 | `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc.).
 | `allowAdmin` | `false` | Allow administrative operations.
-| `profile` | `"all"` | Tool profile: `"all"`, `"rag"`, or `"admin"`. See <<mcp-tool-profiles>>.
+| `profile` | `"all"` | Server-global tool profile: `"all"`, `"rag"`, or `"admin"`. See <<mcp-tool-profiles>>.
+| `principalProfiles` | `{}` | Optional per-principal tool profiles, keyed by user name or API token name. Intersected with `profile`, so an entry can only narrow the tool surface. See <<mcp-principal-profiles>>.
 | `allowedUsers` | `["root"]` | List of usernames allowed to use the MCP server. Use `"*"` to allow all authenticated users.
 | `allowedOrigins` | `[]` | Extra browser `Origin` values accepted by the HTTP transport, on top of the loopback and same-host origins that are always allowed. See <<mcp-transport>>.
 | `databases` | `{}` | Optional per-database permission and user restrictions. See <<mcp-database-scoping>>.
@@ -82,11 +86,58 @@ the `rag` profile.
 The agent-memory upsert tools in `rag` remain unavailable unless their independent write permissions are enabled;
 all write permissions default to false.
 
-The `profile` setting is currently server-global.
+The `profile` setting is server-global and applies to every principal that has no entry in `principalProfiles`.
 Per-database overrides restrict permissions and users only; they cannot select a different profile.
 See <<mcp-database-scoping>>.
-Serving different profiles to different authenticated principals requires separate ArcadeDB server instances until
-principal-specific profiles are implemented.
+
+[[mcp-principal-profiles]]
+===== Per-Principal Profiles
+
+Entries under `principalProfiles` assign a tool profile to an individual authenticated principal.
+The effective profile is the *intersection* of the server-global `profile` and the principal entry: a tool is
+advertised and callable only when both profiles contain it.
+An entry can therefore only narrow the surface, and never grants a tool that the global profile hides.
+As with the global profile, an intersection never grants a permission: read, write, schema, administrative,
+database, user, and origin checks remain independent and mandatory.
+
+A principal is keyed by its user name.
+An API token can be keyed either canonically as `apitoken:<token-name>` or by the bare token name, the same two
+spellings that `allowedUsers` accepts.
+When both spellings are present, the canonical `apitoken:` entry wins.
+
+.Example: a retrieval agent restricted to the `rag` tools on an otherwise unrestricted server
+[source,json]
+----
+{
+  "enabled": true,
+  "profile": "all",
+  "allowedUsers": ["root", "retrieval-agent", "retrieval-token"],
+  "principalProfiles": {
+    "retrieval-agent": "rag",
+    "apitoken:retrieval-token": "rag"
+  }
+}
+----
+
+Profile names are case-insensitive on input and are serialized in lowercase.
+A `tools/call` for a tool excluded by the intersection is rejected with an error naming both profiles, so a client
+cannot bypass the filtered `tools/list` by invoking the tool directly.
+The `initialize` instructions follow the effective profile: they describe the `rag` surface when the intersection
+matches the `rag` profile, and otherwise describe the general or the restricted surface.
+
+The runtime configuration endpoint merges `principalProfiles` by principal name.
+Set one principal to `null` to remove that entry, or set the top-level `principalProfiles` value to `null` to clear
+all per-principal profiles:
+
+[source,json]
+----
+{
+  "principalProfiles": {
+    "retrieval-agent": null,
+    "reporting-agent": "rag"
+  }
+}
+----
 
 [[mcp-database-scoping]]
 ==== Per-Database Scoping
@@ -176,8 +227,14 @@ The MCP server supports the following JSON-RPC 2.0 methods:
 | `notifications/initialized` | Client notification acknowledging initialization.
 | `tools/list` | Returns the list of available tools with their JSON schemas.
 | `tools/call` | Executes a specific tool by name with the provided arguments.
+| `resources/list` | Returns the readable resources. See <<mcp-resources>>.
+| `resources/read` | Returns the contents of one resource, addressed by URI. See <<mcp-resources>>.
 | `ping` | Health check that returns a pong response.
 |===
+
+The `initialize` response advertises both surfaces under `capabilities`, as `tools` and `resources`.
+Neither surface emits change notifications and resources cannot be subscribed to, so `listChanged` and `subscribe`
+are both false.
 
 *Example: Initialize*
 [source,shell]
@@ -531,6 +588,80 @@ When it is false, fewer than `k` matches survived the current candidate window.
 For a filtered search, that does not prove that no matching vectors exist beyond `candidateLimit`; increasing `k`
 also expands the candidate window until the 8,000-candidate ceiling is reached.
 
+[[mcp-resources]]
+==== Resources
+
+Besides tools, the MCP server exposes a read-only Resources surface.
+Every database publishes its schema at:
+
+----
+arcadedb://{database}/schema
+----
+
+The resource is served with the MIME type `application/json` and its `text` payload is the same document that the
+<<mcp-tool-get-schema,`get_schema`>> tool returns.
+A client that reads the resource at session start therefore obtains the schema without spending a tool call.
+
+*Example: list resources*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"resources/list"}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "resources": [
+    {
+      "uri": "arcadedb://mydb/schema",
+      "name": "mydb schema",
+      "description": "Schema of the ArcadeDB database 'mydb': types (vertex, edge, document), properties, indexes, inheritance.",
+      "mimeType": "application/json"
+    }
+  ]
+}
+----
+
+*Example: read a resource*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"arcadedb://mydb/schema"}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "contents": [
+    {
+      "uri": "arcadedb://mydb/schema",
+      "mimeType": "application/json",
+      "text": "{\"database\":\"mydb\",\"types\":[...]}"
+    }
+  ]
+}
+----
+
+Resources are gated by the same policy as reads.
+`allowReads` must be enabled globally, the effective per-database policy must allow the authenticated principal to
+read that database, and ArcadeDB's native database authorization applies as usual.
+Tool profiles do not filter resources: a `rag` or `admin` profile changes the tool list only.
+
+`resources/list` is a discovery call that most clients issue unprompted at session start, so a denial is reported as
+an empty `resources` array rather than as an error, and databases the principal cannot read are omitted.
+`resources/read` rejects an unknown database, an unauthorized database, and a malformed URI identically with JSON-RPC
+error `-32002` (`Resource not found`), so the surface cannot be used to probe which databases exist.
+When `allowReads` is disabled, `resources/read` returns error `-32600`.
+
 [[mcp-transport]]
 ==== Transport
 
@@ -581,6 +712,7 @@ The MCP server enforces multiple layers of security:
 * **User allow-list** -- The `allowedUsers` setting restricts which users can access the MCP server.
 * **Per-database restrictions** -- Optional database entries can further restrict operations and users without granting authority above the global policy.
 * **Tool profiles** -- Hidden tools are removed from discovery and rejected if invoked directly; profiles do not grant permissions.
+* **Per-principal profiles** -- An individual principal can be narrowed further; the effective profile is the intersection with the global one. See <<mcp-principal-profiles>>.
 * **Origin validation** -- Cross-origin browser requests are rejected to mitigate DNS rebinding. See <<mcp-origin>>.
 * **Semantic analysis** -- Queries and commands are analyzed to detect their operation type and enforce the appropriate permission.
 
