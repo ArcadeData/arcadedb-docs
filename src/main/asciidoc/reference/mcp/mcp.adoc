@@ -260,9 +260,10 @@ curl -u root:arcadedb-password \
 
 The MCP server exposes a version-dependent set of tools that AI clients can invoke.
 The commonly used tools described below include `list_databases`, `get_schema`, `query`, `execute_command`,
-`server_status`, `sample_records`, and `vector_search`.
-Other registered tools include `full_text_search`, `upsert_entity`, `upsert_relationship`, `profiler_start`,
-`profiler_stop`, `profiler_status`, `get_server_settings`, and `set_server_setting`.
+`server_status`, `sample_records`, `vector_search`, `full_text_search`, `hybrid_search`, `upsert_entity`, and
+`upsert_relationship`.
+Other registered tools include `profiler_start`, `profiler_stop`, `profiler_status`, `get_server_settings`, and
+`set_server_setting`.
 Call `tools/list` for the authoritative list, including the full input schema of every tool.
 
 [[mcp-tool-list-databases]]
@@ -587,6 +588,299 @@ With a filter, ArcadeDB examines up to `min(k * 8, 8000)` vector candidates befo
 When it is false, fewer than `k` matches survived the current candidate window.
 For a filtered search, that does not prove that no matching vectors exist beyond `candidateLimit`; increasing `k`
 also expands the candidate window until the 8,000-candidate ceiling is reached.
+
+===== `full_text_search`
+
+Searches a full-text index and returns the matching records ranked by relevance score.
+Requires read permission.
+
+Address the index either by `indexName`, or by `typeName` with optional `properties`.
+When both forms are supplied, `indexName` wins.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `database` | Yes | The name of the database.
+| `queryText` | Yes | The full-text query. A blank query is rejected.
+| `indexName` | Either | The name of the full-text index, for example `Article[content]` or `Article[title,content]`.
+| `typeName` | Either | The type carrying the index, for example `Article`. An index declared on a supertype is named for the supertype.
+| `properties` | No | Indexed properties, used with `typeName`, given in the order the index declares them.
+| `limit` | No | Maximum results (default: 10).
+|===
+
+*Query syntax:*
+[cols="20,~",options="header"]
+|===
+| Form | Meaning
+| `+a +b` | Both terms required.
+| `a -b` | Excludes `b`.
+| `a b` | Matches either term.
+| `"exact phrase"` | All terms must appear in the same record. Term order is *not* enforced.
+| `pre*` | Prefix match.
+| `term~` | Fuzzy match.
+| `field:term` | Restricts to one property of a multi-property index.
+| `term^2` | Boosts a term.
+|===
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"full_text_search","arguments":{"database":"research","indexName":"Paper[abstract]","queryText":"+graph +retrieval -sql","limit":5}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "indexName": "Paper[abstract]",
+  "similarity": "BM25",
+  "count": 2,
+  "results": [
+    {
+      "rid": "#12:34",
+      "score": 4.71,
+      "properties": {
+        "title": "Graph retrieval over citation networks"
+      }
+    }
+  ]
+}
+----
+
+The `similarity` field reports whether scores are `BM25` or legacy `CLASSIC` coordination counts.
+The limit is pushed down per bucket, so the search merges at most `bucket count * limit` entries rather than every
+match in the index.
+Because of that push-down, a record deleted concurrently between the index scan and the record read is skipped
+without being back-filled, so a search can legitimately return fewer than `limit` results.
+
+[[mcp-tool-hybrid-search]]
+===== `hybrid_search`
+
+Retrieves records by fusing up to three retrieval legs into a single ranked list: a vector search, an optional
+full-text search, and an optional graph expansion.
+Requires read permission.
+As with `vector_search`, ArcadeDB does not generate embeddings.
+
+The graph expansion is seeded from the records the other legs found and walks outward from them, so a neighbor of a
+strong match can itself rank.
+Expanded records carry the number of hops from their seed and the path back to it.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `database` | Yes | The name of the database.
+| `vectorIndexName` | Yes | The name of an `LSM_VECTOR` or `LSM_SPARSE_VECTOR` index.
+| `queryVector` | Yes | Dense vector values, or sparse weights corresponding to `queryIndices`.
+| `k` | Yes | Maximum results after fusion, from 1 through 1,000.
+| `queryIndices` | Sparse only | Sparse dimension identifiers corresponding to the weights in `queryVector`.
+| `sparse` | No | Use `vector.sparseNeighbors` against an `LSM_SPARSE_VECTOR` index (default: false).
+| `efSearch` | No | Dense-index search beam width. Rejected for sparse indexes.
+| `filter` | No | Read-only SQL `WHERE` predicate applied to the vector leg's bounded candidate set.
+| `fulltextIndexName` | With `fulltextQuery` | The full-text index for the second leg.
+| `fulltextQuery` | With `fulltextIndexName` | The full-text query for the second leg.
+| `expand` | No | Graph expansion leg. See below.
+| `fusionStrategy` | No | `RRF`, `DBSF`, or `LINEAR` (default: `RRF`).
+| `weights` | No | Per-leg fusion weights, keyed by leg name.
+|===
+
+Supplying only one of `fulltextIndexName` and `fulltextQuery` is rejected: half a leg is always a mistake, and
+ignoring it silently would return a plausible result set that quietly dropped what the caller asked for.
+
+*The `expand` object:*
+[cols="20,15,~",options="header"]
+|===
+| Field | Required | Description
+| `edgeTypes` | No | Edge types to traverse. Omit to traverse every edge type.
+| `direction` | No | `out`, `in`, or `both` (default: `out`).
+| `maxDepth` | No | Hops to walk, from 1 through 3 (default: 1).
+|===
+
+An unknown edge type is rejected, listing the available ones.
+Traversing a name that matches nothing would otherwise return an empty neighborhood without an error, silently
+degrading the search to plain two-way fusion.
+`maxDepth` above 3 is rejected rather than clamped, and the cap is enforced server-side regardless of the value sent.
+Graph expansion requires a vertex type; requesting it against a document type is rejected.
+
+*Fusion strategies:*
+
+`RRF` (Reciprocal Rank Fusion) is rank-only and ignores per-row scores.
+`DBSF` and `LINEAR` normalize per-source scores and therefore require a numeric score on every row of every source.
+
+The graph expansion leg ranks by traversal order and carries no score, so *`DBSF` and `LINEAR` cannot be combined
+with `expand`* and that combination is rejected.
+Both remain available for vector plus full-text fusion.
+
+*Weights:*
+
+`weights` accepts `vector`, `fulltext`, and `expand`.
+The first two default to `1.0` and `expand` defaults to `0.5`, because under `RRF` a rank-one expanded record would
+otherwise score exactly what the nearest neighbor scores, letting an arbitrary one-hop neighbor tie the best
+semantic match.
+
+A weight naming a leg the request does not ask for is rejected, as is an unknown key, a negative value, and a
+non-numeric value.
+A weight of `0.0` is accepted: it keeps a leg's records in the candidate set and in each result's `sources` while
+contributing nothing to the ranking.
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hybrid_search","arguments":{"database":"research","vectorIndexName":"Paper[embedding]","queryVector":[0.12,-0.08,0.31],"fulltextIndexName":"Paper[abstract]","fulltextQuery":"graph retrieval","expand":{"edgeTypes":["CITES"],"direction":"out","maxDepth":2},"fusionStrategy":"RRF","k":10}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "vectorIndexName": "Paper[embedding]",
+  "sparse": false,
+  "scoring": "distance_lower_is_better:COSINE",
+  "fused": true,
+  "fusionStrategy": "RRF",
+  "fulltextIndexName": "Paper[abstract]",
+  "legs": {
+    "vector": { "count": 40 },
+    "fulltext": { "indexName": "Paper[abstract]", "similarity": "BM25", "count": 27 },
+    "expand": {
+      "direction": "out",
+      "edgeTypes": ["CITES"],
+      "maxDepth": 2,
+      "truncated": false,
+      "seedCount": 61,
+      "seedsTruncated": false,
+      "count": 133
+    }
+  },
+  "truncated": true,
+  "count": 10,
+  "results": [
+    {
+      "rid": "#12:34",
+      "fusedScore": 0.0325,
+      "sources": ["vector", "fulltext"],
+      "properties": { "title": "Graph retrieval over citation networks" }
+    },
+    {
+      "rid": "#12:99",
+      "fusedScore": 0.0161,
+      "sources": ["expand"],
+      "depth": 1,
+      "path": ["#12:34", "#12:99"],
+      "properties": { "title": "Citation graphs as retrieval context" }
+    }
+  ]
+}
+----
+
+`sources` names the legs that contributed to each result, so a fused score can be interpreted rather than taken on
+faith: it distinguishes a top semantic match from a record that arrived two hops from something relevant.
+`depth` and `path` appear only on results the expansion leg contributed, and `path` starts at the seed and ends at
+the result itself.
+
+`fused` reports whether fusion actually ran.
+Fusion requires at least two sources, so a request naming neither `fulltextQuery` nor `expand` cannot be fused: that
+response sets `fused` to false and its results carry the vector leg's native `distance` or `score` instead of
+`fusedScore`.
+The full-text index name and similarity are reported under `legs` whenever that leg ran, including when it matched
+nothing.
+
+The response carries several independent budgets.
+Top-level `truncated` means the result window filled (`count` equals `k`), so raising `k` may surface more.
+`legs.expand.truncated` means the traversal hit its fan-out cap, so the neighborhood was only partly explored;
+narrowing `edgeTypes` or `maxDepth` gives a more complete picture of the part that matters.
+`legs.expand.seedsTruncated` means the retrieval legs produced more candidate seeds than the traversal budget
+accepts, so expansion started from a subset.
+
+For pure two-way fusion without graph expansion, `vector.fuse` remains available through the `query` tool.
+
+===== `upsert_entity`
+
+Creates or updates a single vertex addressed by a match key, without duplicating it.
+Requires *both* insert and update permission, because a merge resolves to a create or an update depending on what
+already exists.
+
+The vertex is matched, or created, by the `matchKeys` property/value pairs, and then any `setProperties` are
+written.
+Repeated calls with identical `matchKeys` resolve to the same vertex.
+Values are bound as parameters, so they are safe to pass verbatim; identifiers are quoted.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `database` | Yes | The name of the database.
+| `typeName` | Yes | The vertex type. Created automatically if it does not exist.
+| `matchKeys` | Yes | property/value pairs used as the match key. Must be non-empty; values should be scalars.
+| `setProperties` | No | property/value pairs to write on the matched or created vertex.
+|===
+
+[IMPORTANT]
+====
+Create a `UNIQUE` index on the `matchKeys` properties.
+Without one the match is a full type scan on every call, and two concurrent upserts carrying the same keys can each
+create a vertex, which is exactly the duplication the tool exists to prevent.
+====
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"upsert_entity","arguments":{"database":"memory","typeName":"Person","matchKeys":{"email":"ada@example.com"},"setProperties":{"name":"Ada Lovelace","role":"analyst"}}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+===== `upsert_relationship`
+
+Creates or updates a single directed edge between two vertices, without duplicating it.
+Requires *both* insert and update permission.
+
+Each endpoint is matched, or created, by its own match keys; then the edge of type `relType` between them is matched
+or created, and any `relProperties` are written.
+Repeated calls between the same resolved endpoints with the same `relType` resolve to the same edge.
+
+*Parameters:*
+[cols="20,15,~",options="header"]
+|===
+| Parameter | Required | Description
+| `database` | Yes | The name of the database.
+| `fromType` | Yes | The source vertex type. Created automatically if it does not exist.
+| `fromMatchKeys` | Yes | property/value pairs identifying the source vertex. Must be non-empty.
+| `toType` | Yes | The destination vertex type. Created automatically if it does not exist.
+| `toMatchKeys` | Yes | property/value pairs identifying the destination vertex. Must be non-empty.
+| `relType` | Yes | The edge type. Created automatically if it does not exist.
+| `relProperties` | No | property/value pairs to write on the matched or created edge.
+|===
+
+[IMPORTANT]
+====
+As with `upsert_entity`, create a `UNIQUE` index on each endpoint's match-key properties.
+Without one each endpoint match is a full type scan, and concurrent calls can create duplicate endpoints.
+====
+
+*Example:*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"upsert_relationship","arguments":{"database":"memory","fromType":"Person","fromMatchKeys":{"email":"ada@example.com"},"toType":"Project","toMatchKeys":{"code":"ANALYTICAL-ENGINE"},"relType":"WORKS_ON","relProperties":{"since":1843}}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+The edge properties are written in a trailing assignment, so the edge is keyed by its endpoints and type alone and
+is never duplicated by a change to its properties.
 
 [[mcp-resources]]
 ==== Resources
