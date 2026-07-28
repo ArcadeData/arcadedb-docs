@@ -317,7 +317,55 @@ Common causes of leader unavailability include:
 
 When a replica rejoins after being offline, it catches up via the Raft log automatically; if it has fallen behind past the log purge boundary, the leader streams a full database snapshot over HTTP and the replica installs it atomically.
 
-Since v26.7.2, the leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP. Previously such a follower stayed silently disconnected and the cluster ran at bare quorum until an operator forced a leadership transfer; the leader now re-resolves the peer and re-establishes the channel on its own.
+Since v26.7.2, the leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP. Previously such a follower stayed silently disconnected and the cluster ran at bare quorum until an operator forced a leadership transfer; the leader now re-resolves the peer and re-establishes the channel on its own. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>.
+
+[[ha-channel-self-healing]]
+===== Replication-Channel Self-Healing (from v26.7.2)
+
+A follower can be up, healthy, and reachable by every other node, and still receive nothing from the leader. The leader keeps one long-lived gRPC channel per follower. If that channel is wedged on a peer address that is no longer valid (the classic case is a Kubernetes pod restarting onto a new IP inside the JVM's positive DNS cache window), the leader's appender for that follower keeps writing into a socket that goes nowhere. The follower's `matchIndex` stops advancing, or never advances at all (`matchIndex=-1`), while the rest of the cluster commits normally. Quorum is unaffected as long as a majority is still healthy, so the cluster keeps serving writes at reduced redundancy and nothing fails loudly.
+
+ArcadeDB detects and repairs this on its own, in three escalating steps.
+
+*1. Detect: the follower is reported unreachable.*
+The leader's cluster monitor tracks the time since the last successful RPC to each follower. Once that exceeds `arcadedb.ha.peerUnreachableThreshold` (default 10s), the follower is reported *unreachable*. This is a diagnostic signal only: it does not change Raft membership, quorum, or the write path. It is, however, the input every step below depends on, so setting it to `0` disables the whole self-healing sequence.
+
+*2. Reset: rebuild that one follower's channel.*
+Once a follower has stayed continuously unreachable for `arcadedb.ha.peerChannelResetDuration` (default 60s), the leader closes that follower's replication channel so the next send re-resolves DNS and reconnects. Only the unreachable peer's channel is touched; the other followers, and leadership itself, are left alone, so there is no flapping risk. A follower that reconnects inside the interval clears the streak and is never reset, so an in-progress reconnection is not disrupted.
+
+A single reset does not always stick, because the rebuilt channel may still resolve the stale address if the JVM DNS cache has not expired. The reset is therefore retried once per interval, *up to 5 attempts*. The counter re-arms as soon as the follower becomes reachable again. Set the duration to `0` to disable the automatic reset and keep only the manual leadership transfer.
+
+*3. Escalate: transfer leadership to rebuild the appender.*
+The retry budget alone leaves a gap: the streak only re-arms when the follower becomes reachable, so a permanently wedged channel would sit in the given-up state until an operator restarted the leader process. Since v26.8.1, `arcadedb.ha.peerChannelResetEscalation` (default `true`) closes it. When the budget is exhausted and the channel is still dead, the leader *transfers leadership to a healthy peer*, so the new leader builds a brand-new appender to the stuck follower.
+
+The target is selected with the same rules as a manual step-down and is never the wedged follower itself. If no healthy peer is eligible, the leader logs at SEVERE and leaves the follower for the operator.
+
+The escalation is bounded, not perpetual. Leadership transfer is exactly what makes a *new* leader inherit the problem, so each healthy peer escalates a given follower *at most once per 30-minute cooldown*. If the follower is unreachable for a reason a fresh appender cannot fix (it is genuinely down, or partitioned away), the cluster passes leadership around at most once per peer and then settles on the operator-intervention path instead of churning. Set the flag to `false` to keep the detection and logging but never move leadership automatically.
+
+====== Log lines to look for
+
+The whole sequence is visible in the leader's log. Searching for these strings tells you which step the cluster reached:
+
+[%header,cols="45%,55%"]
+|===
+|Log line |Meaning
+
+|`Replica '<peer>' has NEVER received a single append (matchIndex=-1) ...`
+|SEVERE. The follower's replication path is dead: it has not received one entry since the leader took office. This is the symptom, logged before any repair is attempted.
+
+|`Follower '<peer>' unreachable for <n>ms; triggering a replication-channel reset (attempt N/5) ...`
+|WARNING. Step 2. `N` tells you how much of the retry budget is left. Repeated lines climbing to `5/5` mean the resets are not sticking.
+
+|`Follower '<peer>' still unreachable after 5 replication-channel resets over <n>ms; escalating to rebuild the appender for it.`
+|SEVERE. The budget is exhausted and escalation is enabled. The leadership transfer follows.
+
+|`Transferring leadership to '<target>' to rebuild the replication appender for wedged follower '<peer>'.`
+|WARNING. Step 3 firing. A leader change in the logs immediately after this one is intentional, not a failure.
+
+|`... giving up automatic channel recovery - operator intervention (e.g. a leadership transfer) is required.`
+|SEVERE. Escalation is disabled (`peerChannelResetEscalation=false`), no healthy peer was eligible, or the 30-minute cooldown already covered this follower. Nothing further is automatic: investigate the follower.
+|===
+
+If you reach the last line, the follower is not suffering from a stale address, and rebuilding the channel will not help. Check that the follower process is alive, that its Raft port is reachable from the leader, and that its address resolves to an entry in `arcadedb.ha.serverList`. A peer that moved to an address outside the list is rejected by the peer allowlist described under <<ha-security,Security>>.
 
 [[ha-durable-raft-storage]]
 ===== Durable Raft Storage (from v26.7.2)
@@ -436,6 +484,7 @@ $ curl -u root:<password> \
 ArcadeDB Studio exposes a *Cluster* tab (visible when HA is enabled) that displays the current leader, peer roles, Raft term and commit index, per-follower replication lag, and provides buttons for leadership transfer, peer add/remove, and database verification.
 See <<studio,Studio>>.
 
+[[ha-security]]
 ===== Security
 
 *Cluster token*:: Inter-node HTTP forwarding (replica -> leader proxy, snapshot downloads) is authenticated with a shared *cluster token* sent as the `X-ArcadeDB-Cluster-Token` HTTP header.
@@ -578,6 +627,22 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |`+arcadedb.ha.raftStorageDirectory+`
 |Parent directory for the per-node `raft-storage-<nodeName>` sub-folder. Empty (default) uses the server root path. With durable storage enabled by default, point this at a persistent volume. See <<ha-durable-raft-storage,Durable Raft Storage>>
 |(empty)
+
+|`+arcadedb.ha.peerUnreachableThreshold+`
+|Time in ms since the last successful RPC to a follower before the leader reports it as unreachable. Diagnostic only — it does not change membership or quorum — but it is the signal the channel reset below depends on. 0 disables it, and with it the whole self-healing sequence. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>
+|10000
+
+|`+arcadedb.ha.peerChannelResetDuration+`
+|Time in ms a follower must stay continuously unreachable before the leader resets that one follower's replication channel, forcing a fresh DNS resolution and reconnect. Retried once per interval, up to 5 attempts. 0 disables. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>
+|60000
+
+|`+arcadedb.ha.peerChannelResetEscalation+`
+|When the reset retry budget is exhausted and the channel is still dead, transfer leadership to a healthy peer so the new leader builds a fresh appender to that follower. Bounded by a 30-minute per-follower cooldown on each peer. `false` logs only. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>
+|true
+
+|`+arcadedb.ha.stalledReplicaResyncDurationMs+`
+|How long in ms a replica must stay STALLED (its `matchIndex` not advancing while the leader commits) before the leader forces it to resync. A follower still at `matchIndex=-1` counts as STALLED regardless of the numeric lag. 0 disables leader-driven recovery; the condition is still logged
+|60000
 
 |`+arcadedb.ha.stopServerOnReplicationFailure+`
 |If true, the JVM exits after exhausting step-down retries on a phase-2 replication failure. Default false keeps the server up and logs CRITICAL
