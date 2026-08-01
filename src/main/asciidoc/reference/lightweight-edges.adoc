@@ -1,0 +1,155 @@
+[[lightweight-edges]]
+=== Lightweight Edges
+
+A _lightweight edge_ is an edge stored as a pair of pointers inside the two vertices it connects, with no record of its own. It therefore carries no properties. A _regular_ edge is a first-class record with its own RID, able to hold arbitrary key/value properties.
+
+Since v26.8.1 the storage shape is declared on the edge *type*, so every way of creating an edge -- SQL, Cypher, Gremlin, the Java API, `GraphBatch`, the async executor -- produces the shape the schema asks for.
+
+[source,sql]
+----
+CREATE EDGE TYPE Follows LIGHTWEIGHT
+----
+
+[source,java]
+----
+database.getSchema().buildEdgeType().withName("Follows").withLightweight(true).create();
+----
+
+==== When to use them
+
+Use lightweight edges when *both* of the following hold:
+
+* the relationship carries no properties, and
+* you traverse *from vertices* rather than querying the edge type directly.
+
+If either is false, use a regular edge type. An edge that needs a weight, a timestamp or any other attribute must be a regular edge, and an application that runs `SELECT ... FROM <EdgeType>` needs records to select.
+
+[IMPORTANT]
+====
+*Lightweight edges do not make traversal faster.* Expanding from a vertex reads the neighbour's RID straight out of the edge list and never loads the edge record -- in *either* shape. Choose lightweight edges for write throughput and disk footprint, not for read speed.
+====
+
+==== Measured performance
+
+Embedded, single writer, warm page cache. Two graph shapes with the same operations. `Bulk insert` is one transaction per 20K edges; `Single insert` is one transaction per edge; `Delete` removes all edges of a sample of vertices.
+
+.Degree 10 -- 20,000 vertices, 200,000 edges
+[%header,cols="14%,10%,13%,15%,11%,10%,12%,15%"]
+|===
+|Shape|UNIQUE|Bulk insert|Single insert|1-hop|2-hop|Delete|Disk per edge
+
+|Regular|no|570 ms|299 ms|19 ms|23 ms|113 ms|81.6 B
+|Regular|yes|1,162 ms|343 ms|19 ms|24 ms|126 ms|123.3 B
+|Lightweight|no|494 ms|195 ms|21 ms|25 ms|71 ms|45.9 B
+|Lightweight|yes|494 ms|188 ms|19 ms|22 ms|56 ms|45.9 B
+|===
+
+.Degree 100 -- 500 vertices, 50,000 edges
+[%header,cols="14%,10%,13%,15%,11%,10%,12%,15%"]
+|===
+|Shape|UNIQUE|Bulk insert|Single insert|1-hop|2-hop|Delete|Disk per edge
+
+|Regular|no|123 ms|35 ms|2 ms|101 ms|217 ms|59.0 B
+|Regular|yes|203 ms|46 ms|2 ms|100 ms|273 ms|133.9 B
+|Lightweight|no|35 ms|19 ms|2 ms|100 ms|147 ms|24.9 B
+|Lightweight|yes|47 ms|19 ms|2 ms|100 ms|147 ms|24.9 B
+|===
+
+Reading the numbers:
+
+* *Writes get faster as degree grows*: bulk insert is 1.2x faster than regular edges at degree 10 and 3.5x faster at degree 100. Single-edge insert is 1.5-1.8x faster, deletion 1.5-1.6x.
+* *Disk drops 44-58%*, and more against a regular type that also carries a `UNIQUE` index.
+* *Traversal is unchanged* in every configuration -- see the note above.
+
+==== Limitations
+
+* *No properties.* Declaring a property on a `LIGHTWEIGHT` edge type, or passing properties to `newEdge()`, is rejected with a schema error.
+* *No records, therefore no RID.* `SELECT FROM <EdgeType>` returns nothing and `count(*)` is `0` for a lightweight type. Query them from the vertices instead:
++
+[source,sql]
+----
+SELECT expand(outE('Follows')) FROM Person
+----
+* *Identity is the triple* `(edge type, out vertex, in vertex)`. With no properties there is no observable difference between two lightweight edges of the same type over the same ordered pair, so they are the *same edge*.
+
+==== Duplicates
+
+ArcadeDB does not prevent a second lightweight edge over the same ordered pair unless the type declares `UNIQUE`, because the check costs a scan of the source vertex's edge list. If an application creates one anyway, the behaviour is well defined and nothing is corrupted:
+
+* traversals return the edge twice;
+* path uniqueness (Cypher relationship uniqueness, the path procedures) still treats it as one edge;
+* each `delete()` removes *one* copy, so the delete must be repeated once per copy;
+* <<sql-check-database,`CHECK DATABASE`>> reports the count under `duplicateLightEdges`. It is reported, never auto-fixed: the two copies live in the source vertex's outgoing list and the target's incoming list, which are repaired in separate passes.
+
+If you need two distinguishable edges between the same pair of vertices, you need a property to tell them apart -- which means a regular edge type.
+
+==== The `UNIQUE` declaration
+
+`UNIQUE` means *at most one edge of this type per ordered `(out, in)` pair*.
+
+[source,sql]
+----
+CREATE EDGE TYPE Follows LIGHTWEIGHT UNIQUE
+ALTER TYPE Follows WITH unique = true
+----
+
+It is enforced differently depending on the storage shape, and the cost is the opposite of what most people expect:
+
+[%header,cols="18%,32%,28%,22%"]
+|===
+|Type shape|Mechanism|Insert cost|Disk cost
+
+|Lightweight|Scan of the source vertex's edge list|None at degree 10, ~35% at degree 100|None
+|Regular|Unique index on `(@out, @in)`|+65% to +100%|Roughly 2x per edge
+|===
+
+Uniqueness is therefore *cheap on lightweight edges and expensive on regular ones*. On a regular type the index is created for you and cannot be dropped while the type declares `UNIQUE` -- withdraw the declaration with `ALTER TYPE <name> WITH unique = false`, which drops the flag and the index together.
+
+Declaring `UNIQUE` on an already-populated regular type builds the index over the existing data, so it fails with a `DuplicatedKeyException` naming the offending pair if duplicates are already present. On a lightweight type the flag applies to new edges only; use `CHECK DATABASE` to inspect what is already stored.
+
+==== Tuning the edge-list chunk size
+
+Every vertex stores its adjacency list (per direction) as a chain of _edge chunks_. The first chunk is `arcadedb.graph.edgeListInitialChunkSize` bytes (default `64`) and each further chunk doubles the previous one up to 8192, so the space a vertex allocates is the *sum of that series*.
+
+[NOTE]
+====
+A smaller first chunk does *not* necessarily use less space. It takes more chunks to reach the same capacity, and each chunk carries its own record header. The best value depends on the *degree distribution*, not on whether the edges are lightweight.
+====
+
+Disk per edge, sweeping the first-chunk size (lightweight | regular):
+
+[%header,cols="20%,26%,26%,28%"]
+|===
+|First chunk|Degree 2|Degree 10|Degree 100
+
+|32 B|*72.7 B* \| 139.6 B|36.0 B \| 86.2 B|24.9 B \| 59.0 B
+|64 B (default)|95.0 B \| *128.5 B*|45.9 B \| 81.6 B|24.9 B \| 59.0 B
+|128 B|164.5 B \| 197.3 B|*36.7 B* \| *71.4 B*|24.9 B \| 57.7 B
+|256 B|304.1 B \| 336.9 B|67.5 B \| 99.9 B|*23.6 B* \| *57.7 B*
+|512 B|585.2 B \| 618.0 B|129.4 B \| 161.9 B|26.2 B \| 77.3 B
+|===
+
+When to change it:
+
+* *Leave it at the default* unless you have measured your degree distribution. There is no value that wins everywhere.
+* *Average degree around 10*: `128` is worth trying. It is better than the default on every axis for both edge shapes -- around 15% faster bulk insert, 12% faster delete, and 20% less disk. The default of `64` is an unlucky fit for this shape: after the chunk header it leaves 51 usable bytes, and a degree-10 adjacency list needs slightly more, so it spills into a second chunk and allocates 192 bytes to hold about 58.
+* *Very sparse graphs (average degree 2-3)*: keep the default, or try `32` for lightweight edges, where it saves about 24% of the disk. Raising the value here is expensive -- `128` costs over 70% more space at degree 2.
+* *High degree (100+)*: the setting barely matters; the doubling reaches the same place regardless of where it starts.
+
+Values below 32 are clamped: a chunk smaller than that cannot hold the header plus one entry.
+
+Low-degree graphs pay the most for chunk allocation -- 95 bytes per edge at degree 2 against 45.9 at degree 10 for the same lightweight edges -- because each vertex allocates a first chunk per direction with very few edges to amortise it over. That is where this setting earns its keep.
+
+See <<settings-sql,Settings>> for how to change it per database.
+
+==== Migrating from the per-call API
+
+Before v26.8.1 the shape was chosen per call, with `Vertex.newLightEdge()` and the `withLightEdges` flag on `GraphBatch`, the remote batch builder, the HTTP batch endpoint and the async executor. Those all still work and are deprecated.
+
+Declare `LIGHTWEIGHT` on the type instead. A per-call flag cannot be honoured by SQL, Cypher, the exporter or the `UNIQUE` constraint, all of which need to know the shape from the schema; a type that declares it is stored lightweight regardless of what any per-call flag says.
+
+==== See Also
+
+* <<supernodes,Super-Nodes (Hot Vertices)>> -- how ArcadeDB handles vertices with very high or fast-growing edge counts
+* <<sql-create-type,SQL - `CREATE TYPE`>> -- the `LIGHTWEIGHT` and `UNIQUE` modifiers
+* <<java-batch-importer,GraphBatch>> -- bulk edge import
