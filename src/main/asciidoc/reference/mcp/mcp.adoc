@@ -16,6 +16,15 @@ POST /api/v1/mcp
 
 Requests must include a valid `Authorization` header (Basic Auth or Bearer token) and a JSON-RPC 2.0 body.
 
+An alternative <<mcp-stdio,stdio transport>> carries the same protocol over standard input and output, for clients
+that launch their MCP servers as a child process rather than connecting to one over the network.
+
+The MCP server ships as the optional `mcp` module and is installed automatically when its jar is on the classpath,
+so no `SERVER_PLUGINS` entry is needed.
+The standard distribution includes it.
+A distribution assembled without it, through the `arcadedb-builder.sh` module selection described in
+<<custom-package-builder,Custom Package Builder>>, registers neither endpoint and answers `404` on both.
+
 ==== Configuration
 
 The MCP server is configured via the file `config/mcp-config.json` in the ArcadeDB server directory.
@@ -89,6 +98,10 @@ all write permissions default to false.
 The `profile` setting is server-global and applies to every principal that has no entry in `principalProfiles`.
 Per-database overrides restrict permissions and users only; they cannot select a different profile.
 See <<mcp-database-scoping>>.
+
+Profiles filter prompts as well, because a prompt's text names tools: a prompt is offered only when every tool it
+names survives the profile. See <<mcp-prompts>>.
+Resources are not filtered by profile.
 
 [[mcp-principal-profiles]]
 ===== Per-Principal Profiles
@@ -229,12 +242,20 @@ The MCP server supports the following JSON-RPC 2.0 methods:
 | `tools/call` | Executes a specific tool by name with the provided arguments.
 | `resources/list` | Returns the readable resources. See <<mcp-resources>>.
 | `resources/read` | Returns the contents of one resource, addressed by URI. See <<mcp-resources>>.
+| `prompts/list` | Returns the available guided prompt templates. See <<mcp-prompts>>.
+| `prompts/get` | Renders one prompt with its arguments substituted. See <<mcp-prompts>>.
 | `ping` | Health check that returns a pong response.
 |===
 
-The `initialize` response advertises both surfaces under `capabilities`, as `tools` and `resources`.
-Neither surface emits change notifications and resources cannot be subscribed to, so `listChanged` and `subscribe`
-are both false.
+The `initialize` response advertises all three surfaces under `capabilities`, as `tools`, `resources`, and
+`prompts`.
+None of them emits change notifications and resources cannot be subscribed to, so `listChanged` and `subscribe`
+are all false.
+
+The response also carries an `instructions` string describing the surface the client actually received.
+It follows the effective tool profile, so a `rag` client is told about the retrieval and upsert tools and the
+guided prompts, while a client whose profile hides most of the surface is told to use only what `tools/list`
+returned.
 
 *Example: Initialize*
 [source,shell]
@@ -1147,8 +1168,145 @@ an empty `resources` array rather than as an error, and databases the principal 
 error `-32002` (`Resource not found`), so the surface cannot be used to probe which databases exist.
 When `allowReads` is disabled, `resources/read` returns error `-32600`.
 
+[[mcp-prompts]]
+==== Prompts
+
+The MCP server also exposes a Prompts surface: guided templates that steer a model through a task using the
+retrieval and agent-memory tools, instead of leaving it to hand-write vector or `MERGE` syntax.
+A client typically offers them to the user as named commands.
+
+[cols="25,~",options="header"]
+|===
+| Prompt | Purpose
+| `graphrag_query` | Answer a question over a database with its retrieval tools, citing the records the answer came from.
+| `build_knowledge_graph` | Extract entities and relationships from text and write them into a database without creating duplicates.
+|===
+
+Both prompts take two required arguments.
+
+[cols="25,20,~",options="header"]
+|===
+| Prompt | Argument | Description
+.2+| `graphrag_query` | `database` | The name of the database to search.
+| `question` | The question to answer from the contents of the database.
+.2+| `build_knowledge_graph` | `database` | The name of the database to write into.
+| `sourceText` | The text to extract entities and relationships from.
+|===
+
+The rendered messages are static text with the arguments substituted verbatim, so `prompts/get` opens no database
+and reads no data.
+
+`graphrag_query` directs the model to load the schema first, choose between `vector_search`, `full_text_search`,
+`hybrid_search`, and `query` according to the shape of the question, supply its own embedding vector because
+ArcadeDB does not generate one, and cite every claim with the `@rid` it came from.
+
+`build_knowledge_graph` centers on match-key selection, which is what keeps repeated extraction from duplicating
+vertices.
+It directs the model to read the existing schema and reuse its types, choose the smallest stable match key per
+entity, prefer one backed by a `UNIQUE` index and report a missing one rather than creating it, then call
+`upsert_entity` once per entity and `upsert_relationship` once per relationship, reusing exactly the same match
+keys for the endpoints.
+
+===== Availability
+
+A prompt is a script that names tools by name, so it is offered only when the caller can actually run it.
+Each prompt is listed, and rendered, only when both conditions hold:
+
+* every tool its text names is allowed by the caller's effective tool profile, and
+* the permissions those tools require are granted server-globally.
+
+[cols="25,35,~",options="header"]
+|===
+| Prompt | Tools named | Permissions required
+| `graphrag_query` | `get_schema`, `query`, `vector_search`, `full_text_search`, `hybrid_search` | `allowReads`
+| `build_knowledge_graph` | `get_schema`, `upsert_entity`, `upsert_relationship` | `allowReads`, `allowInsert`, `allowUpdate`
+|===
+
+Neither prompt is therefore available under the `admin` profile, which contains none of the retrieval or upsert
+tools.
+Under `rag` and `all`, `graphrag_query` is available whenever reads are permitted, and `build_knowledge_graph`
+additionally requires the two write permissions, which are false by default.
+
+These checks are evaluated against the server-global permission flags, because no database is resolved while a
+prompt is rendered.
+Per-database overrides still apply to every tool call the model subsequently makes.
+
+Like `resources/list`, `prompts/list` is a discovery call most clients issue unprompted at session start, so a
+caller entitled to no prompts receives an empty `prompts` array rather than an error.
+Availability is then re-checked by `prompts/get`, for the same reason `tools/call` re-checks the profile after
+`tools/list` has already filtered: an unavailable prompt is refused with error `-32600` even when it is requested
+by name.
+An unknown prompt name, or a missing argument, returns `-32602`.
+
+*Example: list prompts*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"prompts/list"}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "prompts": [
+    {
+      "name": "graphrag_query",
+      "description": "Answer a question over an ArcadeDB database using its retrieval tools, citing the records the answer came from.",
+      "arguments": [
+        {"name": "database", "description": "The name of the database to search", "required": true},
+        {"name": "question", "description": "The question to answer from the contents of the database", "required": true}
+      ]
+    }
+  ]
+}
+----
+
+*Example: render a prompt*
+[source,shell]
+----
+curl -u root:arcadedb-password \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"graphrag_query","arguments":{"database":"research","question":"Which papers cite the original RRF paper?"}}}' \
+  http://localhost:2480/api/v1/mcp
+----
+
+*Response:*
+[source,json]
+----
+{
+  "description": "Answer a question over an ArcadeDB database using its retrieval tools, citing the records the answer came from.",
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "type": "text",
+        "text": "Answer the following question using the ArcadeDB database 'research'.\n\n<question>\n..."
+      }
+    }
+  ]
+}
+----
+
+Each argument is substituted inside a delimiter block that marks it as data rather than procedure.
+Because the value is substituted verbatim, a value that itself carries the closing tag would end that block early
+and have the remaining text read as instructions.
+The server therefore suffixes both delimiters with an unpredictable token whenever the value contains such a tag,
+which moves the boundary instead of altering the value.
+An ordinary argument carries no such tag and renders against the constant delimiters shown above.
+
 [[mcp-transport]]
 ==== Transport
+
+The same protocol surface is served over two transports: HTTP, and <<mcp-stdio,standard input and output>>.
+Tools, resources, prompts, and every permission and profile rule behave identically on both; only the envelope
+differs.
+
+===== HTTP
 
 The HTTP endpoint follows the Streamable HTTP transport rules of MCP 2025-03-26.
 
@@ -1187,6 +1345,50 @@ attached by the browser precisely in the case the check is meant to catch.
 Setting `allowedOrigins` to `["*"]` accepts any origin and disables this protection: use it only when the
 endpoint is fronted by a proxy that performs its own origin control.
 
+[[mcp-stdio]]
+===== Stdio
+
+Clients that launch their MCP servers as a child process, rather than connecting to one over the network, speak
+JSON-RPC 2.0 over standard input and output with one message per line.
+The distribution ships that transport as `bin/mcp-stdio.sh`, which starts an ArcadeDB server and serves MCP on its
+stdin and stdout.
+
+[source,shell]
+----
+export ARCADEDB_SETTINGS="-Darcadedb.server.rootPassword=arcadedb-password"
+bin/mcp-stdio.sh
+----
+
+The root password is mandatory: the process authenticates as `root` and exits with an error if
+`arcadedb.server.rootPassword` is unset.
+Because the client owns stdout, the server redirects its own logging to stderr so that log lines cannot corrupt the
+JSON-RPC stream.
+
+Stdio mode enables the MCP server for the lifetime of the process regardless of the `enabled` flag, since the
+client started it precisely to speak MCP.
+Everything else in `config/mcp-config.json` still applies unchanged: permissions, tool profile, per-database
+overrides, and the `allowedUsers` list, which must admit `root`.
+Origin validation does not apply, because there is no HTTP request to carry an `Origin` header.
+
+A line holding a top-level JSON array is dispatched as a batch, exactly as over HTTP.
+A message that produces no response, such as a notification or a batch of them, is answered with no output line at
+all.
+
+.Example client configuration
+[source,json]
+----
+{
+  "mcpServers": {
+    "arcadedb": {
+      "command": "/opt/arcadedb/bin/mcp-stdio.sh",
+      "env": {
+        "ARCADEDB_SETTINGS": "-Darcadedb.server.rootPassword=arcadedb-password"
+      }
+    }
+  }
+}
+----
+
 ==== Security
 
 The MCP server enforces multiple layers of security:
@@ -1198,13 +1400,16 @@ The MCP server enforces multiple layers of security:
 * **Per-database restrictions** -- Optional database entries can further restrict operations and users without granting authority above the global policy.
 * **Tool profiles** -- Hidden tools are removed from discovery and rejected if invoked directly; profiles do not grant permissions.
 * **Per-principal profiles** -- An individual principal can be narrowed further; the effective profile is the intersection with the global one. See <<mcp-principal-profiles>>.
+* **Prompt gating** -- A prompt is offered, and rendered, only when the tools its text names are visible to the caller and the permissions those tools need are granted. See <<mcp-prompts>>.
 * **Origin validation** -- Cross-origin browser requests are rejected to mitigate DNS rebinding. See <<mcp-origin>>.
 * **Semantic analysis** -- Queries and commands are analyzed to detect their operation type and enforce the appropriate permission.
 
 ==== Using with AI Clients
 
 The ArcadeDB MCP server is compatible with any MCP-compliant client.
-To connect an AI assistant to ArcadeDB, configure the client with the MCP endpoint URL and authentication credentials.
+To connect an AI assistant to ArcadeDB, configure the client with the MCP endpoint URL and authentication
+credentials, or launch `bin/mcp-stdio.sh` as a child process for clients that prefer the
+<<mcp-stdio,stdio transport>>.
 
 *Example configuration for an MCP client:*
 [source,json]
@@ -1221,4 +1426,8 @@ To connect an AI assistant to ArcadeDB, configure the client with the MCP endpoi
 }
 ----
 
-Once connected, the AI client will automatically discover the available tools via `tools/list` and can use them to explore databases, query data, and execute commands within the configured permissions.
+Once connected, the AI client automatically discovers the available tools via `tools/list` and can use them to
+explore databases, query data, and execute commands within the configured permissions.
+A client that supports the other two surfaces should also read `arcadedb://{database}/schema` from
+<<mcp-resources,Resources>> at session start, which supplies the schema without spending a tool call, and offer the
+<<mcp-prompts,Prompts>> its profile exposes.
