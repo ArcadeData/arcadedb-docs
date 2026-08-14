@@ -42,7 +42,29 @@ SQL triggers execute SQL statements. They have access to the current record thro
 
 ====== Context Variables
 
-* `$record` or `record` - The current record being operated on
+* `$record` - The current record being operated on. Supports property and attribute navigation, e.g. `$record.name` or `$record.@rid`
+* `$oldRecord` - The original record (for UPDATE operations), not set otherwise
+* `$rid` - For `BEFORE READ` only: the identity of the record about to be read. `BEFORE READ` fires before the record exists, so `$record` is not set for this timing - see <<sql-triggers-before-read,BEFORE READ triggers>> below
+
+[[sql-triggers-sql-return-value]]
+====== Return Value
+
+A SQL trigger body's result decides whether the operation continues, for `BEFORE` triggers only. A body that evaluates to a single scalar `false` - one row with one property, holding `false` - aborts the operation, silently: no exception is thrown, the record is simply not created/updated/deleted (or, for `BEFORE READ`, not read). `SELECT false` and `SELECT (<condition>) AS ok` both have this shape when `<condition>` evaluates to `false`.
+
+Any other result - multiple rows, multiple columns, no rows, or a `DML` statement (`INSERT`/`UPDATE`/`DELETE`) - is not treated as a veto and the operation proceeds, even though the body still runs. This keeps the contract unambiguous: only a body that looks like a single yes/no answer can say no.
+
+[[sql-triggers-before-read]]
+====== BEFORE READ triggers
+
+`BEFORE READ` fires from inside the read itself, before the record has been materialized, so the body cannot see `$record` - only `$rid`, the identity of the record about to be read:
+
+[source,sql]
+----
+CREATE TRIGGER audit_read BEFORE READ ON TYPE Document
+EXECUTE SQL 'SELECT ($rid IS NOT NULL) AS ok';
+----
+
+A trigger that needs the record's content wants `AFTER READ` instead, which does receive `$record`.
 
 ====== Example: Audit Trail
 
@@ -104,14 +126,22 @@ EXECUTE SQL 'UPDATE Order SET customerEmail = $record.email
 
 ====== Example: Data Validation
 
-Enforce business rules using BEFORE triggers:
+Enforce business rules using BEFORE triggers. The body evaluates a condition against `$record` and projects it as a single named column; when it evaluates to `false`, the operation is silently aborted (see <<sql-triggers-sql-return-value,Return Value>> above):
 
 [source,sql]
 ----
 -- Ensure product prices are positive
 CREATE TRIGGER validate_price BEFORE CREATE ON TYPE Product
-EXECUTE SQL 'SELECT FROM Product WHERE @this = $record AND price > 0';
--- If this SELECT statement returns no results, the trigger fails and the operation is aborted.
+EXECUTE SQL 'SELECT ($record.price > 0) AS ok';
+----
+
+[source,sql]
+----
+-- Rejected: nothing is inserted, no exception is thrown
+INSERT INTO Product SET name = 'Bad', price = -5;
+
+-- Accepted
+INSERT INTO Product SET name = 'Good', price = 5;
 ----
 
 ===== JavaScript Triggers
