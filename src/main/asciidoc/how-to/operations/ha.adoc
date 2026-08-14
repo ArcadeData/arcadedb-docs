@@ -54,8 +54,12 @@ Fields are unordered and all optional, with these defaults:
 |`raft` |Raft gRPC consensus port. Defaults to `arcadedb.ha.raftPort` (`2434`) when omitted.
 |`http` |HTTP port, used by replicas to forward non-idempotent requests to the leader. Omit if not needed.
 |`https` |HTTPS port, used for *encrypted* peer-to-peer transfers (e.g. snapshot download) when `arcadedb.ssl.enabled=true`. See <<ha-ssl,TLS/SSL>>.
+|`bolt` |Client-reachable BOLT port, advertised in the BOLT routing table so `neo4j://` drivers find the leader and the followers. See <<ha-client-routing-ports,Client Routing Ports>>.
+|`grpc` |Client-reachable gRPC port, advertised when a gRPC call refused on a follower names the leader to retry against. See <<ha-client-routing-ports,Client Routing Ports>>. _(Since v26.9.1)_
 |`priority` |Leader-election preference (integer, default `0`). The node with the highest priority is preferred as leader.
 |===
++
+NOTE: `bolt` and `grpc` have no positional equivalent - an entry declaring either must use the object form.
 
 *Positional form*::
 A colon-separated entry where each field is identified by position:
@@ -79,6 +83,26 @@ The following two entries are equivalent:
 # Positional form
 -Darcadedb.ha.serverList=db1:2434:2480:10:2490
 ----
+
+[[ha-client-routing-ports]]
+===== Client Routing Ports (`bolt`, `grpc`)
+
+A client protocol's routing view tells a driver which node to send writes to and which nodes it may read from, so it deals in the ports *clients* dial - never the Raft port the cluster uses to talk to itself, and not necessarily the HTTP port either.
+
+*Declare `bolt` and `grpc` whenever your nodes do not all listen on the same port for that protocol.*
+With the field omitted, a peer's address for that protocol is derived as _that peer's host_ plus _this node's own port_. That is correct only for a homogeneous deployment where every node listens on the same port - a Kubernetes StatefulSet, for example - and a one-time WARNING per protocol is logged whenever the fallback is used.
+
+[source,shell]
+----
+# Three nodes on one host: same host, different ports - what the fallback cannot express
+-Darcadedb.ha.serverList=n0@localhost:{raft:2434,http:2480,bolt:7687,grpc:50051},n1@localhost:{raft:2435,http:2481,bolt:7688,grpc:50052},n2@localhost:{raft:2436,http:2482,bolt:7689,grpc:50053}
+----
+
+On a cluster like that one, leaving the ports undeclared makes every peer derive to the *same* address - and an address two peers both claim identifies neither of them, since two listening sockets cannot share one `host:port`.
+Rather than advertise a leader address that is really the address of the node answering (which would send a self-redirecting client straight back to the node that just refused it), ArcadeDB advertises nothing for that protocol: BOLT then offers this node as READ and ROUTE but never as writer, and a refused gRPC call falls back to naming the leader's HTTP address.
+A WARNING naming the field to declare is logged once per protocol. _(Since v26.9.1)_
+
+TIP: A declared address always wins over a derived one. Declaring the ports of the nodes that differ is enough; the rest may keep deriving.
 
 [[ha-named-peers]]
 ===== Named Peers (from v26.5.1)
