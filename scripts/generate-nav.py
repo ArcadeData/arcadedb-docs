@@ -285,6 +285,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("reference/extended-functions/date-math.adoc", "Date & Math"),
                 ("reference/extended-functions/graph-elements.adoc", "Graph Elements"),
                 ("reference/extended-functions/path-algorithms.adoc", "Path & Algorithms"),
+                ("reference/extended-functions/refactor-control.adoc", "Refactor & Control Flow"),
                 ("reference/extended-functions/schema-meta.adoc", "Schema & Meta"),
                 ("reference/extended-functions/text.adoc", "Text"),
                 ("reference/extended-functions/utility.adoc", "Utility"),
