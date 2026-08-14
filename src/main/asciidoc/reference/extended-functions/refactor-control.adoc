@@ -1,0 +1,162 @@
+[[ext-fns-refactor-control]]
+==== Refactor & Control Flow Procedures
+
+These are procedures, not functions: they are invoked with `CALL ... YIELD ...` and they write to the database. All three are available under their bare name and under the `apoc.` prefix.
+
+===== Control Flow Procedures
+
+
+[[do-when]]
+===== do.when()
+
+Run one of two Cypher sub-queries depending on a condition, and yield each row the sub-query produces.
+
+*Syntax:* `CALL do.when(condition, ifQuery, elseQuery, params) YIELD value`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| condition | Boolean | Selects the branch to run. Must be a boolean; a string, number or list is rejected rather than coerced.
+| ifQuery | String | Cypher run when the condition is true
+| elseQuery | String | Cypher run when the condition is false. Pass `null` or an empty string for "no else branch", in which case the call yields no rows.
+| params | Map | Named parameters bound into the sub-query. Pass `{}` or `null` for none.
+|===
+
+All four arguments are required.
+
+*Returns:* `value` - One row per row the sub-query produces, each holding that row as a map
+
+The sub-query is routed to a read or a write execution automatically, so both `MATCH ... RETURN` and `CREATE`/`SET`/`DELETE` branches work without the caller having to say which. `ifQuery` is type-checked on every call, including calls where the condition is false and the branch never runs.
+
+*APOC Compatible:* `apoc.do.when`
+
+[source,cypher]
+----
+CALL do.when(
+  size($names) > 0,
+  'RETURN $names[0] AS first',
+  'RETURN null AS first',
+  {names: $names}
+) YIELD value
+RETURN value.first AS first
+----
+
+A write branch:
+
+[source,cypher]
+----
+MATCH (p:Person {name: 'Alice'})
+CALL do.when(
+  p.score > 100,
+  'MATCH (n:Person) WHERE elementId(n) = $id SET n.tier = "gold" RETURN n.tier AS tier',
+  null,
+  {id: elementId(p)}
+) YIELD value
+RETURN value.tier AS tier
+----
+
+CAUTION: `ifQuery` and `elseQuery` run with the caller's privileges, exactly as any other command string the engine executes. Never build either argument by concatenating untrusted input — pass values through `params` instead.
+
+'''
+
+===== Refactor Procedures
+
+
+[[refactor-clone-nodes-with-relationships]]
+===== refactor.cloneNodesWithRelationships()
+
+Clone each given node together with every relationship touching it, leaving the originals untouched.
+
+*Syntax:* `CALL refactor.cloneNodesWithRelationships(nodes, config) YIELD input, output, error`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| nodes | List | The nodes to clone. A node listed twice is cloned once.
+| config | Map | Configuration. Pass `{}` or `null` for the defaults.
+|===
+
+*Configuration keys:*
+
+[%header,cols="2,2,4"]
+|===
+| Key | Type | Description
+| skipProperties | List | Property names to leave off the clones
+|===
+
+*Returns:* One row per input node:
+
+* `input` - The original node
+* `output` - The clone, or null if cloning it failed
+* `error` - The failure message, or null on success
+
+Each clone is a new vertex of the same type carrying the same properties. A relationship whose other endpoint is also being cloned reconnects the two clones; a relationship to a node outside the list reconnects the clone to that same original node.
+
+Cloning is best-effort per item: a node that fails to clone gets its own row with `output` null and a message in `error`, and an edge that fails to clone is skipped. This covers failures raised at `save()` time: a `UNIQUE` index violation is checked at commit, so it still fails the whole transaction.
+
+*APOC Compatible:* `apoc.refactor.cloneNodesWithRelationships`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+CALL refactor.cloneNodesWithRelationships([a, b], {}) YIELD input, output, error
+RETURN input, output, error
+
+// Excluding properties from the clones:
+MATCH (p:Person)
+WITH collect(p) AS people
+CALL refactor.cloneNodesWithRelationships(people, {skipProperties: ['ssn', 'email']}) YIELD output
+RETURN count(output) AS cloned
+----
+
+'''
+
+[[refactor-merge-nodes]]
+===== refactor.mergeNodes()
+
+Merge a list of nodes into the first one, rewiring their relationships and deleting the absorbed nodes.
+
+*Syntax:* `CALL refactor.mergeNodes(nodes, config) YIELD node`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| nodes | List | The nodes to merge. The first is the survivor; the rest are absorbed. A node listed twice counts once, and at least two distinct nodes are required.
+| config | Map | Configuration. Pass `{}` or `null` for the defaults.
+|===
+
+*Configuration keys:*
+
+[%header,cols="2,2,4"]
+|===
+| Key | Type | Description
+| properties | String | How to resolve a property present on both the survivor and an absorbed node: `overwrite` (the absorbed value wins; the default), `discard` (the survivor keeps its value) or `combine` (both values are kept as a list). Any other value raises an error.
+|===
+
+*Returns:* `node` - The surviving node
+
+A property present only on an absorbed node is always copied onto the survivor, whichever policy is in effect. Every incoming and outgoing relationship of an absorbed node is rewired onto the survivor; a relationship that connected two nodes both being merged becomes a self-relationship on the survivor.
+
+*APOC Compatible:* `apoc.refactor.mergeNodes`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Alice'})
+WHERE elementId(a) <> elementId(b)
+CALL refactor.mergeNodes([a, b], {properties: 'combine'}) YIELD node
+RETURN node
+
+// Keeping the survivor's own values on conflict:
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Alice'})
+WHERE elementId(a) <> elementId(b)
+CALL refactor.mergeNodes([a, b], {properties: 'discard'}) YIELD node
+RETURN node
+----
+
+'''

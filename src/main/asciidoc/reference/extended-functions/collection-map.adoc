@@ -4,6 +4,41 @@
 ===== Collection Functions
 
 
+[[coll-avg]]
+===== coll.avg()
+
+Returns the arithmetic mean of a list of numbers.
+
+*Syntax:* `coll.avg(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | A list of numbers
+|===
+
+*Returns:* Double - The average, `null` if the list is null, empty, or contains only nulls
+
+Null elements are skipped rather than counted, so `coll.avg([1, 2, null])` averages over the two non-null elements. A non-numeric element raises an error.
+
+*APOC Compatible:* `apoc.coll.avg`
+
+[source,cypher]
+----
+RETURN coll.avg([1, 2, 3, 4]) AS result
+// Returns: 2.5
+
+RETURN coll.avg([]) AS result
+// Returns: null
+
+RETURN coll.avg([1, 2, null]) AS result
+// Returns: 1.5
+----
+
+'''
+
 [[coll-distinct]]
 ===== coll.distinct()
 
@@ -179,6 +214,46 @@ RETURN coll.min([3, 1, 4, 1, 5]) AS result
 
 '''
 
+[[coll-pairs-min]]
+===== coll.pairsMin()
+
+Returns the consecutive-element pairs of a list, dropping the trailing incomplete pair.
+
+*Syntax:* `coll.pairsMin(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The input list
+|===
+
+*Returns:* List - A list of two-element lists, empty for a list of fewer than two elements, or null if input is null
+
+Unlike `apoc.coll.pairs`, which pads the last pair with `null`, this function drops it. A list of `n` elements therefore yields `n - 1` pairs.
+
+*APOC Compatible:* `apoc.coll.pairsMin`
+
+[source,cypher]
+----
+RETURN coll.pairsMin([1, 2, 3]) AS result
+// Returns: [[1, 2], [2, 3]]
+
+RETURN coll.pairsMin([1]) AS result
+// Returns: []
+----
+
+Elements may be of any type, including lists, which are paired as values rather than flattened:
+
+[source,cypher]
+----
+RETURN coll.pairsMin([[1, 2], [3, 4]]) AS result
+// Returns: [[[1, 2], [3, 4]]]
+----
+
+'''
+
 [[coll-remove]]
 ===== coll.remove()
 
@@ -234,6 +309,131 @@ Returns a sorted copy of the list using Cypher comparison semantics.
 ----
 RETURN coll.sort([3, 1, 4, 1, 5]) AS result
 // Returns: [1, 1, 3, 4, 5]
+----
+
+'''
+
+[[coll-sum]]
+===== coll.sum()
+
+Returns the sum of a list of numbers.
+
+*Syntax:* `coll.sum(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | A list of numbers
+|===
+
+*Returns:* Double - The sum, `0.0` for an empty list, or null if input is null
+
+Null elements are skipped. A non-numeric element raises an error.
+
+*APOC Compatible:* `apoc.coll.sum`
+
+[source,cypher]
+----
+RETURN coll.sum([1, 2, 3, 4]) AS result
+// Returns: 10.0
+
+RETURN coll.sum([]) AS result
+// Returns: 0.0
+
+RETURN coll.sum([1, 2, 'x']) AS result
+// Error: Type mismatch: coll.sum() expects an INTEGER or a FLOAT argument but got STRING
+----
+
+'''
+
+[[coll-to-set]]
+===== coll.toSet()
+
+Returns a copy of the list with duplicates removed, preserving the order of first occurrence.
+
+*Syntax:* `coll.toSet(list)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list | List | The input list
+|===
+
+*Returns:* List - Unique list, or null if input is null
+
+Deduplication uses object equality, so values of different numeric types are kept separately: `coll.toSet([1, 1.0])` returns both elements. This matches <<coll-distinct,`coll.distinct()`>>, which applies the same rule.
+
+*APOC Compatible:* `apoc.coll.toSet`
+
+[source,cypher]
+----
+RETURN coll.toSet([1, 2, 2, 3]) AS result
+// Returns: [1, 2, 3]
+
+RETURN coll.toSet([1, null, 1, null]) AS result
+// Returns: [1, null]
+----
+
+'''
+
+[[coll-union]]
+===== coll.union()
+
+Returns the distinct union of two lists, preserving the order of first occurrence.
+
+*Syntax:* `coll.union(list1, list2)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list1 | List | The first list
+| list2 | List | The second list
+|===
+
+*Returns:* List - Union without duplicates. A null argument contributes no elements, so `coll.union(null, [1])` returns `[1]`.
+
+As with <<coll-to-set,`coll.toSet()`>>, deduplication is by object equality: `coll.union([1], [1.0])` keeps both values.
+
+*APOC Compatible:* `apoc.coll.union`
+
+[source,cypher]
+----
+RETURN coll.union([1, 2, 3], [2, 3, 4]) AS result
+// Returns: [1, 2, 3, 4]
+----
+
+'''
+
+[[coll-union-all]]
+===== coll.unionAll()
+
+Returns the concatenation of two lists, preserving duplicates.
+
+*Syntax:* `coll.unionAll(list1, list2)`
+
+*Parameters:*
+
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| list1 | List | The first list
+| list2 | List | The second list
+|===
+
+*Returns:* List - All elements of both lists in order. A null argument contributes no elements.
+
+*APOC Compatible:* `apoc.coll.unionAll`
+
+[source,cypher]
+----
+RETURN coll.unionAll([1, 2, 3], [2, 3, 4]) AS result
+// Returns: [1, 2, 3, 2, 3, 4]
 ----
 
 '''
