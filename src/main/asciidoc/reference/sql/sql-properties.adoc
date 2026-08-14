@@ -43,7 +43,10 @@ For strings it represents the maximum number of characters.
 For dates is the maximum date (uses the database date format).
 For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
 ** `regexp &lt;string&gt;` Defines the mask to validate the input as a Regular Expression
-** `default <any>` Defines default value if not present. Default is `null`.
+** `default <any>` Defines the value to use when the property is not present.
+The value is an *SQL expression*, evaluated once per new record, not a literal: write `default 'active'` for the string `active`, since an unquoted `active` is a field reference.
+The expression is compiled and validated when the property is declared, so a malformed one is rejected right there rather than silently producing garbage on every record.
+A default that evaluates to `null` fills in nothing, which makes it equivalent to declaring no default at all - see the note below.
 ** `external &lt;true|false&gt;` If true, the property's value is stored in a paired *external bucket* instead of inline in the primary record.
 The main record carries only a pointer (`[bucketId][position]`) to the external record.
 This keeps the primary bucket pages dense for graph traversal and pushes heavy payloads (vector embeddings, long strings, embedded JSON, full-text payloads) to a separate file that traversal-only queries do not touch.
@@ -68,8 +71,26 @@ The issue is that Gremlin API sets the properties after the creation of the vert
 NOTE: Properties of the type `LINK` may have the value `NULL`, furthermore accessing a
 `LINK` property which is not set results also in a `NULL` value.
 
-TIP: A mandatory property generally cannot have a default value `NULL` (the default default value).
-     However, to force a default value `NULL` one can use `ifnull(NULL, NULL)` as explicit default value expression.
+[NOTE]
+====
+**A default value of `NULL` is the same as no default value at all**
+
+A default exists to supply a value when one is missing, so a default that evaluates to `NULL` supplies nothing and the property is left unset: `has()` returns false and the key is absent from the stored record, exactly as if no default had been declared.
+This holds however the `NULL` arises - `default null`, or an expression that evaluates to it such as `ifnull(NULL, NULL)`.
+
+It follows that a `NULL` default cannot satisfy `mandatory`: nothing is filled in, so the record is rejected with `is mandatory, but not found`, which points at the missing value rather than at the default.
+Conversely it never trips `notnull`, which only applies to a property that is present.
+====
+
+[WARNING]
+====
+**Changed in 26.9.1**
+
+A default evaluating to `NULL` used to *set* the property to `NULL` instead of leaving it unset, so `has()` returned true and the key was written into every record.
+A `mandatory` property could therefore be satisfied by giving it an explicit `NULL` default such as `ifnull(NULL, NULL)`.
+That no longer works: the property is left unset, so the insert now fails with `is mandatory, but not found`.
+Drop `mandatory`, or give the property a default that actually produces a value.
+====
 
 *Examples*
 
@@ -200,7 +221,9 @@ ALTER PROPERTY <type-name>.<property-name> <attribute-name> <attribute-value> [C
     For dates is the maximum date (uses the database date format).
     For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
  ** `regexp <string>` Defines the mask to validate the input as a Regular Expression
- ** `default <any>` Defines default value if not present. Default is `null`.
+ ** `default <any>` Defines the value to use when the property is not present, as an *SQL expression* evaluated once per new record.
+    Quote a literal (`default 'active'`); an unquoted `active` is a field reference and is rejected.
+    A default that evaluates to `null` is equivalent to no default at all - see <<sql-create-property,`CREATE PROPERTY`>>.
  ** `external <true|false>` Toggles external storage of the property's value (see <<sql-external-properties,External property storage>>).
     Switching the flag does not migrate existing records eagerly; they are converted lazily on the next write, or all at once with `REBUILD TYPE`.
  ** `compression '<none|lz4|auto>'` Sets the compression mode for an EXTERNAL property's payload (`none`, `lz4`, or `auto`). Has no effect on inline properties.
