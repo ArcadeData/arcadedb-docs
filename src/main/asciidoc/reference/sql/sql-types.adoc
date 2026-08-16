@@ -250,6 +250,17 @@ TRUNCATE TYPE <type> [ POLYMORPHIC ] [ UNSAFE ]
 * *`POLYMORPHIC`* Defines whether the command also truncates the type hierarchy.
 * *`UNSAFE`* Defines whether the command forces the truncation on vertex or edge types.
 
+*Transactions*
+
+`TRUNCATE TYPE` behaves differently depending on whether a transaction is already active when it runs, and the result set reports which of the two applied through the `transactional` field:
+
+* *Inside a transaction* (`transactional: true`) the truncate is part of that transaction: the records are deleted with the type's indexes maintained record by record, and a `ROLLBACK` puts every record back. This is the behaviour to rely on when the truncate is one half of a reload, e.g. `BEGIN; TRUNCATE TYPE Staging UNSAFE; INSERT ...; COMMIT;` - if the insert fails, the previous contents survive. The `arcadedb.truncateBatchSize` setting does not apply.
+* *With no transaction active* (`transactional: false`) the command owns a transaction of its own and takes a faster path: it drops the type's indexes, deletes the records in batches of `arcadedb.truncateBatchSize` (default 1000), each committed separately, and recreates the (empty) indexes at the end. This is considerably cheaper on a large type, but the command commits as it goes, so it cannot be undone.
+
+Over HTTP the request's auto-commit transaction is what makes the command transactional; pass `"autoCommit": false` in the request payload to select the faster, non-undoable path for a bulk clear.
+
+NOTE: Before v26.9.1 the command always took the second path, even inside a transaction - it committed the caller's transaction from the inside, so a `ROLLBACK` after a `TRUNCATE TYPE` recovered at most the records of the last uncommitted batch, and none at all when the type had any index.
+
 *Examples*
 
 * Remove all records of the type `Profile`:
