@@ -104,6 +104,20 @@ A WARNING naming the field to declare is logged once per protocol. _(Since v26.9
 
 TIP: A declared address always wins over a derived one. Declaring the ports of the nodes that differ is enough; the rest may keep deriving.
 
+[[ha-peer-endpoint-ambiguity]]
+===== Peer-to-Peer Endpoints (`http`, `https`)
+
+The same derive-from-this-node's-port fallback applies to the endpoints the *nodes* use to reach each other: a follower downloading a snapshot from the leader, a cluster verify comparing checksums with a peer, and the database presence matrix (`GET /api/v1/cluster?presence=true`).
+When two peers resolve to one `host:port`, that address identifies at most one of them and nothing can say which, so ArcadeDB *withholds* it rather than guessing: the operation is refused and reported as refused - a peer comes back `ERROR` / "not verified" from a verify, and unreachable from a presence matrix - instead of quietly answering for the wrong node. _(Since v26.9.1)_
+
+The refusal is visible in three places:
+
+* a one-time WARNING per protocol, naming the peers that could not be told apart, the address they share, and the field to declare;
+* `httpAddressAmbiguous: true` next to that peer's `httpAddress` in `GET /api/v1/cluster`, and a warning line on the node's card in the Studio Cluster dashboard;
+* the error text of whichever operation was refused.
+
+NOTE: `http` and `https` are checked independently, because they are read from independent fields with independent fallbacks. A cluster that declares distinct `http` ports and omits the `https` ones passes the HTTP check with every peer's HTTPS endpoint still collapsed onto this node's own; the encrypted transfer then falls back to the (guarded) plain-HTTP endpoint.
+
 [[ha-named-peers]]
 ===== Named Peers (from v26.5.1)
 
@@ -476,7 +490,7 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/verify/{database}`
-|Compare component file checksums for the given database across all peers. Useful to confirm that all nodes have converged.
+|Compare component file checksums for the given database across all peers. Useful to confirm that all nodes have converged. See <<ha-verify-outcome,Verify Outcomes>> for the values `overallStatus` can take.
 
 |GET
 |`/api/v1/ha/snapshot/{database}`
@@ -502,6 +516,24 @@ $ curl -u root:<password> \
        -H 'Content-Type: application/json' \
        -d '{"peerId":"10.0.0.4_2434","address":"10.0.0.4:2434:2480","name":"frankfurt"}'
 ----
+
+[[ha-verify-outcome]]
+===== Verify Outcomes
+
+`POST /api/v1/cluster/verify/{database}` reports one `status` per peer and rolls them up into a single `result.overallStatus`:
+
+[cols="1,4",options="header"]
+|===
+|`overallStatus` |Meaning
+|`ALL_CONSISTENT` |Every peer was contacted and every peer's checksums match this node's.
+|`INCONSISTENCY_DETECTED` |At least one peer was contacted and its checksums differ - a divergence somebody has actually observed.
+|`VERIFICATION_INCOMPLETE` |No divergence was observed, but at least one peer could not be verified: it was unreachable, or its address does not identify it (see <<ha-peer-endpoint-ambiguity,Peer-to-Peer Endpoints>>). Such a peer is reported with `status: ERROR` and an `error` naming what to fix. _(Since v26.9.1)_
+|===
+
+`ALL_CONSISTENT` therefore means what it says: it is not reachable while any peer is unverified.
+An unverified peer is deliberately *not* rolled up as an observed divergence, which would send an operator hunting for something nobody saw.
+
+IMPORTANT: Alerting that keys on `overallStatus != "ALL_CONSISTENT"` is unaffected by the third value. Alerting that keys on `overallStatus == "INCONSISTENCY_DETECTED"` must add `VERIFICATION_INCOMPLETE` to keep catching an unreachable or unidentifiable node.
 
 ===== Studio Cluster Dashboard (from v26.4.1)
 
