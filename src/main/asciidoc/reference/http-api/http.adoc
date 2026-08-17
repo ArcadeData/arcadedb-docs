@@ -957,7 +957,14 @@ The payload, as a JSON, accepts the following parameters:
 The completion of the command is noted in the log, yet no results of the command can be returned.
 - `limit` (optional) is the maximum number of results to return
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
-- `retries` (optional), is the number of times the command (transaction) is retried.
+- `retries` (optional), is the number of times the command (transaction) is retried. When omitted it follows the
+`arcadedb.txRetries` <<setting-database,database setting>> (3 by default), the same attempt count the embedded and
+the remote Java APIs take it from; up to v26.9.0 it was hard-coded to 1, so nothing was ever retried.
+Only a concurrent-modification conflict is retried (`NeedRetryException` and `DuplicatedKeyException`, the latter
+capped at a single retry), and always after a full rollback, so a retried attempt starts from committed state with
+nothing of the failed one surviving. Note the consequence for side effects *outside* the database: a SQL or
+JavaScript function that calls another system can now run more than once per request. Send `"retries": 1` to keep
+the previous single-attempt behavior for such a command.
 - `autoCommit` (optional) controls transaction behavior:
 ** `true`: Forces the command to execute within an atomic transaction that auto-commits on success
 ** `false`: Disables automatic transaction wrapping (command executes directly without transaction)
