@@ -635,6 +635,68 @@ In an HA cluster, TimeSeries data is handled as follows:
 * **Reads are consistent after failover**: the engine queries both sealed and mutable layers, so a newly promoted leader returns correct results even before its first compaction cycle
 * **Compaction lag**: a node that has not yet compacted may serve reads slightly slower until the maintenance scheduler runs (default: 60 seconds)
 
+[[timeseries-integrity]]
+==== Integrity Checking
+
+A TimeSeries type has neither record buckets nor indexes, so <<sql-check-database,`CHECK DATABASE`>> walks it with a
+pass of its own that reads all three of the on-disk formats it owns:
+
+* the **mutable bucket** (`.tstb`) -- page 0's counters are reconciled against the samples its data pages actually hold
+* the **tag dictionary** (`.tstd`) -- the declared entry count against the entries walked
+* the **sealed store** (`.ts.sealed`) -- the header, the block directory, the block bounds, and the CRC32 of every block
+
+[source,sql]
+----
+CHECK DATABASE
+CHECK DATABASE TYPE SensorReading
+----
+
+The CRC32 pass reads the whole sealed file. That is deliberate: a sealed block is otherwise verified only on the first
+read that touches it, so a block nothing queries is a block nothing verifies.
+
+===== The `DEEP` tier
+
+`CHECK DATABASE DEEP` adds the checks that have to decompress the blocks. A CRC proves the bytes are the bytes that
+were written; it proves nothing about whether they mean what the block claims. Three things the read paths answer
+queries from, without ever looking at a value, are verified only here:
+
+[cols="1,2",options="header"]
+|===
+| Claim | What a wrong one does
+| Timestamps are sorted | The range iterator binary-searches them, so a query over the block silently returns a subset of the matching rows
+| Per-column `min`/`max`/`sum` | Aggregation push-down answers `MIN`/`MAX`/`SUM`/`AVG` from them without decompressing, so the query returns a wrong number
+| Distinct tag values | Block pruning skips a whole block whose declaration omits the value being filtered on, hiding those rows entirely
+|===
+
+Each of those produces a wrong *answer* rather than an error, which is why nothing else in the engine reports them.
+
+[source,sql]
+----
+CHECK DATABASE DEEP
+CHECK DATABASE TYPE SensorReading FIX DEEP
+----
+
+===== What `FIX` repairs
+
+`FIX` repairs only what is **derived** from the data, and never a sample:
+
+* the mutable bucket's page-0 counters (sample count, min and max timestamp)
+* the sealed header's block count and global timestamp bounds
+* the tail of a sealed append that did not complete
+
+None of those is cosmetic. The global bounds are read straight out of the header when the file is opened rather than
+recomputed, so a range query pruned against a wrong bound silently misses data the file holds; and because new blocks
+are appended at the end of the file, a tail no reader can see also hides every block appended after it.
+
+A sealed block that fails its CRC, or that `DEEP` finds inconsistent, is reported and left untouched. It is the only
+copy of the samples in it, so discarding it is an operator's decision - and in an HA cluster the sealed store is
+derived, so a node can rebuild one by recompacting from its replicated mutable pages.
+
+The report carries `totalTimeSeriesTypes`, `totalTimeSeriesShards`, `totalTimeSeriesSamples` and
+`totalTimeSeriesSealedBlocks` alongside the findings, so a clean result can be told apart from a pass that never ran.
+Findings appear in `warnings` with the offending type named in `corruptedTimeSeries`; repairs are counted in
+`repairedTimeSeries` and listed in `timeSeriesRepairs`.
+
 ==== Comparison with Other TimeSeries Databases
 
 [%header,cols="17%,17%,17%,17%,17%,17%"]

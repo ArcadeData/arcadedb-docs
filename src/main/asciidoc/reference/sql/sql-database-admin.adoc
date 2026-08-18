@@ -101,6 +101,8 @@ Executes an integrity check and in case of a repair of the database. This comman
  deleted they can be fixed automatically if the `FIX` option is enabled.
 * edges: scan all the edges and check the incoming and outgoing links are consistent in the relative vertices. If not, the edges can
  be automatically removed if the `FIX` option is enabled.
+* <<timeseries,TimeSeries>> types: every shard's mutable bucket, sealed store and shared tag dictionary is validated, including the
+ CRC32 of every sealed block. See <<sql-check-database-timeseries,TimeSeries integrity>> below.
 
 When a vertex's edge list is unreadable (for example a lost or corrupted chunk of the adjacency linked list), the `FIX` mode does
 not delete anything: every edge record stores its own endpoint identities, so the adjacency list is rebuilt from the surviving edge
@@ -115,12 +117,26 @@ concurrent writers.
 
 [source,sql]
 ----
-CHECK DATABASE [ TYPE <type-name>[,]* ] [ BUCKET <bucket-name>[,]* ] [ FIX ] [ COMPRESS ]
+CHECK DATABASE [ TYPE <type-name>[,]* ] [ BUCKET <bucket-name>[,]* ] [ RECORD <rid>[,]* ]
+              [ FIX ] [ DELETE ORPHANS ] [ RECLAIM UNREFERENCED FILES ] [ DEEP ] [ COMPRESS ]
 ----
+
+The optional clauses must appear in the order shown above.
 
 * *`&lt;type-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific types
 * *`&lt;bucket-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific buckets
+* *`&lt;rid&gt;`* Optional, limits the check to the listed records instead of scanning whole types. Cannot be combined
+ with `TYPE` or `BUCKET`. Useful when a single vertex's edge list is broken and a full scan is not worth its cost
 * *`FIX`* Optional, if used auto fix the issue found with the check
+* *`DELETE ORPHANS`* Optional, requires `FIX`. Removes orphan edge records: edge records whose endpoints are valid
+ vertices but which no vertex's edge list references. A clause of its own because the same shape is also produced by a
+ vertex that merely lost its head-chunk pointer, whose edges are still recoverable. Without it the finding is still
+ reported, under `unreachableEdgeRecords`
+* *`RECLAIM UNREFERENCED FILES`* Optional, requires `FIX`. Deletes files this node holds that no schema component was
+ ever built for. Without it the finding is still reported, under `unreferencedFiles`
+* *`DEEP`* Optional, adds the checks that decode the stored data rather than reconciling what describes it. Today only
+ the TimeSeries pass has a deeper tier - see <<sql-check-database-timeseries,TimeSeries integrity>>. Independent of
+ `FIX`: nothing this tier finds is repairable
 * *`COMPRESS`* Optional, if used compresses the database with the check
 
 The command returns the integrity check report in one record with the fields:
@@ -167,7 +183,48 @@ The command returns the integrity check report in one record with the fields:
 | `orphanedEdgeSegments` | number of unreachable edge-list segments found in the dedicated edge-list buckets
                            (garbage left behind by repaired adjacency lists). Only present on a full-scope `FIX`.
 | `orphanedEdgeSegmentsReclaimed` | number of orphaned edge-list segments actually deleted by the `FIX`. Only present on a full-scope `FIX`.
+| `totalTimeSeriesTypes` | number of TimeSeries types the check walked. Zero on a database with none, so a clean report
+                           can be told apart from a pass that never ran.
+| `totalTimeSeriesShards` | number of TimeSeries shards walked, across all types.
+| `totalTimeSeriesSamples` | number of samples those shards hold, mutable and sealed together.
+| `totalTimeSeriesSealedBlocks` | number of compressed columnar blocks in the sealed stores.
+| `corruptedTimeSeries` | names of the TimeSeries types with at least one finding. The findings themselves are in `warnings`.
+| `repairedTimeSeries` | number of TimeSeries repairs a `FIX` applied. Deliberately not folded into `autoFix`, which
+                         counts record actions only.
+| `timeSeriesRepairs` | one line per repair applied, naming the type, the shard and what was rewritten.
 |===
+
+[[sql-check-database-timeseries]]
+*TimeSeries integrity*
+
+A TimeSeries type has neither record buckets nor indexes, so it is walked by a pass of its own that reads the three
+on-disk formats it owns: the mutable bucket (`.tstb`), the shared tag dictionary (`.tstd`) and the sealed store
+(`.ts.sealed`). The default tier reconciles every header and directory against the data it describes and verifies the
+CRC32 of every sealed block - which means it reads the whole sealed file, the same cost class as the record scan the
+check already runs over every bucket. A block is otherwise CRC-checked only on the first read that touches it, so a
+block nothing queries is a block nothing verifies.
+
+`DEEP` adds the checks that have to decompress. A CRC proves the bytes are the bytes that were written; it proves
+nothing about whether they mean what the block claims. Three things every read path answers queries from, without ever
+looking at a value, are verified only under `DEEP`:
+
+* the block's timestamps are sorted -- the range iterator binary-searches them, so an unsorted block silently returns a
+ subset of the rows that match
+* the block's declared per-column min/max/sum are what its values actually add up to -- aggregation push-down answers
+ `MIN`/`MAX`/`SUM`/`AVG` straight from them without decompressing
+* the block's declared distinct tag values cover the values it holds -- block pruning skips a whole block whose
+ declaration does not list the value being filtered on
+
+Each of those, when wrong, produces a wrong answer rather than an error, so nothing else in the engine reports it.
+
+`FIX` repairs only what is *derived* and never a sample: the mutable bucket's page-0 counters, the sealed header's
+block count and global timestamp bounds, and the tail of an interrupted sealed append. Those matter beyond tidiness - a
+wrong global bound is read straight out of the header when the file is opened, so a range query pruned against it
+silently misses data the file holds, and a tail no reader can see also hides every block appended after it.
+
+A sealed block that fails its CRC, or that `DEEP` finds inconsistent, is reported and left untouched. It is the only
+copy of the samples in it, so discarding it is a decision for an operator, who under <<howto-high-availability,HA>> can also rebuild a
+sealed store by recompacting from the replicated mutable pages.
 
 *Examples*
 
@@ -193,6 +250,19 @@ ArcadeDB> CHECK DATABASE BUCKET Account_Europe
 
 ----
 ArcadeDB> CHECK DATABASE FIX
+----
+
+* Execute the deeper integrity check, which decodes the stored TimeSeries data instead of only reconciling what
+describes it.
+
+----
+ArcadeDB> CHECK DATABASE DEEP
+----
+
+* Execute the deeper check on one TimeSeries type, repairing the derived counters it finds wrong.
+
+----
+ArcadeDB> CHECK DATABASE TYPE SensorReading FIX DEEP
 ----
 
 [[sql-export-database]]
