@@ -112,8 +112,34 @@ The emulated schema list always contains exactly one schema, named after the con
 `SELECT current_schema()` - because a PostgreSQL connection is bound to one database and sees the schemas
 inside it, and in ArcadeDB a connection is likewise bound to one database whose types are its tables.
 
-A `BINARY` property is announced over the wire as PostgreSQL's `bytea` type (with the standard `\x<hex>` text
-encoding), so `ResultSet.getBytes()`/`PreparedStatement.setBytes()` round-trip it as raw bytes.
+===== Column type mapping
+
+A column's advertised PostgreSQL type must not depend on whether the query happens to return any rows - a
+client that prepares a statement against an empty result (or a schema-discovery `DESCRIBE`) and later
+re-executes it against a populated one would otherwise see the column's type change under it. As of _v26.9.1_
+this holds for every type ArcadeDB maps onto a native PostgreSQL OID:
+
+- `BINARY` is announced as `bytea` (with the standard `\x<hex>` text encoding), so
+  `ResultSet.getBytes()`/`PreparedStatement.setBytes()` round-trip it as raw bytes, rather than the lossy
+  `varchar`/`"char"[]` answers used before _v26.9.1_.
+- `DECIMAL` is announced as `numeric` (OID 1700), with a real binary encoder/decoder, rather than the lossy
+  `double precision` or the text-only `varchar` used before _v26.9.1_ - `ResultSet.getBigDecimal()` round-trips
+  the full precision. A `NUMERIC` value is capped at 16,000 total decimal digits (well under PostgreSQL's own
+  limit of 131,072 integer / 16,383 fractional digits), because ArcadeDB's `DECIMAL` type has no configured
+  precision or scale limit of its own; a value beyond this cap is declined with an error rather than accepted
+  and silently truncated.
+- `SHORT` and `BYTE` are announced as `int2` (`smallint`), matching the declared schema type, rather than
+  widening to `int4` (`integer`) as they did before _v26.9.1_.
+- `DATE` is announced as `date`. Before _v26.9.1_, a `DATE` property's value on a database left at its default
+  configuration (`arcadedb.dateImplementation=java.time.LocalDate`) was announced as `varchar` for a populated
+  result.
+- `DATETIME` is announced as `timestamp`. The one case where a `DATETIME` column's announced type can still
+  depend on whether a row was sampled is a database explicitly configured with
+  `arcadedb.dateTimeImplementation=java.util.Date` (the default is `java.time.LocalDateTime`): `java.util.Date`
+  is also `DATE`'s default representation, so a bare sampled value cannot always tell the two apart on its own.
+  The server resolves this from the schema whenever the query names a single source type, which covers
+  ordinary column selection; a column reached through a table alias, a computed expression, or a multi-table
+  `JOIN` can still fall back to the value-only answer in that one configuration.
 
 ===== Transactions
 
