@@ -43,6 +43,12 @@ Algorithms marked *CPU+RAM* build in-memory data structures that scale with V² 
 | `algo.kShortestPaths` | O(V²) weight matrix
 | `algo.simRank` | O(V²) similarity matrix
 | `algo.hierarchicalClustering` | O(V²) similarity pairs
+| `algo.triangleCount` | O(V²) neighbor bit-matrix
+| `algo.knn` | O(V²) neighbor bit-matrix
+| `algo.kTruss` | O(V²) neighbor bit-matrix (built twice, once per decomposition pass)
+| `algo.clique` | O(V²) neighbor bit-matrix, plus a search stack that can itself reach O(V²) at its deepest point
 |===
 
-For graphs with more than a few thousand vertices, these algorithms may require significant heap space.
+As of version 26.9.1, every allocation above — including the graph itself (the loaded vertex list, its RID index, and the adjacency list every procedure builds from it, not only the table in this list) — is checked against the `arcadedb.cypher.algoMaxWorkingMemory` setting before it is allocated, and the call is refused with a client error naming the offending component rather than risking an `OutOfMemoryError`. Because the setting now also covers the graph load itself, a call that used to succeed under a given limit may now be refused if the graph alone consumes a large share of that limit — raise the setting if a call that previously worked starts being refused after upgrading. The default auto-scales with the JVM's maximum heap (one eighth of it, never below 64 MB).
+
+For graphs with more than a few thousand vertices, these algorithms may still require significant heap space even within the budget.

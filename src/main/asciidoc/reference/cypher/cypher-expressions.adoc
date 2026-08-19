@@ -580,13 +580,26 @@ From SQL, the numeric id can be resolved back to a record in O(1) with the `cyph
 [[cypher-labels]]
 ====== labels()
 
-Returns the labels of a node as a list.
+Returns the labels of a node as a list. A node created with no label at all (`CREATE (n {name: 'x'})`) returns an empty list, exactly like Neo4j — including when the label a node carries happens to be literally `V` or `Vertex`, which are ordinary, writable labels like any other and are not treated specially.
 
 [source,cypher]
 ----
 MATCH (p:Person)
 RETURN labels(p)  // Returns ['Person']
+
+CREATE (n {name: 'x'})
+RETURN labels(n)  // Returns []
+
+CREATE (n:V {name: 'y'})
+RETURN labels(n)  // Returns ['V']
 ----
+
+[NOTE]
+====
+Before version 26.9.1, "no labels" was represented internally by the type name `V` (or `Vertex`), so a node created with no label and a node deliberately labeled `:V` were stored identically and both reported `labels(n) = []`. As of 26.9.1 this internal state uses a reserved type name instead, so `V`/`Vertex` become ordinary labels: existing vertices already stored under the old `V`/`Vertex` types will, after upgrading, report `labels(n)` as `['V']`/`['Vertex']` instead of `[]`.
+
+There is no automatic per-record migration, because the two cases were indistinguishable under the old storage convention — an existing `V`-typed vertex may be one that was genuinely created unlabelled, or one that was deliberately labeled `:V`. If a database's entire `V` (or `Vertex`) type was only ever used for unlabelled nodes, its schema type can be renamed to restore the pre-26.9.1 behavior for that whole type; consult ArcadeDB support before doing this on a database where the distinction is not already known.
+====
 
 [[cypher-type]]
 ====== type()
