@@ -97,6 +97,24 @@ For this reason this plugin was created by reading the available documentation o
 
 NOTE: Particularly, ArcadeDB does only support "simple" query mode and does not support SSL!
 
+===== System catalog and schema introspection
+
+_Since v26.9.1_, queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
+discover schemas, tables and columns, typically via `DatabaseMetaData.getSchemas()`/`getTables()`/`getColumns()`
+- are answered by recognizing the *shape* of the query (which relations it names, which columns it projects,
+including a client's own `CASE` expressions) rather than by matching one tool's exact spelling. This means the
+same question is answered the same way whichever Postgres client sends it, rather than only for a short list
+of tools this plugin happened to be tested against. A catalog query in a shape the server does not recognize
+returns an empty result set rather than an error, matching how PostgreSQL itself answers a `pg_catalog` object
+it does not have.
+
+The emulated schema list always contains exactly one schema, named after the connected database - matching
+`SELECT current_schema()` - because a PostgreSQL connection is bound to one database and sees the schemas
+inside it, and in ArcadeDB a connection is likewise bound to one database whose types are its tables.
+
+A `BINARY` property is announced over the wire as PostgreSQL's `bytea` type (with the standard `\x<hex>` text
+encoding), so `ResultSet.getBytes()`/`PreparedStatement.setBytes()` round-trip it as raw bytes.
+
 ===== Transactions
 
 Enabling auto commit to false is not 100% supported.
@@ -110,7 +128,10 @@ conn.setAutoCommit(true);
 ===== Postgres Tools Known to Work
 
 NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.
-Those tables are not present in ArcadeDB, so it may return errors at startup.
+Most of these queries - the ones asking about schemas, tables, columns and a few other well-known catalogs -
+are now answered generically (see above), but a tool asking about a `pg_catalog` object with no ArcadeDB
+equivalent (indexes, foreign keys, triggers, and similar) still gets an empty result for that specific
+question rather than an error.
 See tested <<compatible-tools,compatible tools>> below.
 If the tool that you use to work with Postgres is not compatible with ArcadeDB, please https://github.com/ArcadeData/arcadedb/issues[open an issue].
 
