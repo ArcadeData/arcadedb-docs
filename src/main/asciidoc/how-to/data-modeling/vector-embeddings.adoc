@@ -289,6 +289,30 @@ TIP: For large bulk loads, increase `mutationsBeforeRebuild` to delay index rebu
 
 NOTE: When vectors are inserted below the rebuild threshold, an inactivity timer ensures the graph is still rebuilt after a period of no new mutations (default: 15 seconds). On a small graph (under 1,000 vectors) this rebuild is cheap and fires for any number of pending mutations, so buffered vectors never sit in the brute-force delta buffer for long during low-volume ingestion. On a larger graph a rebuild re-indexes the whole graph, so the timer only fires once pending mutations reach at least 10% of the effective rebuild threshold - a single stray insert into a large, otherwise-settled index no longer costs a full graph rebuild on the next quiet period. Configure the timer via `inactivityRebuildTimeoutMs` (per-index metadata or `arcadedb.vectorIndex.inactivityRebuildTimeoutMs` globally); set to 0 to disable it.
 
+===== Rebuild Memory and Deferred Rebuilds
+
+A graph rebuild is the most memory-hungry thing a vector index does, and an _online_ rebuild - one triggered by the mutation threshold or the inactivity timer while the index keeps serving queries - is the most expensive kind. The graph being replaced stays resident so searches keep working, and the new build pays for its own working set on top of it (the build cache, the graph under construction, the ordinal map). Measured on a 50,000 x 128 corpus, that is roughly 1.7x the peak of building the same index from nothing.
+
+Two behaviours follow from that, both new in v26.9.1:
+
+* **The auto-sized caches budget against available heap, not total heap.** `graphBuildCacheMaxHeapPercent` and `searchCacheMaxHeapPercent` are shares of the heap actually free at the time, so a rebuild holding the old graph resident asks for a smaller cache instead of the same one. Previously they were shares of `-Xmx`, which meant a larger heap grew the caches proportionally and a rebuild that did not fit still did not fit after raising it.
+* **A rebuild that will not fit is deferred instead of attempted.** Before starting, the estimated peak is compared against `arcadedb.vectorIndex.rebuildMaxHeapPercent` (default 90) of the available heap. If it does not fit, the cycle is skipped rather than run into an `OutOfMemoryError`. Nothing is lost: the pending vectors remain fully searchable through the in-memory delta buffer, so the cost is a longer brute-force scan per query until a later rebuild succeeds.
+
+A deferral is deliberately visible. It logs a warning naming what to change, and increments the `rebuildsDeferredForMemory` counter in the index statistics:
+
+[source,sql]
+----
+-- Non-zero and climbing means rebuilds keep being declined for lack of heap:
+-- the graph is going stale and every query is paying a longer delta scan for it
+SELECT rebuildsDeferredForMemory FROM (SELECT expand(stats) FROM schema:indexes WHERE name = 'Document[embedding]')
+----
+
+If it keeps climbing, give the JVM more heap, lower `arcadedb.vectorIndex.graphBuildCacheMaxHeapPercent` so the build asks for less, or split the index. Setting `arcadedb.vectorIndex.rebuildMaxHeapPercent` to `0` disables the check and restores the previous attempt-regardless behaviour.
+
+Because a deferral does not consume the mutations that triggered it, the trigger would otherwise fire again on the very next query. `arcadedb.vectorIndex.rebuildDeferralCooldownMs` (default 30 seconds) is the minimum gap before another attempt; a rebuild that completes clears it immediately.
+
+NOTE: Only online rebuilds are subject to this check. A first build, the rebuild performed when a database closes, an explicit `REBUILD INDEX` and `COMPACT INDEX` are never declined - nothing would retry them, so declining one would mean it never happens at all.
+
 If you create the index _before_ inserting data (e.g., during schema setup), set `buildGraphNow: false` to skip the initial (empty) graph build. The graph will be built lazily on the first search:
 
 [source,sql]
