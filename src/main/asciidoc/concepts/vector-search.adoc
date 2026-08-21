@@ -517,6 +517,26 @@ The MVP works well up to roughly 10M sparse vectors. The scaling story past that
 
 Posting-weight quantization is configurable since v26.7.2 via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against scoring exactness. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
 
+===== Segment compaction and deletes
+
+Sealed segments are merged in the background by a size-tiered policy: segments of comparable posting count that sit next to each other in write order are merged into one, which keeps the per-query merge fan-in bounded without rewriting the whole index on every flush.
+
+A delete is recorded as a *tombstone* in the segment that is current when it happens, not in the segment holding the posting it removes, so which of two segments is newer is what decides whether a document is visible. Compaction preserves that order: a merged segment takes the position of its newest input rather than moving to the front, and a partial merge only ever takes segments that are adjacent in write order.
+
+[WARNING]
+====
+Databases created before v26.9.1 may hold sparse-vector segments that were merged under the previous ordering, which could let a partial compaction outrank the segment holding a tombstone and make a deleted document reappear in `vector.sparseNeighbors` results (issue #6379). Upgrading fixes the ordering for all new merges, but a segment already written under the old rule cannot be repaired automatically -- the information about where it should have sat is gone.
+
+If a database predates v26.9.1 and its sparse-vector index has seen deletes or updates, run once per affected index:
+
+[source,sql]
+----
+REBUILD INDEX `Doc[tokens,weights]`
+----
+
+This collapses the existing segments into a single correctly ordered segment. Indexes that have only ever been appended to are unaffected.
+====
+
 [[hybrid-search]]
 ==== Hybrid Search with `vector.fuse`
 
