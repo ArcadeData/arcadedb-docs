@@ -260,6 +260,66 @@ database.async().transaction( database -> {
 
 '''
 
+[[asyncparallellevel]]
+====== setParallelLevel( parallelLevel )
+
+Changes the number of worker threads used for asynchronous operations. It is recommended to keep this number equal to or
+lower than the cores available on the machine. The initial value comes from the `arcadedb.asyncWorkerThreads` setting
+(see <<arcadedb-settings,Settings>>).
+
+Syntax:
+
+```java
+void setParallelLevel( int parallelLevel )
+```
+
+Example:
+
+```java
+database.async().setParallelLevel( 8 );
+```
+
+This call is **safe to use while other threads have asynchronous work in flight** on the same database. Growing the pool
+only adds workers and leaves the existing ones untouched. Shrinking it stops routing new work to the workers it retires
+and lets them finish the tasks already queued on them, so nothing already submitted is dropped and no unrelated caller is
+told the executor has shut down.
+
+NOTE: Because a shrink waits for the retired workers to finish, `setParallelLevel()` **blocks** until they have drained,
+up to an internal bound of ten seconds. If a worker is still busy inside user code when that bound expires, the call
+returns anyway, logs a warning, and leaves that worker finishing in the background - where it is still counted by
+`waitCompletion()` and `isProcessing()`. Treat this as an administrative call rather than something to invoke on a hot
+path.
+
+'''
+
+[[asyncdurability]]
+====== setTransactionUseWAL( useWAL ) and setTransactionSync( flushType )
+
+Set the durability policy the asynchronous executor applies to the transactions it opens. Turning the write-ahead log off
+makes bulk loading substantially faster at the cost of losing crash recovery for those transactions, which is why
+bulk-loading APIs such as `GraphBatch` use it.
+
+Syntax:
+
+```java
+void setTransactionUseWAL( boolean transactionUseWAL )
+void setTransactionSync( WALFile.FlushType transactionSync )
+```
+
+Example:
+
+```java
+database.async().setTransactionUseWAL( false );
+database.async().setTransactionSync( WALFile.FlushType.NO );
+```
+
+Both take effect on the **next task** the executor runs, and apply to every task it runs, including DDL dispatched
+through `command()` with no wait for the response. A change made while a batch transaction is already open closes that
+transaction first, so records accumulated under the previous policy are always committed under the policy they were
+written with, never under the new one.
+
+'''
+
 [[asynccreate]]
 ====== createRecord(record, newRecordCallback [,errorCallback])
 

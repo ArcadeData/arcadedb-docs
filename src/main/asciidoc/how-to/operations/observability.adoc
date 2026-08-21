@@ -153,7 +153,21 @@ NOTE: The `protocol` tag defaults to `internal` for embedded/in-process callers;
 | `arcadedb.engine.tx.write` / `.tx.read` / `.tx.rollbacks` | Write/read transactions and rollbacks
 | `arcadedb.engine.queries` / `.commands` | Query and command counts
 | `arcadedb.engine.databases` | Number of open databases
+| `arcadedb.engine.async.boundary.commits` | Asynchronous batch transactions cut short by a durability-flag change
+| `arcadedb.engine.async.workers.retiring` | Asynchronous workers a lowered parallel level retired and that are still draining
 |===
+
+The last two describe the asynchronous executor and are worth reading together with the throughput of your ingestion.
+
+`async.boundary.commits` counts how often a change to `setTransactionUseWAL()` / `setTransactionSync()` forced a worker
+to close its open batch transaction early. Occasional increments are normal - a bulk load flips those flags at its start
+and end. A rate that stays high while asynchronous throughput drops means two callers are flipping them against each
+other on the same database, so batching is degrading towards one commit per task.
+
+`async.workers.retiring` is a gauge, not a counter: it goes back to zero as the retired workers finish. Zero is the
+normal reading, and a brief spike during a `setParallelLevel()` call is expected. A reading that stays above zero means a
+retired worker is stuck inside user code and will never finish draining - a resize deliberately never interrupts one -
+so the thread stays alive until the database is closed.
 
 ====== Optional OTLP metrics export
 
