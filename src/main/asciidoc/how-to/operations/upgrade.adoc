@@ -10,6 +10,22 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.9.1 — Sparse-vector indexes need one `REBUILD INDEX` after upgrading
+
+A partial compaction of an `LSM_SPARSE_VECTOR` index could give the merged segment a position ahead of a segment it had not merged. When that skipped segment held the tombstone for a document an older merged segment still had a live posting for, the delete was overruled and the document reappeared in `vector.sparseNeighbors` results — permanently, because the next full compaction then discarded the tombstone as the loser. The same inversion could restore a stale weight after an update. Fixed in 26.9.1 (issue #6379).
+
+*Impact:* `LSM_SPARSE_VECTOR` indexes on databases created before 26.9.1 that have seen deletes or updates. Upgrading corrects the ordering for every new merge, but a segment already written under the old rule cannot be repaired automatically — the record of where it should have sat is gone. There is no automatic detection either, so an affected index looks healthy.
+
+*Action:* run once per sparse-vector index, after upgrading:
+
+[source,sql]
+----
+REBUILD INDEX `Doc[tokens,weights]`
+----
+
+This collapses the existing segments into a single correctly ordered segment. Indexes that have only ever been appended to are unaffected, as are databases created on 26.9.1 or later. See <<sparse-vector-search,Sparse Vector Search>>.
+
+[discrete]
 ====== 26.7.2 — Durable Raft storage is now the default
 
 `arcadedb.ha.raftPersistStorage` now defaults to `true` (previously `false`). The per-node Raft log under `raft-storage-<nodeName>` is persisted across restarts so a node can rejoin by replaying its own log instead of always requiring a full snapshot resync. Wiping the log on restart could previously diverge a lagging follower after a full-cluster cold restart (`WALVersionGapException`) or silently re-form a fresh single-node cluster.
