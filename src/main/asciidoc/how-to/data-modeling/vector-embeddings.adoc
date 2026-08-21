@@ -289,6 +289,33 @@ TIP: For large bulk loads, increase `mutationsBeforeRebuild` to delay index rebu
 
 NOTE: When vectors are inserted below the rebuild threshold, an inactivity timer ensures the graph is still rebuilt after a period of no new mutations (default: 15 seconds). On a small graph (under 1,000 vectors) this rebuild is cheap and fires for any number of pending mutations, so buffered vectors never sit in the brute-force delta buffer for long during low-volume ingestion. On a larger graph a rebuild re-indexes the whole graph, so the timer only fires once pending mutations reach at least 10% of the effective rebuild threshold - a single stray insert into a large, otherwise-settled index no longer costs a full graph rebuild on the next quiet period. Configure the timer via `inactivityRebuildTimeoutMs` (per-index metadata or `arcadedb.vectorIndex.inactivityRebuildTimeoutMs` globally); set to 0 to disable it.
 
+===== Searching Vectors Not Yet in the Graph
+
+Between rebuilds, everything written since the last one lives in an in-memory delta buffer rather than in the HNSW
+graph. Those vectors are still searchable: every query scores the buffer and merges the result into the graph's own,
+in distance order, so a search never returns a corpus older than the last write. The cost is linear in the size of the
+buffer, which is what `mutationsBeforeRebuild`, `rebuildGraphRatio` and the inactivity timer between them decide.
+
+WARNING: Before v26.9.1 this was true of every query *except* a grouped one. Adding `groupBy` routed the search down a
+path that read the graph only, so it answered from the corpus as of the last rebuild while the same query without
+`groupBy`, on the same index at the same instant, returned the newer rows - with no error, no warning and nothing in
+the statistics to say so. On default settings the invisible window was as wide as `rebuildGraphRatio` allows the buffer
+to grow, and stayed open for as long as writes kept arriving. If you worked around this by dropping `groupBy` and
+grouping in the application, that workaround is no longer needed.
+
+The `groupedSearchesMergingDelta` counter reports how many grouped searches actually took rows out of the buffer:
+
+[source,sql]
+----
+-- Rising in step with your grouped query rate means the graph is persistently behind the write rate,
+-- and every grouped query is paying a linear scan of the buffer; deltaVectorsCount is how long that scan is
+SELECT groupedSearchesMergingDelta, deltaVectorsCount FROM (SELECT expand(stats) FROM schema:indexes WHERE name = 'Document[embedding]')
+----
+
+A high value is not itself a fault - it is the index doing what it should under ingestion. It is the signal to shorten
+the scan by lowering `mutationsBeforeRebuild` or `rebuildGraphRatio`, if query latency matters more than the CPU the
+extra rebuilds cost.
+
 ===== Rebuild Memory and Deferred Rebuilds
 
 A graph rebuild is the most memory-hungry thing a vector index does, and an _online_ rebuild - one triggered by the mutation threshold or the inactivity timer while the index keeps serving queries - is the most expensive kind. The graph being replaced stays resident so searches keep working, and the new build pays for its own working set on top of it (the build cache, the graph under construction, the ordinal map). Measured on a 50,000 x 128 corpus, that is roughly 1.7x the peak of building the same index from nothing.
