@@ -230,6 +230,9 @@ vector.neighbors(<index-spec>, <query-vector>, <k>, { <option>: <value>, ... })
 | Key | Type | Description
 | `efSearch` | Integer | Same semantics as the positional form.
 | `filter`   | List of RIDs or RID strings | Restricts the search to the provided set of records. Useful to combine a vector search with a logical filter: first select the candidate RIDs, then pass them as `filter`. Unknown keys are rejected.
+| `groupBy`  | String | Diversifies the answer by a property: `k` becomes the number of distinct values of that property to return rather than the number of rows, and at most `groupSize` rows are returned per value. Supports nested paths (`meta.source`). Records whose property is missing share the single `null` group.
+| `groupSize` | Integer | Rows to return per group when `groupBy` is set. Defaults to `1`, so the answer is the `k` nearest records with `k` distinct values. Must be `>= 1`; ignored when `groupBy` is absent.
+| `maxDistance` | Number | Drops neighbors further than this distance, turning the query into a radius search bounded by `k`. The result may legitimately hold fewer than `k` rows. Defaults to no bound.
 |===
 
 *Returns:* List - Nearest neighbors with distances
@@ -255,7 +258,27 @@ SELECT vector.neighbors(
 
 -- Using a parameter binding for the RID list
 SELECT vector.neighbors('Document[embedding]', :queryVector, 10, { efSearch: 300, filter: :allowedRids })
+
+-- One result per source document: 10 distinct sources, nearest chunk of each
+SELECT vector.neighbors('Chunk[embedding]', :queryVector, 10, { groupBy: 'sourceFile' })
+
+-- 5 distinct sources, up to 3 chunks each, none further away than 0.35
+SELECT vector.neighbors(
+         'Chunk[embedding]',
+         :queryVector,
+         5,
+         { groupBy: 'sourceFile', groupSize: 3, maxDistance: 0.35 }
+       )
 ----
+
+[NOTE]
+====
+`groupBy` changes how rows are capped and nothing else about what the index can see: a grouped query is answered from
+the same corpus as the ungrouped one, including vectors written since the graph was last rebuilt. Grouping is
+best-effort in one respect only - an index whose nearest group is denser than its candidate budget returns fewer than
+`k` groups and counts the query in the `groupedSearchesShortOfLimit` index statistic, which is the signal to raise
+`efSearch`.
+====
 
 [NOTE]
 ====
