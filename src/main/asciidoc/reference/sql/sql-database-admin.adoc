@@ -109,6 +109,22 @@ not delete anything: every edge record stores its own endpoint identities, so th
 records. After the rebuild, a full-scope `FIX` (no `TYPE`/`BUCKET` filter) also reclaims the orphaned edge-list segments the old,
 unreachable chains left on disk.
 
+The other shape is a *dangling reference*: an adjacency entry that points at a record which no longer exists, typically left behind
+by a vertex deleted before `26.8.1`, when edge removal became strict. There is nothing to rebuild in that case - the record the
+entry names is gone - so `FIX` drops the entry instead.
+
+_Since v26.9.1_, an application that reaches such a record before the repair has run is told so plainly. Modifying the edge list of
+a vertex whose own record is missing raises `VertexNotFoundException`, a `RecordNotFoundException` (answered as HTTP `404`) that
+names the vertex and points at `CHECK DATABASE FIX`. It is deliberately *not* a `NeedRetryException`: the record is gone rather
+than temporarily unreadable, so a retry can only fail identically, and a job walking possibly-stale references can skip that entry
+instead of spending its retry budget and rolling back the whole transaction. An unreadable *chunk* of a vertex that does exist
+keeps raising the retryable `ConcurrentModificationException` described above - the two are told apart by which record the failure
+names.
+
+NOTE: the `RECORD` scope cannot repair a dangling reference. The RID in the message is the record that is missing, so there is no
+edge list to rebuild there, and the entry to drop lives on the vertex at the *other* end. No index maps a vertex back to the lists
+that reference it, so finding that vertex takes a scan - which is why the message names the database-wide form.
+
 While the check runs, its progress (current step and percentage) is visible live in the <<console,console>>, in Studio, and
 through the <<http-progress,HTTP progress endpoint>>. Run `FIX` in a maintenance window: like every repair, it assumes no
 concurrent writers.
@@ -126,7 +142,9 @@ The optional clauses must appear in the order shown above.
 * *`&lt;type-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific types
 * *`&lt;bucket-name&gt;`* Optional, if specified limit the check (and the fix) only to the specific buckets
 * *`&lt;rid&gt;`* Optional, limits the check to the listed records instead of scanning whole types. Cannot be combined
- with `TYPE` or `BUCKET`. Useful when a single vertex's edge list is broken and a full scan is not worth its cost
+ with `TYPE` or `BUCKET`. Useful when a single vertex's edge list is broken and a full scan is not worth its cost. The
+ listed records must exist: repairing a reference that points at a *deleted* record is a database-wide `FIX`, not this
+ scope
 * *`FIX`* Optional, if used auto fix the issue found with the check
 * *`DELETE ORPHANS`* Optional, requires `FIX`. Removes orphan edge records: edge records whose endpoints are valid
  vertices but which no vertex's edge list references. A clause of its own because the same shape is also produced by a
