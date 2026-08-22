@@ -133,6 +133,51 @@ RETURN p, length(p)
 
 ---
 
+[[cypher-named-paths]]
+===== Named Paths
+
+Assigning a variable to a pattern with `=` binds the whole matched path to that variable, which can then be
+passed to `length()`, `nodes()` and `relationships()` (see <<cypher-expressions,Expressions and Functions>>).
+
+*Syntax:*
+
+[source,cypher]
+----
+MATCH variable = pattern
+----
+
+A pattern with no relationship binds a *zero-length path*: one node, no relationships.
+
+*Examples:*
+
+[source,cypher]
+----
+// A one-hop path: length 1, two nodes, one relationship
+MATCH p = (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person)
+RETURN length(p), nodes(p), relationships(p)
+
+// A zero-length path: length 0, nodes(p) is [Alice], relationships(p) is []
+MATCH p = (n:Person {name: 'Alice'})
+RETURN length(p), nodes(p), relationships(p)
+----
+
+A named path can be one part of a comma-separated pattern, in any position, and the node it covers may
+already be bound by an earlier part or an earlier clause:
+
+[source,cypher]
+----
+MATCH (x:Person)
+OPTIONAL MATCH p = (x), (x)-[:KNOWS]->(z)
+RETURN x.name, p, z.name
+----
+
+NOTE: Inside an `OPTIONAL MATCH`, a path variable follows the same rule as every other variable the clause
+introduces: it is bound when the *whole* pattern matches and NULL when it does not. In the example above `p`
+is a zero-length path on the rows where `x` has an outgoing `KNOWS`, and NULL on the rows where it has none -
+even though `(x)` on its own would always match.
+
+---
+
 [[cypher-optional-match]]
 ===== OPTIONAL MATCH
 
