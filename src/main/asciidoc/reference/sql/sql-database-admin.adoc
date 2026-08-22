@@ -113,13 +113,17 @@ The other shape is a *dangling reference*: an adjacency entry that points at a r
 by a vertex deleted before `26.8.1`, when edge removal became strict. There is nothing to rebuild in that case - the record the
 entry names is gone - so `FIX` drops the entry instead.
 
-_Since v26.9.1_, an application that reaches such a record before the repair has run is told so plainly. Modifying the edge list of
-a vertex whose own record is missing raises `VertexNotFoundException`, a `RecordNotFoundException` (answered as HTTP `404`) that
-names the vertex and points at `CHECK DATABASE FIX`. It is deliberately *not* a `NeedRetryException`: the record is gone rather
-than temporarily unreadable, so a retry can only fail identically, and a job walking possibly-stale references can skip that entry
-instead of spending its retry budget and rolling back the whole transaction. An unreadable *chunk* of a vertex that does exist
-keeps raising the retryable `ConcurrentModificationException` described above - the two are told apart by which record the failure
-names.
+_Since v26.9.1_, an application that reaches such a record before the repair has run is told so plainly, and always in the same
+way. Removing an entry from the edge list of a vertex whose own record is missing, adding one to it, and deleting that vertex
+outright all raise `VertexNotFoundException`, a `RecordNotFoundException` (answered as HTTP `404`) that names the vertex and points
+at `CHECK DATABASE FIX`. Creating an edge whose *endpoint* is such a record raises it too, naming the endpoint - which is not the
+vertex the statement named. It is deliberately *not* a `NeedRetryException`: the record is gone rather than temporarily unreadable,
+so a retry can only fail identically, and a job walking possibly-stale references can skip that entry instead of spending its retry
+budget and rolling back the whole transaction. An unreadable *chunk* of a vertex that does exist keeps raising the retryable
+`ConcurrentModificationException` described above - the two are told apart by which record the failure names.
+
+A `DELETE VERTEX` refused this way is refused before it touches anything: the vertex's record is checked first, so the failure does
+not cost a walk over an adjacency list that is about to be rolled back.
 
 NOTE: the `RECORD` scope cannot repair a dangling reference. The RID in the message is the record that is missing, so there is no
 edge list to rebuild there, and the entry to drop lives on the vertex at the *other* end. No index maps a vertex back to the lists
