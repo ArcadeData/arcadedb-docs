@@ -14,7 +14,19 @@ This section lists behavior changes that may require action when upgrading.
 
 A partial compaction of an `LSM_SPARSE_VECTOR` index could give the merged segment a position ahead of a segment it had not merged. When that skipped segment held the tombstone for a document an older merged segment still had a live posting for, the delete was overruled and the document reappeared in `vector.sparseNeighbors` results — permanently, because the next full compaction then discarded the tombstone as the loser. The same inversion could restore a stale weight after an update. Fixed in 26.9.1 (issue #6379).
 
-*Impact:* `LSM_SPARSE_VECTOR` indexes on databases created before 26.9.1 that have seen deletes or updates. Upgrading corrects the ordering for every new merge, but a segment already written under the old rule cannot be repaired automatically — the record of where it should have sat is gone. There is no automatic detection either, so an affected index looks healthy.
+*Impact:* `LSM_SPARSE_VECTOR` indexes on databases created before 26.9.1 that have seen deletes or updates. Upgrading corrects the ordering for every new merge, but a segment already written under the old rule cannot be repaired automatically — the record of where it should have sat is gone.
+
+*How to tell:* the server reports it once per affected index, when the index is opened:
+
+[source]
+----
+Sparse-vector index 'Doc[tokens,weights]' holds 3 segment(s) whose precedence predates the
+recency-epoch fix (issue #6379); a document deleted before those segments were merged may still
+be returned by queries. Run 'REBUILD INDEX Doc[tokens,weights]' once to rewrite them in the
+correct order.
+----
+
+The flag behind that message is stored in the segment and inherited by any later merge, so ordinary write traffic compacting the affected segments away does not silence it. Nothing else distinguishes an affected index: queries succeed and the data looks intact.
 
 *Action:* run once per sparse-vector index, after upgrading:
 
