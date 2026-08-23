@@ -165,16 +165,30 @@ NOTE: Available since ArcadeDB v26.9.1.
 
 Before v26.9.1, a named view's CSR was never itself persisted: only its definition (types, properties, update mode) was, in `schema.json`. Every database open therefore rebuilt the CSR from a full graph scan, and because `shutdown()` waits for any in-flight rebuild, the cost of that scan landed on `close()` rather than `open()` - at 1M vertices, closing a database with a view took over 4 seconds even for a session that ran no query at all.
 
-A `READY` view (with no pending overlay changes) now writes its CSR to disk at a clean database close, alongside a freshness certificate: the database's last committed transaction id at the time the CSR was built. On the next open:
+A `READY` view (with no pending overlay changes) now writes its CSR to disk at a clean database close, alongside a freshness certificate: the database's last committed transaction id at the time the CSR was built. On the next open, if a persisted file plausibly applies (see arcadedb.gavPersistCsr below), the view is marked `READY` immediately, but the file itself is not read yet - see <<gav-csr-lazy-restore,Lazy Restore>>. That deferred read either:
 
-* If the database's current last committed transaction id still matches the certificate, nothing was committed to the database in between, so the persisted CSR is loaded from disk as-is instead of being rebuilt.
-* If anything was committed in between - to any type, not only the ones the view covers - the certificate no longer matches and the view falls back to the previous behavior: an async rebuild triggered on open.
+* finds the database's current last committed transaction id still matches the certificate - nothing was committed to the database in between, so the persisted CSR is loaded from disk as-is instead of being rebuilt; or
+* finds a mismatch - anything was committed in between, to any type, not only the ones the view covers - and falls back to the previous behavior: an async rebuild.
 
 This means the speedup only applies to reopening a database that was **not written to** since its last clean close. A database that receives writes between every session still pays the rebuild on every open, exactly as before v26.9.1.
 
 Persistence is controlled by the `arcadedb.gavPersistCsr` <<arcadedb-settings,database-level setting>> (default `true`). Set it to `false` to skip writing the CSR file, for example to avoid its disk footprint or the extra write at close.
 
 Serving queries against a stale CSR while a delta is applied in the background (the way `SYNCHRONOUS` mode's overlay already does for live updates) is not part of this: a CSR's contiguous array layout makes partial coverage expensive to retrofit, so an invalidated certificate always means a full rebuild, not a partial one.
+
+[[gav-csr-lazy-restore]]
+===== Lazy Restore
+
+NOTE: Available since ArcadeDB v26.9.1.
+
+A persisted CSR that plausibly applies is not read from disk during `open()`. Reading and deserializing it is a real, if bounded, cost - up to roughly a second at 10M vertices - and a session that opens a database and never queries the view got nothing for paying it. Instead, `open()` marks the view `READY` immediately without touching the file, and the actual read is deferred to whichever of these happens first:
+
+* a query that actually needs the view's data; or
+* an explicit call to the view's `awaitReady()` method.
+
+Either trigger re-verifies the freshness certificate from scratch at that point (not the one implied at `open()` time), so a commit that lands after `open()` but before the first query is still caught correctly and falls back to a rebuild rather than serving stale data. A session that opens and closes a database without ever touching the view now costs what the no-view baseline costs, not what a restore costs - `close()` does not wait for a restore that was never triggered either.
+
+The `arcadedb.gavRestoreAwaitTimeout` <<arcadedb-settings,database-level setting>> (default `0`) forces the wait at `open()` time instead, for either the deferred restore or a full rebuild: set it to a positive number of milliseconds to trade a slower `open()` for the view being immediately usable by the query that triggered the reopen, rather than the first query racing (and possibly missing) it.
 
 ==== How CSR Works
 
