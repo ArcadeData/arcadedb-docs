@@ -35,6 +35,7 @@ GraphAnalyticalView gav = GraphAnalyticalView.builder(database)
 ----
 
 Named views are persisted in `schema.json` and automatically restored on database restart.
+As of ArcadeDB v26.9.1, a `READY` view's CSR snapshot itself can also be persisted to disk at a clean database close and reused on the next open without rescanning the graph; see <<gav-csr-persistence,CSR Persistence>>.
 
 ==== SQL
 
@@ -157,6 +158,24 @@ In *SYNCHRONOUS* mode, the engine captures transaction deltas (new/deleted verti
 Readers always see a consistent snapshot via an atomic volatile reference swap.
 When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
 
+[[gav-csr-persistence]]
+==== CSR Persistence
+
+NOTE: Available since ArcadeDB v26.9.1.
+
+Before v26.9.1, a named view's CSR was never itself persisted: only its definition (types, properties, update mode) was, in `schema.json`. Every database open therefore rebuilt the CSR from a full graph scan, and because `shutdown()` waits for any in-flight rebuild, the cost of that scan landed on `close()` rather than `open()` - at 1M vertices, closing a database with a view took over 4 seconds even for a session that ran no query at all.
+
+A `READY` view (with no pending overlay changes) now writes its CSR to disk at a clean database close, alongside a freshness certificate: the database's last committed transaction id at the time the CSR was built. On the next open:
+
+* If the database's current last committed transaction id still matches the certificate, nothing was committed to the database in between, so the persisted CSR is loaded from disk as-is instead of being rebuilt.
+* If anything was committed in between - to any type, not only the ones the view covers - the certificate no longer matches and the view falls back to the previous behavior: an async rebuild triggered on open.
+
+This means the speedup only applies to reopening a database that was **not written to** since its last clean close. A database that receives writes between every session still pays the rebuild on every open, exactly as before v26.9.1.
+
+Persistence is controlled by the `arcadedb.gavPersistCsr` <<arcadedb-settings,database-level setting>> (default `true`). Set it to `false` to skip writing the CSR file, for example to avoid its disk footprint or the extra write at close.
+
+Serving queries against a stale CSR while a delta is applied in the background (the way `SYNCHRONOUS` mode's overlay already does for live updates) is not part of this: a CSR's contiguous array layout makes partial coverage expensive to retrofit, so an invalidated certificate always means a full rebuild, not a partial one.
+
 ==== How CSR Works
 
 The graph topology is stored as two pairs of arrays (forward for outgoing edges, backward for incoming):
@@ -273,4 +292,4 @@ On a graph with 500K vertices and ~8M edges:
 * CSR uses `int[]` arrays — maximum ~2.1 billion vertices per bucket and ~2.1 billion edges per direction
 * Edges in CSR do not carry their own RID; the Cypher query planner falls back to OLTP only when the query returns an edge variable as a first-class record (e.g., `RETURN r`). Edge *properties* are fully supported via `withEdgeProperties()`
 * Dictionary encoding applies only to string properties
-* Initial build requires a full scan of selected vertex/edge types
+* Initial build requires a full scan of selected vertex/edge types. A rebuild triggered by an invalidated <<gav-csr-persistence,persisted CSR>> certificate (or by `OFF` mode, or by exceeding the `SYNCHRONOUS`/`ASYNCHRONOUS` compaction threshold) also requires a full scan - only a clean-close-to-unchanged-reopen cycle skips it
