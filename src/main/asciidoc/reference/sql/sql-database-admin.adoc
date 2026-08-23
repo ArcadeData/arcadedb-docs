@@ -125,6 +125,18 @@ budget and rolling back the whole transaction. An unreadable *chunk* of a vertex
 A `DELETE VERTEX` refused this way is refused before it touches anything: the vertex's record is checked first, so the failure does
 not cost a walk over an adjacency list that is about to be rolled back.
 
+IMPORTANT: the same answer now covers the genuinely concurrent case. A vertex that *another* transaction deletes while this one is
+removing its edges used to be reported as a retryable `ConcurrentModificationException`; it is a `VertexNotFoundException` like
+every other "the vertex is not there", because the record is equally gone either way and a retry could only rediscover that on the
+next attempt. An application that wraps its vertex deletes in its own `catch (ConcurrentModificationException)` retry loop no
+longer catches that case: catch `RecordNotFoundException` alongside the conflict and treat it as already deleted, which is the
+conclusion the loop would have reached after spending its retries.
+
+That up-front check reads the vertex's record, so deleting a vertex needs the `readRecord` permission on its type as well as
+`deleteRecord` (see <<groups,groups>>). This is not a new requirement in practice, since every way of obtaining the vertex in
+order to delete it already reads it, but a group granting `deleteRecord` alone now fails at the first statement of the delete
+rather than part of the way through it.
+
 NOTE: the `RECORD` scope cannot repair a dangling reference. The RID in the message is the record that is missing, so there is no
 edge list to rebuild there, and the entry to drop lives on the vertex at the *other* end. No index maps a vertex back to the lists
 that reference it, so finding that vertex takes a scan - which is why the message names the database-wide form.
