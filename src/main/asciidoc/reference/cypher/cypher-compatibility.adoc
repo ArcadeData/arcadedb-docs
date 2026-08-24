@@ -157,6 +157,20 @@ RETURN true OR null AS c     // true
 RETURN null = null AS d      // null
 ----
 
+The list predicates `all()`, `any()`, `none()` and `single()` follow the same rule: if the inner condition is
+`null` for one or more elements and no element decides the result outright (a `false` for `all()`, a `true` for
+`any()`/`none()`), the predicate itself evaluates to `null` rather than `true`/`false`. A definite mismatch always
+wins over an unknown one, so a single element that decides the result short-circuits regardless of any `null`s
+elsewhere in the list.
+
+[source,cypher]
+----
+WITH [1, 2, null] AS list
+RETURN any(x IN list WHERE x > 5) AS a          // null: no match, but one candidate was unknown
+RETURN none(x IN list WHERE x > 5) AS b         // null: same reasoning
+RETURN all(x IN list WHERE x IS NOT NULL) AS c  // false: a definite mismatch always wins over unknown
+----
+
 ===== Strict Numeric Types
 
 The `IS TYPED` value-type predicate and `CREATE CONSTRAINT ... IS TYPED <type>` honor the GQL numeric width hierarchy (`INT8`/`INT16`/`INT32`/`INT64`, `FLOAT32`/`FLOAT64`), mapping each onto a native ArcadeDB width so a declared property persists and reloads at that width. See <<cypher-is-typed,IS TYPED data types>> for the full mapping.
