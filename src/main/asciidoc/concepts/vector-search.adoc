@@ -204,6 +204,22 @@ To migrate an existing populated type to external storage in one step, use `ALTE
 | `buildGraphNow` | true | Build the HNSW graph immediately at index creation time. Set to `false` for deferred (lazy) building on first search.
 |===
 
+[[close-time-rebuild-deferral]]
+[NOTE]
+====
+A rebuild of the graph is always a full one -- there is no incremental update, so any rebuild reindexes every
+vector currently in the index, not just the ones written since the last build. `close()` normally rebuilds and
+persists the graph before shutting down, so a later reopen finds a ready-to-search graph rather than rebuilding on
+first open. For an index of 1,000 vectors or more (the same threshold `efSearch`'s adaptive strategy and
+mutation-triggered rebuilds use), a session that closes with unpersisted writes pending instead defers that
+rebuild rather than blocking `close()` on it: the vectors themselves are already durably persisted independently
+of the graph, so nothing is lost, but the graph's on-disk topology is left stale or absent. The deferred rebuild
+then runs the next time that index is actually searched, after any reopen -- so the first query against a large,
+recently-written index that was closed this way can be noticeably slower than the queries that follow it, where
+`close()` used to absorb that latency instead. A session that closes and never searches the index again pays
+nothing at all. Below 1,000 vectors, `close()` keeps rebuilding synchronously as before.
+====
+
 [[adaptive-efsearch]]
 ==== efSearch and Adaptive Search
 
