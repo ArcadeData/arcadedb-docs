@@ -274,10 +274,17 @@ SELECT vector.neighbors(
 [NOTE]
 ====
 `groupBy` changes how rows are capped and nothing else about what the index can see: a grouped query is answered from
-the same corpus as the ungrouped one, including vectors written since the graph was last rebuilt. Grouping is
-best-effort in one respect only - an index whose nearest group is denser than its candidate budget returns fewer than
-`k` groups and counts the query in the `groupedSearchesShortOfLimit` index statistic, which is the signal to raise
-`efSearch`.
+the same corpus as the ungrouped one, including vectors written since the graph was last rebuilt.
+
+A grouped query can return fewer than `k` groups, and two index statistics tell you which of the two reasons applies:
+
+* `groupedSearchesShortOfLimit` - the search ran out of candidate budget before reaching the `k`-th nearest group,
+which happens when the nearest groups are very dense. Raising `efSearch` is what helps here.
+* `groupedSearchesGroupsUnavailable` - there were no more groups to find. Usually this simply means the data holds
+fewer distinct values of the `groupBy` property than you asked for: a query with `k` of 10 over a corpus with 3 source
+files can only ever return 3 groups. That is expected and needs no action - raising `efSearch` cannot create a group
+that does not exist, and only makes the query slower. Look into it only if you expected more groups than you got,
+which can indicate a damaged index graph that `REBUILD INDEX` repairs.
 ====
 
 [NOTE]
