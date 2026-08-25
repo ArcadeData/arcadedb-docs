@@ -937,6 +937,35 @@ RETURN node.name, score
 
 IMPORTANT: These procedures use the HNSW vector index for fast approximate search (O(log n)). Do *not* use `vector.cosinesimilarity()` inside a `MATCH` loop — that performs a brute-force O(n) scan over all documents. Always use `CALL` with a vector index for production workloads.
 
+*Full-Text Search Procedures:*
+
+ArcadeDB provides built-in procedures for searching a `FULL_TEXT` index (BM25-ranked) directly from Cypher, so text search and graph pattern matching can be combined in one statement. These are Neo4j-compatible equivalents of SQL's `SEARCH_INDEX()`; see the "Full-Text Index" how-to guide for how to create and configure one.
+
+[%header,cols="2,3"]
+|===
+| Procedure | Description
+| `db.index.fulltext.queryNodes(indexName, query)` | Searches a full-text index on a vertex type. Returns `node` and `score` (BM25 relevance, higher is better)
+| `db.index.fulltext.queryRelationships(indexName, query)` | Searches a full-text index on an edge type. Returns `relationship` and `score`
+|===
+
+NOTE: The `indexName` parameter uses ArcadeDB's `'Type[property]'` format (e.g., `'Article[content]'`), and `query` accepts Lucene query syntax.
+
+*Examples:*
+
+[source,cypher]
+----
+// Search and rank by relevance
+CALL db.index.fulltext.queryNodes('Article[content]', 'java AND database')
+YIELD node, score
+RETURN node.title AS title, score
+ORDER BY score DESC
+
+// Search relationships and continue graph pattern matching
+CALL db.index.fulltext.queryRelationships('Cites[note]', 'java')
+YIELD relationship, score
+RETURN relationship.note AS note, score
+----
+
 *Calling User Functions:*
 
 User functions defined via SQL's `DEFINE FUNCTION` statement can be called using the `CALL` clause with their namespace. Functions can be defined in SQL, JavaScript, OpenCypher, or Java and are callable from any query language.
