@@ -551,6 +551,17 @@ REBUILD INDEX `Doc[tokens,weights]`
 ----
 
 This collapses the existing segments into a single correctly ordered segment. Indexes that have only ever been appended to are unaffected.
+
+Since v26.9.1, this is also queryable at any time, not only visible as a one-time log line at startup: `schema:indexes` (and Studio's index view) report the affected index in `upgradeWarning`, and its stats include an `untrustedSegments` count:
+
+[source,sql]
+----
+SELECT name, upgradeWarning FROM schema:indexes WHERE upgradeWarning IS NOT NULL
+
+SELECT untrustedSegments FROM (SELECT expand(stats) FROM schema:indexes WHERE name = 'Doc[tokens,weights]')
+----
+
+`untrustedSegments` drops back to `0` once `REBUILD INDEX` has been run, so it can also be used to confirm the fix took effect.
 ====
 
 [[hybrid-search]]
