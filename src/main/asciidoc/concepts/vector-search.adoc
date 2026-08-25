@@ -220,6 +220,21 @@ recently-written index that was closed this way can be noticeably slower than th
 nothing at all. Below 1,000 vectors, `close()` keeps rebuilding synchronously as before.
 ====
 
+[[open-time-lazy-load]]
+[NOTE]
+====
+Since v26.9.1, opening a database does not read a vector index at all. Both structures the index keeps in memory --
+the graph and the map of where each vector lives -- are built the first time something actually uses that index: a
+search, an insert, a count. Before this, every open rebuilt the location map by reading through every page of every
+`LSM_VECTOR` index, which took time proportional to the number of indexed vectors (around 1.4 seconds for 10
+million) and was paid again on each open, even by a process that only opened the database to write one document or
+to read an unrelated type.
+
+Results, counts and stats are unchanged -- only the timing is. The first operation that touches an index pays the
+load once; on a session that searches, that was already the smaller half of the work, since loading or rebuilding
+the graph dominates it. A session that never touches a vector index never pays for it.
+====
+
 [[adaptive-efsearch]]
 ==== efSearch and Adaptive Search
 
