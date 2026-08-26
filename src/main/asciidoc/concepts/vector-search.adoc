@@ -216,10 +216,17 @@ first open. For an index of 1,000 vectors or more (the same threshold `efSearch`
 mutation-triggered rebuilds use), a session that closes with unpersisted writes pending instead defers that
 rebuild rather than blocking `close()` on it: the vectors themselves are already durably persisted independently
 of the graph, so nothing is lost, but the graph's on-disk topology is left stale or absent. The deferred rebuild
-then runs the next time that index is actually searched, after any reopen -- so the first query against a large,
-recently-written index that was closed this way can be noticeably slower than the queries that follow it, where
-`close()` used to absorb that latency instead. A session that closes and never searches the index again pays
-nothing at all. Below 1,000 vectors, `close()` keeps rebuilding synchronously as before.
+then runs the next time that index is actually searched, after any reopen. A session that closes and never
+searches the index again pays nothing at all. Below 1,000 vectors, `close()` keeps rebuilding synchronously as
+before.
+
+Since v26.9.1 that first query after a reopen does not wait for the rebuild. If the persisted graph is behind only
+because vectors were added after it was last built -- none deleted, and ArcadeDB can verify on disk that the graph
+still describes exactly the records it was built from -- the graph is put straight back to work and only the
+missing vectors are searched separately, while the full rebuild runs in the background. Results are complete from
+the first query: a vector written after the last build is found whether it is already in the graph or still
+waiting to be folded into it. This applies to any session, including one that inserts before it searches, which
+before v26.9.1 was the one shape that still paid for a full rebuild on the querying thread.
 ====
 
 [[open-time-lazy-load]]
