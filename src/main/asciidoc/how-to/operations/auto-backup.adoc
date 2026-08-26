@@ -289,15 +289,19 @@ Backups are organized by database name:
 ----
 backups/
 ├── database1/
-│   ├── database1-backup-20250115-020000.zip
-│   ├── database1-backup-20250116-020000.zip
-│   └── database1-backup-20250117-020000.zip
+│   ├── database1-backup-20250115-020000041.zip
+│   ├── database1-backup-20250116-020000038.zip
+│   └── database1-backup-20250117-020000105.zip
 └── database2/
-    ├── database2-backup-20250115-020000.zip
-    └── database2-backup-20250116-020000.zip
+    ├── database2-backup-20250115-020000062.zip
+    └── database2-backup-20250116-020000057.zip
 ----
 
-The backup filename format is: `<database>-backup-<YYYYMMDD>-<HHMMSS>.zip`
+The backup filename format is: `<database>-backup-<YYYYMMDD>-<HHMMSSmmm>.zip`, where the last three digits are
+milliseconds.
+
+NOTE: Before 26.9.1 the name stopped at the second. Archives created by an older version keep their name and are still
+listed and rotated normally, so nothing needs to be renamed after an upgrade.
 
 ===== Monitoring
 
@@ -307,7 +311,7 @@ The auto-backup scheduler logs its activity:
 INFO  [AutoBackupSchedulerPlugin] Auto-backup scheduler started. Backup directory: ./backups
 INFO  [AutoBackupSchedulerPlugin] Scheduled automatic backup for database 'production'
 INFO  [BackupScheduler] Starting scheduled backup for database 'production'
-INFO  [BackupScheduler] Backup completed: production-backup-20250115-020000.zip (15.2 MB)
+INFO  [BackupScheduler] Backup completed: production-backup-20250115-020000041.zip (15.2 MB)
 INFO  [BackupRetentionManager] Retained 10 backups, deleted 2 for database 'production'
 ----
 
@@ -345,6 +349,17 @@ curl -X POST "http://localhost:2480/api/v1/server" \
 ----
 BACKUP DATABASE
 ----
+
+====== One Backup at a Time
+
+A database is backed up by one backup at a time. If you ask for a backup while another one of the same database is
+still running - a manual trigger during a scheduled run, or two clicks in a row - the second request is refused rather
+than run alongside the first: a second copy of the same data adds nothing, and it would only compete for disk and CPU
+with the run already in progress.
+
+The HTTP API answers with status `409` and the message `A backup of database '<name>' is already in progress`. Studio
+shows the same message. A scheduled run that arrives at a busy moment is simply skipped, with a warning in the log, and
+the next scheduled run covers the database as usual.
 
 [[auto-backup-lifecycle]]
 ===== Database Lifecycle
