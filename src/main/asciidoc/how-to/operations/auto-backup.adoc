@@ -14,6 +14,7 @@ The auto-backup scheduler is activated when a `backup.json` configuration file e
 * **Tiered retention** - Keep hourly, daily, weekly, monthly, and yearly backups
 * **Per-database configuration** - Override defaults for specific databases
 * **HA cluster awareness** - Configure which node runs backups in a cluster
+* **Follows the database lifecycle** - New databases are scheduled automatically, dropped or closed ones stop
 * **Studio integration** - Configure and monitor backups through the web UI
 
 ===== Configuration File
@@ -344,6 +345,23 @@ curl -X POST "http://localhost:2480/api/v1/server" \
 ----
 BACKUP DATABASE
 ----
+
+[[auto-backup-lifecycle]]
+===== Database Lifecycle
+
+Schedules follow their database, so you do not have to edit `backup.json` every time a database comes or goes:
+
+* A database created, restored or imported while the server is running is scheduled straight away, with the same
+defaults (or per-database override) any other database gets.
+
+* Dropping or closing a database cancels its schedule. The backups already on disk are left alone: a backup taken
+before the drop is exactly what you would restore from.
+
+* A scheduled backup never opens a database by itself. If the database is not available on this server when its turn
+comes, that run is skipped.
+
+The last point matters when you close a database deliberately, for maintenance for example: the scheduler will not
+reopen it behind your back.
 
 ===== Troubleshooting
 
