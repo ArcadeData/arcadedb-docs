@@ -211,6 +211,23 @@ Properties are stored as typed flat arrays — `int[]`, `long[]`, `double[]`, or
 Each column has a compact null bitmap (1 bit per vertex).
 Dictionary encoding maps unique string values to integer codes, achieving near-100% compression for low-cardinality fields.
 
+[[gav-edge-properties-pending-changes]]
+===== Edge Properties and Pending Changes
+
+NOTE: Behavior changed in ArcadeDB v26.9.1.
+
+Edge property columns (`EDGE PROPERTIES (...)`, used as weights by the shortest-path and spanning-tree algorithms) are laid out in the order the graph had when the view was built.
+In `SYNCHRONOUS` mode a commit is absorbed into a pending-changes overlay rather than rebuilding, so from that moment the neighbour list and the columns describe two different orderings.
+
+Before v26.9.1 the view resolved this by reporting no edge properties at all as soon as an overlay existed, and every weighted algorithm silently went back to reading edge records - after every single commit.
+The view now reconciles the two instead: an edge already in the base graph keeps answering from its column, and an edge the overlay added answers from the value recorded when it was committed.
+Weighted algorithms therefore keep the fast columnar path while a view is being updated.
+
+Two cases remain that the view cannot answer, and for those the algorithm reads the edge records directly - exact, only slower:
+
+* several parallel edges join the same two vertices and only some of them were deleted, since the overlay counts deletions per vertex pair and cannot say which of the parallel edges went;
+* an existing edge's property value was changed, until the rebuild that refreshes the columns completes. Adding and deleting edges does not have this effect; only changing a property of an edge already in the base graph does.
+
 ==== Memory Usage
 
 The OLAP representation is significantly more compact than the OLTP equivalent:
