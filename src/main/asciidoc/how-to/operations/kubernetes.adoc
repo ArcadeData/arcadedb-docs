@@ -396,7 +396,10 @@ persistence:
 ====== Resources
 
 Container resource requests and limits are deliberately left unset in the chart defaults (`resources: {}`), so you must supply them for any production deployment.
-Size the memory request to match your JVM heap (`-Xms`) so the scheduler places the pod on a node with enough RAM, and set a memory limit slightly above the heap to catch unexpected off-heap growth.
+Set `limits.memory` first: _since v26.9.1_ the container image derives the JVM heap from it
+(`-XX:MaxRAMPercentage=75`) unless you pin the heap yourself, so the limit is what decides how much
+memory ArcadeDB actually uses. Then size the memory request to the heap you expect, so the scheduler
+places the pod on a node with enough RAM.
 
 [IMPORTANT]
 ====
@@ -411,8 +414,8 @@ Memory limits are safe and recommended: the JVM respects its heap ceiling, and a
 |Key | Default | Description
 
 |`resources.requests.cpu` | (absent) | CPU request used by the scheduler to place the pod. Recommended starting point: `500m`. No CPU limit should be set — see the note above.
-|`resources.requests.memory` | (absent) | Memory request. Should equal or slightly exceed the JVM `-Xms` value to guarantee the node has enough RAM at scheduling time.
-|`resources.limits.memory` | (absent) | Memory limit. Set to the JVM `-Xmx` value plus headroom for off-heap buffers (e.g. `4Gi` for a 2 Gi heap). Prevents a single pod from consuming all node memory.
+|`resources.requests.memory` | (absent) | Memory request. Should equal or slightly exceed the heap to guarantee the node has enough RAM at scheduling time.
+|`resources.limits.memory` | (absent) | Memory limit, and the value the heap is sized against unless you pin it: 75% of this becomes the heap, leaving the rest for off-heap buffers (e.g. `4Gi` gives a 3 Gi heap). Also prevents a single pod from consuming all node memory.
 |===
 
 Example override (2 Gi heap, 4 Gi limit, CPU request only — no CPU limit):

@@ -5,13 +5,18 @@ To run the ArcadeDB server with Docker, type this (replace <password> with the r
 
 [source,shell,subs="attributes+"]
 ----
-$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
-             --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata" \
+$ docker run --rm -p 2480:2480 --name my_arcadedb \
+             --env ARCADEDB_SETTINGS="-Darcadedb.server.rootPassword=playwithdata" \
              --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
 
 If there are no errors, Docker prints immediately the container id.
 You can use that id to stop the container, or execute some commands from it.
+
+NOTE: Pass ArcadeDB settings in `ARCADEDB_SETTINGS` and extra JVM flags in `JAVA_OPTS`. Docker
+*replaces* an environment variable rather than adding to it, so putting `-Darcadedb.*` settings in
+`JAVA_OPTS` would discard the garbage collector the image selects for you. Keeping the two apart means
+your container runs the same JVM as one started with no environment at all (_since v26.9.1_).
 
 To run the console from the container started above, use:
 
@@ -35,7 +40,7 @@ Example of running ArcadeDB Server with all the plugins enabled (Redis, Postgres
 
 [source,shell]
 ----
-$ docker run --rm  -p 2480:2480 -p 2424:2424 -p 6379:6379 -p 5432:5432 -p 8182:8182 --env JAVA_OPTS="\
+$ docker run --rm  -p 2480:2480 -p 6379:6379 -p 5432:5432 -p 8182:8182 --env ARCADEDB_SETTINGS="\
    -Darcadedb.server.rootPassword=playwithdata \
    -Darcadedb.server.defaultDatabases=Imported[root]{import:https://github.com/ArcadeData/arcadedb-datasets/raw/main/orientdb/OpenBeer.gz} \
    -Darcadedb.server.plugins=Redis:com.arcadedb.redis.RedisProtocolPlugin, \
@@ -86,9 +91,9 @@ The default path `/home/arcadedb/databases` contains all your database files. Mo
 
 [source,shell,subs="attributes+"]
 ----
-$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
+$ docker run --rm -p 2480:2480 --name my_arcadedb \
     -v /path/on/host/databases:/home/arcadedb/databases \
-    --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata" \
+    --env ARCADEDB_SETTINGS="-Darcadedb.server.rootPassword=playwithdata" \
     --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
 
@@ -102,9 +107,9 @@ If you need to change where ArcadeDB stores databases, use the `-Darcadedb.serve
 
 [source,shell,subs="attributes+"]
 ----
-$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
+$ docker run --rm -p 2480:2480 --name my_arcadedb \
     -v /path/on/host/databases:/mydatabases \
-    --env JAVA_OPTS="-Darcadedb.server.databaseDirectory=/mydatabases \
+    --env ARCADEDB_SETTINGS="-Darcadedb.server.databaseDirectory=/mydatabases \
                      -Darcadedb.server.rootPassword=playwithdata" \
     --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
@@ -117,9 +122,9 @@ For better performance, you can keep databases in container storage and only per
 
 [source,shell,subs="attributes+"]
 ----
-$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
+$ docker run --rm -p 2480:2480 --name my_arcadedb \
     -v /path/on/host/backups:/home/arcadedb/backups \
-    --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata" \
+    --env ARCADEDB_SETTINGS="-Darcadedb.server.rootPassword=playwithdata" \
     --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
 
@@ -133,21 +138,31 @@ Mount multiple directories for complete data, backup, log, and configuration per
 
 [source,shell,subs="attributes+"]
 ----
-$ docker run --rm -p 2480:2480 -p 2424:2424 --name my_arcadedb \
+$ docker run --rm -p 2480:2480 --name my_arcadedb \
     -v /path/on/host/databases:/home/arcadedb/databases \
     -v /path/on/host/backups:/home/arcadedb/backups \
     -v /path/on/host/log:/home/arcadedb/log \
     -v /path/on/host/config:/home/arcadedb/config \
-    --env JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata" \
+    --env ARCADEDB_SETTINGS="-Darcadedb.server.rootPassword=playwithdata" \
     --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
 
 ===== Tuning
 
-In general, the RAM allocated for the JVM should be ≤80% of the container RAM.
-The default Dockerfile for ArcadeDB sets 2 GB of RAM for ArcadeDB (`-Xms2G -Xmx2G`), so you should allocate at least 2.3G to the Docker container running exclusively ArcadeDB.
+The image sizes the JVM heap as a share of the container's memory limit (`-XX:MaxRAMPercentage=75`),
+so in most cases there is nothing to tune: give the container the memory you want ArcadeDB to have and
+the heap follows.
 
-To run ArcadeDB with 1G docker container, you could start ArcadeDB by using 800M for ArcadeDB's server RAM by setting `ARCADEDB_OPTS_MEMORY` variable with Docker:
+[source,shell]
+----
+$ docker run -m 4g ... arcadedata/arcadedb:latest
+----
+
+NOTE: _Since v26.9.1_ the heap is sized from the container limit. Earlier images pinned it to 2 GB
+(`-Xms2G -Xmx2G`), which meant a container limited to less than about 2.3 GB was killed at startup
+before the server came up.
+
+To set the heap explicitly instead, override `ARCADEDB_OPTS_MEMORY`:
 
 [source,shell]
 ----
@@ -159,5 +174,5 @@ You can use the `low-ram` profile to use the least memory possible.
 
 [source,shell]
 ----
-$ docker ... -e ARCADEDB_OPTS_MEMORY="-Xms800M -Xmx800M" -e arcadedb.profile=low-ram ...
+$ docker ... -e ARCADEDB_OPTS_MEMORY="-Xms800M -Xmx800M" -e ARCADEDB_SETTINGS="-Darcadedb.profile=low-ram" ...
 ----
