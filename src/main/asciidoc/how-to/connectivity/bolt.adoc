@@ -80,6 +80,7 @@ The BOLT plugin supports the following configuration options:
 | `arcadedb.bolt.maxConnections` | 0 | Maximum concurrent connections (0 = unlimited)
 | `arcadedb.bolt.ssl` | DISABLED | TLS mode for BOLT connections: `DISABLED`, `OPTIONAL`, or `REQUIRED` (see <<bolt-tls,TLS/SSL>>)
 | `arcadedb.bolt.routing.ttl` | 300 | Time-to-live in seconds for routing table entries returned to `neo4j://` clients
+| `arcadedb.bolt.maxOpenStreams` | 1024 | Maximum number of result streams one connection may keep open at the same time (see <<bolt-transactions,Transactions>>)
 | `arcadedb.bolt.debug` | false | Enable BOLT protocol debug logging
 |===
 
@@ -371,6 +372,7 @@ MATCH (p:Person)
 RETURN avg(p.age) AS averageAge, count(p) AS totalPeople
 ----
 
+[[bolt-transactions]]
 ===== Transactions
 
 The BOLT protocol supports three transaction styles:
@@ -398,6 +400,27 @@ session.executeWrite(tx -> {
     return null;
 });
 ----
+
+Inside an explicit transaction you can run a second query before you have finished reading the results of the first
+one. This happens on its own whenever the driver's fetch size is smaller than the number of rows the first query
+returns, because the driver then keeps that result open while your code moves on:
+
+[source,java]
+----
+// Driver configured with Config.builder().withFetchSize(1)
+try (Transaction tx = session.beginTransaction()) {
+    Result people = tx.run("MATCH (p:Person) RETURN p");
+    people.next();                                // the first result is still open
+
+    tx.run("MATCH (c:Company) RETURN c").consume();  // a second query in the same transaction
+
+    while (people.hasNext()) people.next();       // finish reading the first one
+    tx.commit();
+}
+----
+
+Each open result holds server-side resources until you read it to the end or discard it, so a single connection may
+keep at most `arcadedb.bolt.maxOpenStreams` of them open at once (1024 by default, far more than any driver uses).
 
 ===== Causal Consistency (Bookmarks)
 
@@ -485,7 +508,7 @@ When the derived addresses cannot tell two peers apart - nodes that share a host
 
 If you encounter connection issues:
 
-1. **Enable debug logging**: Start the server with `-Darcadedb.bolt.debug=true` to see detailed protocol messages.
+1. **Enable debug logging**: Start the server with `-Darcadedb.bolt.debug=true` to see detailed protocol messages. Passwords are never written to the log.
 2. **Check port availability**: Ensure port 7687 (or your configured port) is not in use by another service.
 3. **Verify authentication**: ArcadeDB always requires authentication. Ensure you're providing valid credentials — the `none` scheme is rejected.
 4. **Match the encryption mode**: If the server runs with `arcadedb.bolt.ssl=REQUIRED`, connect with `bolt+s://` / `neo4j+s://`. If TLS is `DISABLED` (the default), connect with `bolt://` / `neo4j://` and encryption turned off in the driver.
