@@ -52,6 +52,35 @@ ArcadeDB exposes metrics for:
 * **Transactions** -- Active transactions, commits, rollbacks
 * **Network** -- HTTP request count, response times
 * **JVM** -- Heap usage, GC pauses, thread count
+* **Backup** -- Point-in-time window activity (see below)
+
+====== Backup point-in-time windows
+
+A full backup, an HA database verify and an HA snapshot ship read a point-in-time image of the database. By default that image is served from a copy-on-write shadow, so writers keep running at full speed while it is read. When the shadow cannot be used the operation still completes, but by freezing the data files instead - which throttles every writer until it finishes.
+
+That fallback is invisible from the outside: the backup succeeds either way. These counters are what make it alertable:
+
+[%header,cols="45%,55%"]
+|===
+| Metric | Meaning
+
+| `arcadedb_engine_snapshot_windows_overflowed_total`
+| The shadow reached `arcadedb.pageSnapshotMaxSize`. Raise it, or give the spill volume more room.
+
+| `arcadedb_engine_snapshot_windows_failed_total`
+| A page pre-image could not be read or written. Look at the disk.
+
+| `arcadedb_engine_snapshot_barrier_failed_total`
+| The window could not be opened at all. Split by cause below.
+
+| `arcadedb_engine_snapshot_barrier_failed_suspend_total`
+| Transient and expected under sustained load.
+
+| `arcadedb_engine_snapshot_barrier_failed_flush_total`
+| A pending write never landed. Points at the disk.
+|===
+
+Any of these rising means backups have quietly gone back to throttling writers. See `arcadedb.pageSnapshotMaxSize`, `arcadedb.pageSnapshotMaxRAM` and `arcadedb.pageSnapshotSpillPath` in <<arcadedb-settings,Settings>>.
 
 ===== Periodic Metric Dumps
 
