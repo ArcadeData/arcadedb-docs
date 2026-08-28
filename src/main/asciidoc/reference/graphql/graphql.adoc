@@ -111,6 +111,98 @@ type Book {
 ResultSet resultSet = database.query("graphql", "{ books(inStock: true, rating: 4.5) { name } }");
 ----
 
+A query field can also be declared without any argument, for example to list every record of a type:
+
+[source,graphql]
+----
+type Query {
+  allBooks: [Book]
+}
+----
+
+Argument values are passed to the database as parameters, never written into the generated query text, so a value
+containing quotes or backslashes is always treated as data.
+The standard GraphQL escape sequences (`+\"+`, `+\\+`, `+\/+`, `+\b+`, `+\f+`, `+\n+`, `+\r+`, `+\t+` and
+`+\uXXXX+`) are decoded, so this matches a book whose name really contains a line break:
+
+[source,graphql]
+----
+{ bookByName(name: "Line one\nLine two") { id } }
+----
+
+[[graphql-where]]
+===== The `where` argument
+
+An argument named `where` is reserved: its value is used as the SQL condition of the generated query instead of being
+compared against a property.
+
+[source,graphql]
+----
+type Query {
+  books(where: WHERE): [Book]
+}
+----
+
+[source,java]
+----
+ResultSet resultSet = database.query("graphql", "{ books( where: \"name = 'Mr. brain'\" ) { name } }");
+----
+
+WARNING: The `where` value is SQL and is used exactly as written, so it must be authored in the query, never built
+from end-user input.
+For this reason it cannot be filled from a <<graphql-variables,variable>>.
+If your condition has to change at runtime, use a <<graphql-sql,@sql>> directive with a parameter instead.
+
+[[graphql-variables]]
+==== Query variables
+
+A query can declare variables and receive their values at execution time, so the same query text can be reused with
+different values:
+
+[source,graphql]
+----
+query($name: String) {
+  bookByName(name: $name) { id name }
+}
+----
+
+[source,java]
+----
+ResultSet resultSet = database.query("graphql", "query($name: String) { bookByName(name: $name) { id name } }",
+                                     "name", "Harry Potter and the Philosopher's Stone");
+----
+
+From the <<http-executequery,HTTP API>> the variables are the request parameters, and from the
+<<postgres-driver,Postgres Driver>> they are the query parameters.
+
+A variable can declare a default value, used when no value is passed:
+
+[source,graphql]
+----
+query($name: String = "Mr. brain") { bookByName(name: $name) { id } }
+----
+
+Variables can also be used in the arguments of a directive written in the query:
+
+[source,graphql]
+----
+query($edge: String) { bookById(id: "book-1") { authors @relationship(type: $edge, direction: IN) { lastName } } }
+----
+
+The value passed must match the type the variable is declared with, otherwise the query is rejected:
+
+- `Int` accepts a whole number in the 32-bit range
+- `Float` accepts any number, but not `NaN` or infinity
+- `Boolean` accepts only a boolean, `String` only a string
+- `ID` accepts a string or a whole number of any size
+- any other type name (a custom scalar, an enum, a list) is passed through unchecked
+
+A variable declared with `!` (for example `$name: String!`) must receive a value, and that value cannot be null.
+A variable used but never declared is an error, as is a variable used for the <<graphql-where,`where`>> argument.
+
+NOTE: Commas between variable declarations are not supported yet: write `query($a: String $b: Int)`, not
+`query($a: String, $b: Int)`.
+
 ==== Field aliases
 
 A selection can rename a field with the standard GraphQL alias syntax `alias: field`.
@@ -163,6 +255,22 @@ Example:
 [source,graphql]
 ----
 friends: [Account] @relationship(type: "FRIEND", direction: BOTH)
+----
+
+Relationships can be traversed at any depth, each level being resolved against its own type.
+The query below walks from a book to its authors, then back to every book each author wrote:
+
+[source,graphql]
+----
+{ bookById(id: "book-1")
+  {
+    name
+    authors {
+      lastName
+      wrote { name }
+    }
+  }
+}
 ----
 
 [[graphql-sql]]
