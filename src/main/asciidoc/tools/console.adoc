@@ -41,25 +41,35 @@ begin                                                          -> begins a new t
 check database                                                 -> check database integrity
 close |<path>|remote:<url> <user> <pw>                         -> closes the database
 commit                                                         -> commits current transaction
-connect <path>|local:<url>|remote:<url> <user> <pw>            -> connects to a database
-create database <path>|remote:<url> <user> <pw>                -> creates a new database
-create user <user> identified by <pw> [grant connect to <db>[:<group>]*] -> creates a user
-drop database <path>|remote:<url> <user> <pw>                  -> deletes a database
+connect <path>|local:<url>|remote:<url> <user> [<pw>]          -> connects to a database
+create database <path>|remote:<url> <user> [<pw>]              -> creates a new database
+create user <user> identified by [<pw>] [grant connect to <db>[:<group>]*] -> creates a user
+drop database <path>|remote:<url> <user> [<pw>]                -> deletes a database
 drop user <user>                                               -> deletes a user
 help|?                                                         -> ask for this help
 info types                                                     -> prints available types
 info type <type>                                               -> prints details about type
 info transaction                                               -> prints current transaction
-list databases |remote:<url> <user> <pw>                       -> lists databases
+list databases |remote:<url> <user> [<pw>]                     -> lists databases
 load <path>                                                    -> runs local script
 pwd                                                            -> returns current directory
 rollback                                                       -> rolls back current transaction
 set language = sql|sqlscript|cypher|gremlin|mongo|graphql      -> sets console query language
 -- <comment>                                                   -> comment (no operation)
 quit|exit                                                      -> exits from the console
+
+Omit <pw> to be asked for the password with the echo hidden, so it is never written to
+the .history file nor echoed to the output in batch mode.
 ----
 
 NOTE: The `close` command can be used without path or url, then it closes the currently connected database.
+
+NOTE: The password can be left out of `connect`, `create database`, `drop database`, `list databases` and `create user`.
+The console then asks for it and hides what you type.
+This is the recommended form: a password written on the command line ends up in the console's `.history` file, and in
+the build log when the console runs with `-b`.
+The console masks passwords in both places, but a password you never type in full cannot leak at all.
+A password containing spaces is accepted.
 
 NOTE: Long-running maintenance commands (`CHECK DATABASE`, `REBUILD INDEX`, `COMPACT INDEX`, `BACKUP DATABASE`, `IMPORT DATABASE`) render a live progress line while they run, showing the current step and percentage, e.g. `check database fix [step 3/9] Checking vertices 'Account' |========            | 42%`. The same progress is available in Studio and via the <<http-progress,HTTP progress endpoint>>.
 
@@ -67,7 +77,13 @@ NOTE: It can be useful to wrap longer scripts called via `LOAD myscript.sql` in 
 
 NOTE: The comment command `--` is useful for scripts.
 
-NOTE: The console does line-by-line processing, so commands and queries need to be in a single line; however, a line break can be escaped by `\`.
+NOTE: The console does line-by-line processing, so commands and queries need to be in a single line.
+
+NOTE: The console passes backslashes to the query language untouched, so a statement means the same typed at the prompt,
+passed with `-b`, or replayed with `LOAD` as it does over the HTTP API.
+Escaping is the query language's business: in SQL a string literal needs two backslashes for one, so a Windows path is
+written `'C:\\Users\\bob'` and a regular expression `'\\d+'`.
+Before 26.9.1 the console consumed one of the two, so those statements could not be entered at all.
 
 IMPORTANT: The multi-line comment syntax `/* ... */` is not supported in the console, since the console reads from the terminal and script files line by line. It is required and recommended to use the single-line comment syntax `--` for inline code docu or headers.
 
