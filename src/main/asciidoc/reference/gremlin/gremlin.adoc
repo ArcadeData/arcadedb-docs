@@ -68,6 +68,34 @@ try (ArcadeGraphFactory pool = ArcadeGraphFactory.withRemote("127.0.0.1", 2480, 
 
 NOTE: Remember to call `ArcadeGraph.close()` to release the `ArcadeGraph` instance back into the pool. `ArcadeGraph` implements `Closable`, so you can just use it in a `try` block like in the example above.
 
+==== Transactions and closing a graph
+
+Starting from version 26.9.1, closing an `ArcadeGraph` *rolls back* any transaction still open, which is the TinkerPop default. Changes that never reached `commit()` are not saved just because the graph was closed:
+
+```java
+try (final ArcadeGraph graph = ArcadeGraph.open("./databases/graph")) {
+  graph.tx().begin();
+  graph.addVertex("Person");
+  graph.tx().commit(); // <-- WITHOUT THIS, THE VERTEX IS NOT SAVED
+}
+```
+
+If you want the graph to commit when it closes, ask for it explicitly:
+
+```java
+graph.tx().onClose(Transaction.CLOSE_BEHAVIOR.COMMIT);
+```
+
+NOTE: Before 26.9.1 an open transaction was committed on close. If your application relied on that, add the `onClose()` call above.
+
+An `ArcadeGraph` borrowed from an `ArcadeGraphFactory` pool is always returned clean: any transaction left open is rolled back before the instance goes back into the pool, so the next caller never inherits your uncommitted changes. Do not keep using an instance after calling `close()`, and note that `drop()` is not allowed on a pooled instance, because the database is shared with the rest of the pool.
+
+==== Vertex property identifiers
+
+Starting from version 26.9.1, `VertexProperty.id()` returns a `String` in the form `#<bucket>:<offset>-<propertyName>`, consistent with vertex and edge identifiers. It previously returned a `Long` computed from hash codes, which could come out the same for two different properties of the same vertex, making them compare as equal and disappear from results such as `properties().dedup()`.
+
+NOTE: If your application casts or parses a vertex property id as a number, update it to handle a `String`.
+
 ==== Gremlin through Postgres Driver
 
 You can execute a Gremlin query against ArcadeDB server by using the <<postgres-driver,Postgres driver>> and prefixing the query with `{gremlin}`.
