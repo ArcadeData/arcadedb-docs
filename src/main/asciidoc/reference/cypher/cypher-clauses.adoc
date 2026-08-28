@@ -391,9 +391,11 @@ The `MERGE` clause creates nodes or relationships if they don't exist, or matche
 [source,cypher]
 ----
 MERGE pattern
-[ON CREATE SET property = value [, property = value ...]]
-[ON MATCH SET property = value [, property = value ...]]
+[ON CREATE SET ...]
+[ON MATCH SET ...]
 ----
+
+`ON CREATE SET` and `ON MATCH SET` accept every form the <<cypher-set,`SET`>> clause does.
 
 *Examples:*
 
@@ -420,6 +422,11 @@ MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
 MERGE (a)-[r:KNOWS]->(b)
 ON CREATE SET r.since = 2024
 ON MATCH SET r.lastContact = timestamp()
+
+// Copy the defaults onto a node that was just created
+MATCH (defaults:Settings {scope: 'person'})
+MERGE (p:Person {name: 'Dave'})
+ON CREATE SET p += defaults
 ----
 
 ---
@@ -427,14 +434,21 @@ ON MATCH SET r.lastContact = timestamp()
 [[cypher-set]]
 ===== SET
 
-The `SET` clause updates properties on nodes and relationships.
+The `SET` clause updates properties and labels on nodes and relationships.
 
 *Syntax:*
 
 [source,cypher]
 ----
-SET property = value [, property = value ...]
+SET variable.property = value [, ...]     // one property
+SET variable[keyExpression] = value       // property name computed at runtime
+SET variable = source                     // replace all properties
+SET variable += source                    // add to the existing properties
+SET variable:Label [, ...]                // add a label
 ----
+
+For the `=` and `+=` forms, `source` is a map, a node or a relationship. Copying from a node or a relationship
+takes all of its properties, which is the usual way to clone one.
 
 *Examples:*
 
@@ -452,7 +466,30 @@ SET p.age = 31, p.city = 'Boston', p.updated = true
 MATCH (a:Person)-[r:KNOWS]->(b:Person)
 WHERE a.name = 'Alice' AND b.name = 'Bob'
 SET r.strength = 10
+
+// Replace every property with the ones in the map: 'age' and 'city' are dropped
+MATCH (p:Person {name: 'Alice'})
+SET p = {name: 'Alice', role: 'admin'}
+
+// Add to the existing properties, keeping the ones not mentioned
+MATCH (p:Person {name: 'Alice'})
+SET p += {role: 'admin'}
+
+// Copy every property of one node onto another
+MATCH (source:Person {name: 'Alice'}), (target:Person {name: 'Alice2'})
+SET target = source
+
+// Add a label
+MATCH (p:Person {name: 'Alice'})
+SET p:Employee
 ----
+
+NOTE: `SET` is a simultaneous assignment: every value is read as it was before the clause ran, so
+`SET p.a = p.b, p.b = p.a` swaps the two rather than copying one onto the other.
+
+A property value must be a scalar or a list of scalars. A map value (`SET p.address = {city: 'Rome'}`), or a
+right-hand side of `=` / `+=` that is neither a map nor an entity (`SET p = 5`), is rejected with a
+`TypeError` and no part of the clause is written.
 
 ---
 
