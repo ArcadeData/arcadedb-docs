@@ -229,6 +229,27 @@ waiting to be folded into it. This applies to any session, including one that in
 before v26.9.1 was the one shape that still paid for a full rebuild on the querying thread.
 ====
 
+[[delta-scan-bound]]
+[NOTE]
+====
+Vectors written since the last rebuild are searched by scanning them one by one, so that part of a query grows with
+how many are waiting, while the graph search it supplements grows only with the logarithm of the index size. Before
+v26.9.1 nothing bounded that scan: the settings that decide when to rebuild are all counted in mutations, and
+`vectorIndex.maxPendingMutations` is a fixed number, so from 250,000 vectors upward the same scan cost landed on an
+index of any size. On a 200,000-vector index at that ceiling the scan was about four fifths of query time.
+
+Since v26.9.1 a rebuild is also triggered when the scan grows past what the graph search itself costs -- measured,
+from the nodes searches actually visit, not estimated -- and once those scans have cost as much as the rebuild will.
+The second condition is what keeps the first affordable: the extra rebuild work this can introduce is bounded by the
+query work it removes. Because it is evaluated when queries run, a write-only workload is unaffected and keeps the
+existing rebuild schedule.
+
+If you are upgrading a deployment that both writes and queries heavily, expect more background rebuild activity than
+before -- that is the fix doing its job, and it is the same deployment that was paying for the scan. Set
+`vectorIndex.maxDeltaScanRatio` to 0 to restore the previous behaviour exactly, lower it to keep queries faster at
+the cost of more rebuilds, or raise it for the opposite trade.
+====
+
 [[open-time-lazy-load]]
 [NOTE]
 ====
