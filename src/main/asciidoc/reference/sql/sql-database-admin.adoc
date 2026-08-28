@@ -214,11 +214,19 @@ The command returns the integrity check report in one record with the fields:
 | `totalActiveEdges` | see above, but only edge records.
 | `totalMaxOffset` | internal, can be ignored.
 | `deletedRecordsAfterFix` | holds the list of RIDs deleted after a fix.
-| `corruptedRecords` | all the records not found in the database.
-                       This could happen with broken edges (edges pointing to deleted vertices).
+| `corruptedRecords` | records that are present but cannot be read or are inconsistent.
                        This should be zero; if not, it means there is a bug in the graph operations that doesn't keep operations 100% transactional. Please report this.
+                       A record that simply no longer exists is *not* listed here: an edge whose vertex was deleted is
+                       reported under `topMissingReferences` instead, and only the edge itself is counted as corrupted.
+                       The distinction matters because `FIX` rebuilds every index on a bucket that holds a corrupted
+                       record, which is wasted work when the record is not there at all.
 | `totalPages` | total number of pages in the database.
 | `rebuiltIndexes` | list of indexes that have been rebuilt automatically if corrupted records were found.
+| `topMissingReferences` | records an edge points at that could not be loaded, each with the number of edges that
+                           reference it - the usual shape after vertices were deleted while their edges survived.
+                           One line per target rather than per edge, so a single missing vertex referenced by
+                           millions of edges stays readable.
+| `distinctMissingReferences` | how many distinct targets `topMissingReferences` summarises.
 | `operation` | can be ignored, set by the console.
 | `invalidLinks` | similar to corrupted records; should be zero.
 | `totalErrors` | counter of errors encountered while checking the database.
