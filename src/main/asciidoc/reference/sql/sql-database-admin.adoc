@@ -103,6 +103,14 @@ Executes an integrity check and in case of a repair of the database. This comman
  be automatically removed if the `FIX` option is enabled.
 * <<timeseries,TimeSeries>> types: every shard's mutable bucket, sealed store and shared tag dictionary is validated, including the
  CRC32 of every sealed block. See <<sql-check-database-timeseries,TimeSeries integrity>> below.
+* <<indexes,indexes>>: the structure of each index is validated. A corrupted index is dropped and rebuilt if the `FIX` option is
+ enabled, keeping its name and its configuration - a full-text index's analyzers and BM25 parameters, a geospatial index's
+ precision, a vector index's dimensions.
+
+NOTE: the index check is *structural*: it validates the index's own pages, not that every record of the type appears in the index.
+An index that is intact but incomplete - for example one whose build was interrupted by a crash - is therefore reported as healthy.
+If you suspect that, run <<sql-rebuild-index,`REBUILD INDEX`>> on it: rebuilding re-reads every record and also preserves the index
+configuration.
 
 When a vertex's edge list is unreadable (for example a lost or corrupted chunk of the adjacency linked list), the `FIX` mode does
 not delete anything: every edge record stores its own endpoint identities, so the adjacency list is rebuilt from the surviving edge
