@@ -39,6 +39,21 @@ In the case root has no password, then ArcadeDB server asks to insert a password
 - Databases, as the map database name and set of groups for that database. "\*" is a special wildcard and means any.
 The configuration `"databases":{"*":["admin"]}` means use the "admin" group for any database.
 
+[IMPORTANT]
+====
+*Replication of user changes (clusters).* Since version 26.9.1, creating, updating and deleting a user is
+replicated to every server of the cluster whichever way it is done: the `/api/v1/server/users` endpoints
+(which Studio uses), the `create user` / `drop user` server commands, and the Cypher `CREATE USER`,
+`ALTER USER ... SET PASSWORD` and `DROP USER` statements.
+
+Before 26.9.1 only the server commands replicated. A user created through the REST endpoints or through
+Cypher existed on the serving node alone, so behind a load balancer it authenticated only intermittently -
+and a deletion answered `200` while the credentials kept working on every other node.
+
+Deleting a user or changing its password also revokes that user's active login tokens immediately, on every
+node - see <<token-authentication,Token-Based Authentication>>.
+====
+
 ++++
 <svg class="dgm-svg" viewBox="0 0 1200 220"
      xmlns="http://www.w3.org/2000/svg"

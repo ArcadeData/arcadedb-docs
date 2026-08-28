@@ -98,6 +98,34 @@ $ curl -X POST http://localhost:2480/api/v1/logout \
 Authentication tokens expire after a configurable period of inactivity (default is 30 minutes).
 See <<settings-sql,`server.httpAuthSessionExpireTimeout`>> to configure this timeout.
 
+*Token revocation:*
+
+[IMPORTANT]
+====
+Since version 26.9.1, deleting a user or changing its password immediately invalidates every token already
+issued to that user, on every server of a cluster. Previously such a token kept working until it expired on
+its own. This applies however the change is made: the `/api/v1/server/users` endpoints, the `create user` /
+`drop user` server commands, the Cypher `CREATE USER` / `ALTER USER ... SET PASSWORD` / `DROP USER`
+statements, or an edit to `server-users.jsonl`.
+====
+
+*Number of concurrent tokens:*
+
+[IMPORTANT]
+====
+Since version 26.9.1 the server bounds how many authentication tokens it keeps.
+A single user may hold up to <<settings-sql,`server.httpAuthSessionMaxPerUser`>> tokens (default `100`);
+past that, its own oldest token is invalidated to make room for the new one, and no other user is ever
+affected. Across all users the server keeps up to <<settings-sql,`server.httpAuthSessionMax`>> tokens
+(default `10000`); expired tokens are reclaimed first, and a login that still finds no room is answered
+https://httpstatuses.io/503[`503`].
+Set either setting to `0` for the previous unlimited behaviour (not recommended: an unbounded number of
+sessions is a memory-exhaustion risk).
+
+The client metadata stored with a session (`User-Agent`, `CF-Connecting-IP`, `X-Forwarded-For`,
+`CF-IPCountry`, `CF-IPCity`) is truncated to 256 characters.
+====
+
 ==== Server-Side Transactions
 
 ArcadeDB implements server-side transaction over HTTP stateless protocol by using sessions.
@@ -764,6 +792,8 @@ Responses:
 
 * https://httpstatuses.io/200[`200`] OK - returns token and username
 * https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/503[`503`] the server holds the maximum number of concurrent authentication
+sessions and none could be reclaimed - see <<settings-sql,`server.httpAuthSessionMax`>> _(since v26.9.1)_
 
 Example:
 

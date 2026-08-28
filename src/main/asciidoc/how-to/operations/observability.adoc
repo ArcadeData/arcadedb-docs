@@ -132,11 +132,17 @@ Two always-on timers record request/query latency with a percentile histogram (s
 [%header,cols="30%,45%,25%"]
 |===
 | Timer | Tags | Prometheus series
-| `arcadedb.http.requests` | `method`, `path` (route template, e.g. `/query/{database}` -- never the raw URI), `status`, `db` | `arcadedb_http_requests_seconds_*`
+| `arcadedb.http.requests` | `method`, `path` (route template, e.g. `/query/{database}` -- never the raw URI), `status`, `db` (the database name, or `unknown` when the request names a database that does not exist) | `arcadedb_http_requests_seconds_*`
 | `arcadedb.query.duration` | `protocol` (`http`, `bolt`, `postgres`, `mongo`, `grpc`, `redis`, `internal`), `db`, `language` (`sql`, `opencypher`, `gremlin`, `graphql`, `mongo`), `type` (`query` or `command`) | `arcadedb_query_duration_seconds_*`
 |===
 
 NOTE: The `protocol` tag defaults to `internal` for embedded/in-process callers; dashboards typically filter `protocol!="internal"` to isolate client traffic. Redis commands and unfiltered Mongo scans do not pass through the query engine and are therefore not recorded by `arcadedb.query.duration`.
+
+NOTE: Since v26.9.1 the `db` tag of `arcadedb.http.requests` carries a database name only when that database
+exists on the server, and the constant `unknown` otherwise. The `{database}` path parameter matches any URL
+segment, and the timer is also recorded for requests answered `401`, so echoing it verbatim let any caller
+register one permanent series per invented name. Requests against a non-existent database are therefore
+grouped under `db="unknown"` rather than appearing one series per name.
 
 ====== Engine gauges
 
