@@ -274,6 +274,23 @@ int[] components = algos.connectedComponents(gav);
 int[] distances = algos.bfs(gav, sourceNodeId);
 ----
 
+===== Algorithms and Pending Changes
+
+NOTE: Behavior changed in ArcadeDB v26.9.1.
+
+In `SYNCHRONOUS` mode a committed change is absorbed into a pending-changes overlay rather than rebuilding the view.
+The overlay keeps the slot of a deleted vertex and numbers an added vertex above the base graph, so from that moment the view's vertex count and the range of its internal vertex numbers stop being the same figure.
+
+Before v26.9.1 the `algo.*` procedures took them for one and the same, with two consequences:
+
+* a vertex added after the view was built could be missing from the answer of every procedure, with no error to say so;
+* once the additions outnumbered the deletions, the CSR-accelerated procedures (`algo.wcc`, `algo.pagerank`, `algo.labelpropagation`, `algo.localClusteringCoefficient`, `algo.bfs`) failed with an `ArrayIndexOutOfBoundsException` - one added vertex was enough.
+
+Both are fixed. The vertices a view holds are renumbered onto a gapless range before any algorithm sees them, so every `algo.*` procedure answers for exactly the vertices that are live at the time of the call - the added ones included, the deleted ones excluded.
+
+While a view is holding pending changes the whole-graph procedures also stop using the parallel kernels listed above, which read the base CSR arrays directly and know nothing of the overlay: they would otherwise answer for the graph as it stood at the last build.
+Those calls still run off the view's adjacency, single-threaded rather than parallel, and the compaction that folds the overlay back into the base graph (by default after 10,000 pending edges) restores the parallel path.
+
 ==== Query Planner Integration
 
 The Cypher query planner automatically detects ready GAVs and substitutes OLTP traversal operators with CSR-based operators when:
