@@ -175,6 +175,51 @@ RETURN all(x IN list WHERE x IS NOT NULL) AS c  // false: a definite mismatch al
 
 The `IS TYPED` value-type predicate and `CREATE CONSTRAINT ... IS TYPED <type>` honor the GQL numeric width hierarchy (`INT8`/`INT16`/`INT32`/`INT64`, `FLOAT32`/`FLOAT64`), mapping each onto a native ArcadeDB width so a declared property persists and reloads at that width. See <<cypher-is-typed,IS TYPED data types>> for the full mapping.
 
+===== shortestPath() and Hop Bounds
+
+`shortestPath()` and `allShortestPaths()` honor the `*min..max` quantifier written on the relationship: a
+shortest path outside that range is not an answer, and no longer path is substituted for it.
+
+[source,cypher]
+----
+MATCH (a:City {name:'Rome'}), (b:City {name:'Oslo'}), p = shortestPath((a)-[:ROAD*..2]-(b))
+RETURN length(p)    // no row when the shortest Rome..Oslo path is longer than 2 hops
+----
+
+A relationship written without a quantifier, `-[:ROAD]-`, declares exactly one hop and is bounded accordingly.
+
+When both endpoints resolve to the *same* vertex, the answer is the zero-length path, as in Neo4j. An explicitly
+written minimum above one hop rejects it, since zero hops is not in the declared range:
+
+[source,cypher]
+----
+MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*]-(a))     RETURN length(p)  // 0
+MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*3..5]-(a)) RETURN length(p)  // no row
+----
+
+Such a pattern is not reinterpreted as a request for the shortest cycle back to the start.
+
+===== Indexes Inherited from a Parent Type
+
+An index declared on a parent type serves queries on every child type, exactly as it does in SQL, so a single
+index at the top of a hierarchy is enough:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Node;
+CREATE VERTEX TYPE Entity EXTENDS Node;
+CREATE PROPERTY Node.id STRING;
+CREATE INDEX ON Node (id) UNIQUE;
+----
+
+[source,cypher]
+----
+MATCH (e:Entity) WHERE e.id = 'foo-1' RETURN e   // uses the inherited Node[id] index
+----
+
+A child type cannot declare a second index on a property its parent already indexes, and does not need one: the
+parent's index already covers the child's records.
+
 ===== Architectural Differences from Neo4j
 
 While implementing the OpenCypher standard, ArcadeDB differs from Neo4j in these intentional design choices:
