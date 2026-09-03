@@ -202,6 +202,11 @@ At any time one server holds leadership and accepts writes; the others are repli
 Each server persists its own Raft log segments under `<rootPath>/raft-storage/`.
 The log is used for recovery after restart and to replicate state to peers that fall behind.
 
+[NOTE]
+====
+Size the Raft storage volume for the log, not only for the databases. If the volume fills, Ratis marks the log as failed at the first entry it could not write and the node rejects every following append while still reporting itself `RUNNING`. Since v26.9.1 the node recovers from that state on its own: the health monitor (`arcadedb.ha.healthCheckInterval`) restarts the Raft server in place as soon as the volume has room for two log segments again - which the periodic log compaction (`arcadedb.ha.snapshotInterval`, escalated below `arcadedb.ha.raftStorageMinFreeSpacePerc`) normally provides - and logs a throttled SEVERE while it is waiting. The in-place restarts are bounded by `arcadedb.ha.ratisRestartMaxRetries` per incident, so a failure that is not about space (a failing disk, a permission change) is left to the operator instead of restarting the node on every tick. For the same reason, a follower that reinstalls a database from the leader's snapshot first purges its own Raft log and refuses the download up front when the volume cannot hold the archive, instead of failing halfway through the extraction.
+====
+
 Any read (query) can execute on any server in the cluster.
 All writes must go through the leader: a replica that receives a write transparently forwards it to the current leader via HTTP.
 
@@ -451,6 +456,7 @@ The bootstrap protocol handles the following cases automatically:
 * *Different-age peers*: the peer with the highest `lastTxId` is elected as the source. Older peers reinstall the leader-shipped full snapshot; subsequent transactions are picked up by native Raft replication.
 * *Late newer joiner*: a peer with a strictly newer `lastTxId` than the cluster's chosen baseline refuses to start and logs a SEVERE with the recovery procedure. This prevents a misconfigured rolling deploy from silently overwriting newer data with older data.
 * *Cluster restart*: the bootstrap path is gated on every peer's Raft log being empty. After the cluster has committed at least one Raft entry, restarts use the regular Raft log replay or leader-shipped snapshot path; the bootstrap path does not engage, and stale local data on a single pod cannot cause divergence.
+* *Databases created while the cluster forms*: an application that creates and seeds its databases right after the first leader election is not baselined against them. The peer that sourced the baseline is never refused for its own copy advancing past the sampled `lastTxId`, and a baseline committed for a database that already has Raft history on a node is ignored on every node alike, because replication - not bootstrap - keeps those copies in step. _(Since v26.9.1: before, the election could sample a database the leader had just created and then refuse the leader's own copy as "fresher", and the cluster never converged.)_
 
 The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is visible in the response to `GET /api/v1/cluster` and in the Studio cluster dashboard.
 
@@ -466,7 +472,7 @@ All endpoints require authentication as the `root` user.
 
 |GET
 |`/api/v1/cluster`
-|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, and per-follower replication lag.
+|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert. _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_
 
 |POST
 |`/api/v1/cluster/peer`
