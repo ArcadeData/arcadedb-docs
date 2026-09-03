@@ -146,8 +146,15 @@ this holds for every type ArcadeDB maps onto a native PostgreSQL OID:
 
 ===== Transactions
 
-Enabling auto commit to false is not 100% supported.
-With JDBC, leave the default settings or set:
+In autocommit mode (the JDBC default) every statement is one transaction: a write statement that touches many
+records - `UPDATE`, `DELETE`, `INSERT`, `CREATE VERTEX`, `CREATE EDGE` - either lands whole or is rolled back
+whole, for vertex, edge and document types alike. The one exception is a statement that asks for chunked commits
+with `BATCH <n>`, which commits every `<n>` records. To span several statements with one transaction, send an
+explicit `BEGIN` ... `COMMIT` (or `ROLLBACK`).
+
+Setting auto commit to false is not 100% supported: it does not start a transaction on its own, so a write sent
+after `setAutoCommit(false)` without a `BEGIN` is refused with "Transaction not begun". With JDBC, leave the
+default settings or set:
 
 [source,java]
 ----
