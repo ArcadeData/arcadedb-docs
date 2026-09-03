@@ -357,6 +357,27 @@ To retrieve the most recent data point:
 GET /api/v1/ts/{database}/latest?type=SensorReading&tag=sensor_id:sensor-A
 ----
 
+===== Missing Values
+
+A sample can be `NaN`, which means "no measurement here" rather than a value of zero. Aggregations treat it that
+way:
+
+* `MIN` and `MAX` skip `NaN` samples. Over a window that holds at least one real value they return that value; over
+  a window whose samples are *all* `NaN` they return `NaN`, meaning the window has no measurement to report.
+* `SUM` and `AVG` currently return `NaN` if any sample in the window is `NaN`.
+* A genuine `Infinity` or `-Infinity` sample is a measurement and is returned as such.
+
+Over the REST and Grafana endpoints an absent `MIN`/`MAX` is serialized as JSON `null`, since JSON has no `NaN`
+literal. A Grafana panel therefore draws a gap for such a bucket rather than a dip to zero.
+
+[NOTE]
+====
+Before 26.9.1 an all-`NaN` window returned an internal placeholder instead - `1.7976931348623157E308` from the
+multi-column aggregation, `+Inf`/`-Inf` from PromQL's `min_over_time`/`max_over_time` - and those placeholders were
+indistinguishable from real measurements. Different query paths could also disagree with each other on the same
+data.
+====
+
 ==== PromQL Query Language
 
 ArcadeDB includes a native PromQL parser and evaluator, providing Prometheus-compatible query capabilities without requiring an external Prometheus server.
@@ -689,6 +710,14 @@ queries from, without ever looking at a value, are verified only here:
 |===
 
 Each of those produces a wrong *answer* rather than an error, which is why nothing else in the engine reports them.
+
+[NOTE]
+====
+`DEEP` also reports a block written before 26.9.1 whose column holds only `NaN` samples: such a block stored an
+internal placeholder as its `min`/`max`, and aggregation push-down returns that placeholder as if it were a
+measurement. The check names the column and the remedy - recompacting or downsampling the block rewrites its
+header. Existing data is not corrected until then.
+====
 
 [source,sql]
 ----
