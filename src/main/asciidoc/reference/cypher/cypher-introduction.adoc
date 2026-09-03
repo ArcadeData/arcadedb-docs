@@ -136,6 +136,12 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
 
 * Automatically selects optimal indexes for node lookups
 * Uses range index scans for inequality predicates (`>`, `<`, `>=`, `<=`)
+* Drives a single-hop relationship pattern from the edge type's own index when the `WHERE` clause pins the
+  relationship's indexed properties and neither endpoint is selective, e.g.
+  `MATCH ()-[t:TRANSFER]->() WHERE t.transactionId IN ['A', 'B'] RETURN t`. An equality, an `IN` list or an
+  `OR` of equalities on the same property all qualify, and a leading prefix of a composite index is enough:
+  with an index on `(transactionId, date)`, filtering `transactionId` alone walks that prefix of the index
+  instead of scanning every edge. The plan shows it as `MATCH EDGE BY INDEX`
 * Optimizes join order based on cardinality estimation
 * Detects bounded patterns for efficient relationship traversal
 
