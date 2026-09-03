@@ -65,7 +65,8 @@ SELECT FROM tags[0...9] FROM Posts
 [[append]]
 ====== append()
 
-Appends one or more string to the result.
+Appends one or more string to the result. A `null` argument is skipped, wherever it appears, and the remaining
+arguments are still appended: `'x'.append(null, 'A', 'B')` returns `xAB`. A `null` receiver returns `null`.
 
 Syntax: `&lt;value&gt;.append(&lt;value&gt;[,&lt;value&gt;]*)`
 
@@ -353,8 +354,8 @@ SELECT @this.asJSON('rid,version,fetchPlan:in_*:-2 out_*:-2') FROM Test
 [[aslist]]
 ====== asList()
 
-Transforms the value in a List.
-If it's a single item, a new list is created.
+Transforms the value in a List. A collection, an array (for example a list parameter) or an iterable becomes a
+list of its elements. If it's a single item, a new list is created.
 
 Syntax: `&lt;value&gt;.asList()`
 
@@ -515,7 +516,8 @@ For numeric vectors (a `float[]`/`double[]` field, or an array/list of numbers) 
 output as `vector.toString()`. An optional format argument selects the layout: `'COMPACT'` (default),
 `'PRETTY'`, `'PYTHON'`, `'MATLAB'` (space-separated row), `'MATLAB_COLUMN'` (semicolon-separated column),
 `'JULIA'`, or `'NUMPY'` (bare comma-separated for `numpy.fromstring`).
-Non-vector values are returned in their natural string form. The inverse (string to vector) is `asVector()`.
+Non-vector values are returned in their natural string form. A non-numeric array is rendered as the list of its
+elements (`['a','b']`), exactly like a list. The inverse (string to vector) is `asVector()`.
 
 Syntax: `&lt;value&gt;.asString([&lt;format&gt;])`
 
@@ -733,6 +735,28 @@ SELECT embdoc.field('test') FROM doc
 
 '''
 
+[[first-method]]
+====== first()
+
+Returns the first item of a collection (list, set, array, or the values of a map), or `null` when the collection is
+empty. For scalar types this method is an identity. This is the method form of the `first()` SQL function.
+
+Syntax: `&lt;value&gt;.first()`
+
+Applies to the following types:
+
+- collection
+
+*Examples*
+
+[source,sql]
+----
+SELECT 'a,b,c'.split(',').first()
+SELECT tags.first() FROM Post
+----
+
+'''
+
 [[format-method]]
 ====== format() [Method]
 
@@ -928,8 +952,9 @@ SELECT FROM date.javaType() FROM Events
 [[join]]
 ====== join()
 
-Returns all elements of a list converted to a string and concatenated,
+Returns all elements of a collection converted to a string and concatenated,
 with strings separated by the argument string that has the default value `','`.
+A scalar receiver is returned as its string form.
 
 Syntax: `&lt;value&gt;.join([&lt;separator&gt;])`
 
@@ -937,12 +962,14 @@ Applies to the following types:
 
 - lists
 - sets
+- arrays (for example a list parameter)
 
 *Examples*
 
 [source,sql]
 ----
 SELECT [1,2,3].join('|')
+SELECT 'a,b,c'.split(',').join('-')
 ----
 
 '''
@@ -965,6 +992,28 @@ Applies to the following types:
 [source,sql]
 ----
 SELECT FROM Actor WHERE 'Luke' IN map.keys()
+----
+
+'''
+
+[[last-method]]
+====== last()
+
+Returns the last item of a collection (list, set, array, or the values of a map), or `null` when the collection is
+empty. For scalar types this method is an identity. This is the method form of the `last()` SQL function.
+
+Syntax: `&lt;value&gt;.last()`
+
+Applies to the following types:
+
+- collection
+
+*Examples*
+
+[source,sql]
+----
+SELECT 'a,b,c'.split(',').last()
+SELECT tags.last() FROM Post
 ----
 
 '''
@@ -1214,7 +1263,7 @@ SELECT FROM TreeItem WHERE children.size() > 0
 [[sort]]
 ====== sort()
 
-Returns a sorted copy of the collection. The direction is controlled by a boolean argument,
+Returns a sorted copy of the collection as a list. The direction is controlled by a boolean argument,
 which sets ascending direction for a `true` value (default), and descending for `false`.
 
 NOTE: Only list of a single type can be sorted.
@@ -1225,7 +1274,9 @@ Syntax: `&lt;value&gt;.sort([&lt;dir&gt;])`
 
 Applies to the following types:
 
-- collection
+- lists
+- sets
+- arrays (for example a list parameter)
 
 *Examples*
 
@@ -1235,6 +1286,7 @@ Sort inline lists:
 ----
 SELECT [4,1,9,23].sort()
 SELECT ["a","Y","b","9"].sort(false)
+SELECT 'c,a,b'.split(',').sort()
 ----
 
 '''
@@ -1242,7 +1294,9 @@ SELECT ["a","Y","b","9"].sort(false)
 [[split]]
 ====== split()
 
-Returns a list from a string separated by the provided delimiter.
+Returns a list from a string separated by the provided delimiter. The delimiter is matched literally, not as a
+regular expression. The result is a list, so every collection method can be chained on it:
+`'a,b'.split(',').join('-')`, `.sort()`, `.first()`, `.last()`, `.size()`.
 
 Syntax: `&lt;value&gt;.split(&lt;string&gt;)`
 
