@@ -10,7 +10,7 @@ implementation and the SQL-92 standard, please refer to <<sql-introduction,this>
 [source,sql]
 ----
 SELECT [ [DISTINCT] <Projections> ]
-    [ FROM <Target> [ LET <Assignment>* ] ]
+    [ FROM <Target> [ [AS] <Alias> ] [ LET <Assignment>* ] ]
     [ WHERE <Condition>* ]
     [ GROUP BY <Field>* ]
     [ ORDER BY <Fields>* [ ASC|DESC ] * ]
@@ -45,6 +45,13 @@ SELECT [ [DISTINCT] <Projections> ]
 ** When querying indexes, use the following prefixes:
 *** `INDEXVALUES:&lt;index&gt;` and `INDEXVALUESASC:&lt;index&gt;` sorts values into an ascending order of index keys.
 *** `INDEXVALUESDESC:&lt;index&gt;` sorts the values into a descending order of index keys.
+* *`AS <Alias>`* Optionally names the records the target returns, so the rest of the statement can refer to them by
+ that name. The `AS` keyword is optional: `FROM Person p` and `FROM Person AS p` are the same. The alias can be used in
+ the projections, `WHERE`, `LET`, `GROUP BY` and `ORDER BY`, and in `UPDATE` and `DELETE`, which take the same `FROM`
+ clause. `p.name` is the record's `name` property and a bare `p` is the record itself, so `SELECT p FROM Person p` and
+ `SELECT FROM Person` return the same thing. Qualifying a property with the alias does not cost you an index:
+ `SELECT FROM Person p WHERE p.name = 'Luke'` uses an index on `Person.name` exactly as the unqualified form does.
+ When a projection gives a column the same name as the target alias, `ORDER BY` and `GROUP BY` mean the column.
 * *<<filtering,`WHERE`>>* Designates conditions to filter the result-set.
 * *<<sql-let,`LET`>>* Binds context variables to use in projections, conditions or sub-queries.
 * *`GROUP BY`* Designates field on which to group the result-set.
@@ -65,6 +72,12 @@ SELECT [ [DISTINCT] <Projections> ]
 [source,sql]
 ----
 ArcadeDB> SELECT FROM Person WHERE name LIKE 'Luk%'
+----
+
+* The same query, naming the target `p` and referring to it in the filter:
+[source,sql]
+----
+ArcadeDB> SELECT FROM Person p WHERE p.name LIKE 'Luk%'
 ----
 
 Alternatively, you might also use either of these queries:
