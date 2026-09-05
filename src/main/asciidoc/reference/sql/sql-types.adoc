@@ -77,6 +77,30 @@ ArcadeDB> CREATE VERTEX TYPE Car CUSTOM icon = 'car.png', owner = 'fleet-team'
 NOTE: Declaring `CUSTOM` inline is equivalent to running <<sql-alter-type,`ALTER TYPE ... CUSTOM`>> right after the creation, but it happens in the same statement.
 When `IF NOT EXISTS` is used and the type is already there, the whole statement is skipped, so the custom properties are not applied to the existing type.
 
+[[sql-if-not-exists-result]]
+[NOTE]
+====
+`IF NOT EXISTS` always returns exactly one row, whether the object was created or was already there.
+The `created` property tells the two apart, so a retry never looks like a failure to a client that checks
+the number of returned rows:
+
+[source,sql]
+----
+CREATE DOCUMENT TYPE Person IF NOT EXISTS
+--> { "operation": "create document type", "typeName": "Person", "created": true }
+
+CREATE DOCUMENT TYPE Person IF NOT EXISTS
+--> { "operation": "create document type", "typeName": "Person", "created": false }
+----
+
+The same applies to <<sql-create-property,`CREATE PROPERTY`>>, <<sql-create-bucket,`CREATE BUCKET`>>,
+<<sql-create-index,`CREATE INDEX`>>, `CREATE TIMESERIES TYPE`, `CREATE TRIGGER` and
+`CREATE GRAPH ANALYTICAL VIEW`.
+
+_Since v26.10.1._ Before that version, `CREATE TYPE`, `CREATE PROPERTY`, `CREATE BUCKET` and
+`CREATE TIMESERIES TYPE` returned no rows at all when the object already existed.
+====
+
 A type inherits the bucket selection strategy defined at the database level (`round-robin` by default).
 For the full list of supported strategies, the decision tree for picking one, and the `WITH repartition = true` workflow for changing strategy on a populated type, see <<bucket-selection-strategies,Bucket Selection Strategies>> in the Schema concepts section and <<bucket-selection,Bucket Selection Strategy>> for the animated walkthrough.
 
