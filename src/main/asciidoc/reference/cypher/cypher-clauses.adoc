@@ -544,6 +544,49 @@ DELETE a, r, b
 
 ---
 
+[[cypher-reads-and-writes]]
+===== Reads and Writes in the Same Query
+
+A query never sees the vertices and edges it creates itself. Everything the pattern matched before the
+query wrote anything is what it returns - the reading clauses are evaluated against the graph as it was,
+not against the rows the writes behind them add.
+
+This matters whenever a write can produce something an earlier pattern would match:
+
+[source,cypher]
+----
+// [r] has no type, so it would match the SCORED edges this query creates.
+// It does not: the row count is the number of edges that existed beforehand.
+MATCH (a:Person)-[r]->(b:Person)
+MERGE (a)-[:SCORED]->(b)
+RETURN count(*)
+----
+
+To make that hold, ArcadeDB reads the whole result of the pattern into memory before applying the first
+write. You can see where this happens in `EXPLAIN`, as an `EAGER (read/write barrier)` step. Two things
+follow from it, and they only apply to the queries that actually get one:
+
+* the matched rows are held in memory until the last write is applied, so a query over a very large match
+  needs the memory for it;
+* a `LIMIT` no longer stops the scan early - the write runs for every matched row.
+
+Queries whose writes cannot feed a preceding pattern are left alone and keep streaming, which covers the
+usual bulk shapes:
+
+[source,cypher]
+----
+// Nothing is read, so nothing can be re-read.
+UNWIND range(1, 1000000) AS i CREATE (:LogEntry {seq: i})
+
+// KNOWS is read, SCORED is written: no overlap.
+MATCH (a:Person)-[:KNOWS]->(b:Person) CREATE (a)-[:SCORED]->(b)
+----
+
+A call to a procedure that writes (`merge.node`, `merge.relationship`, the `refactor.*` procedures) always
+counts as a conflicting write, because what it creates is only known once it runs.
+
+---
+
 [[cypher-with]]
 ===== WITH
 
@@ -763,6 +806,8 @@ The EXPLAIN output includes:
 * Physical operators in the execution plan (for optimized queries)
 * Estimated costs and row counts
 * Index usage information
+* An `EAGER (read/write barrier)` step where the query reads its match into memory before writing - see
+  <<cypher-reads-and-writes,Reads and Writes in the Same Query>>
 
 [source,text]
 ----
@@ -1189,9 +1234,12 @@ RETURN root.name AS name
 *Important Notes:*
 
 * FOREACH can only contain write operations (CREATE, SET, DELETE, MERGE)
-* FOREACH does not modify the result set - it passes input rows through unchanged
+* FOREACH does not modify the result set - it passes input rows through unchanged, and an empty list
+  therefore leaves the query's rows exactly as they were
 * Variables defined inside FOREACH are not visible outside the clause
 * FOREACH is useful for batch operations and creating multiple elements from lists
+* What a FOREACH body writes is subject to <<cypher-reads-and-writes,Reads and Writes in the Same Query>>
+  like any other write
 
 ---
 
