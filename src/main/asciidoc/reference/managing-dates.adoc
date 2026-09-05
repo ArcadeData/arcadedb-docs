@@ -14,6 +14,19 @@ Starting from v21.1.1, ArcadeDB sully support the new Java Time API with a custo
 
 NOTE: using high precision types increase the space used on disk. For example, using nanosecond precision instead of millisecond increase the space requested to store the datetime of a factor of 2X.
 
+[discrete]
+#### Precision on Undeclared Properties
+
+If a property is not declared in the schema, ArcadeDB stores every datetime at the precision of the value itself, so a microsecond value keeps its microseconds without any declaration.
+
+Creating an index or a constraint on such a property with Cypher (`CREATE INDEX`, `CREATE CONSTRAINT`) declares it in the schema, and the type is inferred from the data already stored: ArcadeDB picks the highest precision it finds, so existing microsecond values give `DATETIME_MICROS`. Milliseconds are the minimum, so a property holding only whole seconds is declared `DATETIME` and not `DATETIME_SECOND`.
+
+To choose the precision yourself rather than relying on the inference, declare the property before creating the index:
+
+```sql
+CREATE PROPERTY Event.created_at DATETIME_MICROS
+```
+
 If you're working with the Java API, by default ArcadeDB uses the new Java Time API on deserialization: `DATE` values are returned as `java.time.LocalDate` and `DATETIME` values as `java.time.LocalDateTime`. These defaults are controlled by the `arcadedb.dateImplementation` and `arcadedb.dateTimeImplementation` settings.
 
 The supported implementations are:
