@@ -484,11 +484,11 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/leader`
-|Transfer leadership. Body: `{"peerId":"<target>","timeoutMs":30000}`. If `peerId` is omitted, Raft picks a new leader automatically.
+|Transfer leadership. Body: `{"peerId":"<target>","timeoutMs":30000}`. If `peerId` is omitted, Raft picks a new leader automatically. Must be sent to the leader: any other server answers `409` and names the current leader.
 
 |POST
 |`/api/v1/cluster/stepdown`
-|Make the current leader step down. The cluster elects a new leader.
+|Make the current leader step down. The cluster elects a new leader. Must be sent to the leader: any other server answers `409` and names the current leader.
 
 |POST
 |`/api/v1/cluster/leave`
@@ -502,6 +502,17 @@ All endpoints require authentication as the `root` user.
 |`/api/v1/ha/snapshot/{database}`
 |Leader-only: stream a ZIP of the database for follower catch-up. Requires the cluster token and is used internally by snapshot recovery.
 |===
+
+[NOTE]
+====
+*Send leadership changes to the leader.* Since 26.10.1, `/api/v1/cluster/leader` and `/api/v1/cluster/stepdown`
+answer `409 Conflict` when the server receiving them is not the leader, and the message names the leader to
+retry against.
+
+This matters if you call them through a Kubernetes Service or any load balancer, which spreads requests over
+every ready pod: previously such a request reached a follower, was routed on to the leader anyway, and caused
+an election you did not intend - while the follower replied `200 OK`.
+====
 
 Example: add a new peer at runtime.
 
