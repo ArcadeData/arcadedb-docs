@@ -1355,7 +1355,9 @@ Two special functions are available within LOAD CSV queries:
 * `file()` — Returns the URL of the currently loaded CSV file
 * `linenumber()` — Returns the current line number being processed (1-based)
 
-Both functions work anywhere in the rest of the query following `LOAD CSV`, including inside a `WHERE` predicate — not only in `RETURN`/`WITH` projections — and they remain valid even after a `WITH` that does not re-project the CSV row variable. This makes `WITH row WHERE linenumber() > 1 ...`, the common idiom for skipping a header row, work as expected.
+Both functions work anywhere in the rest of the query following `LOAD CSV`, including inside a `WHERE` predicate — not only in `RETURN`/`WITH` projections — and they remain valid even after a `WITH` that does not re-project the CSV row variable, and after a `WITH ... ORDER BY`. This makes `WITH row WHERE linenumber() > 1 ...`, the common idiom for skipping a header row, work as expected.
+
+NOTE: Both functions describe the CSV row currently being processed, so an aggregation ends them: after a clause such as `WITH collect(row) AS rows` or `WITH count(*) AS total`, many rows have been folded into one and there is no single line for `linenumber()` to report, so `file()` and `linenumber()` return `null` for the rest of the query — including after an `UNWIND` that expands the collected list back into rows. This matches Neo4j. If you need the file or line further downstream, capture it into a variable before the aggregation, for example `WITH row, file() AS csvFile, linenumber() AS csvLine`.
 
 ---
 
