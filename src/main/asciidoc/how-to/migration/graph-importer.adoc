@@ -127,6 +127,10 @@ A property mapping is `"dbPropertyName": "sourceAttribute"`, where the source at
 Without a prefix the value is imported as a string.
 The same prefixes are accepted in vertex `properties` and in edge-source `properties`.
 
+NOTE: Before 26.10.1 an `edgeSources` entry understood only `int:`, `long:` and `double:`, and quietly ignored any
+other mapping. If you have a configuration that declares other property types on an edge source, those properties
+are now actually imported.
+
 [cols="2,2,4"]
 |===
 | Prefix | Stored type | Notes
@@ -157,7 +161,7 @@ The same prefixes are accepted in vertex `properties` and in edge-source `proper
 
 | `vector:`
 | `ARRAY_OF_FLOATS` (`float[]`)
-| A dense float vector (an embedding). JSONL reads the JSON array natively; CSV and XML parse the textual form `[0.1,0.2,0.3]`
+| A dense float vector (an embedding). JSONL reads the JSON array natively; CSV and XML parse the textual form `[0.1,0.2,0.3]`. See <<graph-importer-arrays-in-csv,Arrays in a CSV file>>
 
 | `list:`
 | `LIST`
@@ -205,6 +209,21 @@ Use `vector:` only for numeric arrays. `list:` keeps the array as a generic list
 heterogeneous or non-numeric arrays such as tags.
 
 The equivalent Java API calls are `floatArrayProperty(name, attribute)` and `listProperty(name, attribute)`.
+
+[[graph-importer-arrays-in-csv]]
+====== Arrays in a CSV file
+
+CSV and XML have no array of their own, so an array column is read from its textual form `[0.1,0.2,0.3]`.
+In a CSV file, choose a delimiter the array does not contain - `;` rather than the default `,` - because the
+CSV reader splits on the delimiter without honouring quotes, and a comma-delimited file would cut the array
+across several columns:
+
+----
+Id;Title;Embedding
+1;The Hitchhiker's Guide to the Galaxy;[-0.31142,0.51346,-0.02326]
+----
+
+If the array is split anyway, the import stops and says so, naming the property and the delimiter.
 
 ====== Edge Definitions (within a vertex)
 
