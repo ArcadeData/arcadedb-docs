@@ -123,6 +123,24 @@ each described the way PostgreSQL describes it. A filter the server cannot inter
 than every type, so a client asking whether an extension type such as `hstore` exists is correctly told it
 does not.
 
+_Since v26.10.1_, the `regclass` and `regtype` casts resolve, in both directions: `'mytable'::regclass` is
+that type's OID and `attrelid::regclass` is its name, and likewise `'int4'::regtype` and
+`atttypid::regtype` for types. The function spellings `to_regclass()` and `to_regtype()` do the same. Some
+drivers ask for a table's columns by writing the name as a `regclass` cast and comparing it against
+`pg_class.oid` - the Apache Arrow ADBC PostgreSQL driver does this in `GetTableSchema` - and before this the
+cast was ignored, so the comparison silently matched nothing and the client saw a table with no columns. A
+name no type carries resolves to `NULL`, as `to_regclass()` does in PostgreSQL, so asking about a table that
+does not exist returns nothing rather than describing every table.
+
+Type names are matched case-sensitively first, as ArcadeDB stores them, and only then ignoring case - so
+`'MyType'::regclass` finds the type spelled that way even though PostgreSQL would have folded the unquoted
+name to lower case. If two types differ only in case, an unquoted name that matches neither of them exactly
+resolves to nothing rather than picking one; quote the name to say which you mean.
+
+NOTE: `COPY (<query>) TO STDOUT` is not supported. Clients that read results through it - the Apache Arrow
+ADBC PostgreSQL driver does so by default - need their own option to use a plain query instead
+(`adbc.postgresql.use_copy=false` for that driver).
+
 ===== Column type mapping
 
 A column's advertised PostgreSQL type must not depend on whether the query happens to return any rows - a
