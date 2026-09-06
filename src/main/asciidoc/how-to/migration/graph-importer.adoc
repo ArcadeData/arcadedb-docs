@@ -113,12 +113,98 @@ Each entry in the `vertices` array defines a vertex type and its data source:
 
 | `properties`
 | No
-| Maps ArcadeDB property names to source attributes. Supports type prefixes: `"SourceAttr"` (string), `"int:SourceAttr"` (integer), `"bool:SourceAttr"` (boolean)
+| Maps ArcadeDB property names to source attributes, optionally with a type prefix. See <<graph-importer-property-types,Property Types>>
 
 | `edges`
 | No
 | Array of edge definitions derived from foreign key attributes in this vertex's source file
 |===
+
+[[graph-importer-property-types]]
+====== Property Types
+
+A property mapping is `"dbPropertyName": "sourceAttribute"`, where the source attribute may carry a type prefix.
+Without a prefix the value is imported as a string.
+The same prefixes are accepted in vertex `properties` and in edge-source `properties`.
+
+[cols="2,2,4"]
+|===
+| Prefix | Stored type | Notes
+
+| _(none)_
+| `STRING`
+| Null or empty source values are skipped
+
+| `int:`
+| `INTEGER`
+| Missing or empty values default to `0`
+
+| `long:`
+| `LONG`
+| Missing or empty values default to `0`
+
+| `double:`
+| `DOUBLE`
+| Missing or empty values default to `0.0`
+
+| `bool:`
+| `BOOLEAN`
+| `true` when the value is `True`/`true`
+
+| `datetime:`
+| `DATETIME`
+| Default format `yyyy-MM-dd HH:mm:ss`. For a custom pattern use `datetime:FORMAT\|attribute`
+
+| `vector:`
+| `ARRAY_OF_FLOATS` (`float[]`)
+| A dense float vector (an embedding). JSONL reads the JSON array natively; CSV and XML parse the textual form `[0.1,0.2,0.3]`
+
+| `list:`
+| `LIST`
+| A generic array, e.g. a list of tags
+|===
+
+[[graph-importer-vector-embeddings]]
+====== Importing Vector Embeddings
+
+Embedding pipelines usually emit JSONL with the vector inline as a JSON array:
+
+[source,json]
+----
+{"id": 1, "title": "The Hitchhiker's Guide to the Galaxy", "tags": ["scifi", "comedy"],
+ "embedding": [-0.31142, 0.51346, -0.02326, -0.29451, 0.57215]}
+----
+
+Declare the column with the `vector:` prefix and create the index afterwards with a post-import command:
+
+[source,json]
+----
+{
+  "vertices": [
+    {
+      "type": "Book", "file": "books.jsonl", "id": "id",
+      "properties": {
+        "title": "title",
+        "tags": "list:tags",
+        "embedding": "vector:embedding"
+      }
+    }
+  ],
+  "postImportCommands": [
+    { "language": "sql",
+      "command": "CREATE INDEX ON Book (embedding) LSM_VECTOR METADATA { dimensions: 5, similarity: 'COSINE' }" }
+  ]
+}
+----
+
+The property is stored as a primitive `float[]`, not as a list of boxed numbers: a 768-dimension embedding costs
+roughly 3KB per vertex instead of 18KB, which matters on a bulk load of millions of rows, and it is the exact
+representation the vector index consumes, so building the index converts nothing.
+
+Use `vector:` only for numeric arrays. `list:` keeps the array as a generic list and is the right choice for
+heterogeneous or non-numeric arrays such as tags.
+
+The equivalent Java API calls are `floatArrayProperty(name, attribute)` and `listProperty(name, attribute)`.
 
 ====== Edge Definitions (within a vertex)
 
