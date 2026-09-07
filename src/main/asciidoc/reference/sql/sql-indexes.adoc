@@ -39,7 +39,16 @@ CREATE INDEX [<manual-index-name>]
 * *`&lt;manual-index-name&gt;`* Only for manual indexes, defines the logical name for the index.
 For automatic indexes, the index name is assigned automatically by ArcadeDB at creation as `&lt;type&gt;[&lt;property&gt;[,]*]`.
 For example, the index created on type Friend, properties "firstName" and "lastName", it will be named "Friend[firstName,lastName]"
-* *`IF NOT EXISTS`* Specifying this option, the index creation will just be ignored if the index already exists (instead of failing with an error)
+* *`IF NOT EXISTS`* Specifying this option, the index creation will just be ignored if the index already exists (instead of failing with an error).
+An index counts as already existing when it covers the same properties with the same index type, either on the type named in the statement or on one of its *super types*: an index declared on a super type indexes the records of all its sub types, so there is nothing left to create.
+An index of the same name on an unrelated type, on a *sub* type, on different properties, or of a different index type is still reported as an error, because none of those provides what the statement asked for.
++
+[source,sql]
+----
+CREATE INDEX `Element_uuid` IF NOT EXISTS ON `Element` (uuid) UNIQUE;
+-- ignored: the index on the super type already covers UnidentifiedElement
+CREATE INDEX `Element_uuid` IF NOT EXISTS ON `UnidentifiedElement` (uuid) UNIQUE;
+----
 * *`&lt;type&gt;`* Defines the type to create an automatic index for.
 The type must already exist.
 * *`&lt;property&gt;`* Defines the property you want to automatically index.
