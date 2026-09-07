@@ -568,7 +568,7 @@ To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`),
 
 *Peer allowlist*:: Inbound Raft gRPC connections are filtered against the DNS-resolved hosts in `arcadedb.ha.serverList`; connections from other addresses are rejected.
 This closes the "any host that knows the port can inject log entries" vector.
-It is *not* a substitute for mTLS: deploy HA behind a private network, NetworkPolicy, or service mesh on untrusted networks.
+It is, however, IP-based, so a spoofed source address or a compromised peer defeats it. Treat it as a best-effort default rather than a substitute for TLS: on an untrusted network, enable <<ha-grpc-mtls,mTLS on the Raft gRPC transport>>, which binds peer identity to a certificate instead of to an address.
 +
 On Kubernetes a pod's headless-service DNS record is only published once the pod is `Ready`, so peers routinely come up before each other's names resolve and the allowlist starts out incomplete. To avoid a self-inflicted partition during that window, the filter is hardened in three ways _(since v26.6.1)_:
 
@@ -580,6 +580,8 @@ For a security-strict deployment that should reject from the very first connecti
 
 [[ha-ssl]]
 ===== TLS/SSL for peer-to-peer transfers
+
+IMPORTANT: This section covers the *HTTP side channels* only — snapshot download and cross-node verify. It does not encrypt the Raft gRPC port, which carries AppendEntries, RequestVote and the Ratis admin/client calls. That is a separate axis, configured with `+arcadedb.ha.tls.*+`; see <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>. Enabling one does nothing for the other.
 
 When `arcadedb.ssl.enabled=true`, the server binds an HTTPS listener on `arcadedb.server.httpsIncomingPort` (default `2490`) *in addition to* the plain HTTP listener on `arcadedb.server.httpIncomingPort` (default `2480`). The two listeners use different ports.
 
@@ -601,6 +603,243 @@ The peer certificate is validated against the configured *trust store* (`arcaded
 If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP, logging a one-time warning. _Since v26.6.1_
 
 NOTE: Declaring an HTTPS port that points at the plain HTTP port (e.g. `https:2480`) causes a TLS handshake failure (`Unsupported or unrecognized SSL message`). Always point `https` at the HTTPS listener's port.
+
+[[ha-grpc-mtls]]
+===== mTLS for the Raft gRPC transport (from v26.9.1)
+
+The <<ha-ssl,previous section>> covers the HTTP side channels. This one covers the *Raft gRPC port* (`arcadedb.ha.raftPort`, default `2434`), which carries AppendEntries, RequestVote, InstallSnapshot and the Ratis admin/client calls.
+
+The two are independent axes. `+arcadedb.ssl.*+` does nothing for the gRPC port, and `+arcadedb.ha.tls.*+` does nothing for the HTTP listeners; a hardened cluster wants both. Nor does gRPC TLS replace the `X-ArcadeDB-Cluster-Token` check described in <<ha-security,Security>> — that check still authenticates the HTTP forwarding and snapshot-download traffic.
+
+TLS on the Raft port is *off by default*, so a development or test cluster still starts with no configuration at all. Turn it on with four settings:
+
+[source,shell]
+----
+$ bin/server.sh -Darcadedb.ha.enabled=true \
+                -Darcadedb.ha.tls.enabled=true \
+                -Darcadedb.ha.tls.certChainFile=/etc/arcadedb/tls/tls.crt \
+                -Darcadedb.ha.tls.privateKeyFile=/etc/arcadedb/tls/tls.key \
+                -Darcadedb.ha.tls.trustCertCollectionFile=/etc/arcadedb/tls/ca.crt \
+                -Darcadedb.ha.serverList=db1:2434:2480,db2:2434:2480,db3:2434:2480
+----
+
+One setting covers all three gRPC endpoints (admin, client, and server-to-server), so there is nothing further to switch on per message type. Mutual authentication is on by default; see <<ha-grpc-mtls-mutual-auth,Server-only TLS>> to relax it.
+
+When `arcadedb.ha.tls.enabled=true`, all three file settings must name a readable PEM file or *the node refuses to start*, with a `ConfigurationException` naming the offending setting:
+
+[source,text]
+----
+arcadedb.ha.tls.certChainFile must be set when arcadedb.ha.tls.enabled is true
+arcadedb.ha.tls.privateKeyFile (/etc/arcadedb/tls/tls.key) is not a readable file: Raft gRPC TLS cannot be initialized
+----
+
+The paths are validated at startup rather than left to the TLS layer, so a typo or an unmounted Secret volume fails once and clearly, instead of surfacing later as an opaque handshake error on every peer connection.
+
+The private key must be *PKCS#8* — the PEM whose armor labels it simply `PRIVATE KEY`. A PKCS#1 key, which the armor labels `RSA PRIVATE KEY` instead and which several toolchains emit by default, is not accepted. Convert one with `openssl pkcs8 -topk8 -nocrypt`.
+
+[[ha-grpc-mtls-certificates]]
+====== What the certificate has to look like
+
+The startup checks confirm the three files are *readable*. They cannot confirm the certificate is the right *kind* of certificate. Both mistakes below produce a TLS handshake failure at the first peer connection, not a startup error, so they are worth getting right up front.
+
+*Both the `serverAuth` and `clientAuth` extended key usages*::
+Every node both accepts and initiates Raft connections. With `arcadedb.ha.tls.mutualAuth=true` (the default), the certificate in `certChainFile` is presented as the TLS *server* certificate to peers that dial in *and* as the *client* certificate when this node dials out — one certificate, two roles.
+A CA configured to issue single-purpose certificates therefore produces a file that is perfectly readable and simply the wrong kind. Ask for both EKUs explicitly; do not assume the issuer's default profile includes them.
+
+*A subject alternative name matching the address peers dial*::
+The SAN must match the host as it appears in the other nodes' `arcadedb.ha.serverList`, not whatever the node calls itself locally.
+On Kubernetes that is the pod's stable headless-service DNS name (`my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local`), never the pod IP, which changes on every restart.
+
+`certChainFile` holds this node's certificate followed by any intermediate CA certificates, in that order. `trustCertCollectionFile` holds the cluster CA certificate(s) that sign every node certificate: a peer presenting a certificate that does not chain to this collection is rejected during the handshake, before any Raft message is read.
+
+[[ha-grpc-mtls-mutual-auth]]
+====== Server-only TLS
+
+Setting `arcadedb.ha.tls.mutualAuth=false` encrypts the traffic but stops requiring a client certificate from peers that dial in. That leaves the Raft port open to any client that trusts the cluster CA, which is the back door mutual authentication exists to close, so the server logs a `WARNING` at startup:
+
+[source,text]
+----
+Raft gRPC TLS is enabled with arcadedb.ha.tls.mutualAuth=false: the transport is encrypted but the
+dialling peer is NOT authenticated, so any client trusting the cluster CA can still open a Raft stream
+----
+
+WARNING: Turning mutual authentication off does *not* make `arcadedb.ha.tls.trustCertCollectionFile` optional. It only governs what this node demands of peers dialing *in*; when this node dials *out* it still needs the cluster CA to validate the certificate the other node presents. All three file settings stay mandatory whenever `arcadedb.ha.tls.enabled=true`.
+
+====== Private key permissions
+
+The server logs a `WARNING` when the private key file is readable by the group or by others, because any local account that can read it can present this node's identity to the cluster:
+
+[source,text]
+----
+The Raft gRPC private key arcadedb.ha.tls.privateKeyFile (/etc/arcadedb/tls/tls.key) is readable
+beyond its owner: any local account that can read it can present this node's identity to the
+cluster. Restrict it to owner-only (chmod 600)
+----
+
+It is deliberately a warning and not a refusal: a container image or a mounted Secret may arrive with permissions the node cannot change, and refusing to start would be the worse outcome. The check is a no-op on filesystems with no POSIX permission view.
+
+[[ha-grpc-mtls-openssl]]
+====== Issuing a cluster CA and node certificates with openssl
+
+For a fixed-size cluster outside Kubernetes, one self-signed CA plus one certificate per node is enough. Create the CA once, on a host that is not a cluster node:
+
+[source,shell]
+----
+$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+      -keyout cluster-ca.pem -out ca.crt \
+      -subj "/CN=arcadedb-cluster-ca"
+----
+
+Then, for each node (`db1` here), generate a key and a certificate signing request:
+
+[source,shell]
+----
+$ openssl req -newkey rsa:2048 -nodes \
+      -keyout db1-pkcs1.pem -out db1.csr \
+      -subj "/CN=db1"
+----
+
+Sign it with an extension file that carries *both* EKUs and the SAN peers will dial. This file is the part that is easy to get wrong:
+
+.db1.ext
+[source,text]
+----
+basicConstraints = critical,CA:FALSE
+keyUsage         = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth,clientAuth
+subjectAltName   = DNS:db1,DNS:db1.internal.example.com
+----
+
+[source,shell]
+----
+$ openssl x509 -req -in db1.csr -CA ca.crt -CAkey cluster-ca.pem -CAcreateserial \
+      -days 365 -sha256 -extfile db1.ext -out db1.crt
+----
+
+Finally, convert the key to PKCS#8 and lock it down:
+
+[source,shell]
+----
+$ openssl pkcs8 -topk8 -nocrypt -in db1-pkcs1.pem -out db1-key.pem
+$ chmod 600 db1-key.pem
+----
+
+Node `db1` is then configured with `certChainFile=db1.crt`, `privateKeyFile=db1-key.pem` and `trustCertCollectionFile=ca.crt`. Every node in the cluster gets the same `ca.crt` and its own certificate and key.
+
+Confirm a certificate before rolling it out — the two lines that matter are the SAN and the EKU:
+
+[source,shell]
+----
+$ openssl x509 -in db1.crt -noout -ext subjectAltName,extendedKeyUsage
+$ openssl verify -CAfile ca.crt db1.crt
+----
+
+[[ha-grpc-mtls-cert-manager]]
+====== Issuing certificates with cert-manager
+
+On Kubernetes, cert-manager is the natural issuer: it writes a `Secret` with exactly the three files these settings need (`tls.crt`, `tls.key`, `ca.crt`) and renews it automatically.
+
+Start from a CA `Issuer` backed by a self-signed root, or by your existing PKI:
+
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: arcadedb-cluster-ca
+  namespace: arcadedb
+spec:
+  ca:
+    secretName: arcadedb-cluster-ca-tls
+----
+
+Then one `Certificate` per pod, named for the pod's headless-service DNS record:
+
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: arcadedb-raft-0
+  namespace: arcadedb
+spec:
+  secretName: arcadedb-raft-0-tls
+  duration: 2160h    # 90 days
+  renewBefore: 360h  # 15 days
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8            # cert-manager defaults to PKCS1, which is not accepted
+  usages:
+    - server auth              # both are required: every node dials and is dialled
+    - client auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local
+  issuerRef:
+    name: arcadedb-cluster-ca
+    kind: Issuer
+----
+
+IMPORTANT: `privateKey.encoding` must be set to `PKCS8` explicitly. cert-manager's default is `PKCS1`, which the Raft transport does not parse.
+
+Two `usages` entries do the work of the `extendedKeyUsage` line in the openssl recipe: `server auth` and `client auth`. Omitting either one is the single-purpose-certificate mistake, and it will only show up as a handshake failure between two running nodes.
+
+Per-pod `Certificate` objects give each node its own identity, which is what makes a compromised node's certificate revocable on its own. The shortcut of one shared `Certificate` listing every pod's DNS name works, and is simpler for a fixed-size cluster, but every node then holds an identity valid for every other node.
+
+With HashiCorp Vault as the issuer instead, the equivalent of the two EKUs is a PKI role created with both flags set:
+
+[source,shell]
+----
+$ vault write pki/roles/arcadedb-raft \
+      allowed_domains="my-arcadedb.arcadedb.svc.cluster.local" \
+      allow_subdomains=true \
+      server_flag=true \
+      client_flag=true \
+      key_type=rsa key_bits=2048 \
+      max_ttl=2160h
+----
+
+[[ha-grpc-mtls-secret-mount]]
+====== Mounting the Secret
+
+Mount the certificate `Secret` read-only and point the three settings at the mount path. Using the Helm chart, append to `volumes` and `volumeMounts`, and set the values via `arcadedb.extraCommands`:
+
+[source,yaml]
+----
+volumes:
+  - name: raft-tls
+    secret:
+      secretName: arcadedb-raft-0-tls
+      defaultMode: 0400
+volumeMounts:
+  - name: raft-tls
+    mountPath: /etc/arcadedb/tls
+    readOnly: true
+
+arcadedb:
+  extraCommands:
+    - -Darcadedb.ha.tls.enabled=true
+    - -Darcadedb.ha.tls.certChainFile=/etc/arcadedb/tls/tls.crt
+    - -Darcadedb.ha.tls.privateKeyFile=/etc/arcadedb/tls/tls.key
+    - -Darcadedb.ha.tls.trustCertCollectionFile=/etc/arcadedb/tls/ca.crt
+----
+
+`defaultMode: 0400` keeps the private-key permission warning quiet. This is the same pattern as `arcadedb.ha.clusterTokenPath` in <<ha-security,Security>>: the secret stays off the command line and out of `ps`.
+
+Because each pod needs the certificate issued for *its own* DNS name, a per-pod `Secret` cannot be mounted from a single chart-wide value. Either render one `StatefulSet`-per-replica, or use cert-manager's csi-driver, which issues a short-lived certificate into an ephemeral volume at pod start and needs no `Secret` at all.
+
+No extra configuration is needed for Kubernetes auto-join: the join probe is built from the same transport parameters as the local server, so it speaks TLS exactly when the cluster does. See <<kubernetes-ha,High Availability on Kubernetes>>.
+
+[[ha-grpc-mtls-limitations]]
+====== Known limitations
+
+*No certificate rotation without a restart*::
+The PEM files are read once, when the Raft transport is built. Renewing a certificate — including a cert-manager renewal that rewrites the mounted `Secret` in place — takes effect only after the node is restarted. Roll the nodes one at a time and wait for each to rejoin, so the cluster keeps its quorum throughout. Choose a `duration` that makes the restart cadence acceptable.
+
+*No KMS integration*::
+The private key is read from a file on disk. There is no HSM, PKCS#11 or cloud-KMS path; protecting the key is the deployment's responsibility (owner-only permissions, a `tmpfs`-backed mount, or a csi-driver volume that never touches durable storage).
 
 ===== Kubernetes
 
@@ -728,6 +967,26 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |`+arcadedb.ha.clusterTokenPath+`
 |Path to a file containing the cluster token. Read only when `arcadedb.ha.clusterToken` is not set; the content is trimmed. Keeps the secret off the command line (e.g. a Kubernetes Secret mounted on `tmpfs`)
 |null
+
+|`+arcadedb.ha.tls.enabled+`
+|Negotiate TLS on the Raft gRPC transport (AppendEntries, RequestVote, and the Ratis admin/client calls). When true, the three file settings below must all name a readable PEM file or the node refuses to start. Independent of `arcadedb.ssl.enabled`, which covers the HTTP side channels. See <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>. _Since v26.9.1_
+|false
+
+|`+arcadedb.ha.tls.certChainFile+`
+|PEM file with this node's Raft certificate followed by any intermediate CAs. The certificate needs a SAN matching the address peers dial in `arcadedb.ha.serverList`, and both the `serverAuth` and `clientAuth` extended key usages. Required when `arcadedb.ha.tls.enabled` is true. _Since v26.9.1_
+|(empty)
+
+|`+arcadedb.ha.tls.privateKeyFile+`
+|PEM file with the *PKCS#8* private key matching `certChainFile`. Required when `arcadedb.ha.tls.enabled` is true. A `WARNING` is logged if the file is readable beyond its owner. _Since v26.9.1_
+|(empty)
+
+|`+arcadedb.ha.tls.trustCertCollectionFile+`
+|PEM file with the cluster CA certificate(s) signing every node certificate. Required when `arcadedb.ha.tls.enabled` is true, including with `mutualAuth=false`. _Since v26.9.1_
+|(empty)
+
+|`+arcadedb.ha.tls.mutualAuth+`
+|Require the dialing peer to present a client certificate signed by the cluster CA, binding peer identity to a certificate rather than a source IP. `false` gives server-only TLS, which encrypts the traffic but leaves the Raft port open to any client trusting the cluster CA. See <<ha-grpc-mtls-mutual-auth,Server-only TLS>>. _Since v26.9.1_
+|true
 
 |`+arcadedb.ha.logVerbose+`
 |Verbose HA logging: 0=off, 1=basic, 2=detailed, 3=trace
