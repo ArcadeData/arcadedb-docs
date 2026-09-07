@@ -83,6 +83,7 @@ NAV_STRUCTURE: list[dict] = [
                     ("how-to/connectivity/drivers/python-http.adoc", "Python — HTTP"),
                     ("how-to/connectivity/drivers/python-grpc.adoc", "Python — gRPC"),
                     ("how-to/connectivity/drivers/js-http.adoc", "JavaScript / TypeScript — HTTP"),
+                    ("how-to/connectivity/drivers/js-grpc.adoc", "JavaScript / TypeScript — gRPC"),
                 ]),
                 ("tutorials/python-quickstart.adoc", "Python — PostgreSQL Protocol"),
                 ("tutorials/javascript-quickstart.adoc", "JavaScript — PostgreSQL Protocol"),

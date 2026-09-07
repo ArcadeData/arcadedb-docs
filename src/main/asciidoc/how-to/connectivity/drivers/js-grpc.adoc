@@ -1,0 +1,230 @@
+[[driver-js-grpc]]
+==== JavaScript / TypeScript -- gRPC Driver
+
+`@arcadedb/driver-grpc` is ArcadeDB's TypeScript/JavaScript gRPC client, generated from the
+server's Protobuf contract. It wraps the generated https://connectrpc.com/[Connect] client in a
+small facade for streaming queries, streaming inserts and transactions.
+
+===== Install
+
+[source,shell]
+----
+npm install @arcadedb/driver-grpc
+----
+
+[IMPORTANT]
+====
+*The gRPC server is a plugin, and it is not started by default.*
+
+Register it in the server's plugin list before connecting:
+
+[source,bash]
+----
+-Darcadedb.server.plugins=GRPC:com.arcadedb.server.grpc.GrpcServerPlugin
+----
+
+Once registered, it listens on port `50051`. See xref:reference/grpc-api.adoc[the gRPC API
+reference] for the full option list, including TLS and message-size settings.
+====
+
+===== Runtime targets: Node, Bun, Deno -- not browsers
+
+The package requires Node.js 20 or later, and it ships **ESM only** -- there is no CommonJS
+build and no `require()` entry point. Import it with `import`, not `require`.
+
+Bun and Deno are intended targets for this driver, but only Node is what the
+https://github.com/ArcadeData/arcadedb-drivers[arcadedb-drivers] repository's continuous
+integration actually exercises against a live server. Treat Bun and Deno as likely to work
+rather than as verified.
+
+There is no browser build, and there cannot be one until the server changes. ArcadeDB's
+`GrpcServerPlugin` is plain grpc-java over HTTP/2, with no gRPC-Web handler and no Connect
+protocol in front of it, so a browser cannot speak this driver's wire format at all. Use
+xref:how-to/connectivity/drivers/js-http.adoc[the HTTP driver] there.
+
+===== Connect and query
+
+[source,javascript]
+----
+import { createClient, passwordAuth } from "@arcadedb/driver-grpc";
+
+const grpc = createClient({
+  baseUrl: "http://localhost:50051",
+  auth: passwordAuth("root", "playwithdata", "mydb"),
+  insecure: true,
+});
+
+const response = await grpc.raw.executeQuery({
+  database: "mydb",
+  query: "SELECT FROM Person WHERE age > 21",
+  language: "sql",
+});
+console.log(response.results.flatMap((r) => r.records.map((rec) => [rec.rid, rec.properties])));
+----
+
+[source,text]
+----
+[
+  [ '#1:0', { name: [Object], age: [Object], '@rid': [Object], '@type': [Object], '@cat': [Object] } ],
+  [ '#1:1', { name: [Object], age: [Object], '@rid': [Object], '@type': [Object], '@cat': [Object] } ]
+]
+----
+
+Node's default `console.log` collapses nested objects two levels deep, and each property value
+here is itself a nested message -- that is the summarizing behavior of `util.inspect`, not
+evidence of anything wrong. See below for what those objects actually contain and how to unwrap
+them.
+
+`raw` is the generated Connect client for `ArcadeDbService`, the same one you get from
+`createClient(ArcadeDbService, transport)` if you built the transport yourself -- every RPC in
+the data-plane contract is callable through it exactly as shown above with `executeQuery`.
+`createClient` from this package adds `streamQuery`, `insertStream` and `transaction` on top,
+covering the RPCs the generated client alone handles awkwardly: consuming a server-side stream,
+feeding a client-side stream, and pairing begin/commit/rollback into one call.
+
+===== `raw.properties` and the `GrpcValue` wrapper
+
+Every value in a record's `properties` map comes back as a `GrpcValue` object, not a plain
+JavaScript scalar. Printed at full depth, the `name` and `age` fields above look like this:
+
+[source,text]
+----
+name: {
+  '$typeName': 'com.arcadedb.grpc.GrpcValue',
+  kind: { case: 'stringValue', value: 'Alice' },
+  logicalType: ''
+}
+age: {
+  '$typeName': 'com.arcadedb.grpc.GrpcValue',
+  kind: { case: 'int32Value', value: 30 },
+  logicalType: ''
+}
+'@rid': {
+  '$typeName': 'com.arcadedb.grpc.GrpcValue',
+  kind: {
+    case: 'linkValue',
+    value: { '$typeName': 'com.arcadedb.grpc.GrpcLink', rid: '#1:0', type: '' }
+  },
+  logicalType: 'rid'
+}
+----
+
+`GrpcValue.kind` is this package's Connect-ES rendering of the contract's `oneof` field: a
+discriminated union with `case` naming which alternative is set and `value` holding it directly
+-- there is no per-type field name to guess, unlike the generated Python client's
+`int32_value`/`string_value`/`link_value` fields for the same `oneof`. Unwrap it by branching on
+`kind.case`:
+
+[source,javascript]
+----
+function unwrap(value) {
+  if (value.kind.case === "linkValue") return value.kind.value.rid;
+  return value.kind.value;
+}
+
+for (const result of response.results) {
+  for (const rec of result.records) {
+    const props = Object.fromEntries(Object.entries(rec.properties).map(([k, v]) => [k, unwrap(v)]));
+    console.log(rec.rid, props);
+  }
+}
+----
+
+[source,text]
+----
+#1:0 { name: 'Alice', age: 30, '@rid': '#1:0', '@type': 'Person', '@cat': 'v' }
+#1:1 { name: 'Bob', age: 25, '@rid': '#1:1', '@type': 'Person', '@cat': 'v' }
+----
+
+`linkValue` is the one case that does not unwrap to a scalar directly -- its `value` is itself a
+`GrpcLink` message, so reach into `.rid` for the record ID string, as `unwrap` does above. There
+is no library function that performs this unwrapping; it is a plain discriminated-union read,
+shown here for reference.
+
+===== Authentication and the insecure guard
+
+`bearerAuth(token)` sets `authorization: Bearer <token>` on every outgoing call's metadata.
+`passwordAuth(user, password, database?)` sets `x-arcade-user`, `x-arcade-password` and (when
+given) `x-arcade-database` instead. Both are passed once, as the `auth` option to `createClient`
+-- there is no per-call credential to attach separately.
+
+[WARNING]
+====
+*The insecure-channel guard, and its limit.*
+
+`passwordAuth` sends the password as plaintext call metadata. `createClient` refuses to pair it
+with a non-TLS `http://` `baseUrl` unless you pass `insecure: true` explicitly:
+
+[source,javascript]
+----
+import { createClient, passwordAuth } from "@arcadedb/driver-grpc";
+
+try {
+  createClient({ baseUrl: "http://localhost:50051", auth: passwordAuth("root", "playwithdata") });
+} catch (err) {
+  console.log("guard fired:", err.message);
+}
+----
+
+[source,text]
+----
+guard fired: createClient: refusing to send a plaintext password over insecure baseUrl "http://localhost:50051". Use an https:// baseUrl, switch to bearerAuth, or pass insecure: true to opt in explicitly.
+----
+
+This is why the connect example above needs `insecure: true` at all: pairing `passwordAuth`
+with an `http://` `baseUrl` is exactly what this guard exists to catch.
+
+The check has a real limit, stated plainly: it recognizes only the exact interceptor value
+`passwordAuth` returns, marked internally with a symbol property. Wrap that interceptor in your
+own logging or retry interceptor and the value `createClient` sees is a new function without the
+marker -- the refusal is silently skipped, and the plaintext password still goes out over
+`http://`. The guard protects the direct, undecorated case; it is not a general plaintext-secret
+scanner.
+====
+
+===== Streaming queries and `retrievalMode`
+
+[source,javascript]
+----
+import { createClient, passwordAuth, StreamQueryRequest_RetrievalMode } from "@arcadedb/driver-grpc";
+
+const grpc = createClient({
+  baseUrl: "http://localhost:50051",
+  auth: passwordAuth("root", "playwithdata", "mydb"),
+  insecure: true,
+});
+
+for await (const row of grpc.streamQuery({
+  database: "mydb",
+  query: "SELECT FROM Person",
+  language: "sql",
+  retrievalMode: StreamQueryRequest_RetrievalMode.CURSOR,
+})) {
+  console.log(row.rid, row.properties);
+}
+----
+
+[source,text]
+----
+#1:0 { name: { ... stringValue: 'Alice' ... }, age: { ... int32Value: 30 ... }, '@cat': { ... stringValue: 'v' ... } }
+#1:1 { name: { ... stringValue: 'Bob' ... }, age: { ... int32Value: 25 ... }, '@cat': { ... stringValue: 'v' ... } }
+----
+
+`streamQuery` flattens the server's stream of row batches into one record at a time and does
+nothing else -- each `properties` entry is still a `GrpcValue` needing the same `unwrap` shown
+above. `retrievalMode` is deliberately the caller's own choice, not a default this wrapper
+picks:
+
+* `CURSOR` -- the default. The server runs the query once and streams rows as you iterate.
+* `MATERIALIZE_ALL` -- the server runs the query to completion first, then batches the
+  already-materialized result set back to you.
+* `PAGED` -- the client re-issues the query with `LIMIT`/`SKIP` per batch.
+
+===== Next steps
+
+* xref:how-to/connectivity/drivers/native-drivers.adoc[Native Drivers] -- how this driver
+  compares to the other three, and when to reach for gRPC instead of HTTP.
+* xref:how-to/connectivity/drivers/js-http.adoc[JavaScript / TypeScript -- HTTP Driver] -- the
+  HTTP counterpart, and the only option for browsers.
+* The https://github.com/ArcadeData/arcadedb-drivers/tree/main/typescript/packages/driver-grpc#readme[package README]
+  for the full method list, including `insertStream` and `transaction`.
