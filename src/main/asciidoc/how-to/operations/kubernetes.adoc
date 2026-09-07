@@ -575,7 +575,7 @@ If you run without persistence (`persistence.enabled: false`), omit this flag be
 
 With `readOnlyRootFilesystem: true` you must also relocate the *log directory* to a writable mount, otherwise the server fails at startup with `java.nio.file.FileSystemException: ./log/arcadedb.log.0.lck: Read-only file system`.
 By default the server writes logs to `./log` (relative to the working directory), which is read-only under this hardening.
-Mount a writable volume (for example an `emptyDir`) and point the log directory at it by forwarding the `ARCADEDB_LOG_DIR` environment variable (it maps to the `<<arcadedb-settings,arcadedb.server.logsDirectory>>` setting), available since v26.6.1:
+Mount a writable volume (for example an `emptyDir`) and point the log directory at it by forwarding the `ARCADEDB_LOG_DIR` environment variable (it maps to the `<<arcadedb-settings,arcadedb.server.logsDirectory>>` setting):
 
 [source,yaml]
 ----
@@ -592,7 +592,7 @@ volumeMounts:
 
 When running an HA cluster with `readOnlyRootFilesystem: true`, also relocate the *Raft storage directory*.
 By default each node creates a dynamically-named `raft-storage-<nodeName>` folder under the server root path, which is both read-only under this hardening and awkward to mount in a `StatefulSet` because the name varies per pod.
-Set `<<arcadedb-settings,arcadedb.ha.raftStorageDirectory>>` (available since v26.6.1) to a fixed, writable path backed by a per-pod PVC (an extra `volumeClaimTemplates` entry), so the `raft-storage-*` folder is always created under the same configured path:
+Set `<<arcadedb-settings,arcadedb.ha.raftStorageDirectory>>` to a fixed, writable path backed by a per-pod PVC (an extra `volumeClaimTemplates` entry), so the `raft-storage-*` folder is always created under the same configured path:
 
 [source,yaml]
 ----
@@ -905,7 +905,7 @@ arcadedb.ha.serverList=my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local:2434
 
 (Substitute your release name and namespace.)
 
-*Auto-join on scale-up* (since `26.4.1`)::
+*Auto-join on scale-up*::
 When `arcadedb.ha.k8s=true` and a new pod starts without an existing Raft storage directory, the server automatically joins the existing cluster via the Raft `SetConfiguration(ADD)` admin API.
 This enables zero-downtime scale-up: `helm upgrade --set replicaCount=N` (or `kubectl scale statefulset`) adds new pods that join the existing cluster without restarting any existing peer.
 
@@ -924,7 +924,7 @@ For the manifests, the openssl equivalent, and the certificate-rotation caveat, 
 For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
 
 [[kubernetes-ha-bootstrap]]
-====== Pre-staging the database on every pod (from v26.5.1)
+====== Pre-staging the database on every pod
 
 When you want to scale a single-pod ArcadeDB deployment up to N pods after importing a large (1+ GB) database, pre-stage identical database files on every pod's PVC and let the cluster recognise the matching state at first formation, rather than letting the leader stream the full database to every new replica over HTTP.
 

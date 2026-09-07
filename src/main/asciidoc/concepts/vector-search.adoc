@@ -111,8 +111,6 @@ NOTE: A rebuild replaces the graph and its PQ codes a moment apart. Before v26.1
 [[vector-encoding]]
 ==== Vector Encoding (Pre-Quantized Ingest)
 
-NOTE: Available since ArcadeDB v26.5.1.
-
 The `encoding` index option controls the *wire and document-storage* representation of vectors. It is distinct from `quantization`, which controls the *index-internal* compression scheme:
 
 [cols="1,2,2"]
@@ -125,7 +123,7 @@ The `encoding` index option controls the *wire and document-storage* representat
 
 Two encodings are supported:
 
-* `FLOAT32` *(default)* -- the `embedding` property is `ARRAY_OF_FLOATS` (4 bytes per dimension). Backwards-compatible behaviour for every index created prior to v26.5.1.
+* `FLOAT32` *(default)* -- the `embedding` property is `ARRAY_OF_FLOATS` (4 bytes per dimension).
 * `INT8` -- the `embedding` property is `BINARY` (one signed byte per dimension). Callers using providers that emit int8 directly (Cohere `int8` endpoints, OpenAI `text-embedding-3-large` reduced precision, Sentence Transformers with int8 quantization) skip a precision-losing client-side `int8 -> float32 -> server` round trip. The HTTP payload and document bucket storage shrink 4x.
 
 The HNSW graph still runs on `float32` internally; the engine dequantizes on the read path using `value / 127.0f` (Cohere/OpenAI calibration). Native int8 HNSW is tracked upstream at https://github.com/datastax/jvector/issues/665[datastax/jvector#665] -- once the JVector contract widens, no schema change will be needed.
@@ -150,8 +148,6 @@ When a Cohere-style int8 source is *not* the origin of the bytes, note that Java
 
 [[vector-external-storage]]
 ==== Store Embeddings in an `EXTERNAL` Property
-
-NOTE: Available since ArcadeDB v26.5.1.
 
 A vector embedding is typically the largest field on a record — a `FLOAT32` 1,536-dim embedding alone weighs 6 KB, an order of magnitude bigger than the topology (id, label, edge lists) it sits next to.
 Stored inline, every traversal, scan, or projection that does not touch the embedding still pages those 6 KB into the buffer cache.
@@ -458,8 +454,6 @@ For more information on vector embeddings, see the <<java-vectors,Vector Embeddi
 [[sparse-vector-search]]
 ==== Sparse Vector Search
 
-NOTE: Available since ArcadeDB v26.5.1.
-
 In addition to dense embeddings, ArcadeDB supports *sparse* vector retrieval via the `LSM_SPARSE_VECTOR` index. Sparse vectors carry only the non-zero dimensions of a high-dimensional space and are produced by learned-sparse retrieval models such as https://github.com/naver/splade[SPLADE], https://huggingface.co/BAAI/bge-m3[BGE-M3], OpenSearch's `opensearch-neural-sparse-encoding-multilingual-v1`, and BM25-as-sparse-vector pipelines.
 
 Sparse retrieval excels where dense embeddings collapse semantically distinct queries into the same point ("freeze card after theft" vs "unfreeze card after travel"), because the per-token weights expose the discriminating terms directly.
@@ -580,7 +574,7 @@ NOTE: Earlier releases used pivot-based WAND. It was replaced because learned-sp
 
 Large indexes additionally split a query across RID ranges scored in parallel, which is exact -- it changes latency, not results.
 
-Posting-weight quantization is configurable since v26.7.2 via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against scoring exactness. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
+Posting-weight quantization is configurable via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against scoring exactness. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
 
 ===== Segment compaction and deletes
 
@@ -617,8 +611,6 @@ SELECT untrustedSegments FROM (SELECT expand(stats) FROM schema:indexes WHERE na
 
 [[hybrid-search]]
 ==== Hybrid Search with `vector.fuse`
-
-NOTE: Available since ArcadeDB v26.5.1.
 
 `vector.fuse` combines two or more ranked sub-pipelines into a single ranked top-K, server-side, in one query. It generalises the dense+sparse hybrid pattern but works with any source that yields `(@rid, $score)` rows: dense `vector.neighbors`, sparse `vector.sparseNeighbors`, full-text `SEARCH_INDEX`, or any plain `SELECT ... ORDER BY ... LIMIT N`.
 
@@ -694,8 +686,6 @@ LIMIT 10
 
 [[vector-groupby]]
 ==== Group-By Retrieval
-
-NOTE: Available since ArcadeDB v26.5.1.
 
 `vector.neighbors`, `vector.sparseNeighbors`, and `vector.fuse` all accept `groupBy` and `groupSize` options for diversification at retrieval time, mirroring Qdrant's `query_points_groups` semantics. Common pattern: best chunk per source document, deduped at the index level rather than over-fetched and post-partitioned in the application.
 

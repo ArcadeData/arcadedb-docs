@@ -4,7 +4,7 @@
 ArcadeDB supports a High Availability (HA) mode where multiple servers share the same databases via Raft-based replication.
 All servers of a cluster serve the same set of databases.
 
-NOTE: Starting with v26.4.1, HA is powered by https://ratis.apache.org/[Apache Ratis], a production-grade implementation of the https://raft.github.io/[Raft consensus protocol].
+NOTE: HA is powered by https://ratis.apache.org/[Apache Ratis], a production-grade implementation of the https://raft.github.io/[Raft consensus protocol].
 The old custom replication protocol has been removed.
 For the underlying concepts, see <<ha-concepts,High Availability Concepts>>.
 
@@ -119,7 +119,7 @@ The refusal is visible in three places:
 NOTE: `http` and `https` are checked independently, because they are read from independent fields with independent fallbacks. A cluster that declares distinct `http` ports and omits the `https` ones passes the HTTP check with every peer's HTTPS endpoint still collapsed onto this node's own; the encrypted transfer then falls back to the (guarded) plain-HTTP endpoint.
 
 [[ha-named-peers]]
-===== Named Peers (from v26.5.1)
+===== Named Peers
 
 By default, each node identifies its slot in `arcadedb.ha.serverList` from the numeric suffix of `arcadedb.server.name` (for example, `ArcadeDB_0` maps to the first entry, `ArcadeDB_1` to the second, and so on).
 Display names shown in logs and Studio are then synthesized from the local node's prefix.
@@ -294,11 +294,11 @@ If the configured quorum is not met within `arcadedb.ha.quorumTimeout` milliseco
 
 [IMPORTANT]
 ====
-Starting with v26.4.1, the legacy quorum values `none`, `one`, `two`, `three` are *no longer supported* and will cause a startup error.
+The legacy quorum values `none`, `one`, `two`, `three` are *not supported* and will cause a startup error.
 If you were using any of those values, update your configuration to `majority` or `all` before upgrading.
 ====
 
-===== Read Consistency (from v26.4.1)
+===== Read Consistency
 
 When a read runs on a replica, ArcadeDB offers three consistency levels, configurable per-server via `arcadedb.ha.readConsistency`:
 
@@ -334,13 +334,13 @@ Clients communicate the consistency contract through three HTTP headers:
 
 NOTE: Older clients that sent `X-ArcadeDB-Commit-Index` on requests are still accepted as a backward-compatible fallback.
 
-===== Load Shedding and Backpressure (from v26.4.1)
+===== Load Shedding and Backpressure
 
 The Raft group-commit queue is bounded (`arcadedb.ha.groupCommitQueueSize`, default 10000 pending transactions).
 When a write arrives but the queue is full, the server waits up to `arcadedb.ha.groupCommitOfferTimeout` ms (default 100) for a slot, and if still full throws `ReplicationQueueFullException` -- a `NeedRetryException` that clients automatically retry with backoff.
 This protects the server from OOM under sustained write overload and lets clients back off gracefully.
 
-===== Witness / Read-Scale Nodes (from v26.4.1)
+===== Witness / Read-Scale Nodes
 
 Set `arcadedb.ha.serverRole=replica` to pin a node as a permanent replica.
 The node's Raft priority is set to 0 at startup so it is never elected leader, while still receiving all writes and serving reads.
@@ -360,10 +360,10 @@ Common causes of leader unavailability include:
 
 When a replica rejoins after being offline, it catches up via the Raft log automatically; if it has fallen behind past the log purge boundary, the leader streams a full database snapshot over HTTP and the replica installs it atomically.
 
-Since v26.7.2, the leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP. Previously such a follower stayed silently disconnected and the cluster ran at bare quorum until an operator forced a leadership transfer; the leader now re-resolves the peer and re-establishes the channel on its own. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>.
+The leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP: it re-resolves the peer and re-establishes the channel on its own, instead of leaving the follower silently disconnected and the cluster at bare quorum until an operator forces a leadership transfer. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>.
 
 [[ha-channel-self-healing]]
-===== Replication-Channel Self-Healing (from v26.7.2)
+===== Replication-Channel Self-Healing
 
 A follower can be up, healthy, and reachable by every other node, and still receive nothing from the leader. The leader keeps one long-lived gRPC channel per follower. If that channel is wedged on a peer address that is no longer valid (the classic case is a Kubernetes pod restarting onto a new IP inside the JVM's positive DNS cache window), the leader's appender for that follower keeps writing into a socket that goes nowhere. The follower's `matchIndex` stops advancing, or never advances at all (`matchIndex=-1`), while the rest of the cluster commits normally. Quorum is unaffected as long as a majority is still healthy, so the cluster keeps serving writes at reduced redundancy and nothing fails loudly.
 
@@ -378,7 +378,7 @@ Once a follower has stayed continuously unreachable for `arcadedb.ha.peerChannel
 A single reset does not always stick, because the rebuilt channel may still resolve the stale address if the JVM DNS cache has not expired. The reset is therefore retried once per interval, *up to 5 attempts*. The counter re-arms as soon as the follower becomes reachable again. Set the duration to `0` to disable the automatic reset and keep only the manual leadership transfer.
 
 *3. Escalate: transfer leadership to rebuild the appender.*
-The retry budget alone leaves a gap: the streak only re-arms when the follower becomes reachable, so a permanently wedged channel would sit in the given-up state until an operator restarted the leader process. Since v26.8.1, `arcadedb.ha.peerChannelResetEscalation` (default `true`) closes it. When the budget is exhausted and the channel is still dead, the leader *transfers leadership to a healthy peer*, so the new leader builds a brand-new appender to the stuck follower.
+The retry budget alone leaves a gap: the streak only re-arms when the follower becomes reachable, so a permanently wedged channel would sit in the given-up state until an operator restarted the leader process. `arcadedb.ha.peerChannelResetEscalation` (default `true`) closes it. When the budget is exhausted and the channel is still dead, the leader *transfers leadership to a healthy peer*, so the new leader builds a brand-new appender to the stuck follower.
 
 The target is selected with the same rules as a manual step-down and is never the wedged follower itself. If no healthy peer is eligible, the leader logs at SEVERE and leaves the follower for the operator.
 
@@ -411,11 +411,11 @@ The whole sequence is visible in the leader's log. Searching for these strings t
 If you reach the last line, the follower is not suffering from a stale address, and rebuilding the channel will not help. Check that the follower process is alive, that its Raft port is reachable from the leader, and that its address resolves to an entry in `arcadedb.ha.serverList`. A peer that moved to an address outside the list is rejected by the peer allowlist described under <<ha-security,Security>>.
 
 [[ha-durable-raft-storage]]
-===== Durable Raft Storage (from v26.7.2)
+===== Durable Raft Storage
 
 [IMPORTANT]
 ====
-Since v26.7.2, `arcadedb.ha.raftPersistStorage` defaults to `true` (it was `false` before). The per-node Raft log under `raft-storage-<nodeName>` is now *persisted across restarts*, and `arcadedb.ha.raftStorageDirectory` must live on *durable* storage (a persistent volume, not an ephemeral or `tmpfs` mount).
+`arcadedb.ha.raftPersistStorage` defaults to `true`. The per-node Raft log under `raft-storage-<nodeName>` is *persisted across restarts*, and `arcadedb.ha.raftStorageDirectory` must live on *durable* storage (a persistent volume, not an ephemeral or `tmpfs` mount).
 ====
 
 With ephemeral Raft storage, wiping the log on restart could leave the cluster in a broken state:
@@ -428,14 +428,14 @@ Durable storage lets a restarted node rejoin by *replaying its own persisted log
 *Migration:* the per-node directory is named `raft-storage-<nodeName>` dynamically, which container runtimes and Kubernetes cannot mount as a volume (a wildcard like `raft-storage-*` is created as a literal directory, not expanded). Set `arcadedb.ha.raftStorageDirectory` to a *static* path (e.g. `/home/arcadedb/raft-storage`) and mount *that* path on durable storage before upgrading. On Kubernetes, back it with a `PersistentVolumeClaim` — see <<kubernetes,Kubernetes>>. On a plain filesystem you can instead copy the existing `raft-storage-<nodeName>` directory across the upgrade. A throwaway or test cluster that intentionally wants ephemeral behavior can opt out with `arcadedb.ha.raftPersistStorage=false`.
 
 [[ha-remote-commit-contract]]
-===== Committed-remotely response contract (from v26.7.2)
+===== Committed-remotely response contract
 
 When a write is forwarded from a replica to the leader (or issued directly to the leader), it is possible for the transaction to be *committed cluster-wide by quorum* and then fail to apply on the node that is answering the client. This is a distinct outcome from an ordinary failure: the data is durably committed, so retrying would create a duplicate.
 
-Since v26.7.2 this case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
+This case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
 
 [[ha-offline-bootstrap]]
-===== Offline Cluster Bootstrap (from v26.5.1)
+===== Offline Cluster Bootstrap
 
 By default, when an HA cluster forms for the *first time* and one or more peers already hold a non-empty database on local disk, the peers do *not* download the database over HTTP from a single source.
 Instead, every peer reports a `(fingerprint, lastTxId)` tuple per database, the cluster elects the peer with the highest `lastTxId` as the source via leadership transfer, and any peer whose fingerprint matches the source bootstraps locally in seconds with zero bytes transferred.
@@ -461,7 +461,7 @@ The bootstrap protocol handles the following cases automatically:
 The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is visible in the response to `GET /api/v1/cluster` and in the Studio cluster dashboard.
 
 [[howto-ha-rest]]
-===== Cluster Management REST API (from v26.4.1)
+===== Cluster Management REST API
 
 Cluster membership and leadership can be changed at runtime through dedicated REST endpoints.
 All endpoints require authentication as the `root` user.
@@ -524,7 +524,7 @@ $ curl -u root:<password> \
        -d '{"peerId":"node4","address":"10.0.0.4:2434:2480"}'
 ----
 
-Adding a peer with a human-readable name (from v26.5.1):
+Adding a peer with a human-readable name:
 
 [source,shell]
 ----
@@ -552,7 +552,7 @@ An unverified peer is deliberately *not* rolled up as an observed divergence, wh
 
 IMPORTANT: Alerting that keys on `overallStatus != "ALL_CONSISTENT"` is unaffected by the third value. Alerting that keys on `overallStatus == "INCONSISTENCY_DETECTED"` must add `VERIFICATION_INCOMPLETE` to keep catching an unreachable or unidentifiable node.
 
-===== Studio Cluster Dashboard (from v26.4.1)
+===== Studio Cluster Dashboard
 
 ArcadeDB Studio exposes a *Cluster* tab (visible when HA is enabled) that displays the current leader, peer roles, Raft term and commit index, per-follower replication lag, and provides buttons for leadership transfer, peer add/remove, and database verification.
 See <<studio,Studio>>.
@@ -564,13 +564,13 @@ See <<studio,Studio>>.
 If `arcadedb.ha.clusterToken` is not set explicitly, the token is derived deterministically from `arcadedb.ha.clusterName` and the `root` password via PBKDF2-HMAC-SHA256 — it is *not* persisted on disk.
 Every node that starts with the same cluster name and the same root password ends up with the same token automatically.
 Set `arcadedb.ha.clusterToken` (or `HA_CLUSTER_TOKEN`) explicitly when you need to rotate the token without changing the root password, or when each peer has a different root password.
-To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`), set `arcadedb.ha.clusterTokenPath` to a file the server reads at startup, e.g. a Kubernetes Secret mounted on `tmpfs`. It is read only when `arcadedb.ha.clusterToken` is not set, and its content is trimmed of surrounding whitespace so a trailing newline does not break the token comparison between nodes. _Since v26.6.1_
+To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`), set `arcadedb.ha.clusterTokenPath` to a file the server reads at startup, e.g. a Kubernetes Secret mounted on `tmpfs`. It is read only when `arcadedb.ha.clusterToken` is not set, and its content is trimmed of surrounding whitespace so a trailing newline does not break the token comparison between nodes.
 
 *Peer allowlist*:: Inbound Raft gRPC connections are filtered against the DNS-resolved hosts in `arcadedb.ha.serverList`; connections from other addresses are rejected.
 This closes the "any host that knows the port can inject log entries" vector.
 It is, however, IP-based, so a spoofed source address or a compromised peer defeats it. Treat it as a best-effort default rather than a substitute for TLS: on an untrusted network, enable <<ha-grpc-mtls,mTLS on the Raft gRPC transport>>, which binds peer identity to a certificate instead of to an address.
 +
-On Kubernetes a pod's headless-service DNS record is only published once the pod is `Ready`, so peers routinely come up before each other's names resolve and the allowlist starts out incomplete. To avoid a self-inflicted partition during that window, the filter is hardened in three ways _(since v26.6.1)_:
+On Kubernetes a pod's headless-service DNS record is only published once the pod is `Ready`, so peers routinely come up before each other's names resolve and the allowlist starts out incomplete. To avoid a self-inflicted partition during that window, the filter is hardened in three ways:
 
 * *Fast convergence*: while the allowlist has never been complete, a connection from an unknown address re-resolves DNS on a short floor (~1s) instead of waiting the full `arcadedb.ha.grpcAllowlistRefreshMs` interval.
 * *Sticky entries*: when a host that resolved before temporarily stops resolving (transient DNS outage, pod-IP churn mid-restart), its last-known-good IPs are retained for `arcadedb.ha.peerAllowlistStickyTtlMs` (default 5 min) rather than being evicted immediately.
@@ -600,7 +600,7 @@ $ bin/server.sh -Darcadedb.ha.enabled=true \
 
 The peer certificate is validated against the configured *trust store* (`arcadedb.ssl.trustStore`).
 
-If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP, logging a one-time warning. _Since v26.6.1_
+If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP, logging a one-time warning.
 
 NOTE: Declaring an HTTPS port that points at the plain HTTP port (e.g. `https:2480`) causes a TLS handshake failure (`Unsupported or unrecognized SSL message`). Always point `https` at the HTTPS listener's port.
 
@@ -889,7 +889,7 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |arcadedb
 
 |`+arcadedb.ha.serverList+`
-|Comma-separated list of peers. Each entry uses the readable object form `[name@]host:{raft:2434,http:2480,https:2490,priority:10}` (recommended) or the positional form `[name@]host:raftPort:httpPort[:priority[:httpsPort]]`; see <<ha-server-list-format,Server List Entry Format>>. The optional `name@` prefix (since v26.5.1) gives the peer a human-readable name used in logs and Studio; see <<ha-named-peers,Named Peers>>. The optional priority (integer, default 0) prefers higher-valued nodes during elections. The optional `https` port (since v26.6.1) encrypts peer-to-peer transfers when `arcadedb.ssl.enabled=true`; see <<ha-ssl,TLS/SSL>>. Example: `frankfurt@db1:{raft:2434,http:2480,https:2490,priority:10},london@db2:{raft:2434,http:2480,https:2490}`
+|Comma-separated list of peers. Each entry uses the readable object form `[name@]host:{raft:2434,http:2480,https:2490,priority:10}` (recommended) or the positional form `[name@]host:raftPort:httpPort[:priority[:httpsPort]]`; see <<ha-server-list-format,Server List Entry Format>>. The optional `name@` prefix gives the peer a human-readable name used in logs and Studio; see <<ha-named-peers,Named Peers>>. The optional priority (integer, default 0) prefers higher-valued nodes during elections. The optional `https` port encrypts peer-to-peer transfers when `arcadedb.ssl.enabled=true`; see <<ha-ssl,TLS/SSL>>. Example: `frankfurt@db1:{raft:2434,http:2480,https:2490,priority:10},london@db2:{raft:2434,http:2480,https:2490}`
 |(empty)
 
 |`+arcadedb.ha.raftPort+`
@@ -933,7 +933,7 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |10000 / 100
 
 |`+arcadedb.ha.raftPersistStorage+`
-|If true, the Raft storage directory is preserved across restarts, enabling rejoin by replaying the persisted log instead of a full snapshot resync. *Defaults to `true` since v26.7.2* (previously `false`); ensure `raftStorageDirectory` lives on durable storage. See <<ha-durable-raft-storage,Durable Raft Storage>>
+|If true, the Raft storage directory is preserved across restarts, enabling rejoin by replaying the persisted log instead of a full snapshot resync. *Defaults to `true`*; ensure `raftStorageDirectory` lives on durable storage. See <<ha-durable-raft-storage,Durable Raft Storage>>
 |true
 
 |`+arcadedb.ha.raftStorageDirectory+`

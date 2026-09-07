@@ -7,7 +7,7 @@ Its high availability (HA) architecture ensures that your database remains acces
 This page explains the concepts behind ArcadeDB's HA architecture.
 For step-by-step setup instructions, see <<howto-high-availability,HA Configuration>>.
 
-NOTE: Starting with v26.4.1, ArcadeDB's HA is powered by https://ratis.apache.org/[Apache Ratis], a battle-tested implementation of the https://raft.github.io/[Raft consensus protocol] also used by Apache Ozone, Apache IoTDB, and Alluxio.
+NOTE: ArcadeDB's HA is powered by https://ratis.apache.org/[Apache Ratis], a battle-tested implementation of the https://raft.github.io/[Raft consensus protocol] also used by Apache Ozone, Apache IoTDB, and Alluxio.
 The change is transparent to clients: the HTTP API, drivers, and query languages are unchanged.
 
 ==== Leader-Replica Replication Model
@@ -70,7 +70,7 @@ Two quorum modes are supported:
 
 [IMPORTANT]
 ====
-In v26.4.1, the legacy values `none`, `one`, `two`, `three` are *no longer supported* and will cause a startup error.
+The legacy values `none`, `one`, `two`, `three` are *not supported* and will cause a startup error.
 They were part of the old custom HA protocol; with Raft only `majority` and `all` are meaningful.
 If you were using a granular quorum value, update your configuration before upgrading.
 ====
@@ -82,7 +82,7 @@ For more on how transactions interact with replication, see <<transactions,Trans
 For quorum and other cluster settings, see <<arcadedb-settings,Server Settings>>.
 
 [[ha-read-consistency]]
-==== Read Consistency (from v26.4.1)
+==== Read Consistency
 
 When a client sends a read request to a replica, ArcadeDB supports three consistency levels that trade latency for freshness:
 
@@ -123,7 +123,7 @@ The snapshot allows old log segments to be compacted, preventing unbounded disk 
 When a replica falls too far behind the leader (for example, after a long network partition), ArcadeDB automatically transfers a fresh snapshot: the follower downloads a ZIP of the database from the leader over HTTP and installs it atomically.
 Once the snapshot is installed, the follower resumes normal log-based replication from the snapshot index.
 
-==== Cluster Bootstrap from Pre-Staged Data (from v26.5.1)
+==== Cluster Bootstrap from Pre-Staged Data
 
 When a multi-node cluster forms for the first time on top of a pre-imported database, ArcadeDB skips the leader-streamed snapshot phase entirely.
 Every peer reports the fingerprint and `lastTxId` of its local database; the peer with the highest `lastTxId` becomes the bootstrap source via Raft leadership transfer; peers whose fingerprint matches bootstrap locally with zero bytes transferred.
@@ -132,7 +132,7 @@ This makes "import the dataset once, then scale to N pods" a seconds-not-hours o
 The bootstrap path is gated on every peer's Raft log being empty, so subsequent cluster restarts continue to use the regular log replay and snapshot paths.
 For the operator-facing workflow and configuration flags, see <<ha-offline-bootstrap,Offline Cluster Bootstrap>>.
 
-==== Dynamic Membership (from v26.4.1)
+==== Dynamic Membership
 
 Cluster membership can be changed at runtime without restarting the cluster.
 Operators can add peers, remove peers, transfer leadership, or have a node gracefully leave the cluster through the <<howto-ha-rest,cluster REST API>>.
@@ -142,7 +142,7 @@ On Kubernetes, scaling a StatefulSet up or down automatically adds and removes p
 
 Servers discover each other through a configured list of peers (`arcadedb.ha.serverList`).
 Each entry can use the readable object form `[name@]host:{raft:2434,http:2480,https:2490,priority:10}` (recommended) or the positional form `[name@]host:raftPort:httpPort[:priority[:httpsPort]]`, where the Raft gRPC port (default `2434`) is used for consensus, the HTTP port for command forwarding, and the optional HTTPS port for encrypted peer-to-peer transfers when TLS is enabled.
-The optional `name@` prefix (since v26.5.1) lets operators give each peer a stable, human-readable name (for example, `frankfurt`, `london`, `nyc`) shown in logs and Studio.
+The optional `name@` prefix lets operators give each peer a stable, human-readable name (for example, `frankfurt`, `london`, `nyc`) shown in logs and Studio.
 See <<ha-server-list-format,Server List Entry Format>> for details.
 
 You can run multiple independent clusters on the same network by assigning each cluster a unique name via `arcadedb.ha.clusterName`.
