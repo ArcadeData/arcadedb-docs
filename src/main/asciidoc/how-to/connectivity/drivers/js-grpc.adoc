@@ -75,6 +75,21 @@ here is itself a nested message -- that is the summarizing behavior of `util.ins
 evidence of anything wrong. See below for what those objects actually contain and how to unwrap
 them.
 
+[NOTE]
+====
+*The unary `executeQuery` has a row ceiling, and it fails rather than truncates.*
+
+`ExecuteQuery` builds its whole answer into one gRPC message, so the server caps it:
+`server.grpcQueryMaxResultRows` (100000 by default) is a hard ceiling, and a result that would
+exceed it fails the call with `RESOURCE_EXHAUSTED` instead of coming back short. Unlike the HTTP
+drivers there is no `truncated` flag to check -- a capped query does not return at all.
+
+Streaming is the answer for result sets that large: `streamQuery` emits incrementally and is
+bounded instead by `server.grpcStreamMaxMaterializedRows` (and only in `MATERIALIZE_ALL` mode)
+and by `server.grpcStreamWriteTimeoutMs`. See xref:reference/settings.adoc#arcadedb-settings[Settings]
+for all three, and xref:reference/grpc-api.adoc[the gRPC API reference] for the service itself.
+====
+
 `raw` is the generated Connect client for `ArcadeDbService`, the same one you get from
 `createClient(ArcadeDbService, transport)` if you built the transport yourself -- every RPC in
 the data-plane contract is callable through it exactly as shown above with `executeQuery`.
@@ -199,6 +214,7 @@ for await (const row of grpc.streamQuery({
   query: "SELECT FROM Person",
   language: "sql",
   retrievalMode: StreamQueryRequest_RetrievalMode.CURSOR,
+  batchSize: 500,
 })) {
   console.log(row.rid, row.properties);
 }
@@ -206,19 +222,179 @@ for await (const row of grpc.streamQuery({
 
 [source,text]
 ----
-#1:0 { name: { ... stringValue: 'Alice' ... }, age: { ... int32Value: 30 ... }, '@cat': { ... stringValue: 'v' ... } }
-#1:1 { name: { ... stringValue: 'Bob' ... }, age: { ... int32Value: 25 ... }, '@cat': { ... stringValue: 'v' ... } }
+#1:0 {
+  name: {
+    '$typeName': 'com.arcadedb.grpc.GrpcValue',
+    kind: { case: 'stringValue', value: 'Alice' },
+    logicalType: ''
+  },
+  age: {
+    '$typeName': 'com.arcadedb.grpc.GrpcValue',
+    kind: { case: 'int32Value', value: 30 },
+    logicalType: ''
+  },
+  '@cat': {
+    '$typeName': 'com.arcadedb.grpc.GrpcValue',
+    kind: { case: 'stringValue', value: 'v' },
+    logicalType: ''
+  }
+}
+#1:1 {
+  name: {
+    '$typeName': 'com.arcadedb.grpc.GrpcValue',
+    kind: { case: 'stringValue', value: 'Bob' },
+    logicalType: ''
+  },
+  age: {
+    '$typeName': 'com.arcadedb.grpc.GrpcValue',
+    kind: { case: 'int32Value', value: 25 },
+    logicalType: ''
+  },
+  '@cat': {
+    '$typeName': 'com.arcadedb.grpc.GrpcValue',
+    kind: { case: 'stringValue', value: 'v' },
+    logicalType: ''
+  }
+}
 ----
 
 `streamQuery` flattens the server's stream of row batches into one record at a time and does
 nothing else -- each `properties` entry is still a `GrpcValue` needing the same `unwrap` shown
-above. `retrievalMode` is deliberately the caller's own choice, not a default this wrapper
-picks:
+above. Both `retrievalMode` and `batchSize` are deliberately the caller's own choice; the wrapper
+picks no default for either. There are three retrieval modes:
 
-* `CURSOR` -- the default. The server runs the query once and streams rows as you iterate.
+* `CURSOR` -- the proto default (value `0`). The server runs the query once and streams rows as
+  you iterate.
 * `MATERIALIZE_ALL` -- the server runs the query to completion first, then batches the
   already-materialized result set back to you.
 * `PAGED` -- the client re-issues the query with `LIMIT`/`SKIP` per batch.
+
+Leaving both fields out does not pick `CURSOR` and a sensible batch size as a considered choice
+-- it sends whatever protobuf's zero values happen to be for those fields (`0`, which is
+`CURSOR`, and `0` rows per batch). Set both explicitly, as above.
+
+===== Streaming inserts
+
+`insertStream` owns the envelope bookkeeping the client-streaming `InsertStream` RPC needs -- one
+session id for the stream, an incrementing chunk sequence, `database` on the first chunk, `last`
+on the final one -- and leaves how rows are batched to you.
+
+[WARNING]
+====
+*`InsertStreamRequest.transaction` is forwarded but not honored.*
+
+The field exists because the `.proto` declares it, and the driver sets it on every chunk exactly
+as you give it. On server 26.9.1 and earlier it buys nothing: the server ignores the
+`TransactionContext` on `InsertStream` entirely
+(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), builds its own
+insert context, and commits on its own. A batch you believe is atomic is not, and nothing errors
+to tell you so. That is also why `insertStream` is absent from the transaction handle below.
+Do not rely on it until #6607 lands.
+====
+
+===== Transactions
+
+[source,javascript]
+----
+import { createClient, passwordAuth } from "@arcadedb/driver-grpc";
+
+const grpc = createClient({
+  baseUrl: "http://localhost:50051",
+  auth: passwordAuth("root", "playwithdata", "mydb"),
+  insecure: true,
+});
+
+const total = await grpc.transaction("mydb", async (tx) => {
+  await tx.executeCommand({
+    command: "INSERT INTO Account SET balance = 100, owner = 'grpc-demo-js'",
+    language: "sql",
+  });
+  const response = await tx.executeQuery({
+    query: "SELECT sum(balance) AS total FROM Account WHERE owner = 'grpc-demo-js'",
+    language: "sql",
+  });
+  return response.results[0].records[0].properties.total.kind.value;
+});
+console.log("total:", total);
+----
+
+[source,text]
+----
+total: 100
+----
+
+`transaction(database, fn)` begins a server-side transaction, hands `fn` a `TransactionHandle`,
+and ends the transaction on both paths: it commits when `fn` resolves and returns the value `fn`
+returned, and rolls back and re-throws the original error when `fn` throws or rejects. A rollback
+that fails on that path is attached as `cause` on the original error rather than replacing it,
+and a failing commit issues a best-effort rollback first so the server-side session is released.
+A `commitTransaction` that resolves with `committed: false` -- what the server answers for a
+transaction it already reaped -- throws rather than reporting a success whose writes were lost.
+
+The handle exposes `executeQuery`, `executeCommand`, `createRecord`, `updateRecord`,
+`deleteRecord`, `lookupByRid` and `streamQuery`, each with the transaction's `database` and
+`transaction` context bound in automatically, so you never set either yourself. Note the
+omissions: `insertStream` and `bulkInsert` are not on the handle, because the server does not run
+them inside your transaction at all -- binding them there would silently lie.
+
+The trap is the same one the HTTP driver has: calls made through the outer client while a
+transaction is open do not join it. Only calls through the handle take part.
+
+===== Errors
+
+Every RPC rejects with a Connect `ConnectError` on failure -- this driver adds no error type of
+its own. `err.code` is a Connect `Code` and `err.rawMessage` is the server's message. Both come
+from `@connectrpc/connect`, which the driver depends on; add it to your own dependencies to
+import it directly.
+
+[source,javascript]
+----
+import { Code, ConnectError } from "@connectrpc/connect";
+import { createClient, passwordAuth } from "@arcadedb/driver-grpc";
+
+const grpc = createClient({
+  baseUrl: "http://localhost:50051",
+  auth: passwordAuth("root", "playwithdata", "mydb"),
+  insecure: true,
+});
+
+try {
+  await grpc.raw.executeQuery({ database: "mydb", query: "SELECT FROM NoSuchType", language: "sql" });
+} catch (err) {
+  if (err instanceof ConnectError) console.log(Code[err.code], err.rawMessage);
+}
+----
+
+[source,text]
+----
+Internal Query execution failed: Type with name 'NoSuchType' was not found
+----
+
+The code you are most likely to meet first is `Unauthenticated`. A stock ArcadeDB gRPC server
+refuses anonymous calls, so a client built without `auth` is created happily and then fails on
+the first RPC:
+
+[source,javascript]
+----
+import { Code, ConnectError } from "@connectrpc/connect";
+import { createClient } from "@arcadedb/driver-grpc";
+
+const anonymous = createClient({ baseUrl: "http://localhost:50051" });
+
+try {
+  await anonymous.raw.executeQuery({ database: "mydb", query: "SELECT FROM Person", language: "sql" });
+} catch (err) {
+  if (err instanceof ConnectError) console.log(err.code === Code.Unauthenticated, err.rawMessage);
+}
+----
+
+[source,text]
+----
+true Authentication required
+----
+
+`ResourceExhausted` is the other code worth branching on: it is what a result set larger than the
+server's row cap returns, as described above.
 
 ===== Next steps
 

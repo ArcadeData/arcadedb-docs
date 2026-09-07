@@ -44,8 +44,22 @@ with ArcadeDBServer(
 [{'@rid': '#1:0', '@type': 'Person', '@cat': 'v', 'name': 'Alice', 'age': 30}, {'@rid': '#1:1', '@type': 'Person', '@cat': 'v', 'name': 'Bob', 'age': 25}] 2 False
 ----
 
-Positional parameters are keyed by their zero-based index as a string -- the first `?` is
-`"0"`, not `"1"`.
+[WARNING]
+====
+*Positional parameters are zero-indexed -- `{"1": 21}` silently returns nothing.*
+
+Positional parameters are keyed by their zero-based index as a string. For the single placeholder
+above, the key is `"0"`, not `"1"`. Passing `params={"1": 21}` does not raise and does not match
+the wrong rows -- it runs the query with no bound value for `?` at all and comes back empty:
+
+[source,text]
+----
+[] 0 False
+----
+
+The driver's own README shows `{"1": 21}`; it looks plausible and returns quietly, which is
+exactly what makes it easy to ship. Always start positional parameter keys at `"0"`.
+====
 
 `basic_auth("root", "playwithdata")` builds the `Authorization` header for HTTP basic auth;
 `bearer_auth("AU-...")` substitutes directly for it wherever you already hold a session token
@@ -154,10 +168,27 @@ except ArcadeDBError as err:
 `request_id` is the server's `X-Request-Id` for that call and is different on every request; use
 it to correlate a failure with the server log.
 
-`srv.raw` -- the generated OpenAPI client underneath the facade -- takes the opposite approach:
-it never raises. It hands back a response whose `status_code` and `parsed` body you inspect
-yourself, the same shape you get for a successful call. Use `raw` when you would rather branch on
-a status code than catch an exception.
+`srv.raw` takes the opposite approach: it never raises. It is not a second facade with its own
+`query` and `command` methods -- it is the generated `openapi-python-client` `Client` object, the
+value you hand to the generated endpoint functions as their `client=` argument. Each of those
+functions returns a response whose `status_code` and `parsed` body you inspect yourself, the same
+shape you get for a successful call. Use `raw` when you would rather branch on a status code than
+catch an exception:
+
+[source,python]
+----
+from arcadedb_driver import ArcadeDBServer, basic_auth
+from arcadedb_driver._generated.api.database import list_databases
+
+with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
+    response = list_databases.sync_detailed(client=srv.raw)
+    print(response.status_code, response.parsed.result)
+----
+
+[source,text]
+----
+200 ['mydb']
+----
 
 ===== Next steps
 
