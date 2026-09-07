@@ -79,8 +79,10 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/java-api/java-api-remote.adoc", "Remote API"),
                     ("reference/java-api/java-api-grpc.adoc", "gRPC API"),
                 ]),
-                ("tutorials/python-quickstart.adoc", "Python"),
-                ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
+                (("how-to/connectivity/drivers/native-drivers.adoc", "Native Drivers"), [
+                ]),
+                ("tutorials/python-quickstart.adoc", "Python — PostgreSQL Protocol"),
+                ("tutorials/javascript-quickstart.adoc", "JavaScript — PostgreSQL Protocol"),
                 ("how-to/connectivity/http-nodejs.adoc", "Node.js / JavaScript"),
                 ("how-to/connectivity/http-csharp.adoc", "C#"),
                 ("how-to/connectivity/c.adoc", "C"),

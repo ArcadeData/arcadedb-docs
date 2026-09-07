@@ -1,0 +1,83 @@
+[[native-drivers]]
+==== Native Drivers
+
+[TIP]
+====
+*Which page do I want?*
+
+* Building a new application in Python or JavaScript/TypeScript -- start here.
+* Already running a PostgreSQL stack -- xref:how-to/connectivity/postgres.adoc[PostgreSQL wire protocol].
+* Already running a Neo4j stack -- xref:how-to/connectivity/bolt.adoc[Neo4j BOLT].
+* Any other language -- xref:reference/http-api/http.adoc[HTTP/JSON API], no driver required.
+====
+
+ArcadeDB publishes four native drivers, two per language, from the
+https://github.com/ArcadeData/arcadedb-drivers[arcadedb-drivers] repository. Every one of them is
+generated from a shared contract -- an OpenAPI specification for the HTTP drivers, a Protobuf
+`.proto` for the gRPC drivers -- and each driver's build regenerates from that contract and fails
+if the checked-in code and a fresh regeneration disagree.
+
+That matters to you, not just to the people who build the drivers: a generated client cannot
+silently disagree with the server about the wire format. When ArcadeDB adds a field, the driver
+gets it from the contract rather than from someone remembering to hand-write it.
+
+===== HTTP or gRPC?
+
+[cols="1,3", options="header"]
+|===
+| Choose | When
+
+| HTTP
+| General application traffic, browsers, serverless functions, and anywhere you want the smallest
+dependency footprint. This is the right default.
+
+| gRPC
+| Throughput-sensitive server-to-server work: large result sets you want to stream rather than
+page, and bulk inserts.
+|===
+
+There is no browser gRPC driver, and there cannot be one until the server changes. ArcadeDB's
+`GrpcServerPlugin` is plain grpc-java over HTTP/2, with no gRPC-Web handler and no Connect
+protocol in front of it. A browser cannot speak raw HTTP/2 gRPC framing at all, so no client
+library in any language can reach this server from a browser. Use an HTTP driver there.
+
+===== The result envelope, and why `truncated` matters
+
+The HTTP drivers' `query` and `command` do not return bare rows. They return the whole response
+envelope: `result`, `limit`, `returned`, and `truncated`.
+
+`truncated` is true when the server's serializer hit its row cap while the query still had rows
+left to write. `result` is then a partial answer, not a short-but-complete one -- and the two are
+indistinguishable by shape. A caller that reads `result` and ignores `truncated` will silently
+work off half an answer.
+
+Always check `truncated` before treating `result` as the whole result set. When it is true,
+re-query with a narrower filter or a higher `limit`. Raising `limit` is not always the fix: a
+result whose true size exceeds the server's hard ceiling
+(`+arcadedb.server.httpQueryMaxResultRows+`) is refused outright with HTTP 413 rather than
+truncated, so past that ceiling a narrower filter is the only way forward.
+
+===== Versions and server compatibility
+
+[cols="2,1,1", options="header"]
+|===
+| Package | Version | ArcadeDB server
+
+| `arcadedb-driver`, `arcadedb-driver-grpc` (PyPI)
+| 0.1.0
+| 26.9.1
+
+| `@arcadedb/driver`, `@arcadedb/driver-grpc` (npm)
+| 0.1.0
+| 26.9.1
+|===
+
+Each driver is generated against one server release's contract, shown above. Install commands in
+these pages are deliberately unpinned; the registries carry the current version.
+
+===== The four drivers
+
+* Python, HTTP -- `arcadedb-driver` (page coming in this release)
+* Python, gRPC -- `arcadedb-driver-grpc` (page coming in this release)
+* JavaScript / TypeScript, HTTP -- `@arcadedb/driver` (page coming in this release)
+* JavaScript / TypeScript, gRPC -- `@arcadedb/driver-grpc` (page coming in this release)
