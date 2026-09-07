@@ -105,3 +105,38 @@ and `writePrivateKeyPem` emitting PKCS#8), but the exact command lines were not 
   those headers verbatim to explain the PKCS#8 requirement. The docs now describe the armor by
   its label (`PRIVATE KEY` vs `RSA PRIVATE KEY`) instead, which reads the same and does not trip
   the hook.
+
+## Pull request
+
+https://github.com/ArcadeData/arcadedb-docs/pull/451 — branch `feat/445-ha-tls-mtls-raft-grpc`,
+commit `b753a2ce`.
+
+### Review cycles
+
+None. This repository has no automated PR reviewer: `.github/workflows/` contains only
+`antora-preview.yml`, `cloudflare-deploy.yml`, `docs-validation.yml` and `pdf.yml`, and recent PRs
+(#440, #447, #449) drew comments from `mergify` and the maintainer only. The review-poll loop was
+stopped rather than left to time out against a bot that does not exist.
+
+Final state: **no reviewer configured** — the PR is ready for human review.
+
+### CI
+
+| Check | Result |
+|---|---|
+| `generate` (Generate Site) | ✅ pass |
+| `Validate Documentation` | ❌ fail — **pre-existing, not caused by this PR** |
+| Mergify Summary | ✅ pass |
+
+`Validate Documentation` fails on the `Run documentation validator` step with the single broken
+cross-reference `'Column type mapping' in how-to/connectivity/postgres.adoc:121`. The same check
+has failed on the last five runs of `main` for the same reason. The source there writes
+`<<Column type mapping,Column type mapping>>`, a reference to a section title rather than to a
+lowercase-hyphen anchor; Asciidoctor resolves it (both builds are clean) but `docs-validator.py`
+does not. Fixing it is a one-line change unrelated to #445, so it was deliberately left out of this
+PR rather than mixed in — worth its own issue.
+
+### Follow-up
+
+`project_422_ha_channel_self_healing_docs` tracked "17 undocumented `ha.*` keys" for a later sweep.
+Five of those (`ha.tls.*`) are now documented; the remainder still are.
