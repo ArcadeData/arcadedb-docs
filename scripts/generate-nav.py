@@ -80,6 +80,7 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/java-api/java-api-grpc.adoc", "gRPC API"),
                 ]),
                 (("how-to/connectivity/drivers/native-drivers.adoc", "Native Drivers"), [
+                    ("how-to/connectivity/drivers/python-http.adoc", "Python — HTTP"),
                 ]),
                 ("tutorials/python-quickstart.adoc", "Python — PostgreSQL Protocol"),
                 ("tutorials/javascript-quickstart.adoc", "JavaScript — PostgreSQL Protocol"),
