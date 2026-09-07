@@ -97,11 +97,16 @@ Each entry in the `vertices` array defines a vertex type and its data source:
 
 | `id`
 | Yes
-| Source attribute used as integer primary key for edge resolution between types
+| Source attribute used as the primary key for edge resolution between types. The value is taken as
+written, so an integer, a value too large for an integer, and a string such as `W13696992` all work.
+Two spellings the file keeps apart stay two different keys: `007` and `7` are not the same vertex.
+An empty value registers no key
 
 | `nameId`
 | No
-| String-based secondary key, used by `split` edges to resolve values by name
+| Secondary key, used by `split` edges and by `byName` edges to resolve values by name. Declare it
+only when a type is referenced through two different keys -- a numeric id from one file and a name
+from another. A single string key needs nothing more than `id`
 
 | `filter`
 | No
@@ -272,7 +277,8 @@ The `edgeSources` array defines edges where both endpoints already exist as vert
 
 | `from`
 | Yes
-| Compact format `attribute:vertexType` -- source attribute and its vertex type
+| Compact format `attribute:vertexType` -- source attribute and its vertex type. Matched against
+that type's `id`, whatever the value looks like
 
 | `to`
 | Yes
@@ -395,6 +401,42 @@ Below is a complete JSON configuration for importing a StackOverflow data dump:
   ]
 }
 ----
+
+[[graph-importer-identities]]
+===== Identities and Missing Edges
+
+Every edge is resolved by matching the value of a foreign key against the `id` of the vertex type it
+points at. The importer compares those values as text, so any key your files already use works
+without being converted first:
+
+[source,json]
+----
+{"id": "W13696992", "title": "A paper", "publication_year": 2008}
+----
+
+[source,csv]
+----
+from_id,to_id
+2257721487,28031933
+----
+
+NOTE: Before 26.10.1 both of these failed: an identity had to fit an `int`, so a string key or one
+larger than about two billion aborted the import. Vertex ids of `0` were also unusable as an edge
+endpoint. No configuration change is needed to benefit from the fix.
+
+When an edge names a key that no vertex carries, the edge is skipped -- there is nothing to attach it
+to -- but the importer now counts it and logs a warning per source, and the total is available from
+`getUnresolvedEdgeCount()` in the Java API. A graph that comes out smaller than the files you fed in
+no longer does so silently.
+
+Four configurations that could only ever produce zero edges are now rejected with an error before
+anything is written, instead of importing a quietly incomplete graph:
+
+- an edge pointing at a vertex type that no source imports (usually a typo in the type name)
+- an edge pointing at a vertex type that is imported *after* the source referencing it. A vertex
+source can only resolve against types already imported, so declare the target's source first
+- an edge resolving against the `id` of a type that declares only `nameId`, or the reverse
+- two vertex sources declaring the same type name
 
 ===== Supported File Formats
 
