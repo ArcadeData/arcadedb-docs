@@ -912,6 +912,15 @@ This enables zero-downtime scale-up: `helm upgrade --set replicaCount=N` (or `ku
 *Auto-leave on scale-down*::
 The chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so the terminating pod cleanly transfers leadership (if it holds it) and removes itself from the Raft group before shutdown.
 
+*Securing the Raft port with mTLS* (since `26.9.1`)::
+The Raft gRPC port carries AppendEntries, RequestVote and the Ratis admin/client calls in plaintext by default, guarded only by an IP-based peer allowlist.
+On a shared cluster, enable mTLS with `+arcadedb.ha.tls.*+` and pair it with a `NetworkPolicy` restricting the port to the StatefulSet's own pods.
+cert-manager is the natural issuer here: a `Certificate` writes a `Secret` holding exactly the three files the settings need (`tls.crt`, `tls.key`, `ca.crt`).
+Two details are easy to get wrong on Kubernetes — the certificate's SAN must be the pod's stable headless-service DNS name (`my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local`) rather than the pod IP, and `privateKey.encoding` must be set to `PKCS8`, because cert-manager defaults to `PKCS1`, which the Raft transport does not parse.
+Mount the `Secret` read-only through the chart's `volumes` / `volumeMounts` (see <<kubernetes-values-extras,Extras>>) with `defaultMode: 0400`, and point the settings at it via `arcadedb.extraCommands`.
+Auto-join needs no extra configuration: the join probe inherits the server's transport settings, so it speaks TLS exactly when the cluster does.
+For the manifests, the openssl equivalent, and the certificate-rotation caveat, see <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>.
+
 For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
 
 [[kubernetes-ha-bootstrap]]
