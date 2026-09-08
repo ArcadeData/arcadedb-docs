@@ -1,0 +1,427 @@
+[[driver-python-grpc]]
+==== Python -- gRPC Driver
+
+`arcadedb-driver-grpc` is ArcadeDB's Python gRPC client, generated from the server's Protobuf
+contract. It wraps the generated stub in a small facade for streaming queries, streaming inserts
+and transactions, plus a matching `asyncio` facade for async applications.
+
+===== Install
+
+[source,shell]
+----
+pip install arcadedb-driver-grpc
+----
+
+Or with https://docs.astral.sh/uv/[uv]:
+
+[source,shell]
+----
+uv add arcadedb-driver-grpc
+----
+
+Requires Python 3.10 or later.
+
+[IMPORTANT]
+====
+*The gRPC server is a plugin, and it is not started by default.*
+
+Register it in the server's plugin list before connecting:
+
+[source,bash]
+----
+-Darcadedb.server.plugins=GRPC:com.arcadedb.server.grpc.GrpcServerPlugin
+----
+
+Once registered, it listens on port `50051`. See xref:reference/grpc-api.adoc[the gRPC API
+reference] for the full option list, including TLS and message-size settings.
+====
+
+===== Connect and query
+
+[source,python]
+----
+from arcadedb_driver_grpc import create_client, messages, password_auth
+
+with create_client(
+    "localhost:50051",
+    insecure=True,
+    auth=password_auth("root", "playwithdata", "mydb"),
+) as client:
+    response = client.raw.ExecuteQuery(
+        messages.ExecuteQueryRequest(database="mydb", query="SELECT FROM Person WHERE age > 21", language="sql")
+    )
+    for result in response.results:
+        for record in result.records:
+            print(record.rid, dict(record.properties))
+----
+
+[source,text]
+----
+#1:0 {'age': int32_value: 30
+, '@type': string_value: "Person"
+, '@rid': link_value {
+  rid: "#1:0"
+}
+logical_type: "rid"
+, '@cat': string_value: "v"
+, 'name': string_value: "Alice"
+}
+#1:1 {'age': int32_value: 25
+, '@type': string_value: "Person"
+, '@rid': link_value {
+  rid: "#1:1"
+}
+logical_type: "rid"
+, '@cat': string_value: "v"
+, 'name': string_value: "Bob"
+}
+----
+
+The target is gRPC's native `host:port` form, not a URL -- there is no scheme to parse and
+nothing to default. That is why TLS and plaintext are both explicit: pass
+`credentials=grpc.ssl_channel_credentials()` for TLS, or `insecure=True` to opt into plaintext.
+
+The output above is not a copy-paste mistake -- it is exactly what `dict(record.properties)`
+prints. See below for why, and how to get plain Python values instead.
+
+[NOTE]
+====
+*The unary `ExecuteQuery` has a row ceiling, and it fails rather than truncates.*
+
+`ExecuteQuery` builds its whole answer into one gRPC message, so the server caps it:
+`server.grpcQueryMaxResultRows` (100000 by default) is a hard ceiling, and a result that would
+exceed it fails the call with `RESOURCE_EXHAUSTED` instead of coming back short. Unlike the HTTP
+drivers there is no `truncated` flag to check -- a capped query does not return at all.
+
+Streaming is the answer for result sets that large: `stream_query` emits incrementally and is
+bounded instead by `server.grpcStreamMaxMaterializedRows` (and only in `MATERIALIZE_ALL` mode)
+and by `server.grpcStreamWriteTimeoutMs`. See xref:reference/settings.adoc#arcadedb-settings[Settings]
+for all three, and xref:reference/grpc-api.adoc[the gRPC API reference] for the service itself.
+====
+
+===== `raw` and the three wrappers
+
+`client.raw` is the generated stub for `ArcadeDbService`, the contract's data plane, and it is
+that service only: all 14 of its RPCs are reachable through it exactly as shown above with
+`ExecuteQuery`. `create_client` adds three methods on top of `raw` -- `stream_query`,
+`insert_stream` and `transaction` -- which between them cover five of those 14: `StreamQuery`,
+`InsertStream`, and `BeginTransaction`/`CommitTransaction`/`RollbackTransaction`. These are the
+RPCs the generated stub alone handles badly -- consuming a server-side stream one message at a
+time, feeding a client-side stream from an iterable, and pairing begin, commit and rollback into
+a context manager. The remaining nine -- `ExecuteQuery`, `ExecuteCommand`, `CreateRecord`,
+`UpdateRecord`, `DeleteRecord`, `LookupByRid`, `BulkInsert`, `InsertBidirectional` and
+`GraphBatchLoad` -- are used directly through `raw`.
+
+Administration is a second service, and `raw` does not reach it. `ArcadeDbAdminService` carries
+its own nine RPCs (`Ping`, `GetServerInfo`, `ListDatabases`, `ExistsDatabase`, `CreateDatabase`,
+`DropDatabase`, `GetDatabaseInfo`, `CreateUser`, `DeleteUser`), and `client.raw.GetServerInfo`
+raises `AttributeError` because the attribute is not there. Build that stub yourself when you
+need it. Its RPCs also take their credentials in the request message rather than from the
+channel, so this call needs no auth interceptor at all:
+
+[source,python]
+----
+import grpc
+
+from arcadedb_driver_grpc import messages
+from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as pb2_grpc
+
+with grpc.insecure_channel("localhost:50051") as channel:
+    admin = pb2_grpc.ArcadeDbAdminServiceStub(channel)
+    response = admin.ListDatabases(
+        messages.ListDatabasesRequest(
+            credentials=messages.DatabaseCredentials(username="root", password="playwithdata")
+        )
+    )
+    print(list(response.databases))
+----
+
+[source,text]
+----
+['mydb']
+----
+
+`raw` also means every value that comes back is exactly what the wire sent: a generated protobuf
+message, not a Python scalar. The `rid` and `type` fields of a `GrpcRecord` are already plain
+strings, but each entry in its `properties` map is a `GrpcValue` -- a protobuf message with a `oneof` field
+named `kind` holding the actual value under one of `int32_value`, `string_value`, `link_value`,
+and so on. `dict(record.properties)` therefore gives you a dict of `GrpcValue` objects, not a dict
+of names, ages and RIDs. Unwrap each one by checking which field of the `oneof` is set:
+
+[source,python]
+----
+def unwrap(value):
+    field = value.WhichOneof("kind")
+    if field == "link_value":
+        return value.link_value.rid
+    return getattr(value, field) if field else None
+
+props = {k: unwrap(v) for k, v in record.properties.items()}
+print(record.rid, props)
+----
+
+[source,text]
+----
+#1:0 {'age': 30, 'name': 'Alice', '@type': 'Person', '@rid': '#1:0', '@cat': 'v'}
+#1:1 {'age': 25, 'name': 'Bob', '@type': 'Person', '@rid': '#1:1', '@cat': 'v'}
+----
+
+`link_value` is the one case that does not unwrap to a scalar directly -- it is itself a message
+(`GrpcLink`), so reach into `.rid` for the record ID string. There is no library function that
+does this unwrapping for you; it is a plain `oneof` read, shown above for reference.
+
+===== Authentication is attached to the channel
+
+`bearer_auth(token)` and `password_auth(user, password, database=None)` do not attach
+credentials to individual calls. `create_client` turns whichever one you pass into a gRPC channel
+interceptor, so it runs on every call made through that channel -- `client.raw.ExecuteCommand(...)`
+carries the same authentication headers that `client.stream_query(...)` does, with no extra work
+at the call site.
+
+This matters because the facade's three methods cover only five of the data plane's 14 RPCs. If
+authentication were attached per-call instead -- say, only on the methods `create_client` itself
+wraps -- every one of the other nine RPCs reached through `raw` would go out silently anonymous.
+Attaching auth to the channel instead of the call means there is no RPC you can reach through this
+client without it.
+
+[WARNING]
+====
+*The insecure-channel guard, and its limit.*
+
+`password_auth` sends the password as plaintext call metadata. To keep that from happening by
+accident over an unencrypted channel, `create_client` raises `InsecureChannelError` unless you
+either pass channel credentials or explicitly opt in with `insecure=True`:
+
+[source,python]
+----
+from arcadedb_driver_grpc import InsecureChannelError, create_client, password_auth
+
+try:
+    create_client("localhost:50051", auth=password_auth("root", "playwithdata", "mydb"))
+except InsecureChannelError as err:
+    print("guard fired:", err)
+----
+
+[source,text]
+----
+guard fired: create_client: refusing to send a plaintext password over an insecure channel to "localhost:50051". Pass credentials=grpc.ssl_channel_credentials(), switch to bearer_auth, or pass insecure=True to opt in explicitly.
+----
+
+The check is honest about what it can and cannot see: it keys on whether channel credentials
+were supplied, not on whether the channel is actually encrypted end-to-end. A `bearer_auth`
+token never trips it, at any security level, because a bearer token is not a password -- the
+guard is specifically about `password_auth` sending a plaintext secret.
+====
+
+===== Streaming queries
+
+[source,python]
+----
+for record in client.stream_query(
+    messages.StreamQueryRequest(
+        database="mydb",
+        query="SELECT FROM Person",
+        language="sql",
+        retrieval_mode=messages.StreamQueryRequest.RetrievalMode.CURSOR,
+        batch_size=500,
+    )
+):
+    print(record.rid, dict(record.properties))
+----
+
+[source,text]
+----
+#1:0 {'age': int32_value: 30
+, '@cat': string_value: "v"
+, 'name': string_value: "Alice"
+}
+#1:1 {'age': int32_value: 25
+, '@cat': string_value: "v"
+, 'name': string_value: "Bob"
+}
+----
+
+`stream_query` flattens the server's stream of `QueryResult` batches into one `GrpcRecord` at a
+time and does nothing else -- it picks no default for `retrieval_mode` or `batch_size`. There
+are three retrieval modes:
+
+* `CURSOR` -- the proto default (value `0`). The server runs the query once and streams rows as
+  you iterate.
+* `MATERIALIZE_ALL` -- the server runs the query to completion first, then batches the already-
+  materialized result set back to you.
+* `PAGED` -- the client re-issues the query with `LIMIT`/`SKIP` per batch.
+
+Leaving both `retrieval_mode` and `batch_size` unset does not pick `CURSOR` and a sensible batch
+size as a considered choice -- it sends whatever protobuf's zero values happen to be for those
+fields (`0`, which is `CURSOR`, and `0` rows per batch). Set both explicitly.
+
+===== Streaming inserts
+
+`insert_stream` owns the envelope bookkeeping the client-streaming `InsertStream` RPC needs --
+one session id for the stream, an incrementing chunk sequence, `database` on the first chunk,
+`last` on the final one -- and leaves how rows are batched to you.
+
+[WARNING]
+====
+*`InsertStreamRequest.transaction` is forwarded but not honored.*
+
+The field exists because the `.proto` declares it, and the driver sets it on every chunk exactly
+as you give it. On server 26.9.1 and earlier it buys nothing: the server ignores the
+`TransactionContext` on `InsertStream` entirely
+(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), builds its own
+insert context, and commits on its own. A batch you believe is atomic is not, and nothing errors
+to tell you so. That is also why `insert_stream` is absent from the transaction handle below.
+Do not rely on it until #6607 lands.
+====
+
+===== Transactions
+
+[source,python]
+----
+from arcadedb_driver_grpc import create_client, messages, password_auth
+
+with create_client(
+    "localhost:50051",
+    insecure=True,
+    auth=password_auth("root", "playwithdata", "mydb"),
+) as client:
+    with client.transaction("mydb") as tx:
+        tx.execute_command(
+            messages.ExecuteCommandRequest(
+                command="INSERT INTO Account SET balance = 100, owner = 'grpc-demo'",
+                language="sql",
+            )
+        )
+        response = tx.execute_query(
+            messages.ExecuteQueryRequest(
+                query="SELECT sum(balance) AS total FROM Account WHERE owner = 'grpc-demo'",
+                language="sql",
+            )
+        )
+    print("total:", response.results[0].records[0].properties["total"].int32_value)
+----
+
+[source,text]
+----
+total: 100
+----
+
+`client.transaction(database)` is a context manager. `__enter__` issues `BeginTransaction` and
+hands back a `TransactionHandle`; the block commits on a clean exit and rolls back on an
+exception, which then propagates. A rollback that fails on that path is attached as the original
+exception's `__cause__` rather than replacing it, and a commit that fails triggers a best-effort
+rollback first so the server-side session is not left for the reaper.
+
+The handle is how you run work inside the transaction. It exposes `execute_query`,
+`execute_command`, `create_record`, `update_record`, `delete_record`, `lookup_by_rid` and
+`stream_query`, each of them binding the transaction's id and database onto a copy of the request
+you pass -- so you never set `transaction` or `database` yourself, and a request object you reuse
+elsewhere is left untouched. Note the omissions: `insert_stream` and `BulkInsert` are not on the
+handle, because the server does not run them inside your transaction at all.
+
+The trap is the same one the HTTP driver has: calls made through the outer `client` while a
+transaction is open do not join it. Only calls through the handle take part.
+
+===== Errors
+
+Every RPC raises `grpc.RpcError` on failure -- the driver adds no exception type of its own.
+`err.code()` is a `grpc.StatusCode` and `err.details()` is the server's message:
+
+[source,python]
+----
+import grpc
+
+from arcadedb_driver_grpc import create_client, messages, password_auth
+
+with create_client(
+    "localhost:50051",
+    insecure=True,
+    auth=password_auth("root", "playwithdata", "mydb"),
+) as client:
+    try:
+        client.raw.ExecuteQuery(
+            messages.ExecuteQueryRequest(database="mydb", query="SELECT FROM NoSuchType", language="sql")
+        )
+    except grpc.RpcError as err:
+        print(err.code(), err.details())
+----
+
+[source,text]
+----
+StatusCode.INTERNAL Query execution failed: Type with name 'NoSuchType' was not found
+----
+
+The status you are most likely to meet first is `UNAUTHENTICATED`. A stock ArcadeDB gRPC server
+refuses anonymous calls, so a client built without `auth=` connects happily and then fails on the
+first RPC:
+
+[source,python]
+----
+import grpc
+
+from arcadedb_driver_grpc import create_client, messages
+
+with create_client("localhost:50051", insecure=True) as anonymous:
+    try:
+        anonymous.raw.ExecuteQuery(
+            messages.ExecuteQueryRequest(database="mydb", query="SELECT FROM Person", language="sql")
+        )
+    except grpc.RpcError as err:
+        print(err.code() is grpc.StatusCode.UNAUTHENTICATED, err.details())
+----
+
+[source,text]
+----
+True Authentication required
+----
+
+`RESOURCE_EXHAUSTED` is the other status worth branching on: it is what a result set larger than
+the server's row cap returns, as described above.
+
+===== Async
+
+Importing `create_client` from `arcadedb_driver_grpc.aio` instead of `arcadedb_driver_grpc` is
+the whole signal for which client you get: the async client mirrors the sync one method for
+method, `await`-ed, with the same `insecure` and `auth` arguments.
+
+[source,python]
+----
+import asyncio
+
+from arcadedb_driver_grpc import messages, password_auth
+from arcadedb_driver_grpc.aio import create_client
+
+
+async def main() -> None:
+    async with create_client(
+        "localhost:50051",
+        insecure=True,
+        auth=password_auth("root", "playwithdata", "mydb"),
+    ) as client:
+        response = await client.raw.ExecuteQuery(
+            messages.ExecuteQueryRequest(database="mydb", query="SELECT FROM Person", language="sql")
+        )
+        for result in response.results:
+            for record in result.records:
+                print(record.rid)
+
+
+asyncio.run(main())
+----
+
+[source,text]
+----
+#1:0
+#1:1
+----
+
+===== Next steps
+
+* xref:how-to/connectivity/drivers/native-drivers.adoc[Native Drivers] -- how this driver compares
+  to the other three, and when to reach for gRPC instead of HTTP.
+* xref:how-to/connectivity/drivers/python-http.adoc[Python -- HTTP Driver] -- the HTTP counterpart
+  for general application traffic.
+* The https://github.com/ArcadeData/arcadedb-drivers/tree/main/python/packages/driver-grpc#readme[package README]
+  for the internals, including why the async facade needs four interceptor classes -- one per
+  gRPC call shape (unary-unary, unary-stream, stream-unary, stream-stream) -- where the sync
+  facade needs only one.

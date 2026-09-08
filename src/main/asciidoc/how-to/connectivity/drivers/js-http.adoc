@@ -1,0 +1,198 @@
+[[driver-js-http]]
+==== JavaScript / TypeScript -- HTTP Driver
+
+`@arcadedb/driver` is ArcadeDB's TypeScript/JavaScript HTTP client, generated from the server's
+OpenAPI contract.
+
+[NOTE]
+====
+*Node.js 20+, ESM only.*
+
+The package requires Node.js 20 or later, and it ships **ESM only** -- there is no CommonJS
+build and no `require()` entry point. Import it with `import`, not `require`.
+====
+
+===== Install
+
+[source,shell]
+----
+npm install @arcadedb/driver
+----
+
+===== Connect and query
+
+[source,javascript]
+----
+import { ArcadeDBError, basicAuth, createClient } from "@arcadedb/driver";
+
+const server = createClient({
+  baseUrl: "http://localhost:2480",
+  auth: basicAuth("root", "playwithdata"),
+});
+
+const db = server.db("mydb");
+
+const envelope = await db.query({
+  language: "sql",
+  command: "SELECT FROM Person WHERE age > ?",
+  params: { 0: 21 },
+});
+console.log(envelope.result, envelope.returned, envelope.truncated);
+----
+
+[source,text]
+----
+[
+  {
+    '@rid': '#1:0',
+    '@type': 'Person',
+    '@cat': 'v',
+    name: 'Alice',
+    age: 30
+  },
+  {
+    '@rid': '#1:1',
+    '@type': 'Person',
+    '@cat': 'v',
+    name: 'Bob',
+    age: 25
+  }
+] 2 false
+----
+
+[WARNING]
+====
+*Positional parameters are zero-indexed -- `{ 1: 21 }` silently returns nothing.*
+
+Positional parameters are keyed by their zero-based index. For the single placeholder above,
+the key is `0`, not `1`. Passing `params: { 1: 21 }` does not raise an error and does not match
+the wrong rows -- it runs the query with no bound value for `?` at all and comes back with an
+empty `result` (`returned: 0`, `truncated: false`). The driver's own README shows `{ 1: 21 }`; it
+looks plausible and returns quietly, which is exactly what makes it easy to ship. Always start
+positional parameter keys at `0`.
+====
+
+[NOTE]
+====
+*There is no timeout option, and `fetch` has no default timeout.*
+
+`createClient` accepts exactly three options -- `baseUrl`, `auth` and `fetch`. There is no
+`timeout`, and the client calls the runtime's global `fetch`, which waits forever by default. A
+request against a stalled connection therefore hangs indefinitely unless you bound it yourself.
+The `fetch` option is where to do that: pass a wrapper that attaches an `AbortSignal`.
+
+[source,javascript]
+----
+import { basicAuth, createClient } from "@arcadedb/driver";
+
+const server = createClient({
+  baseUrl: "http://localhost:2480",
+  auth: basicAuth("root", "playwithdata"),
+  fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(5000) }),
+});
+
+const envelope = await server.db("mydb").query({ language: "sql", command: "SELECT FROM Person" });
+console.log(envelope.returned);
+----
+
+[source,text]
+----
+2
+----
+
+The Python driver takes an explicit `timeout` argument instead; see
+xref:how-to/connectivity/drivers/python-http.adoc[the Python HTTP driver page], where the same
+"no timeout unless you ask" default applies.
+====
+
+`basicAuth("root", "playwithdata")` builds the `Authorization` header for HTTP basic auth;
+`bearerAuth("AU-...")` substitutes directly for it wherever you already hold a session token or
+other bearer credential.
+
+===== The result envelope
+
+`query` and `command` do not return bare rows. They return the whole response envelope:
+
+[source,typescript]
+----
+interface QueryEnvelope<T> {
+  result: T[];
+  limit: number;
+  returned: number;
+  truncated: boolean;
+}
+----
+
+See xref:how-to/connectivity/drivers/native-drivers.adoc#native-drivers[Native Drivers] for why
+`truncated` matters and what to do when it is `true`.
+
+===== Transactions
+
+[source,javascript]
+----
+const total = await db.transaction(async (tx) => {
+  await tx.command({ language: "sql", command: "INSERT INTO Account SET balance = 100" });
+  const { result } = await tx.query({ language: "sql", command: "SELECT sum(balance) AS total FROM Account" });
+  return result[0].total;
+});
+console.log("total:", total);
+----
+
+[source,text]
+----
+total: 200
+----
+
+(The total above reflects balances already present in this database from earlier examples on
+this page's server; a fresh `Account` type would show `100`.)
+
+Every call inside the callback must go through the `tx` handle it receives, not the outer `db`
+-- calls made through `db` while a transaction is open auto-commit individually, outside it. The
+contract:
+
+* `transaction` commits when the callback resolves, and returns the callback's own return value.
+* It rolls back and re-throws when the callback throws or rejects.
+* The caller always sees the callback's own error. If the rollback itself also fails, that
+  failure is attached to the error as `err.cause` rather than replacing it.
+* If the commit itself fails, `transaction` issues a best-effort rollback first, to release the
+  server-side session, before re-throwing the commit's error.
+
+===== Two error models
+
+Facade methods -- `query`, `command`, `transaction`, and others -- throw `ArcadeDBError` on any
+non-2xx response:
+
+[source,javascript]
+----
+try {
+  await db.query({ language: "sql", command: "SELECT FROM NoSuchType" });
+} catch (err) {
+  if (err instanceof ArcadeDBError) console.error(err.status, err.error, err.detail, err.requestId);
+}
+----
+
+[source,text]
+----
+500 Internal error Type with name 'NoSuchType' was not found 1a9b928039f2a6cd-30
+----
+
+`requestId` is the server's request identifier for that call and differs on every request; use
+it to correlate a failure with the server log.
+
+`server.raw` -- the underlying https://openapi-ts.dev/openapi-fetch/[openapi-fetch] client
+beneath the facade -- takes the opposite approach: it never throws. It returns `{ data, error }`
+and leaves handling the error to the caller. Use the facade for the ergonomics of try/catch; use
+`raw` when you would rather branch on `{ data, error }` without exceptions.
+
+Beyond `query`, `command` and `transaction`, a database handle also exposes `db.ts`,
+`db.grafana` and `db.promql` for time-series ingestion, Grafana panel queries and a
+PromQL-compatible query surface -- see the package README linked below for those.
+
+===== Next steps
+
+* <<native-drivers,Native Drivers>> -- the result envelope and why `truncated` matters, and how
+  this driver compares to the other three.
+* xref:how-to/connectivity/drivers/js-grpc.adoc[JavaScript / TypeScript -- gRPC Driver] -- the
+  gRPC counterpart for throughput-sensitive server-to-server work.
+* The https://github.com/ArcadeData/arcadedb-drivers/tree/main/typescript/packages/driver#readme[package README]
+  for the full method list, including `db.ts`, `db.grafana` and `db.promql`.

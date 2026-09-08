@@ -1,0 +1,200 @@
+[[driver-python-http]]
+==== Python -- HTTP Driver
+
+`arcadedb-driver` is ArcadeDB's Python HTTP client, generated from the server's OpenAPI contract.
+It wraps queries, commands and transactions in a small facade over
+https://www.python-httpx.org/[`httpx`], plus a matching `asyncio` facade for async applications.
+
+===== Install
+
+[source,shell]
+----
+pip install arcadedb-driver
+----
+
+Or with https://docs.astral.sh/uv/[uv]:
+
+[source,shell]
+----
+uv add arcadedb-driver
+----
+
+Requires Python 3.10 or later.
+
+===== Connect and query
+
+[source,python]
+----
+import httpx
+from arcadedb_driver import ArcadeDBServer, basic_auth
+
+with ArcadeDBServer(
+    base_url="http://localhost:2480",
+    auth=basic_auth("root", "playwithdata"),
+    timeout=httpx.Timeout(5.0),
+) as srv:
+    db = srv.db("mydb")
+
+    envelope = db.query(language="sql", command="SELECT FROM Person WHERE age > ?", params={"0": 21})
+    print(envelope.result, envelope.returned, envelope.truncated)
+----
+
+[source,text]
+----
+[{'@rid': '#1:0', '@type': 'Person', '@cat': 'v', 'name': 'Alice', 'age': 30}, {'@rid': '#1:1', '@type': 'Person', '@cat': 'v', 'name': 'Bob', 'age': 25}] 2 False
+----
+
+[WARNING]
+====
+*Positional parameters are zero-indexed -- `{"1": 21}` silently returns nothing.*
+
+Positional parameters are keyed by their zero-based index as a string. For the single placeholder
+above, the key is `"0"`, not `"1"`. Passing `params={"1": 21}` does not raise and does not match
+the wrong rows -- it runs the query with no bound value for `?` at all and comes back empty:
+
+[source,text]
+----
+[] 0 False
+----
+
+The driver's own README shows `{"1": 21}`; it looks plausible and returns quietly, which is
+exactly what makes it easy to ship. Always start positional parameter keys at `"0"`.
+====
+
+`basic_auth("root", "playwithdata")` builds the `Authorization` header for HTTP basic auth;
+`bearer_auth("AU-...")` substitutes directly for it wherever you already hold a session token
+from `/api/v1/login`, or any other bearer credential.
+
+===== Sync and async
+
+Every facade method has an async twin. `AsyncArcadeDBServer` mirrors `ArcadeDBServer` method for
+method, just `await`-ed:
+
+[source,python]
+----
+import asyncio
+from arcadedb_driver import AsyncArcadeDBServer, basic_auth
+
+
+async def main() -> None:
+    async with AsyncArcadeDBServer(
+        base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")
+    ) as srv:
+        envelope = await srv.db("mydb").query(language="sql", command="SELECT FROM Person")
+        print(envelope.result)
+
+
+asyncio.run(main())
+----
+
+[source,text]
+----
+[{'@rid': '#1:0', '@type': 'Person', '@cat': 'v', 'name': 'Alice', 'age': 30}, {'@rid': '#1:1', '@type': 'Person', '@cat': 'v', 'name': 'Bob', 'age': 25}]
+----
+
+Beyond `query`, `command` and `transaction`, a database handle also exposes `db.ts`, `db.grafana`
+and `db.promql` for time-series ingestion and querying -- see the package README linked below for
+those.
+
+===== Close your client
+
+Both `ArcadeDBServer` and `AsyncArcadeDBServer` are context managers, because each owns an
+`httpx` client with its own connection pool that must be released. Prefer `with` /
+`async with`. When you cannot use one -- a long-lived client held across requests, say -- call
+`close()` on the sync class or `await aclose()` on the async one yourself.
+
+[NOTE]
+====
+*Timeouts are off by default.*
+
+Omitting `timeout` does not mean "use httpx's five-second default" -- it means no timeout at
+all. `ArcadeDBServer` and `AsyncArcadeDBServer` default `timeout` to `None`, and in httpx an
+explicit `timeout=None` means exactly that: requests are free to hang forever on a stalled
+connection. Pass an explicit `httpx.Timeout` to bound requests, as in the example above:
+`timeout=httpx.Timeout(5.0)`.
+====
+
+===== Transactions
+
+[source,python]
+----
+with db.transaction() as tx:
+    tx.command(language="sql", command="INSERT INTO Account SET balance = 100")
+    total = tx.query(language="sql", command="SELECT sum(balance) AS total FROM Account").result[0]["total"]
+print("total:", total)
+----
+
+[source,text]
+----
+total: 100
+----
+
+`db.transaction()` returns a context manager whose `__enter__` gives you a second database
+handle -- here, `tx` -- that carries the transaction's session id. The contract:
+
+* If the block exits cleanly, the transaction commits.
+* If the block raises, the transaction rolls back and the block's own exception propagates. If
+  the rollback itself also fails, that failure is attached as the exception's `__cause__` rather
+  than replacing it -- the block's error is what you asked about.
+* If the commit itself fails, a best-effort rollback is issued first, so the server-side session
+  is not left open for `+arcadedb.server.httpTxExpireTimeout+` to reap it.
+
+The trap: calls made through the outer `db` handle while a transaction is open do not join that
+transaction -- they auto-commit individually, outside it. Only calls made through the handle
+`transaction()` gives you (`tx` above) take part.
+
+===== Two error models
+
+Facade methods raise `ArcadeDBError` on any non-2xx response, carrying `status`, `error`,
+`detail` and `request_id`. This holds for `query`, `command` and `transaction`, and equally for
+the `ts`, `grafana` and `promql` namespaces -- every one of them raises the same
+`ArcadeDBError` rather than letting an `httpx` exception or anything else through:
+
+[source,python]
+----
+from arcadedb_driver import ArcadeDBError
+
+try:
+    db.query(language="sql", command="SELECT FROM NoSuchType")
+except ArcadeDBError as err:
+    print(err.status, err.error, err.detail, err.request_id)
+----
+
+[source,text]
+----
+500 Internal error Type with name 'NoSuchType' was not found 7f43ebd2c31c5c12-24
+----
+
+`request_id` is the server's `X-Request-Id` for that call and is different on every request; use
+it to correlate a failure with the server log.
+
+`srv.raw` takes the opposite approach: it never raises. It is not a second facade with its own
+`query` and `command` methods -- it is the generated `openapi-python-client` `Client` object, the
+value you hand to the generated endpoint functions as their `client=` argument. Each of those
+functions returns a response whose `status_code` and `parsed` body you inspect yourself, the same
+shape you get for a successful call. Use `raw` when you would rather branch on a status code than
+catch an exception:
+
+[source,python]
+----
+from arcadedb_driver import ArcadeDBServer, basic_auth
+from arcadedb_driver._generated.api.database import list_databases
+
+with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
+    response = list_databases.sync_detailed(client=srv.raw)
+    print(response.status_code, response.parsed.result)
+----
+
+[source,text]
+----
+200 ['mydb']
+----
+
+===== Next steps
+
+* <<native-drivers,Native Drivers>> -- the result envelope and why `truncated` matters, and how
+  this driver compares to the other three.
+* xref:how-to/connectivity/drivers/python-grpc.adoc[Python -- gRPC Driver] -- the gRPC
+  counterpart for throughput-sensitive server-to-server work.
+* The https://github.com/ArcadeData/arcadedb-drivers/tree/main/python/packages/driver#readme[package README]
+  for the full method list, including `db.ts`, `db.grafana` and `db.promql`.

@@ -67,7 +67,13 @@ NAV_STRUCTURE: list[dict] = [
                 "use-cases/data-lineage.adoc",
             ]),
             (("languages-drivers.adoc", "Languages & Drivers"), [
-                (("tutorials/java-tutorial.adoc", "Java"), [
+                # Java splits by where the engine runs, which is the choice a Java
+                # reader makes first: in-process (Embedded) or against a server
+                # (Remote). The tutorial covers both, so it sits above the two
+                # groups rather than inside either -- the same shape as Native
+                # Drivers above Python and JavaScript below.
+                ("tutorials/java-tutorial.adoc", "Java"),
+                ("Java — Embedded", [
                     ("reference/java-api/java-ref-database.adoc", "Database API"),
                     ("reference/java-api/java-ref-database-async.adoc", "Async Database API"),
                     ("reference/java-api/java-schema.adoc", "Schema API"),
@@ -76,12 +82,31 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/java-api/java-events.adoc", "Events"),
                     ("reference/java-api/java-batch-importer.adoc", "Graph Batch Importer"),
                     ("reference/java-api/java-vectors.adoc", "Vector Embeddings"),
+                ]),
+                ("Java — Remote", [
                     ("reference/java-api/java-api-remote.adoc", "Remote API"),
                     ("reference/java-api/java-api-grpc.adoc", "gRPC API"),
+                    ("how-to/connectivity/jdbc.adoc", "JDBC"),
+                    ("how-to/connectivity/bolt.adoc#java-example", "Neo4j BOLT"),
                 ]),
-                ("tutorials/python-quickstart.adoc", "Python"),
-                ("tutorials/javascript-quickstart.adoc", "JavaScript / TypeScript"),
-                ("how-to/connectivity/http-nodejs.adoc", "Node.js / JavaScript"),
+                ("how-to/connectivity/drivers/native-drivers.adoc", "Native Drivers"),
+                # Grouped per language, not per protocol: a reader arrives knowing
+                # their language and wants every way to connect from it in one place.
+                # The group labels carry no URL because there is no per-language
+                # landing page to point them at (Java has one; Python and JS do not).
+                ("Python", [
+                    ("how-to/connectivity/drivers/python-http.adoc", "Native driver — HTTP"),
+                    ("how-to/connectivity/drivers/python-grpc.adoc", "Native driver — gRPC"),
+                    ("tutorials/python-quickstart.adoc", "PostgreSQL protocol"),
+                    ("how-to/connectivity/bolt.adoc#python-example", "Neo4j BOLT"),
+                ]),
+                ("JavaScript / TypeScript", [
+                    ("how-to/connectivity/drivers/js-http.adoc", "Native driver — HTTP"),
+                    ("how-to/connectivity/drivers/js-grpc.adoc", "Native driver — gRPC"),
+                    ("tutorials/javascript-quickstart.adoc", "PostgreSQL protocol"),
+                    ("how-to/connectivity/bolt.adoc#javascript-example", "Neo4j BOLT"),
+                    ("how-to/connectivity/http-nodejs.adoc", "HTTP / JSON (Node.js)"),
+                ]),
                 ("how-to/connectivity/http-csharp.adoc", "C#"),
                 ("how-to/connectivity/c.adoc", "C"),
                 ("how-to/connectivity/cpp.adoc", "C++"),
@@ -311,6 +336,18 @@ def first_heading(page_path: Path) -> str | None:
     return None
 
 
+def split_fragment(path: str) -> tuple[str, str]:
+    """Split "file.adoc#frag" into ("file.adoc", "file.adoc#frag").
+
+    A nav entry may deep-link into a shared page -- the per-language examples on
+    bolt.adoc, say -- but the existence check, the first_heading() fallback and
+    the listed/on-disk reconciliation all need the bare file path. Only the
+    emitted xref keeps the fragment.
+    """
+    file_path, _, frag = path.partition("#")
+    return file_path, path
+
+
 def normalize(entry):
     if isinstance(entry, tuple):
         return entry
@@ -350,22 +387,24 @@ def render_nav(spec: dict, listed: set[str]) -> str:
                     lines.append(f"** {sub_title}")
                 for child in sub_items:
                     cpath, clabel = normalize(child)
-                    cpage = PAGES / cpath
+                    cfile, cref = split_fragment(cpath)
+                    cpage = PAGES / cfile
                     if not cpage.exists():
-                        print(f"  WARN: nav references missing page {cpath}", file=sys.stderr)
+                        print(f"  WARN: nav references missing page {cfile}", file=sys.stderr)
                         continue
-                    ctitle = clabel or first_heading(cpage) or cpath
-                    listed.add(cpath)
-                    lines.append(f"*** xref:{cpath}[{ctitle}]")
+                    ctitle = clabel or first_heading(cpage) or cfile
+                    listed.add(cfile)
+                    lines.append(f"*** xref:{cref}[{ctitle}]")
                 continue
             path, label = normalize(entry)
-            page = PAGES / path
+            file_path, ref = split_fragment(path)
+            page = PAGES / file_path
             if not page.exists():
-                print(f"  WARN: nav references missing page {path}", file=sys.stderr)
+                print(f"  WARN: nav references missing page {file_path}", file=sys.stderr)
                 continue
-            title = label or first_heading(page) or path
-            listed.add(path)
-            lines.append(f"** xref:{path}[{title}]")
+            title = label or first_heading(page) or file_path
+            listed.add(file_path)
+            lines.append(f"** xref:{ref}[{title}]")
     return "\n".join(lines) + "\n"
 
 
