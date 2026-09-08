@@ -67,7 +67,13 @@ NAV_STRUCTURE: list[dict] = [
                 "use-cases/data-lineage.adoc",
             ]),
             (("languages-drivers.adoc", "Languages & Drivers"), [
-                (("tutorials/java-tutorial.adoc", "Java"), [
+                # Java splits by where the engine runs, which is the choice a Java
+                # reader makes first: in-process (Embedded) or against a server
+                # (Remote). The tutorial covers both, so it sits above the two
+                # groups rather than inside either -- the same shape as Native
+                # Drivers above Python and JavaScript below.
+                ("tutorials/java-tutorial.adoc", "Java"),
+                ("Java — Embedded", [
                     ("reference/java-api/java-ref-database.adoc", "Database API"),
                     ("reference/java-api/java-ref-database-async.adoc", "Async Database API"),
                     ("reference/java-api/java-schema.adoc", "Schema API"),
@@ -76,8 +82,12 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/java-api/java-events.adoc", "Events"),
                     ("reference/java-api/java-batch-importer.adoc", "Graph Batch Importer"),
                     ("reference/java-api/java-vectors.adoc", "Vector Embeddings"),
+                ]),
+                ("Java — Remote", [
                     ("reference/java-api/java-api-remote.adoc", "Remote API"),
                     ("reference/java-api/java-api-grpc.adoc", "gRPC API"),
+                    ("how-to/connectivity/jdbc.adoc", "JDBC"),
+                    ("how-to/connectivity/bolt.adoc#java-example", "Neo4j BOLT"),
                 ]),
                 ("how-to/connectivity/drivers/native-drivers.adoc", "Native Drivers"),
                 # Grouped per language, not per protocol: a reader arrives knowing
