@@ -123,6 +123,25 @@ For time series health:
 curl http://localhost:2480/api/v1/ts/mydb/grafana/health
 ----
 
+===== Server health warnings
+
+Since v26.10.1 the server runs a health monitor that samples, every ten seconds, three things a running server can
+degrade on:
+
+* free disk space on the filesystem holding the databases -- the same filesystem the `diskFreeSpace` figures above
+  describe, and the warning that precedes a database that can no longer write;
+* available heap;
+* JVM pause times.
+
+When one of them degrades, a `WARNING` event is written to the server event log, visible in Studio and through
+`GET /api/v1/server/events`. Each kind of warning is rate limited so a server that stays degraded reports it
+periodically rather than on every sample: once a day for low disk, once every 30 minutes for heap and JVM pauses.
+
+Set `arcadedb.server.healthCheck.enabled=false` to turn the monitor off.
+
+NOTE: The monitor is enabled by default. On an in-place upgrade a server already close to those thresholds starts
+producing event-log warnings it did not produce before.
+
 ===== Further Reading
 
 * <<howto-observability,Cloud Observability>> -- RED metrics, OTLP export, tracing, structured logging, and health probes
