@@ -1,102 +1,73 @@
 [[http-api-nodejs]]
-==== Node.js / JavaScript
+==== HTTP / JSON from JavaScript
 
 [TIP]
 ====
-*Connection options for Node.js / JavaScript*
+*Connecting to ArcadeDB from JavaScript / TypeScript*
 
-ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+* xref:how-to/connectivity/drivers/js-http.adoc[*Native HTTP driver*] -- `npm install @arcadedb/driver`, generated from ArcadeDB's OpenAPI contract. Start here for most applications.
+* xref:how-to/connectivity/drivers/js-grpc.adoc[*Native gRPC driver*] -- `npm install @arcadedb/driver-grpc`, for streaming and bulk inserts.
+* xref:tutorials/javascript-quickstart.adoc[*PostgreSQL wire protocol*] -- `npm install pg`, run SQL through a driver you may already have.
+* xref:how-to/connectivity/bolt.adoc#javascript-example[*Neo4j BOLT*] -- `npm install neo4j-driver`, run Cypher queries.
 
-* xref:how-to/connectivity/bolt.adoc[*Neo4j BOLT*] -- `npm install neo4j-driver`, run Cypher queries.
-* xref:how-to/connectivity/postgres.adoc[*PostgreSQL wire protocol*] -- `npm install pg`, run SQL.
-* xref:reference/http-api/http.adoc[*HTTP/JSON API*] -- use `fetch` or `axios`, no driver required.
-
-This page covers the PostgreSQL and HTTP/JSON approaches in detail. A BOLT example is coming soon.
+This page covers the remaining option: calling the HTTP/JSON API directly, with no driver at all.
 ====
 
-ArcadeDB can be accessed from Node.js in three ways:
+ArcadeDB's HTTP/JSON API is reachable from any HTTP client, so JavaScript can talk to it with nothing installed. Prefer xref:how-to/connectivity/drivers/js-http.adoc[`@arcadedb/driver`] when you can -- it gives you typed results, transactions, and error handling for one dependency. Reach for raw HTTP when you cannot add a dependency at all: a serverless function you want to keep cold-start-free, a build script, or a quick probe.
 
-[cols="1,2,1"]
-|===
-| Method | Best For | Library
+See the xref:reference/http-api/http.adoc[HTTP/JSON API reference] for every endpoint and parameter.
 
-| **Neo4j BOLT** | Cypher / graph workloads | `neo4j-driver`
-| **PostgreSQL protocol** | Most applications | `pg`
-| **HTTP/JSON API** | Lightweight scripts, serverless, browsers | `fetch` / `axios`
-|===
+===== Using fetch
 
-===== PostgreSQL Protocol (Recommended)
-
-ArcadeDB speaks the PostgreSQL wire protocol natively. Use the standard `pg` client.
-
-[source,bash]
-----
-npm install pg
-----
-
-[source,javascript]
-----
-const { Client } = require('pg');
-
-const client = new Client({
-  host: 'localhost',
-  port: 5432,
-  database: 'mydb',
-  user: 'root',
-  password: 'arcadedb',
-});
-
-await client.connect();
-
-// SQL queries
-const result = await client.query('SELECT FROM V LIMIT 10');
-console.log(result.rows);
-
-// Cypher queries (prefix with {cypher})
-const cypher = await client.query('{cypher} MATCH (n) RETURN n LIMIT 10');
-console.log(cypher.rows);
-
-// Graph traversal with MATCH
-const graph = await client.query(`
-  SELECT person.name, friend.name
-  FROM MATCH {type: Person, as: person}
-       -Knows-> {type: Person, as: friend}
-`);
-for (const row of graph.rows) {
-  console.log(`${row['person.name']} knows ${row['friend.name']}`);
-}
-
-await client.end();
-----
-
-===== HTTP/JSON API
-
-For lightweight scripts, serverless functions, or browser-side code:
-
-====== Using fetch (Node.js 18+ or browsers)
+`fetch` is built into Node.js 18 and later, and into every current browser -- so this needs no packages.
 
 [source,javascript]
 ----
 const base = 'http://localhost:2480/api/v1';
-const auth = 'Basic ' + btoa('root:arcadedb');
+const auth = 'Basic ' + Buffer.from('root:playwithdata').toString('base64');
 
 const response = await fetch(`${base}/command/mydb`, {
   method: 'POST',
   headers: {
-    'Authorization': auth,
+    Authorization: auth,
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
     language: 'sql',
-    command: 'SELECT FROM V LIMIT 10',
+    command: 'SELECT FROM Person LIMIT 10',
   }),
 });
 
+if (!response.ok) {
+  throw new Error(`${response.status} ${await response.text()}`);
+}
+
 const data = await response.json();
-console.log(data);
+console.log(data.result);
 ----
 
-====== Using axios
+[source]
+----
+[
+  {
+    '@rid': '#1:0',
+    '@type': 'Person',
+    '@cat': 'v',
+    name: 'Alice',
+    age: 30
+  }
+]
+----
+
+`Buffer` is Node-only; in a browser, build the same header with `btoa('root:playwithdata')`.
+
+Two things worth knowing. `fetch` does not throw on an HTTP error status -- a 401 or a 500 resolves normally, and only a network failure rejects -- so check `response.ok` yourself, as above. And `fetch` has no timeout at all: wrap the call with `signal: AbortSignal.timeout(5000)` if a hung connection would be worse than a failed one.
+
+The response is the full envelope, not a bare array: `result` holds the rows, alongside `limit`, `returned`, and `truncated`. A `truncated` of `true` means the server stopped serializing before the result set ended, so `result` is a partial answer that looks exactly like a complete one -- see xref:how-to/connectivity/drivers/native-drivers.adoc[Native Drivers] for what to do about it.
+
+===== Using axios
+
+`axios` handles the base64 encoding and throws on non-2xx responses, which is the main reason to prefer it over `fetch` here.
 
 [source,bash]
 ----
@@ -105,49 +76,48 @@ npm install axios
 
 [source,javascript]
 ----
-const axios = require('axios');
-
-const auth = 'Basic ' + btoa('root:arcadedb');
+import axios from 'axios';
 
 const res = await axios.post(
   'http://localhost:2480/api/v1/command/mydb',
-  { language: 'sql', command: 'SELECT FROM V LIMIT 10' },
-  { headers: { 'Authorization': auth, 'Content-Type': 'application/json' } },
+  { language: 'sql', command: 'SELECT FROM Person LIMIT 10' },
+  { auth: { username: 'root', password: 'playwithdata' } },
 );
 
-console.log(res.data);
+console.log(res.data.result);
+----
+
+[source]
+----
+[
+  {
+    '@rid': '#1:0',
+    '@type': 'Person',
+    '@cat': 'v',
+    name: 'Alice',
+    age: 30
+  }
+]
 ----
 
 ===== TypeScript
 
-Both `pg` and `fetch` work with TypeScript. Install type definitions for `pg`:
-
-[source,bash]
-----
-npm install pg @types/pg
-----
+Both examples are valid TypeScript as written, and need no type packages beyond the `@types/node` a Node project already has: `fetch` and `Buffer` come from it, and `axios` ships its own types. Annotate the response shape yourself if you want the rows typed:
 
 [source,typescript]
 ----
-import { Client } from 'pg';
+interface QueryResponse<T> {
+  result: T[];
+  limit: number;
+  returned: number;
+  truncated: boolean;
+}
 
-const client = new Client({
-  host: 'localhost',
-  port: 5432,
-  database: 'mydb',
-  user: 'root',
-  password: 'arcadedb',
-});
-
-await client.connect();
-const result = await client.query('SELECT FROM V LIMIT 10');
-console.log(result.rows);
-await client.end();
+const data = (await response.json()) as QueryResponse<{ name: string; age: number }>;
 ----
 
 ===== Further Reading
 
-* <<javascript-quickstart,JavaScript Quickstart Tutorial>> -- Step-by-step tutorial
-* <<use-case-supply-chain,Supply Chain Use Case>> -- Full JavaScript implementation with 7 query patterns
-* <<postgres-driver,PostgreSQL Protocol Reference>>
-* <<http-json-api,HTTP/JSON API Reference>>
+* xref:how-to/connectivity/drivers/js-http.adoc[Native HTTP driver] -- typed results, transactions, and error handling
+* xref:reference/http-api/http.adoc[HTTP/JSON API reference] -- every endpoint and parameter
+* <<use-case-supply-chain,Supply Chain Use Case>> -- a full JavaScript implementation with 7 query patterns
