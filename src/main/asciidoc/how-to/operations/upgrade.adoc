@@ -167,3 +167,14 @@ For Kubernetes specifics (StatefulSet, headless service, init container for pre-
 In case you need to downgrade to an older version of ArcadeDB, check the binary compatibility between the versions.
 ArcadeDB uses https://semver.org[semantic versioning] with 100% on-disk compatibility for migration of databases up or down between *patch* versions (the `Z` in `X.Y.Z`).
 For minor or major downgrades the safest path is to export the database with the newer version and re-import it with the older version.
+
+[[downgrade-ha]]
+===== Downgrading a node of an HA cluster
+
+A cluster running v26.10.1 or later replicates schema changes in a compact format that earlier builds cannot read.
+Those entries stay in the Raft log, so a node that is restarted on an older build replays them and ends up with a schema that no longer matches the rest of the cluster - silently.
+
+*A node of a cluster that has run v26.10.1 or later must not be rolled back below it by restarting it on its existing Raft log.*
+If you have to go back that far, rebuild the node instead: stop it, delete its `raft-storage-<peerId>/` directory and its `databases/` folder, and start the older build so it rejoins empty and takes a fresh copy from the leader.
+
+NOTE: This applies only to the Raft log, not to your data. Database files themselves keep the usual patch-version compatibility described above.
