@@ -48,15 +48,33 @@ ARCADEDB_SETTINGS="-Darcadedb.server.rootPassword=playwithdata" bin/server.sh
 [[settings-boolean-values]]
 ===== Boolean values
 
-A setting of type `Boolean` accepts only `true` or `false` (in any casing). Anything else -- `yes`, `1`, `on`, or a
-misspelling such as `ture` -- is refused: the setting keeps its default and a warning naming the setting and the
-rejected value is logged at startup. This holds however the value is provided: a JVM system property, an environment
-variable, `ARCADEDB_SETTINGS`, or an admin command.
+A setting of type `Boolean` accepts only `true` or `false` (in any casing, surrounding spaces are ignored). Anything
+else -- `yes`, `1`, `on`, or a misspelling such as `ture` -- is refused: the setting keeps its default and a warning
+naming the setting and the rejected value is logged at startup. This holds however the value is provided: a JVM system
+property, an environment variable, `ARCADEDB_SETTINGS`, the server configuration file, or an admin command.
+_(The server configuration file is checked this way since v26.10.1.)_
 
 The point is that a typo can never quietly mean `false`. For a setting that guards something -- for example
-`serverMetrics.prometheus.requireAuthentication`, whose default is `true` -- silently reading an unrecognised value as
-`false` would have turned the protection off while it looked enabled. If a setting is not taking effect, check the
-server log for that warning.
+`ha.tls.mutualAuth` or `ha.peerAllowlist.enabled`, both of which default to `true` -- silently reading an unrecognised
+value as `false` would have turned the protection off while it looked enabled. If a setting is not taking effect,
+check the server log for that warning.
+
+[[settings-allowed-values]]
+===== Settings with a fixed list of values
+
+Some settings accept only a given set of words -- `server.mode` is `development`, `test` or `production`, for
+instance. Since v26.10.1 a value outside the list is refused wherever it is written, including the server
+configuration file, and the setting keeps its previous value with a warning naming what was allowed. Casing does not
+matter: `Production` is accepted and understood the same as `production`.
+
+[[settings-server-level]]
+===== Server-level settings
+
+A setting documented as server level can be written in the server configuration file, with `SET SERVER SETTING`, or as
+a `-D` JVM property, and all three take effect. _(Before v26.10.1 a number of them were only ever read from `-D` or an
+environment variable: a value written in the configuration file was accepted and then ignored, with nothing in the log
+to say so. This affected, among others, `server.mode` and `studio.enabled`, the HA snapshot and peer-allowlist
+settings, and the ports and limits of the Bolt, Postgres, Redis and gRPC protocols.)_
 
 [[settings-sql]]
 ==== SQL (Database Level)
