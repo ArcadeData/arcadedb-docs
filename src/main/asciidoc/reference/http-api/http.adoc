@@ -1405,6 +1405,28 @@ The response is a JSON object with import statistics:
 
 The `idMapping` field is included only when temporary IDs (`@id`) were used. It maps each temporary ID to the actual RID assigned by the database.
 
+Because this response is built in full before anything is sent, the mapping of a very large load is dropped rather than risk exhausting memory: past 10,000 entries the server replies with `idMappingOmitted: true` and `idMappingSize` instead. Send `idMapping=true` to demand it anyway, or use the streaming response below, which has no such limit.
+
+[[http-batch-streaming]]
+====== Streaming response
+
+Send `Accept: application/x-ndjson` to be answered as the load runs instead of once at the end. The response is one JSON object per line:
+
+[source,json]
+----
+{"progress":{"phase":"vertices","verticesCreated":10000,"edgesCreated":0,"idMapping":{"t1":"#9:0","...":"..."}}}
+{"progress":{"phase":"vertices","verticesCreated":20000,"edgesCreated":0,"idMapping":{"...":"..."}}}
+{"summary":{"verticesCreated":20000,"edgesCreated":0,"elapsedMs":1234,"idMappingStreamed":true,"idMappingSize":20000}}
+----
+
+Each `progress` line acknowledges a committed chunk and carries the temporary-ID mapping *for that chunk only*. Concatenate them to obtain the whole mapping, and check the total against `idMappingSize` on the last line. Because neither side ever holds more than one chunk, the 10,000-entry limit above does not apply here: a load of any size gets its complete mapping.
+
+The stream always ends with either a `summary` line (success) or an `error` line (failure); a stream that ends with neither did not arrive complete. On failure the `error` line carries the same counters the buffered response would have, plus the status code it would have been sent under, since the status line can no longer be changed once the stream has started.
+
+Sending no `Accept` header, or any other value, returns the single buffered object described above, unchanged.
+
+NOTE: The Java driver's `RemoteGraphBatch` uses this encoding automatically, so a bulk load through it is not limited by the mapping size either. Call `withProgressListener(...)` on the builder to be notified of each chunk.
+
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
