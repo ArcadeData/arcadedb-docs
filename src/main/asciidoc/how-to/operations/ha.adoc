@@ -122,6 +122,9 @@ One request is exempt: the *capability check*, in which the leader asks each pee
 That call changes nothing on the peer and its reply says who answered, so ArcadeDB dials the shared address anyway and credits the answer to the node that identified itself.
 A cluster that has never declared its `http` ports therefore still gets the compact formats, instead of falling back to the verbose ones forever with nothing to explain why. _(Since v26.10.1)_
 
+On the common single-host layout where every node shares an address and the Raft and HTTP ports move in step (`2434/2480`, `2435/2481`, ...), the capability check derives each peer's HTTP port from that same offset, so it reaches the peers the shared-address fallback cannot name.
+The derived port is used for the capability check only - never for a snapshot download, a cluster verify or a forwarded write, which keep refusing a shared address. _(Since v26.10.1)_
+
 A peer the leader still could not get an answer for carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port. _(Since v26.10.1)_
 
 TIP: Ask the *leader* when you want to compare what the nodes understand, because the leader is the only node that asks the others. A follower answers for itself and omits the field for every other peer. _(Since v26.10.1: a follower reported its own capabilities under the leader's entry, which during a rolling upgrade pointed at the wrong node.)_
