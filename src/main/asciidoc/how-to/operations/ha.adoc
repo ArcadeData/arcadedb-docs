@@ -286,12 +286,16 @@ All writes must go through the leader: a replica that receives a write transpare
 
 Internally, every committed write follows a *replicate-first, commit-after* three-phase commit:
 
-. Phase 1 (read lock): capture the WAL pages produced by the transaction.
+. Phase 1 (read lock): capture the WAL pages produced by the transaction, validated against the page versions the node holds.
 . Phase 2 (no lock): append the payload to the Raft log and wait for quorum acknowledgment.
-. Phase 3 (read lock): apply the pages to the local database and return to the client.
+. Phase 3: apply the pages to the local database and return to the client.
 
 If Phase 2 times out or fails, Phase 3 never runs: no local writes, no divergence.
 Multiple concurrent transactions are batched into fewer Raft round-trips via group commit (`HA_RAFT_GROUP_COMMIT_BATCH_SIZE`).
+
+Phase 3 runs on the Raft apply thread of every node, the leader included, when the entry reaches its position in the log: the leader publishes the pages its transaction prepared, a replica applies the entry's WAL bytes. Every node therefore writes its pages in log order, and the leader's own commit can never overtake or trail the apply of a neighbouring entry.
+
+Two transactions validated on different nodes against the same version of a page (for example two documents that share a page, each written by a different node) are both shipped to the leader with the same next version. The leader validates every entry, page by page, against the versions the log has already assigned, at the point that decides the log order, and refuses the second one *before appending it*: the originator receives a retryable `ConcurrentModificationException`, exactly as it would for a conflict on a single node, re-reads the page and retries. An entry is never merged onto another one region by region, so a node can neither lose an acknowledged write nor drift from its peers. While such an entry is in flight, a transaction on the leader that touches one of its pages fails its own Phase 1 with the same retryable error, without a round trip.
 
 ===== Write Quorum
 
@@ -861,7 +865,7 @@ For Kubernetes deployments using the official Helm chart -- including the `State
 ====== Performance: insertion is slow
 
 ArcadeDB uses an optimistic concurrency model: if two threads try to update the same page, the first wins, the second throws a `ConcurrentModificationException` and the client retries (configurable number of times).
-In HA mode the retry window is wider because file locks are held during the Raft round-trip.
+In HA mode the retry window is wider because file locks are held during the Raft round-trip, and the same rule applies across nodes: two nodes writing the same page concurrently are ordered by the leader, and the second one is refused with the same retryable error.
 
 If you are inserting many records in parallel, allocate one bucket per thread to eliminate contention.
 Example for the vertex type `User`:
