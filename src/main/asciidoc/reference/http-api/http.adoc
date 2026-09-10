@@ -225,6 +225,48 @@ them accumulates unsent frames in the server's memory. Once more than `server.ev
 default) is outstanding towards one connection, that subscription is dropped and the connection closed. Set it to
 `0` to disable the limit.
 
+[[websocket-insert-session]]
+==== Streaming Inserts over WebSocket
+
+Starting from v26.10.1, the same `ws://SERVER:PORT/ws` connection can run a duplex insert session: the client sends
+records in chunks and gets one acknowledgement per chunk while it is still sending the next, and it decides when
+the session commits. This is the WebSocket counterpart of the gRPC `InsertBidirectional` RPC. Each frame is a JSON
+object whose `action` is one of:
+
+[cols="10h,~",options="header"]
+|===
+|Action|Description
+|start| Opens a session on `database`. Optional `sessionId` (the server generates one when absent) and `options`, see below. Answered with `started`, which echoes the modes the session runs under.
+|chunk| `sessionId`, `chunkSeq` (contiguous from 1; re-sending an applied chunk is acknowledged as a replay and not applied again) and `records`, an array of JSON objects. A record takes its type from `@class` or from the session's `targetType`; an edge names its endpoints with `@from` and `@to` (`out` / `in` are accepted too). Answered with `batchAck`.
+|commit, rollback| Ends the session. Answered with `committed`, whose `outcome` says which of the two it was and whose `summary` carries the totals of the whole session.
+|===
+
+The `options` object of `start` accepts:
+
+[cols="10h,~",options="header"]
+|===
+|Option|Description
+|targetType| Default type of the records, overridable per record with `@class`.
+|transactionMode| `per_stream` (default, also spelled `per_request`): one transaction for the whole session, committed or rolled back by the client. `per_batch`: one transaction per chunk, committed before its acknowledgement. `per_row`: one transaction per record. Under the last two, `committed` reports `partialCommit: true` because a `rollback` cannot take back what was already committed.
+|conflictMode| What to do with a record whose key is already taken: `error` (default) reports it as a failed row with the error code `CONFLICT`; `update` rewrites the existing record with the incoming values; `ignore` drops it; `abort` is accepted for parity with gRPC and behaves as `error`. The gRPC spellings (`CONFLICT_UPDATE`, ...) are accepted as well.
+|keyColumns| The properties an existing record is matched on. Required for `update`. When absent, a duplicate is found by the engine where the transaction commits: per row under `per_row`, per chunk under `per_batch`, and on the `commit` frame under `per_stream`, which is then answered with an error and closes the session.
+|updateColumnsOnConflict| With `update`, the only properties overwritten. When absent, every non-key property sent is merged; a null value never overwrites, and an edge's endpoints are never changed.
+|validateOnly| `true` to parse and count every record without writing anything.
+|===
+
+The `batchAck` frame carries `chunkSeq`, the counters `received`, `inserted`, `updated`, `ignored`, `failed`, and an
+`errors` array with `rowIndex`, `code` and `message` for each record that could not be applied; the rest of the
+chunk still goes in. A session the client walks away from - the connection drops, or no frame arrives for
+`server.wsInsertSessionExpireTimeout` milliseconds - is rolled back, and the idle case is reported with an unsolicited
+`error` frame. Example, upserting people by `email`:
+
+[source,json]
+----
+{"action": "start", "database": "crm", "options": {"targetType": "Person", "conflictMode": "update", "keyColumns": ["email"]}}
+{"action": "chunk", "sessionId": "...", "chunkSeq": 1, "records": [{"email": "a@x.io", "name": "Ann"}, {"email": "b@x.io", "name": "Bob"}]}
+{"action": "commit", "sessionId": "..."}
+----
+
 ==== Responses
 
 The server answers a HTTP request with a response.
