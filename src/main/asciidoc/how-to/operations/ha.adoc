@@ -344,10 +344,17 @@ Clients communicate the consistency contract through three HTTP headers:
 
 | `X-ArcadeDB-Commit-Index`
 | response
-| Current last-applied commit index, echoed on every response. Clients capture this value and send it back as `X-ArcadeDB-Read-After` on subsequent reads.
+| Current last-applied commit index, echoed on every response, including error responses and streamed (`Accept: application/x-ndjson`) query responses. Clients capture this value and send it back as `X-ArcadeDB-Read-After` on subsequent reads.
 |===
 
 NOTE: Older clients that sent `X-ArcadeDB-Commit-Index` on requests are still accepted as a backward-compatible fallback.
+
+The bookmark is a lower bound: it says the server had applied *at least* that index when it answered.
+That holds on a refused request too, so a client can keep its read-your-writes barrier after an error instead of falling back to a stale one.
+
+The one endpoint where it is not a header is the streaming bulk load, `POST /api/v1/batch/{database}` with `Accept: application/x-ndjson`.
+There the response has already started by the time the commit index is known, and a header set at that point would be dropped silently, so the value travels in the body instead, as `commitIndex` on the terminal `summary` or `error` line.
+The Java driver handles this transparently: `RemoteDatabase.getLastCommitIndex()` advances the same way whichever encoding was used.
 
 ===== Load Shedding and Backpressure
 
