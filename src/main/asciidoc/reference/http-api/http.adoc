@@ -79,15 +79,15 @@ Example workflow:
 $ curl -X POST http://localhost:2480/api/v1/login \
        --user root:arcadedb-password
 
-# Response: {"token":"AU-2af64e60-8455-423a-bc64-ed0e19729f04","user":"root"}
+# Response: {"token":"AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04","user":"root"}
 
 # 2. Use the token for subsequent requests
 $ curl http://localhost:2480/api/v1/query/mydb/sql/select%201 \
-       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+       -H "Authorization: Bearer AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04"
 
 # 3. Logout when done
 $ curl -X POST http://localhost:2480/api/v1/logout \
-       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+       -H "Authorization: Bearer AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04"
 ----
 
 Authentication tokens expire after a configurable period of inactivity (default is 30 minutes).
@@ -102,6 +102,31 @@ issued to that user, on every server of a cluster. Previously such a token kept 
 its own. This applies however the change is made: the `/api/v1/server/users` endpoints, the `create user` /
 `drop user` server commands, the Cypher `CREATE USER` / `ALTER USER ... SET PASSWORD` / `DROP USER`
 statements, or an edit to `server-users.jsonl`.
+====
+
+*Tokens in a cluster:*
+
+[IMPORTANT]
+====
+Since version 26.10.1 a token issued by one server of a cluster is honoured by every other server, so a load
+balancer in front of the cluster needs no sticky sessions. The token names the server that issued it,
+`AU-<server name>-<uuid>`, where the server name is the value of `arcadedb.server.name` (any character outside
+letters, digits, `.`, `_` and `-` is replaced with `_`). A server that receives a token it has never seen asks
+the issuer once, through the cluster-internal channel protected by the cluster token, and keeps a local copy
+for the following requests. The copy is confirmed with the issuer periodically (a third of
+`server.httpAuthSessionExpireTimeout`, at most every 60 seconds), which also counts as activity on the issuer,
+so a token in use anywhere in the cluster does not expire at its source. A logout served by any server drops
+the copies on every other server. If the issuer no longer holds the session (it expired there, or the server
+restarted) the copies are dropped at their next confirmation; if the issuer cannot be reached, a copy is served
+for at most one idle timeout and then dropped.
+
+Every server must be able to map the name in the token to a member of the cluster. This is the same rule a
+server uses to find itself in `arcadedb.ha.serverList`: a `name@host:port` entry, a host equal to the server
+name, or a `-N` / `_N` suffix giving the position in the list (the Kubernetes Helm chart satisfies it as-is).
+A token whose name matches no member is refused without asking anyone. Tokens in the previous `AU-<uuid>` form
+are still accepted, but only by the server that issued them.
+
+API tokens (`at-` prefix) are not shared across servers: each server holds its own `server-api-tokens.json`.
 ====
 
 *Number of concurrent tokens:*
@@ -797,7 +822,7 @@ Return:
 
 [source,json]
 ----
-{"token": "AU-2af64e60-8455-423a-bc64-ed0e19729f04", "user": "root"}
+{"token": "AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04", "user": "root"}
 ----
 
 The returned token can be used in subsequent requests via the `Authorization: Bearer` header:
@@ -805,7 +830,7 @@ The returned token can be used in subsequent requests via the `Authorization: Be
 [source,shell]
 ----
 $ curl http://localhost:2480/api/v1/databases \
-       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+       -H "Authorization: Bearer AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04"
 ----
 
 [[http-logout]]
@@ -825,7 +850,7 @@ Example:
 [source,shell]
 ----
 $ curl -X POST http://localhost:2480/api/v1/logout \
-       -H "Authorization: Bearer AU-2af64e60-8455-423a-bc64-ed0e19729f04"
+       -H "Authorization: Bearer AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04"
 ----
 
 After logout, any attempt to use the invalidated token will result in a `401 Unauthorized` response.
@@ -858,7 +883,7 @@ Return:
 {
   "result": [
     {
-      "token": "AU-2af64e60-8455-423a-bc64-ed0e19729f04",
+      "token": "AU-ArcadeDB_0-2af64e60-8455-423a-bc64-ed0e19729f04",
       "user": "root",
       "elapsedMs": 12345
     },
