@@ -138,9 +138,41 @@ Type names are matched case-sensitively first, as ArcadeDB stores them, and only
 name to lower case. If two types differ only in case, an unquoted name that matches neither of them exactly
 resolves to nothing rather than picking one; quote the name to say which you mean.
 
-NOTE: `COPY (<query>) TO STDOUT` is not supported. Clients that read results through it - the Apache Arrow
-ADBC PostgreSQL driver does so by default - need their own option to use a plain query instead
-(`adbc.postgresql.use_copy=false` for that driver).
+[[postgres-copy-to-stdout]]
+===== COPY ... TO STDOUT
+
+`COPY` in its export direction is supported (since 26.10.1), in every form PostgreSQL accepts for it:
+
+[source,sql]
+----
+COPY (SELECT name, age FROM Person WHERE age > 18) TO STDOUT
+COPY Person TO STDOUT (FORMAT csv, HEADER)
+COPY Person (name, age) TO STDOUT WITH (FORMAT binary)
+COPY (SELECT FROM Person) TO STDOUT CSV HEADER DELIMITER ';' NULL 'nil'
+----
+
+The query in parentheses runs as it stands, in the session's query language (so a `{cypher}` prefix applies to it),
+and a type name with an optional column list stands for the equivalent `SELECT`. The rows travel in PostgreSQL's
+own `text`, `csv` or `binary` COPY encoding, so anything that reads a PostgreSQL COPY stream reads them: `psql`'s
+`\copy` (`\copy (SELECT FROM Person) TO 'people.csv' CSV HEADER`), pgjdbc's `CopyManager`, pandas, and the Apache
+Arrow ADBC PostgreSQL driver, which reads every result set through `COPY ... TO STDOUT (FORMAT binary)` by
+default and no longer needs `adbc.postgresql.use_copy=false`.
+
+The option list (`FORMAT`, `DELIMITER`, `NULL`, `HEADER`, `QUOTE`, `ESCAPE`, `FORCE_QUOTE`, `ENCODING`) and the
+older keyword spelling (`BINARY`, `CSV HEADER`, `DELIMITER AS`, `NULL AS`, `QUOTE AS`, `ESCAPE AS`,
+`FORCE QUOTE`) are both accepted, with the same restrictions PostgreSQL applies to their combinations. The output
+is always UTF-8.
+
+A `COPY` whose columns the schema can name is streamed row by row and is not subject to
+`arcadedb.postgres.queryMaxRows`, which is what makes it the way to export a large type over this protocol; a query
+whose columns only its rows can name (a schemaless type with no sample row, another query language) is materialized
+first, within that limit, exactly as a plain query is.
+
+Not supported, and refused with SQLSTATE `0A000` (`feature_not_supported`): the ingest direction `COPY ... FROM
+STDIN` (use `INSERT`, or the HTTP import API), and the server-side targets `COPY ... TO 'file'` and `COPY ... TO
+PROGRAM`, which would let a wire client write files or run commands on the server host. In binary format a column
+without a binary encoding on this server (an array) is refused the same way; export it in text or CSV format, or
+project it as a string.
 
 ===== Column type mapping
 
@@ -208,7 +240,8 @@ Connect from a terminal or console like this:
 ```shell
 psql -h localhost -p 5432 -d mydatabase -U root
 ```
-After authenticating, you can run SQL queries as normal.
+After authenticating, you can run SQL queries as normal, and `\copy` exports a query or a type to a local file
+(see <<postgres-copy-to-stdout,COPY ... TO STDOUT>> above).
 One can also submit the password via the environment:
 ```shell
 PGPASSWORD=password psql -h localhost -p 5432 -d mydatabase -U root

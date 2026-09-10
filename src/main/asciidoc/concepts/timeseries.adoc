@@ -362,20 +362,38 @@ GET /api/v1/ts/{database}/latest?type=SensorReading&tag=sensor_id:sensor-A
 A sample can be `NaN`, which means "no measurement here" rather than a value of zero. Aggregations treat it that
 way:
 
-* `MIN` and `MAX` skip `NaN` samples. Over a window that holds at least one real value they return that value; over
-  a window whose samples are *all* `NaN` they return `NaN`, meaning the window has no measurement to report.
-* `SUM` and `AVG` currently return `NaN` if any sample in the window is `NaN`.
+* `MIN`, `MAX`, `SUM` and `AVG` skip `NaN` samples. Over a window that holds at least one real value they answer from
+  the real values alone: `SUM` is the sum of the real samples and `AVG` divides it by the number of real samples,
+  not by the number of samples. Over a window whose samples are *all* `NaN` they return `NaN`, meaning the window
+  has no measurement to report.
+* `COUNT` counts rows, like SQL's `count(*)`, so it counts `NaN` samples too.
 * A genuine `Infinity` or `-Infinity` sample is a measurement and is returned as such.
+* Downsampling averages the real samples of each bucket; a bucket with no real sample is downsampled to `NaN`.
 
-Over the REST and Grafana endpoints an absent `MIN`/`MAX` is serialized as JSON `null`, since JSON has no `NaN`
-literal. A Grafana panel therefore draws a gap for such a bucket rather than a dip to zero.
+This is the semantics of SQL's `NULL` under `SUM`, `AVG` and `count(*)`. The PromQL endpoint is the one exception:
+its `sum`, `avg`, `sum_over_time` and `avg_over_time` propagate `NaN`, because that is what Prometheus does and a
+PromQL query is expected to answer what Prometheus would.
+
+Over the REST and Grafana endpoints an absent value is serialized as JSON `null`, since JSON has no `NaN` literal.
+A Grafana panel therefore draws a gap for such a bucket rather than a dip to zero.
 
 [NOTE]
 ====
-Before 26.9.1 an all-`NaN` window returned an internal placeholder instead - `1.7976931348623157E308` from the
-multi-column aggregation, `+Inf`/`-Inf` from PromQL's `min_over_time`/`max_over_time` - and those placeholders were
-indistinguishable from real measurements. Different query paths could also disagree with each other on the same
-data.
+Before 26.10.1 `SUM` and `AVG` returned `NaN` for the whole window as soon as one of its samples was `NaN`, and the
+block statistics a sealed block carries recorded that poisoned sum, so the answer stayed `NaN` even for a bucket of
+thousands of real samples. Since 26.10.1 every sealed block also records the count of real samples per column, which
+is what lets `AVG` be answered from the block statistics without decompressing the block. Blocks written by an
+earlier version are read as they are: a block whose recorded sum was poisoned is decompressed when a `SUM` or `AVG`
+needs it, and the next compaction, downsampling or retention rewrite of the block records both statistics. The
+sealed store format version moved from 0 to 1 for this; a 26.10.1 store cannot be opened by an earlier version.
+====
+
+[NOTE]
+====
+Before 26.9.1 an all-`NaN` window returned an internal placeholder for `MIN`/`MAX` instead -
+`1.7976931348623157E308` from the multi-column aggregation, `+Inf`/`-Inf` from PromQL's
+`min_over_time`/`max_over_time` - and those placeholders were indistinguishable from real measurements. Different
+query paths could also disagree with each other on the same data.
 ====
 
 ==== PromQL Query Language
