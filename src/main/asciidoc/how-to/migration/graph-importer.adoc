@@ -12,6 +12,9 @@ The import runs in two passes:
 
 1. **Pass 1** -- Process each data source once: create vertices with full properties, collect graph topology as compressed int arrays
 2. **Pass 2** -- Create all edges from the in-memory topology using <<java-batch-importer,GraphBatch>>, one batch per edge type with bidirectional edges for full IN+OUT traversal
+3. **Vector graphs** -- Build the graph of every `LSM_VECTOR` index on a type the import wrote to, so the index answers at index speed the moment `run()` returns (see <<graph-importer-vector-index-build,Loading into a type with a vector index>>)
+
+The speculative background maintenance of the database's indexes (the vector index's inactivity rebuild) is held off for the whole run, not only while one of the batches is open: a stall between the two passes must not be read as "the load is over".
 
 ===== Command-Line Usage
 
@@ -223,6 +226,15 @@ heterogeneous or non-numeric arrays such as tags.
 
 The equivalent Java API calls are `floatArrayProperty(name, attribute)` and `listProperty(name, attribute)`.
 
+[[graph-importer-vector-index-build]]
+====== Loading into a type with a vector index
+
+The index can also exist before the import. Every vector the load writes goes into the index's delta buffer, where it is searchable by a linear scan, and the HNSW graph that makes the search fast is built afterwards. Left to the index, that build starts once the index has been quiet for its inactivity window, on a background thread - and a `database.close()` right after `run()`, which is what a loader normally does, cancels it and throws the work away.
+
+So the importer builds it itself: when `run()` returns, every `LSM_VECTOR` index on a type the import wrote to has its graph built and persisted, and the process can close the database at once. The build is logged with its progress and takes as long as `CREATE INDEX` would over the same vectors. An index whose graph is already current is skipped.
+
+To leave the build to the index's background rebuild instead - only worth it when the database stays open long enough for that build to complete - set `"vectorGraphBuild": false` in the JSON configuration, or `.withVectorGraphBuild(false)` on the builder.
+
 [[graph-importer-arrays-in-csv]]
 ====== Arrays in a CSV file
 
@@ -306,6 +318,10 @@ that type's `id`, whatever the value looks like
 | `limit`
 | No
 | Maximum records per source (for testing). Omit or set to 0 for unlimited
+
+| `vectorGraphBuild`
+| No
+| Whether to build the graph of every `LSM_VECTOR` index on a type the import wrote to before `run()` returns (default `true`). See <<graph-importer-vector-index-build,Loading into a type with a vector index>>
 |===
 
 [[graph-importer-post-import-commands]]
