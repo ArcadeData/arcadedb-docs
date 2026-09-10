@@ -60,12 +60,21 @@ Administration service for server and database management.
 | `GetServerInfo` | `GetServerInfoRequest` | `GetServerInfoResponse` | Server version, uptime, and configuration
 | `ListDatabases` | `ListDatabasesRequest` | `ListDatabasesResponse` | List all databases
 | `ExistsDatabase` | `ExistsDatabaseRequest` | `ExistsDatabaseResponse` | Check if a database exists
-| `CreateDatabase` | `CreateDatabaseRequest` | `CreateDatabaseResponse` | Create a new database
-| `DropDatabase` | `DropDatabaseRequest` | `DropDatabaseResponse` | Drop an existing database
+| `CreateDatabase` | `CreateDatabaseRequest` | `CreateDatabaseResponse` | Create a new database (see below)
+| `DropDatabase` | `DropDatabaseRequest` | `DropDatabaseResponse` | Drop an existing database (see below)
 | `GetDatabaseInfo` | `GetDatabaseInfoRequest` | `GetDatabaseInfoResponse` | Schema, types, and database statistics
 | `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user
 | `DeleteUser` | `DeleteUserRequest` | `DeleteUserResponse` | Delete a user
 |===
+
+`CreateDatabase` and `DropDatabase` answer the no-op case the way the HTTP `create database` and `drop database`
+commands do: a name already taken is refused with `ALREADY_EXISTS`, a name that does not exist with `NOT_FOUND`.
+Set `if_not_exists` on `CreateDatabaseRequest`, or `if_exists` on `DropDatabaseRequest`, to make the call idempotent
+instead. Either way the response says what happened: `CreateDatabaseResponse.created` is `true` only when this call
+created the database, and `DropDatabaseResponse.dropped` only when it dropped one, so a provisioning tool can tell
+"created for me" from "already there" rather than reading an empty OK as ownership. Database names are exact and
+never case-folded. The Java client exposes the two forms as `createDatabase` / `createDatabaseIfMissing` and
+`dropDatabase` / `dropDatabaseIfExists`; the `IfMissing` / `IfExists` variants return the boolean.
 
 [[grpc-messages]]
 ==== Message Types
