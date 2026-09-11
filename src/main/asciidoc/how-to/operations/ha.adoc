@@ -566,13 +566,30 @@ $ curl -u root:<password> \
 |`overallStatus` |Meaning
 |`ALL_CONSISTENT` |Every peer was contacted and every peer's checksums match this node's.
 |`INCONSISTENCY_DETECTED` |At least one peer was contacted and its checksums differ - a divergence somebody has actually observed.
-|`VERIFICATION_INCOMPLETE` |No divergence was observed, but at least one peer could not be verified: it was unreachable, or its address does not identify it (see <<ha-peer-endpoint-ambiguity,Peer-to-Peer Endpoints>>). Such a peer is reported with `status: ERROR` and an `error` naming what to fix. _(Since v26.9.1)_
+|`VERIFICATION_INCOMPLETE` |No divergence was observed, but at least one peer could not be verified: it was unreachable, or its address does not identify it (see <<ha-peer-endpoint-ambiguity,Peer-to-Peer Endpoints>>). Such a peer is reported with `status: ERROR` and an `error` naming what to fix. _(Since v26.9.1)_ It is also reported when the TimeSeries sealed stores could not be fully compared - see below. _(Since v26.10.1)_
 |===
 
 `ALL_CONSISTENT` therefore means what it says: it is not reachable while any peer is unverified.
 An unverified peer is deliberately *not* rolled up as an observed divergence, which would send an operator hunting for something nobody saw.
 
 IMPORTANT: Alerting that keys on `overallStatus != "ALL_CONSISTENT"` is unaffected by the third value. Alerting that keys on `overallStatus == "INCONSISTENCY_DETECTED"` must add `VERIFICATION_INCOMPLETE` to keep catching an unreachable or unidentifiable node.
+
+[[ha-verify-timeseries]]
+====== TimeSeries Sealed Stores
+
+_(Since v26.10.1)_ The verify also compares the TimeSeries sealed stores (`.ts.sealed`), the files holding compacted historical samples.
+They were previously left out, which mattered because they are replicated by their own path rather than with the data pages: a node whose sealed store failed to install, or was repaired by hand, reported a perfect match while holding different history from the leader.
+
+Two fields report how far that comparison got:
+
+[cols="1,4",options="header"]
+|===
+|Field |Meaning
+|`peers[].uncomparedSealedStores` |The peer runs a build older than 26.10.1 and does not report these files, so they were left out of the comparison with it. Present only during a rolling upgrade; the value is how many were skipped.
+|`result.incompleteSealedStores`, `peers[].incompleteSealedStores` |A sealed store could not be read, so that side's answer is short of one. The peer is not rolled up as agreeing, and `overallStatus` becomes `VERIFICATION_INCOMPLETE`.
+|===
+
+Both mean the same thing for alerting: a `CONSISTENT` that did not compare every sealed store is a weaker statement than one that did, so neither is reported as `ALL_CONSISTENT`.
 
 ===== Studio Cluster Dashboard
 

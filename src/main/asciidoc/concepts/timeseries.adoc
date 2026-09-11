@@ -357,6 +357,30 @@ To retrieve the most recent data point:
 GET /api/v1/ts/{database}/latest?type=SensorReading&tag=sensor_id:sensor-A
 ----
 
+Repeat `tag` once per tag column to narrow to a single series; every occurrence must match:
+
+[source]
+----
+GET /api/v1/ts/{database}/latest?type=SensorReading&tag=sensor_id:sensor-A&tag=region:eu
+----
+
+[NOTE]
+====
+Since 26.10.1, a tag name that is not a `TAG` column of the type is refused with **HTTP 400**, naming it and
+listing the tags the type actually declares. It used to be ignored, which meant a typo *widened* the query
+instead of failing it: `{"tags": {"sesnor_id": "sensor-A"}}` returned every row in the range, and
+`?tag=sesnor_id:sensor-A` the newest sample of any series - neither distinguishable from a filter that
+legitimately matched everything.
+
+On `latest`, an occurrence that is not in `name:value` form (`?tag=sensor_id`) is refused for the same reason. An
+empty `?tag=` is still ignored, since that is what an empty form field produces.
+
+This applies to `POST /api/v1/ts/{database}/query`, `GET /api/v1/ts/{database}/latest`, the Grafana query
+endpoint (reported as that panel's error, so one bad tag does not blank the others) and the gRPC `TimeSeries`
+RPCs, which answer `INVALID_ARGUMENT`. The PromQL endpoint is unaffected: there an unknown label has a defined
+meaning under Prometheus' rules and is not a malformed request.
+====
+
 ===== Missing Values
 
 A sample can be `NaN`, which means "no measurement here" rather than a value of zero. Aggregations treat it that
@@ -629,11 +653,11 @@ The explorer provides four tabs:
 
 | `POST`
 | `/api/v1/ts/{database}/query`
-| JSON query endpoint. Supports raw and aggregated queries with tag filtering and field projection.
+| JSON query endpoint. Supports raw and aggregated queries with tag filtering and field projection. A `tags` name that is no `TAG` column of the type is refused with 400.
 
 | `GET`
 | `/api/v1/ts/{database}/latest?type=<name>&tag=<key>:<value>`
-| Returns the most recent data point, with optional tag filter.
+| Returns the most recent data point, with optional tag filter. Repeat `tag` to narrow across several tag columns; every occurrence must match. An occurrence that is malformed, or names no `TAG` column, is refused with 400.
 
 | `GET`
 | `/ts/{database}/prom/api/v1/query?query=<promql>&time=<unix_seconds>`
@@ -681,9 +705,10 @@ The explorer provides four tabs:
 In an HA cluster, TimeSeries data is handled as follows:
 
 * **Mutable bucket data** (`.tstb` files) is replicated to all followers via ArcadeDB's standard page-replication protocol
-* **Sealed store data** (`.ts.sealed` files) is _not_ replicated -- each node compacts independently from its local mutable data
+* **Sealed store data** (`.ts.sealed` files) is replicated too, but by its own path: compaction, retention and downsampling run on the leader only, and the rewritten sealed file is shipped to the followers together with the change that clears the matching mutable data. Followers do not compact independently
 * **Reads are consistent after failover**: the engine queries both sealed and mutable layers, so a newly promoted leader returns correct results even before its first compaction cycle
-* **Compaction lag**: a node that has not yet compacted may serve reads slightly slower until the maintenance scheduler runs (default: 60 seconds)
+* **Compaction lag**: a node whose maintenance scheduler has not run yet (default: 60 seconds) serves the same results, just with more of the answer coming from the mutable layer
+* **Backups and snapshots taken on a follower** are consistent. Because the sealed file and the clearing of the mutable data arrive together, a copy taken across that moment used to be able to capture both and restore with duplicated samples; since 26.10.1 the copy waits for the install to finish
 
 [[timeseries-integrity]]
 ==== Integrity Checking
