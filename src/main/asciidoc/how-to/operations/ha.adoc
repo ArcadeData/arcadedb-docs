@@ -884,6 +884,29 @@ ALTER TYPE User BucketSelectionStrategy `thread`
 
 With enough buckets, parallel insertions avoid page contention entirely and do not hit the retry path.
 
+[[ha-pending-snapshot]]
+====== A database is missing after a restart, and the log names `.snapshot-pending`
+
+A follower that is killed while it is installing a snapshot from the leader -- a liveness-probe kill, an OOM kill, a node drain -- leaves `databases/<name>/` holding a mix of the previous database and the incoming one. It is neither, and opening it would register and serve that mix. The installer marks the directory with a `.snapshot-pending` file before it touches a single byte and removes the file only once the installed copy has been reopened successfully, so the marker's presence is the node's own record that the install did not finish.
+
+While that marker exists, the database is *not opened by anything*: not the startup scan, not the default-database configuration (`arcadedb.server.defaultDatabases`), and not a client request naming it. A request for it is answered with `Database '<name>' is not available: an interrupted HA snapshot install left '.snapshot-pending' in its directory`. The refusal lasts as long as the marker does -- it is a statement about the directory, not about a phase of startup. _(Since v26.10.1)_
+
+The node still starts. HA snapshot recovery runs during startup and either completes the interrupted swap (the download had finished) or rolls it back to the previous copy (it had not); either way it removes the marker, and the database is opened before the server reports itself online. In the normal case the only trace is one INFO line naming the deferred database.
+
+The marker survives startup in two cases:
+
+* *The node is not running HA* -- `arcadedb.ha.enabled=false`, or the `arcadedb-ha-raft` module is absent from an embedded deployment. Nothing runs the recovery pass, so nothing reconciles the directory.
+* *Recovery ran and deliberately declined to act.* When there is neither a completed download nor a backup to restore from, and the directory does not hold a loadable schema, recovery leaves it and the marker untouched for inspection rather than blessing an incomplete directory as a healthy database.
+
+Both are reported at SEVERE, naming the database:
+
+----
+Database '<name>' was NOT opened: snapshot recovery did not clear its '.snapshot-pending' marker,
+so its directory is still neither the previous database nor the installed snapshot.
+----
+
+To resolve it, let the cluster replace the copy: on a follower joined to a healthy cluster, `POST /api/v1/cluster/resync/{database}` reinstalls the database from the leader, reconciling the interrupted install before it downloads anything. It works on a deferred database -- the resync never needs to open the local copy first. If the node cannot reach a leader, or it is running standalone, the directory has to be dealt with on the volume: `databases/<name>/.snapshot-backup/` holds the previous copy when one was taken, and removing `databases/<name>/` entirely lets the node re-acquire the database from the leader on the next reconcile. Inspect before deleting -- when no backup was taken, that directory is the only copy the node has.
+
 ====== Verbose HA logging
 
 Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
