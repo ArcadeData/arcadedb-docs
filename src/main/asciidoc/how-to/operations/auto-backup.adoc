@@ -350,6 +350,22 @@ curl -X POST "http://localhost:2480/api/v1/server" \
 BACKUP DATABASE
 ----
 
+====== Where an On-Demand Backup Goes
+
+`trigger backup`, `list backups`, `delete backup` and `restore backup` all use one definition of the backup directory,
+so an archive one of them writes the others can see, whether or not the scheduler is running. The directory is
+resolved in this order, first hit wins:
+
+1. the `backupDirectory` of the running auto-backup plugin;
+2. the `backupDirectory` in `config/backup.json`, even when that file sets `"enabled": false`;
+3. the server setting `arcadedb.server.backupDirectory`, the same directory the SQL `BACKUP DATABASE` command writes to.
+
+Archives always live under `<backupDirectory>/<database>/`. `get backup config` reports the resolved directory as
+`backupDirectory` next to the configuration.
+
+Retention runs only while the scheduler is enabled: with auto-backup off, an on-demand archive stays on disk until it is
+removed with `delete backup`.
+
 ====== One Backup at a Time
 
 A database is backed up by one backup at a time. If you ask for a backup while another one of the same database is
