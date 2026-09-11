@@ -73,6 +73,14 @@ ArcadeDB> MATCH {type: Person, as: person, where: (name = 'John' AND surname = '
 --------+----------------
 ----
 
+* Correlate two patterns by a property, here the files whose `path` equals the `filePath` stored on the matched source:
+[source,sql]
+----
+ArcadeDB> MATCH {type: Source, as: s, where: (id = 's1')},
+            {type: File, as: f, where: (path = $matched.s.filePath)}
+          RETURN f.path AS path, $matched.s.filePath AS sourcePath
+----
+
 * Find people, excluding the current user:
 [source,sql]
 ----
@@ -353,7 +361,7 @@ When running these queries, you can use any of the following context variables:
 [%header,cols=2]
 |===
 | Variable | Description
-|`$matched`| Gives the current matched record. You must explicitly define the attributes for this record in order to access them. You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value.
+|`$matched`| Gives the current partial match: a record whose attributes are the aliases matched so far, so `$matched.<alias>` is the record bound to that alias and `$matched.<alias>.<property>` one of its properties. You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value. A `where:` that reads another alias through `$matched` is evaluated once that alias is bound, whether the two nodes are connected by a path or belong to different comma-separated patterns: in the latter case the pattern reading the alias runs once per match of the pattern binding it, which correlates the two patterns by property (v26.10.1).
 |`$currentMatch`| Gives the current complete node during the match.
 |`$depth`| Gives the traversal depth, following a single path item where a `while:` condition is defined.
 |===
