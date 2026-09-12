@@ -25,6 +25,11 @@ Located on:
 - **remote**, by specifying `http://` or `https://` in the URL
 - **classpath**, by using `classpath://` as a prefix
 
+_(Since v26.10.1: format detection on a remote (`http://`/`https://`) source could stop reading in the middle of
+the stream on a slow or chunked connection, and guess the file's format from a partial first line. A local file was
+never affected. One consequence of the fix: a remote source that stops sending data without closing the connection
+now makes the import wait rather than fail immediately - there is no read timeout yet.)_
+
 To import one specific entry out of a ZIP archive that contains several, append `:::` and the entry name to the URL:
 
 [source,sql]
@@ -68,13 +73,17 @@ with a number-parsing error naming an IRI. If a file still cannot be recognised,
 the `delimiter` setting.)_
 
 Every line of an RDF source is data: unlike CSV, these formats have no header row, so nothing is skipped unless you
-ask for it with `edgesSkipEntries`. _(Since v26.10.1: the first statement of every RDF file was dropped as if it
-were a header, so N triples produced N-1 edges. If you were passing `edgesSkipEntries = 0` to work around that, you
-can remove it.)_
+ask for it - with `edgesSkipEntries` on the `edges` route, `verticesSkipEntries` on `vertices`, or
+`documentsSkipEntries` on `documents` and on a plain `url` import. _(Since v26.10.1: the first statement of every
+RDF file was dropped as if it were a header, so N triples produced N-1 edges. If you were passing
+`edgesSkipEntries = 0` to work around that, you can remove it. Also since v26.10.1: an RDF file imported through
+`vertices` or `documents` only honoured `edgesSkipEntries`, ignoring the matching option for that route.)_
 
-Lines at the top of a source that start with `#` or `//` are treated as comments and ignored, for every text format.
-_(Since v26.10.1: the comment was examined as if it were the first line of data, which could make the file be
-recognised as the wrong format and fail to import.)_
+Lines at the top of a source that start with `#` or `//` are treated as comments and ignored, for every format -
+CSV, RDF, XML, JSON and JSONL alike. _(Since v26.10.1: the comment was examined as if it were the first line of
+data, which could make the file be recognised as the wrong format and fail to import. Also since v26.10.1: once
+recognised, the comment lines were still handed to the importer for every format except CSV and RDF, and could
+make XML and JSON imports fail.)_
 
 Example of loading the Discogs dataset in the database on path "/temp/discogs":
 
@@ -133,12 +142,20 @@ For large imports prefer letting the import manage its own transaction, so it ca
 ===== Import report
 
 An import returns a summary of what it did, with the counters that apply to the source: `parsedRecords`,
-`createdDocuments`, `createdVertices`, `createdEdges`, `errors` and `warnings`.
+`createdDocuments`, `createdVertices`, `createdEdges`, `skippedRecords`, `skippedEdges`, `errors` and `warnings`. A
+counter is left out of the summary when it is zero.
 
 `parsedRecords` counts every row read from every file of the import, including any header row and any row that was
 skipped. It is therefore normally higher than the number of records created. _(Since v26.10.1: when an import read
 more than one file - for instance `vertices` and `edges` - this counted only the last file's rows for most formats,
 so the same import could report the figure two different ways depending on which file came last.)_
+
+`skippedRecords` counts rows that were skipped on purpose - by a `*SkipEntries` setting, or by the default header-row
+skip - and `skippedEdges` counts edges that were not created because their `from` or `to` reference did not match
+any vertex. Neither is counted as an error: `parsedRecords` equals `createdDocuments` + `createdVertices` +
+`createdEdges` + `skippedRecords` + `skippedEdges` + `errors`. _(New in v26.10.1: before this, a row missing from the
+created count for either of these two reasons looked identical to a row dropped by `onRowError = skip`, and the
+usual explanation - "the file has a bad row" - was wrong for the first two.)_
 
 Below you can find all the supported settings for the Importer.
 
