@@ -67,6 +67,15 @@ delimiter. _(Since v26.10.1: a file using any of those was analysed as delimited
 with a number-parsing error naming an IRI. If a file still cannot be recognised, set the separator explicitly with
 the `delimiter` setting.)_
 
+Every line of an RDF source is data: unlike CSV, these formats have no header row, so nothing is skipped unless you
+ask for it with `edgesSkipEntries`. _(Since v26.10.1: the first statement of every RDF file was dropped as if it
+were a header, so N triples produced N-1 edges. If you were passing `edgesSkipEntries = 0` to work around that, you
+can remove it.)_
+
+Lines at the top of a source that start with `#` or `//` are treated as comments and ignored, for every text format.
+_(Since v26.10.1: the comment was examined as if it were the first line of data, which could make the file be
+recognised as the wrong format and fail to import.)_
+
 Example of loading the Discogs dataset in the database on path "/temp/discogs":
 
 [source,sql]
@@ -120,6 +129,17 @@ Nothing is made durable until you commit, and rolling back discards the imported
 In that case `commitEvery` has no effect, since the import commits nothing of its own.
 For large imports prefer letting the import manage its own transaction, so it can commit in batches instead of holding everything in memory until you commit.
 
+[[importer-report]]
+===== Import report
+
+An import returns a summary of what it did, with the counters that apply to the source: `parsedRecords`,
+`createdDocuments`, `createdVertices`, `createdEdges`, `errors` and `warnings`.
+
+`parsedRecords` counts every row read from every file of the import, including any header row and any row that was
+skipped. It is therefore normally higher than the number of records created. _(Since v26.10.1: when an import read
+more than one file - for instance `vertices` and `edges` - this counted only the last file's rows for most formats,
+so the same import could report the figure two different ways depending on which file came last.)_
+
 Below you can find all the supported settings for the Importer.
 
 [%header,cols="20,20,~"]
@@ -142,21 +162,21 @@ Below you can find all the supported settings for the Importer.
 | analysisLimitBytes| 100,000| Maximum number of bytes parsed from the source to determine the source file type
 | analysisLimitEntries|10,000 |Maximum number of entries (if applicable) parsed from the source to determine the source file type
 | parsingLimitBytes| |Maximum number of bytes parsed from the source to be imported
-| parsingLimitEntries| |Maximum number of entries imported
+| parsingLimitEntries| |Maximum number of entries imported. _(Since v26.10.1 this is a cap of exactly N entries; before, N+1 were imported)_
 | mapping | null |
 | probeOnly | false | Only probe if url is reachable or file path is readable
 | documents| |url of the file to import containing documents only. This is useful when the database is split in separate files
 | documentsFileType| | The format of the file containing documents (csv, graphml, graphson)
 | documentsDelimiter| | Delimiter used to separate documents
 | documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line
-| documentsSkipEntries| 0 |Number of rows to skip from the documents file
+| documentsSkipEntries| |Number of rows to skip from the documents file. When not set, the first line is skipped as the header for delimited text, and nothing is skipped for RDF sources, which have no header row
 | documentPropertiesInclude| `*` | List of property to import from documents. `*` means all
 | documentType| Document| Name of the type defined in the schema when importing documents
 | vertices| |url of the file to import containing vertices only. This is useful when the database is split in separate files
 | verticesFileType| | The format of the file containing vertices (csv, graphml, graphson)
 | verticesDelimiter| | Delimiter used to separate vertices
 | verticesHeader| |Header containing the properties in the CSV vertices. One property per column. If not defined it is parsed from the first line
-| verticesSkipEntries| 0 |Number of rows to skip from the vertices file
+| verticesSkipEntries| |Number of rows to skip from the vertices file. When not set, the first line is skipped as the header for delimited text, and nothing is skipped for RDF sources, which have no header row
 | expectedVertices| 0 | Number of vertices expected. This is useful to determine the ETA of the importing process of vertices. 0 means unknown
 | vertexType| Vertex| Name of the type defined in the schema when importing vertices
 | vertexPropertiesInclude| `*` | List of property to import from vertices. `*` means all
@@ -164,7 +184,7 @@ Below you can find all the supported settings for the Importer.
 | edgesFileType| | The format of the file containing edges (csv, graphml, graphson)
 | edgesDelimiter| | Delimiter used to separate edges
 | edgesHeader| |Header containing the properties in the CSV edges. One property per column. If not defined it is parsed from the first line
-| edgesSkipEntries| 0 |Number of rows to skip from the edges file
+| edgesSkipEntries| |Number of rows to skip from the edges file. When not set, the first line is skipped as the header for delimited text, and nothing is skipped for RDF sources, which have no header row
 | expectedEdges| 0 | Number of edges expected. This is useful to determine the ETA of the importing process of edges. 0 means unknown
 | maxRAMIncomingEdges| 256MB | Maximum RAM used to create edges. The more RAM, the faster.
 | edgeType| Edge| Name of the type defined in the schema when importing edges
