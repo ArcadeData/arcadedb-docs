@@ -20,9 +20,11 @@ database.getSchema().buildEdgeType().withName("Follows").withLightweight(true).c
 Use lightweight edges when *both* of the following hold:
 
 * the relationship carries no properties, and
-* you traverse *from vertices* rather than querying the edge type directly.
+* you mostly traverse *from vertices* rather than querying the edge type directly.
 
-If either is false, use a regular edge type. An edge that needs a weight, a timestamp or any other attribute must be a regular edge, and an application that runs `SELECT ... FROM <EdgeType>` needs records to select.
+An edge that needs a weight, a timestamp or any other attribute must be a regular edge.
+
+Querying the edge type directly does work -- `SELECT FROM <EdgeType>` returns the edges -- but it costs more than on a regular type, because there are no records to scan and no index to consult: the query reads the vertices instead. If that is your main access pattern, prefer a regular edge type. See <<lightweight-edges-querying,Querying a lightweight edge type>>.
 
 [IMPORTANT]
 ====
@@ -64,13 +66,38 @@ Reading the numbers:
 ==== Limitations
 
 * *No properties.* Declaring a property on a `LIGHTWEIGHT` edge type, or passing properties to `newEdge()`, is rejected with a schema error.
-* *No records, therefore no RID.* `SELECT FROM <EdgeType>` returns nothing and `count(*)` is `0` for a lightweight type. Query them from the vertices instead:
-+
+* *No records, therefore no usable RID.* Every lightweight edge of a type reports the same placeholder `@rid`, so you cannot address one by RID. See <<lightweight-edges-querying,Querying a lightweight edge type>> for what this costs.
+* *Identity is the triple* `(edge type, out vertex, in vertex)`. With no properties there is no observable difference between two lightweight edges of the same type over the same ordered pair, so they are the *same edge*.
+
+[[lightweight-edges-querying]]
+==== Querying a lightweight edge type
+
+These all work and agree with each other:
+
+[source,sql]
+----
+SELECT FROM Follows
+SELECT count(*) FROM Follows
+DELETE FROM Follows
+----
+
+Because a lightweight edge has no record, none of them can read the edge type's own storage: they read the vertices that hold the edges. Two consequences are worth knowing before you rely on them:
+
+* *`count(*)` is not instant.* On a regular type it answers from a stored counter; on a lightweight type no such counter can be correct, so the count reads the graph. A throttled `WARNING` in the server log tells you when this happens on a large database.
+* *`LIMIT` does not make it cheap.* There is nothing to seek into, so a small `LIMIT` may still read a large part of the vertex set.
+
+Anchoring the query on the vertices stays the cheapest way to reach these edges, and is unchanged:
+
 [source,sql]
 ----
 SELECT expand(outE('Follows')) FROM Person
+SELECT FROM Follows WHERE @out = #12:0
 ----
-* *Identity is the triple* `(edge type, out vertex, in vertex)`. With no properties there is no observable difference between two lightweight edges of the same type over the same ordered pair, so they are the *same edge*.
+
+[NOTE]
+====
+`TRAVERSE ... FROM <EdgeType>` and `TRUNCATE TYPE <EdgeType>` are not yet supported on a lightweight edge type and report an error rather than silently doing nothing. Use `SELECT` and `DELETE FROM` instead.
+====
 
 ==== Duplicates
 
