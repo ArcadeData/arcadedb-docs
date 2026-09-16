@@ -977,6 +977,13 @@ are send in the body.
 
 NOTE: Even though a `POST` method is used, the query in `command` has to be idempotent.
 
+`EXPLAIN` is answered the same way by the `GET` and the `POST` variants and by `/api/v1/command`: the plan arrives
+in the `explain` (indented text) and `explainPlan` (structured) members of the response envelope, and `result` is
+empty -- the plan is the answer, not a row. Requesting it with `Accept: application/x-ndjson` is refused with `400`
+("EXPLAIN produces a plan, not a row stream"), because a stream of rows plus a stats trailer has nowhere to carry
+one. Before 26.10.1 the `GET` variant reached neither rule: it serialized the plan as an ordinary result row, and
+streamed it as an ndjson `record` line that no consumer of that encoding can read.
+
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
@@ -1362,6 +1369,11 @@ Each line is a JSON object with the following meta fields:
 
 All other fields are treated as properties.
 
+IMPORTANT: A control key sent on the kind of line that cannot use it is refused with `400`, naming the line:
+`@id` on an edge, `@from` or `@to` on a vertex. Before 26.10.1 such a key was silently dropped -- neither stored
+nor reported -- so a client that models both line shapes with one struct got a load that looked clean while the
+value was gone. A key carrying *nothing* is still accepted, so JSON `null` and the empty string are ignored.
+
 Example:
 
 [source,json]
@@ -1389,6 +1401,11 @@ edge,KNOWS,t1,t2,2020
 ----
 
 CSV parsing supports RFC 4180 quoting (double-quote escaping). Numeric values are auto-detected as integers or floats. Boolean values (`true`/`false`) are also auto-detected.
+
+The same rule as JSONL applies to a control *value*, not to the column: a row carrying a value in a control column
+its kind cannot use -- `@id` on an edge row, `@from`/`@to` on a vertex row -- is refused with `400`, while an empty
+one is ignored. That keeps a single header naming all five control columns across both sections working, as long as
+the inapplicable columns are left empty on each row.
 
 ====== Query Parameters
 
