@@ -129,6 +129,52 @@ RETURN math.sum(3, 5)  // Works in Cypher, SQL, Gremlin, etc.
 
 See <<user-functions,User Functions>> for complete documentation.
 
+===== 6. Map-Valued Properties (Multi-Model Boundary)
+
+A property cannot hold a map in openCypher, the same rule Neo4j applies ("Property values can only be of primitive
+types or arrays thereof"). `CREATE`, `MERGE` and `SET` all refuse one, whether it is written as a literal or bound
+as a parameter:
+
+[source,cypher]
+----
+CREATE (n:R {config: {debug: true}})            // refused
+MATCH (n:R) SET n += $p                         // refused when $p holds a map value
+----
+
+ArcadeDB's SQL is not bound by that rule, because `MAP` is a first-class schema type. So a record written through
+SQL can carry a map property that openCypher can **read** but never **write**:
+
+[source,sql]
+----
+-- SQL: allowed
+CREATE VERTEX R SET id = 1, config = {'debug': true}
+----
+
+[source,cypher]
+----
+// Cypher: all of these work
+MATCH (n:R) RETURN n.config                     // returns the map
+MATCH (n:R) RETURN n.config.debug               // returns true
+MATCH (n:R) WHERE n.config.debug RETURN n
+MATCH (n:R) SET n.other = 1                     // untouched map is left alone
+
+// but copying it is refused, because that would make openCypher store one
+MATCH (n:R), (t:T) SET t = n
+MATCH (n:R), (t:T) SET t.config2 = n.config
+----
+
+The refusal names the property and where the value came from, so the two copy forms above are diagnosable without
+reading the server log:
+
+----
+TypeError: InvalidPropertyType - Property values can only be of primitive types or arrays thereof. Encountered a
+map [debug] assigned to property 'config', copied from record #1:0. ArcadeDB SQL can store a map in a property and
+openCypher can not, so such a property can be read and returned but never copied into another one.
+----
+
+Over Bolt it is reported as `Neo.ClientError.Statement.TypeError`, Neo4j's own code for this refusal, and over HTTP
+as `400`. To move such a property through openCypher, flatten it into scalar properties, or do the write in SQL.
+
 ===== Not Implemented Features
 
 The following Cypher features are not currently implemented:
