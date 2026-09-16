@@ -76,9 +76,20 @@ ArcadeDB> ALTER DATABASE `arcadedb.bucketDefaultPageSize` 262144
 Executes a backup of the current database. The resulting file is a compressed archive using ZIP as algorithm. The archive contains
 the database directory without the transaction logs. The backup is executed taking a snapshot of the database at the time the
 command is executed. Any pending transaction will not be in the backup archive. ArcadeDB allows to execute a non-stop backup of a
-database while it is used without blocking writes or affecting performance. A close or a `DROP DATABASE` requested while a backup
-is running waits for the backup to complete, and the database keeps serving in the meantime: the archive is always complete, and
-the close or drop goes ahead right after.
+database while it is used without blocking writes or affecting performance. A close requested while a backup is running waits for
+the backup to complete, and the database keeps serving in the meantime: the archive is always complete, and the close goes ahead
+right after.
+
+[NOTE]
+====
+Since 26.10.1, one database runs one whole-database maintenance operation at a time: backup, restore, import, export and
+`drop database`. A second one on the same database is refused immediately with an `operation in progress` error naming the one
+already running, rather than proceeding alongside it - simply retry once the first has finished. Two exceptions: several exports
+of one database may run together (they read only), and a `drop database` conflicts with everything, including another drop.
+
+Previously a `drop database` issued during a backup, restore or import could delete the database directory while that operation
+was still using it.
+====
 
 *Syntax*
 
@@ -361,6 +372,16 @@ EXPORT DATABASE [<url>] [WITH ( <setting-name> = <setting-value> [,] )* ]
   *** *`graphml`* exports in the popular http://graphml.graphdrawing.org/[GraphML] format. GraphML is supported by all the major Graph DBMS. This format does not support complex types, like collection of elements. Using `graphson` instead of `graphml` is recommended
   *** *`graphson`* exports in the https://tinkerpop.apache.org/docs/current/dev/io/#graphson[GraphSON] format supported by all the major Graph DBMS
  ** *`overwrite`* Set to `true` to overwrite the export file if it already exists. Default is `false`.
+
+[NOTE]
+====
+Since 26.10.1 an export claims its target file for its duration, so two exports that resolve to the same file no longer write
+into it at the same time - the second one fails immediately with `Another export to '<file>' is already in progress` instead of
+producing a corrupt archive. This applies with `overwrite = true` as well, which previously skipped the check altogether.
+
+The claim is held in a sidecar file next to the target, so an export file name ending in `.exporting` is rejected as a reserved
+name. A running export now also publishes its progress, so it is visible on the progress endpoint, in the console and in Studio.
+====
 
 [NOTE]
 ====
