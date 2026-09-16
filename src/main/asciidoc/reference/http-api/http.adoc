@@ -153,6 +153,12 @@ A session is created with the <<http-begin,/begin>> request and returns a sessio
 Use the session id in the request header of further commands you want to execute in the same transaction and request <<http-commit,/commit>> to commit the server side transaction or <<http-rollback,/rollback>> to rollback the changes.
 After a period of inactivity (default is 30 seconds, see <<settings-sql,`server.httpTxExpireTimeout`>>), the server automatically rolls back and purges expired transactions.
 
+If a request names a session id the server can no longer resolve - because it expired, or was already committed or
+rolled back - a *write* is refused with `404`, while a *read* still answers, running outside any transaction. A read
+that degraded this way says so: the response carries an `arcadedb-session-expired` header holding the id that could
+not be resolved, so a client can tell it apart from a read that ran inside its transaction. This applies to
+`GET /query`, `/begin`, `/commit`, `/rollback` and the time-series and Prometheus read endpoints.
+
 ==== Transaction Scripts
 
 In case <<sql,SQL>> (`sql`) is supposed to be used as language for a transactions, the language variant <<sql-script,SQL Script>> (`sqlscript`) is also available.
