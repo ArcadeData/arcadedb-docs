@@ -425,6 +425,41 @@ Before 26.9.1 an all-`NaN` window returned an internal placeholder for `MIN`/`MA
 query paths could also disagree with each other on the same data.
 ====
 
+===== Which Columns Can Be Aggregated
+
+`SUM`, `AVG`, `MIN` and `MAX` read the column's values, so they need a column that is stored as a number. That
+means a numeric `FIELD`: `DOUBLE`, `FLOAT`, `LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN` (as 1 and 0), and the
+datetime types.
+
+A column that is not stored as a number is refused, and the message names it:
+
+[source,json]
+----
+{ "error": "Aggregation SUM cannot be applied to column 'host': a TAG column of type STRING is not stored as a number" }
+----
+
+Tags are always stored as text, whatever type they are declared with, so a tag cannot be aggregated even when it
+is declared `LONG`. The same applies to a `STRING` field and to the timestamp column itself.
+
+`COUNT` is the exception and works on any column, because it counts rows without reading them. The SQL push-down
+also behaves differently: rather than refusing the query it simply falls back to the generic aggregation path, so
+`SELECT ... max(host) ... GROUP BY` still answers.
+
+[NOTE]
+====
+Before 26.10.1 such a request was not refused, it was answered wrongly: the recent samples were read as a column
+of zeros, so `SUM` returned `0` and `AVG` returned `0` over data that had never been measured, and the same query
+failed with a server error once the samples had been compacted.
+
+The same fix corrected `BOOLEAN` fields, which are stored as numbers but were being read as zero before
+compaction and as their real value afterwards - so a `SUM` over a boolean field could change on its own when
+compaction ran, with no new data. It now answers the number of `true` samples on both.
+
+*When upgrading*: a `BOOLEAN` field on a type created before 26.1 is stored as text rather than as a number, so
+`SUM`/`AVG` over it is now refused rather than silently returning `0`. Recreate the type to aggregate such a
+field. `COUNT` is unaffected.
+====
+
 ==== PromQL Query Language
 
 ArcadeDB includes a native PromQL parser and evaluator, providing Prometheus-compatible query capabilities without requiring an external Prometheus server.

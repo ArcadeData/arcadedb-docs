@@ -55,6 +55,7 @@ ArcadeDB exposes metrics for:
 * **Network** -- HTTP request count, response times
 * **JVM** -- Heap usage, GC pauses, thread count
 * **Backup** -- Point-in-time window activity (see below)
+* **Time series reads** -- How much data each query actually had to read (see below)
 
 ====== Disk space
 
@@ -89,6 +90,40 @@ That fallback is invisible from the outside: the backup succeeds either way. The
 |===
 
 Any of these rising means backups have quietly gone back to throttling writers. See `arcadedb.pageSnapshotMaxSize`, `arcadedb.pageSnapshotMaxRAM` and `arcadedb.pageSnapshotSpillPath` in <<arcadedb-settings,Settings>>.
+
+====== Time series reads
+
+A time series query does not read everything in its range. Older data is stored in compacted blocks, each carrying
+a summary of what it holds, so a query can skip a block entirely or answer from its summary without decompressing
+it. These counters say how often that is working for your data, and are tagged by `db`, `type` and `surface` (the
+endpoint that made the read).
+
+[%header,cols="45%,55%"]
+|===
+| Metric | Meaning
+
+| `arcadedb_timeseries_read_blocks_total`
+| Compacted blocks, split by `outcome`: `skipped` (not read at all), `fast-path` (answered from the block summary) and `slow-path` (decompressed in full).
+
+| `arcadedb_timeseries_read_pages_total`
+| Pages of recent, not-yet-compacted data, split by `outcome`: `scanned` or `skipped`.
+
+| `arcadedb_timeseries_read_rows_total`
+| Rows actually materialised, i.e. the ones that survived every filter.
+
+| `arcadedb_timeseries_read_overflow_buckets_total`
+| Aggregation buckets that fell outside the pre-sized window. Results are correct either way, but a rising value means the range estimate is coming up short.
+
+| `arcadedb_timeseries_read_phase_seconds`
+| Time spent per `phase`: `io`, `decompress-timestamps`, `decompress-values`, `accumulate`.
+|===
+
+The ratio worth watching is `slow-path` against `skipped` and `fast-path`. A high `slow-path` share means queries
+are decompressing blocks they could have skipped - usually because the query filters on something the block
+summaries cannot narrow, or because the blocks predate the summary they would need.
+
+These counters are collected only while metrics are enabled; with metrics off the read path is unchanged and
+nothing is measured.
 
 ===== Periodic Metric Dumps
 
