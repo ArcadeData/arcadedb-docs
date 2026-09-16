@@ -168,6 +168,19 @@ The endpoint accepts the standard Prometheus `remote_write` Protobuf payload (sn
 Each time series is mapped to an ArcadeDB TimeSeries type named after the `__name__` label.
 Types are auto-created if they do not exist.
 
+[NOTE]
+====
+_(Since v26.10.1)_ if your collector or proxy sends an `X-Request-Id` header, the request body is taken into
+account when deciding whether a request is a repeat of a previous one.
+
+Before, on `prom/write` and `prom/read` only, two requests carrying *different* samples under the same
+`X-Request-Id` were mistaken for a retry: the second was answered with the first one's `204` and its samples were
+never stored. This affected collectors that stamp one id per connection, per scrape loop or per retry batch rather
+than per distinct payload. Prometheus' own remote-write client does not send the header and was never affected.
+
+Genuine retries still work as before: re-sending the identical body under the same id is applied only once.
+====
+
 ===== SQL INSERT
 
 Standard ArcadeDB SQL syntax works for TimeSeries types:
@@ -507,6 +520,7 @@ extremely wide range.
 ----
 GET /ts/{database}/prom/api/v1/labels
 GET /ts/{database}/prom/api/v1/label/{name}/values
+GET /ts/{database}/prom/api/v1/label/{name}/values?start=1700000000&end=1700003600
 GET /ts/{database}/prom/api/v1/series?match[]=cpu_usage{host=~"srv.*"}
 ----
 
@@ -514,6 +528,23 @@ NOTE: These endpoints follow the Prometheus data model, where a label with an em
 that holds no value for some samples is therefore not offered as an empty entry by `label/{name}/values`, and
 `series` does not report a series whose only difference from another is an empty label. The generic
 `/api/v1/ts/{database}/query` endpoint is unaffected and still reports exactly what the samples hold.
+
+[NOTE]
+====
+Since v26.10.1 `label/{name}/values` honours `start` and `end` (Unix timestamps in seconds, fractional values
+allowed), and answers only the values a sample carries inside that window. Querying the special `__name__` label
+likewise returns only the metrics holding a sample in the window.
+
+Both are optional. A request sending neither covers the whole series and, for `__name__`, names every time-series
+type - including one holding no sample at all - exactly as before, so existing dashboards are unaffected.
+
+Earlier versions ignored both parameters and always answered over the whole retention period, so a Grafana
+variable scoped to the last hour was offered every value the label had ever held.
+
+`start` and `end` are validated the same way as on `query_range`: a value that is not a number, is infinite, or
+falls outside a sensible date range is refused with `400 bad_data`, as is an `end` earlier than `start`. The same
+validation now applies to `series`, which previously answered `500` for a malformed value.
+====
 
 ===== Supported PromQL Features
 

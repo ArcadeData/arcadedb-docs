@@ -11,6 +11,30 @@ There are two ways to perform backups:
 For manual backups, you can execute the backup of a database from SQL.
 Look at <<sql-backup-database,Backup Database SQL command>> for more information.
 
+===== Consistency of TimeSeries data
+
+A backup captures the database schema at a single point in time. <<timeseries,TimeSeries>> types keep their
+compacted history in separate `.ts.sealed` files, which are archived alongside it.
+
+_(Since v26.10.1)_ the schema and the list of those files are captured together, so an archive can no longer
+declare a TIMESERIES type whose data it does not contain. Previously a `DROP TYPE` running at the same moment as a
+backup could produce exactly that, and the backup still reported success.
+
+[IMPORTANT]
+====
+_(Since v26.10.1)_ if one of those files cannot be read while the backup runs, the backup now **fails with an
+error naming the file** instead of skipping it and reporting success.
+
+This is deliberate. An archive that silently omits data its own schema declares looks valid until a restore is
+attempted, which is the worst moment to discover it. A failed backup is visible, and simply running it again
+produces a consistent archive. The same applies when the database directory cannot be listed at all: that is an
+error rather than being read as "this database has no TimeSeries data".
+
+Note that this costs nothing in availability. The database is locked only long enough to take the snapshot and
+list the files, not for the duration of the backup, so schema changes still run normally while a backup is in
+progress.
+====
+
 ===== Configuration
 
 - `-f <backup-file>`        (string) filename of, or path to the backup file to create.
