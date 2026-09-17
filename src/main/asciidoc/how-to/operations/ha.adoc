@@ -498,7 +498,7 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/peer`
-|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>"}`. The optional `name` is the human-readable display name shown in logs and Studio. The new peer is seeded with the current user list so authentication works immediately.
+|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>","priority":0}`. The optional `name` is the human-readable display name shown in logs and Studio. The optional `priority` (non-negative integer, default `0`) sets the new peer's leader-election priority the same way a `priority` in `arcadedb.ha.serverList` does - use `0` for a witness that must never become leader, a higher value for a preferred one. The new peer is seeded with the current user list so authentication works immediately. This call adds the named peer to *this* server's cluster; it does not make this server join another one, and an address that resolves to this server is refused with `400`. _(Since v26.10.1: `priority` can be set here too, and adding this server's own address is refused instead of silently doing nothing.)_
 
 |DELETE
 |`/api/v1/cluster/peer/{peerId}`
@@ -554,6 +554,16 @@ $ curl -u root:<password> \
        -X POST http://leader:2480/api/v1/cluster/peer \
        -H 'Content-Type: application/json' \
        -d '{"peerId":"10.0.0.4_2434","address":"10.0.0.4:2434:2480","name":"frankfurt"}'
+----
+
+Adding a peer as a non-voting witness, which will never become leader:
+
+[source,shell]
+----
+$ curl -u root:<password> \
+       -X POST http://leader:2480/api/v1/cluster/peer \
+       -H 'Content-Type: application/json' \
+       -d '{"peerId":"10.0.0.4_2434","address":"10.0.0.4:2434:2480","priority":0}'
 ----
 
 [[ha-verify-outcome]]
