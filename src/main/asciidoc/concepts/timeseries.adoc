@@ -63,6 +63,17 @@ CREATE TIMESERIES TYPE SensorReading
 | `IF NOT EXISTS` | _(none)_ | Skip creation if the type already exists, instead of failing. The statement returns one row either way, carrying a `created` flag: see <<sql-if-not-exists-result,the note on `IF NOT EXISTS` results>>
 |===
 
+A type stores its columns in the order they are declared, and that order matters: a sample is a positional row, so
+the column order is what an export records and what a restore reads back. `CREATE TIMESERIES TYPE` has one slot for
+the timestamp, one for `TAGS` and one for `FIELDS`, so a type created this way always has that order.
+
+The Java schema builder accepts any order, including a field declared before a tag, and keeps it. If you then
+render that builder as SQL - which is what the *remote* schema builder does - the statement groups the columns into
+the three slots, so the type it creates can carry the same columns in a different order than the embedded one
+would. Declare your columns timestamp-first, then tags, then fields if you want the two to be identical, and note
+that importing a JSONL export of a type whose columns are not in that order into a remote database is refused
+rather than silently loading the values into the wrong columns.
+
 ==== Altering a TimeSeries Type
 
 Add downsampling policies to automatically reduce resolution of old data:
@@ -405,7 +416,8 @@ meaning under Prometheus' rules and is not a malformed request.
 
 ===== Missing Values
 
-A sample can be `NaN`, which means "no measurement here" rather than a value of zero. Aggregations treat it that
+A sample can be absent, which means "no measurement here" rather than a value of zero. You write one either as
+`NaN` or as `null`, and both are stored the same way on a `DOUBLE` or `FLOAT` column. Aggregations treat it that
 way:
 
 * `MIN`, `MAX`, `SUM` and `AVG` skip `NaN` samples. Over a window that holds at least one real value they answer from
@@ -421,7 +433,32 @@ its `sum`, `avg`, `sum_over_time` and `avg_over_time` propagate `NaN`, because t
 PromQL query is expected to answer what Prometheus would.
 
 Over the REST and Grafana endpoints an absent value is serialized as JSON `null`, since JSON has no `NaN` literal.
-A Grafana panel therefore draws a gap for such a bucket rather than a dip to zero.
+A Grafana panel therefore draws a gap for such a bucket rather than a dip to zero. Over SQL it reads back as `NULL`,
+both as a projected column and as the result of an aggregate with nothing to aggregate:
+
+[source,sql]
+----
+SELECT value FROM Sensor                        -- an absent sample is NULL
+SELECT avg(value) FROM Sensor GROUP BY bucket   -- a bucket with no real sample is NULL
+----
+
+A `NaN` that arithmetic itself produces over real samples - the sum of `+Infinity` and `-Infinity`, for instance -
+is an undefined total rather than an absence, and is returned as `NaN`.
+
+[NOTE]
+====
+Only a `DOUBLE` or a `FLOAT` column can record absence, because `NaN` is a value those types have and integer types
+do not. A `null` written to a `LONG`, `INTEGER`, `SHORT`, `BYTE` or `BOOLEAN` column is stored as 0 (or `false`) and
+counts as a real measurement. Declare a column that needs to record gaps as `DOUBLE` or `FLOAT`.
+====
+
+[NOTE]
+====
+Before 26.10.1 a `null` measurement was stored as a real `0.0` on every column type. `AVG` therefore divided by it
+and `MIN` returned the zero instead of the smallest real value; only an explicitly written `NaN` was treated as
+absent. Samples already stored as zero by an earlier version stay zero - they are indistinguishable from a real
+measurement of zero - so this affects data written from 26.10.1 onwards.
+====
 
 [NOTE]
 ====
