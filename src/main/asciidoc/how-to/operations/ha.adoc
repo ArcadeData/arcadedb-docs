@@ -924,6 +924,18 @@ so its directory is still neither the previous database nor the installed snapsh
 
 To resolve it, let the cluster replace the copy: on a follower joined to a healthy cluster, `POST /api/v1/cluster/resync/{database}` reinstalls the database from the leader, reconciling the interrupted install before it downloads anything. It works on a deferred database -- the resync never needs to open the local copy first. If the node cannot reach a leader, or it is running standalone, the directory has to be dealt with on the volume: `databases/<name>/.snapshot-backup/` holds the previous copy when one was taken, and removing `databases/<name>/` entirely lets the node re-acquire the database from the leader on the next reconcile. Inspect before deleting -- when no backup was taken, that directory is the only copy the node has.
 
+[NOTE]
+====
+_(Since v26.10.1.)_ Deleting `databases/<name>/` and restarting now reliably brings the database back on a node that
+had it before. Earlier versions could restart without it: the node kept a record, stored next to the database
+directories rather than inside them, saying the database had already been checked, so deleting the directory left that
+record behind and the node concluded there was nothing to do. It logged that the check had completed and carried on
+without the database.
+
+A node that cannot complete the reinstall -- no leader reachable yet, for example -- now reports the database in
+`GET /api/v1/cluster` and retries periodically until it succeeds, instead of running short of it silently.
+====
+
 ====== Verbose HA logging
 
 Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:

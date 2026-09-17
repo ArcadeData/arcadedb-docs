@@ -87,6 +87,22 @@ environment variable: a value written in the configuration file was accepted and
 to say so. This affected, among others, `server.mode` and `studio.enabled`, the HA snapshot and peer-allowlist
 settings, and the ports and limits of the Bolt, Postgres, Redis and gRPC protocols.)_
 
+A setting that accepts only a fixed set of values -- `server.mode`, `ha.quorum`, `ha.serverRole` and the others whose
+description lists their values -- refuses anything outside that set, whichever channel writes it: the configuration
+file, a `-D` property, `SET SERVER SETTING`, `ALTER DATABASE ... SETTING`, the gRPC settings call or the
+`set_server_setting` MCP tool. The setting keeps the value it had and the refusal names the values it accepts.
+
+[WARNING]
+====
+_(Since v26.10.1.)_ Before this, the administrative channels stored an unaccepted value without complaint. A typo such
+as `SET SERVER SETTING arcadedb.server.mode prodction` was answered with `200` and stored as written; every reader
+compares the value against `production`, found it different, and kept the *development* behaviour -- so a server you
+believed was in production mode was not, and nothing said so.
+
+If you have scripts that write one of these settings, check the values they send before upgrading: a value that was
+silently ignored before now returns an error.
+====
+
 [[settings-sql]]
 ==== SQL (Database Level)
 
