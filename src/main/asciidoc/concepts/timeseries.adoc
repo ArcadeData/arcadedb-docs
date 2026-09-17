@@ -64,15 +64,33 @@ CREATE TIMESERIES TYPE SensorReading
 |===
 
 A type stores its columns in the order they are declared, and that order matters: a sample is a positional row, so
-the column order is what an export records and what a restore reads back. `CREATE TIMESERIES TYPE` has one slot for
-the timestamp, one for `TAGS` and one for `FIELDS`, so a type created this way always has that order.
+the column order is what an export records and what a restore reads back.
 
-The Java schema builder accepts any order, including a field declared before a tag, and keeps it. If you then
-render that builder as SQL - which is what the *remote* schema builder does - the statement groups the columns into
-the three slots, so the type it creates can carry the same columns in a different order than the embedded one
-would. Declare your columns timestamp-first, then tags, then fields if you want the two to be identical, and note
-that importing a JSONL export of a type whose columns are not in that order into a remote database is refused
-rather than silently loading the values into the wrong columns.
+The `TIMESTAMP`, `TAGS` and `FIELDS` clauses may therefore be written in any order, and `TAGS` and `FIELDS` may each
+appear more than once. The declaration below creates a type whose columns are `f1`, `ts`, `t1`, `f2`, in that order:
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE Interleaved
+  FIELDS (f1 DOUBLE)
+  TIMESTAMP ts
+  TAGS (t1 STRING)
+  FIELDS (f2 DOUBLE)
+----
+
+The Java schema builder accepts the same orders and keeps them, so a recipe rendered as SQL - which is what the
+*remote* schema builder does - creates the same type as the same recipe run against an embedded database. A JSONL
+export therefore restores into a remote database exactly as it does into an embedded one, whatever order its
+columns are in.
+
+[NOTE]
+====
+Before 26.10.1 the statement had exactly one slot for each clause, in the order timestamp, tags, fields. A builder
+recipe that interleaved them was regrouped when rendered as SQL, so the remote builder could create a type whose
+columns were in a different order than the embedded one - and a JSONL restore of such a type into a remote database
+was refused rather than silently loading the values into the wrong columns. Every statement written against the old
+grammar parses and means exactly what it did.
+====
 
 ==== Altering a TimeSeries Type
 
@@ -237,6 +255,30 @@ database.transaction(() -> {
       new Object[] { sensorIds, temperatures });
 });
 ----
+
+[[timeseries-appends-and-transactions]]
+===== Appends and Transactions
+
+A TimeSeries append is not part of the transaction that contains it. This is true of every ingestion method above -
+SQL `INSERT`, the REST write endpoint, the line protocol, Prometheus remote write and the Java embedded API alike:
+
+* the samples are committed as they are appended, so they are durable and visible to every other connection as soon
+  as the append returns, before you commit anything;
+* rolling the enclosing transaction back does **not** remove them.
+
+Use a session or a transaction around an append for what it does do - it holds that session's lock and principal and
+keeps its idle timer from reaping it while you ingest - and not for atomicity with the samples.
+
+[NOTE]
+====
+The reason is the shard's own append lock. Every append writes the shard's header page, which holds the sample count
+and the min/max timestamps, so two appends to one shard always want the same page version; serializing them behind a
+lock the append itself releases at its own commit is what keeps them from conflicting. An append that wrote through
+the caller's transaction could not be serialized that way, because the commit would belong to the caller and a shard
+cannot hold that lock until an arbitrary user transaction ends without blocking every other writer of that shard.
+Both would then stage the same page and one would lose its *whole* transaction to a concurrent-modification error
+that is not the shard's to retry.
+====
 
 ===== Ingestion Method Comparison
 
