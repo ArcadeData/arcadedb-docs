@@ -159,6 +159,12 @@ that degraded this way says so: the response carries an `arcadedb-session-expire
 not be resolved, so a client can tell it apart from a read that ran inside its transaction. This applies to
 `GET /query`, `/begin`, `/commit`, `/rollback` and the time-series and Prometheus read endpoints.
 
+The three time-series endpoints - `/api/v1/ts/{database}/write`, `/query` and `/latest` - accept a session id so
+they run under that session's user and keep it from expiring while you use it, but they do *not* take part in its
+transaction: samples are durable as soon as they are written, and the reads only read. Since 26.10.1 an error on
+one of them therefore leaves your open transaction exactly as it was. Before, it rolled the transaction back while
+leaving the session alive, so a later `/commit` reported success and the work was silently gone.
+
 ==== Transaction Scripts
 
 In case <<sql,SQL>> (`sql`) is supposed to be used as language for a transactions, the language variant <<sql-script,SQL Script>> (`sqlscript`) is also available.

@@ -53,6 +53,16 @@ and a deletion answered `200` while the credentials kept working on every other 
 Deleting a user or changing its password also revokes that user's active login tokens immediately, on every
 node - see <<token-authentication,Token-Based Authentication>>.
 
+Since 26.10.1 each server also keeps `config/server-security-cluster.json` beside the user, group and API-token
+files. It holds only a checksum of the last security document that server received from the cluster, which is what
+lets it tell a change it has already applied from one built on an out-of-date view. Keep it with the rest of the
+configuration directory; if it is lost the server rebuilds it on the next security change.
+
+Before 26.10.1 a cluster whose servers were started from a static server list - rather than joined with
+`connect cluster` or the `addpeer` endpoint - could accept the first user change on only one node, because each
+server hashes passwords with its own random salt and so starts with a different user file. Upgrade every server to
+26.10.1; if a user exists on only some nodes, reissue the change once and the cluster converges.
+
 If a server cannot write `config/server-users.jsonl` - a full or read-only volume - it logs a SEVERE error and
 keeps running, applying the change in memory so it takes effect there straight away (before 26.10.1 the server
 stopped, and restarted into the same failure). Only saving the file failed, and that is not retried: after
