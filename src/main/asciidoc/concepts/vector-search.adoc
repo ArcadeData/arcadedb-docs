@@ -219,12 +219,34 @@ searches the index again pays nothing at all. Below 1,000 vectors, `close()` kee
 before.
 
 Since v26.9.1 that first query after a reopen does not wait for the rebuild. If the persisted graph is behind only
-because vectors were added after it was last built -- none deleted, and ArcadeDB can verify on disk that the graph
-still describes exactly the records it was built from -- the graph is put straight back to work and only the
+because vectors were added after it was last built -- and ArcadeDB can verify on disk that the graph still
+describes exactly the records it was built from -- the graph is put straight back to work and only the
 missing vectors are searched separately, while the full rebuild runs in the background. Results are complete from
 the first query: a vector written after the last build is found whether it is already in the graph or still
 waiting to be folded into it. This applies to any session, including one that inserts before it searches, which
 before v26.9.1 was the one shape that still paid for a full rebuild on the querying thread.
+====
+
+[[delete-does-not-force-rebuild]]
+[NOTE]
+====
+Before v26.10.1, deleting a single vector forced a full graph rebuild on the first query after the next restart,
+however large the index. Updating a vector did the same, because an update is a delete followed by an insert. The
+reason was that what each node of the persisted graph stood for was worked out again on every open, from the list
+of vectors as it then stood -- and a delete shifts that list, so the graph and the list no longer agreed. Several
+large indexes reopening together could therefore rebuild at the same time and exhaust the heap.
+
+Since v26.10.1 the graph records what its nodes stand for, in a small file stored beside it, so nothing has to be
+worked out again and nothing has to be rebuilt. A deleted vector becomes a node that searches skip -- which they
+already did correctly while the database stayed open; only restarts were affected. Those skipped nodes are removed
+later by the ordinary background rebuild, on the schedule and within the memory limits it already uses, rather
+than all at once on whichever query happens to run first.
+
+Existing indexes rebuild once on their first open after the upgrade, write the new file, and are covered from then
+on. Nothing needs to be run by hand. Searches return the same results either way.
+
+Indexes using `PRODUCT` quantization are the exception and still rebuild after a deletion, because their
+compressed vectors are tied to the same node numbering the rebuild reassigns.
 ====
 
 [[delta-scan-bound]]
