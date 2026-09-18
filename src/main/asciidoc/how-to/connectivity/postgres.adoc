@@ -100,6 +100,12 @@ NOTE: ArcadeDB does not support SSL/TLS connections over this protocol.
 NOTE: Both the "simple" query protocol and the extended query protocol (`Parse`/`Bind`/`Describe`/`Execute`/
 `Sync`, what `PreparedStatement` uses) are supported.
 
+_Since v26.10.1_, `BEGIN`, `COMMIT` and `ROLLBACK` sent through the extended query protocol are acknowledged
+the way PostgreSQL acknowledges them. Previously a libpq-based client - psycopg3, asyncpg, the Apache Arrow
+ADBC PostgreSQL driver - could fail to open a transaction with `Failed to begin transaction`. In the same
+release, a statement the server rejects no longer leaves the previously prepared statement usable under the
+same name, so a client can no longer receive the earlier statement's rows in answer to one that was refused.
+
 ===== System catalog and schema introspection
 
 _Since v26.9.1_, queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
@@ -138,6 +144,18 @@ Type names are matched case-sensitively first, as ArcadeDB stores them, and only
 name to lower case. If two types differ only in case, an unquoted name that matches neither of them exactly
 resolves to nothing rather than picking one; quote the name to say which you mean.
 
+_Since v26.10.1_, a query that joins a catalog relation to `pg_roles` or `pg_user` to name an owner - what a
+GUI browser sends to list tables with their owner - answers with the connected user rather than `NULL`:
+
+[source,sql]
+----
+SELECT c.relname, r.rolname AS owner FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+----
+
+Only the connected user is described as a role; an emulated catalog does not hand out the server's account
+list. A query about roles, databases, privileges, character sets or collations that also mentions
+`pg_namespace` is now answered as the question it asks, instead of being answered as a schema query.
+
 [[postgres-copy-to-stdout]]
 ===== COPY ... TO STDOUT
 
@@ -152,7 +170,9 @@ COPY (SELECT FROM Person) TO STDOUT CSV HEADER DELIMITER ';' NULL 'nil'
 ----
 
 The query in parentheses runs as it stands, in the session's query language (so a `{cypher}` prefix applies to it),
-and a type name with an optional column list stands for the equivalent `SELECT`. The rows travel in PostgreSQL's
+and a type name with an optional column list stands for the equivalent `SELECT`. Quote the name if it is not a
+plain identifier - `COPY "My Type" TO STDOUT` - and any character is allowed in it, backslashes and backticks
+included (fixed in 26.10.1: such a name used to be misread or refused). The rows travel in PostgreSQL's
 own `text`, `csv` or `binary` COPY encoding, so anything that reads a PostgreSQL COPY stream reads them: `psql`'s
 `\copy` (`\copy (SELECT FROM Person) TO 'people.csv' CSV HEADER`), pgjdbc's `CopyManager`, pandas, and the Apache
 Arrow ADBC PostgreSQL driver, which reads every result set through `COPY ... TO STDOUT (FORMAT binary)` by
