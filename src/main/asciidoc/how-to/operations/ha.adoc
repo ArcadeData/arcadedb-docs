@@ -523,6 +523,10 @@ All endpoints require authentication as the `root` user.
 |GET
 |`/api/v1/ha/snapshot/{database}`
 |Leader-only: stream a ZIP of the database for follower catch-up. Requires the cluster token and is used internally by snapshot recovery.
+
+|POST
+|`/api/v1/cluster/security-seed`
+|Leader-only: replicate the cluster security documents to the calling node. Requires the cluster token and is called by peers, not by operators. The caller may send digests of the copies it already holds, in which case a node already in step is answered without anything being written. Any other server answers `409` and names the current leader. _(Since v26.10.1.)_ See <<ha-security-documents,Cluster security documents>>.
 |===
 
 [NOTE]
@@ -627,6 +631,17 @@ On Kubernetes a pod's headless-service DNS record is only published once the pod
 +
 For a security-strict deployment that should reject from the very first connection, set `arcadedb.ha.peerAllowlistStartupGraceMs=0`. If you previously saw `Rejecting Raft gRPC connection from non-peer address` storms with peers failing to form a cluster on startup, this hardening removes that failure mode.
 
+[[ha-security-documents]]
+*Cluster security documents*:: The server users, groups and API tokens are held in `server-users.jsonl`, `server-groups.json` and `server-api-tokens.json`, in the server's `config/` directory.
+They live outside the databases, so a database snapshot does not carry them: they are replicated to the other nodes as their own Raft entries.
++
+A node is seeded with the current set when it is admitted to the cluster, and, since v26.10.1, also re-seeds itself when it rejoins one it never left.
+That second case is the one that used to bite on Kubernetes: a pod whose data volume is persistent but whose `config/` directory is not comes back as an existing cluster member, so it is never re-admitted, and before v26.10.1 it was never re-seeded either.
+It came back holding only the users created from its own environment at bootstrap, and rejected logins that worked on every other node.
+A node now asks the leader for the current documents shortly after it first sees one, and again after it receives a snapshot, sending digests of the copies it already holds so that a node already in step costs one HTTP request and no Raft entries.
++
+NOTE: A node that is already leading the cluster by the time its catch-up runs has no peer to ask, so its own copy becomes the cluster's reference. It says so once, at `INFO`, starting with `This node leads the cluster by the time its security catch-up ran`. If that node's `config/` directory was restored out of band, re-apply the security changes made while it was away.
+
 [[ha-ssl]]
 ===== TLS/SSL for peer-to-peer transfers
 
@@ -634,7 +649,7 @@ IMPORTANT: This section covers the *HTTP side channels* only — every node-to-n
 
 When `arcadedb.ssl.enabled=true`, the server binds an HTTPS listener on `arcadedb.server.httpsIncomingPort` (default `2490`) *in addition to* the plain HTTP listener on `arcadedb.server.httpIncomingPort` (default `2480`). The two listeners use different ports.
 
-The side channels covered here are the snapshot download, the cross-node verify, the follower-to-leader command forward, the peer capability and auth-session probes, the stalled-replica resync, the bootstrap-state probe and the remote shutdown command. Every one of them carries the cluster token, so on a cluster with `arcadedb.ssl.enabled` they should all travel encrypted. To send them encrypted, declare each peer's HTTPS port in `arcadedb.ha.serverList` using the `https` field (object form) or the fifth positional field:
+The side channels covered here are the snapshot download, the cross-node verify, the follower-to-leader command forward, the peer capability and auth-session probes, the stalled-replica resync, the bootstrap-state probe, the security-document seed and the remote shutdown command. Every one of them carries the cluster token, so on a cluster with `arcadedb.ssl.enabled` they should all travel encrypted. To send them encrypted, declare each peer's HTTPS port in `arcadedb.ha.serverList` using the `https` field (object form) or the fifth positional field:
 
 [source,shell]
 ----
@@ -647,7 +662,13 @@ $ bin/server.sh -Darcadedb.ha.enabled=true \
                 -Darcadedb.ha.serverList=db1:{raft:2434,http:2480,https:2490},db2:{raft:2434,http:2480,https:2490},db3:{raft:2434,http:2480,https:2490}
 ----
 
-The peer certificate is validated against the configured *trust store* (`arcadedb.ssl.trustStore`).
+The peer certificate is validated against the configured *trust store* (`arcadedb.ssl.trustStore`), and its name is verified against the name the peer was dialled by.
+
+IMPORTANT: The HTTPS listener is configured with a single keystore (`arcadedb.ssl.keyStore`), so it serves *one* identity, and the name a dial advertises in SNI selects nothing: every name is answered with the same certificate.
+The name a peer is dialled by is the one in `arcadedb.ha.serverList`, or the peer's Raft host when the entry omits an explicit endpoint.
+So every name any node can be reached by has to be a subject alternative name of that one certificate.
+On Kubernetes that usually means listing the pod's DNS name, the headless-service name and, if you declare peers by address, the pod IP.
+A name that is missing fails the handshake at the first peer-to-peer call rather than at startup.
 
 If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP. The plain listener is the one that is always bound, so falling back keeps a cluster that never declared its `https` ports able to bootstrap, resync and be administered — but it does put the cluster token on the wire in clear text, so it is announced once per JVM:
 

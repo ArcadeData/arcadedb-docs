@@ -921,6 +921,12 @@ Mount the `Secret` read-only through the chart's `volumes` / `volumeMounts` (see
 Auto-join needs no extra configuration: the join probe inherits the server's transport settings, so it speaks TLS exactly when the cluster does.
 For the manifests, the openssl equivalent, and the certificate-rotation caveat, see <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>.
 
+*Users and API tokens on a restarted pod* (since `26.10.1`)::
+The server users, groups and API tokens live in the server's `config/` directory, not in a database, so a pod whose data volume is persistent but whose `config/` directory is not comes back without them.
+Because it is still a member of the Raft group, it is not re-admitted, and before 26.10.1 it was never re-seeded either: it served only the users created from its own environment at bootstrap and rejected logins that worked on every other pod.
+Such a pod now asks the leader for the current documents shortly after it first sees one, so no action is needed.
+Persisting `config/` is still worth doing if you want a pod to come back with them already in place; see <<ha-security-documents,Cluster security documents>>.
+
 For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
 
 [[kubernetes-ha-bootstrap]]
