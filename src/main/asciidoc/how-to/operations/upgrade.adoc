@@ -10,6 +10,22 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.10.1 — HASH indexes on a DECIMAL property need one `REBUILD INDEX` after upgrading
+
+A `DECIMAL` keeps the scale it was written with, so `5` and `5.00` are the same number stored two different ways. The `LSM_TREE` index family already treated them as one key; the `HASH` family did not, because it settles key identity on the serialized bytes and the two spell out differently. A `UNIQUE_HASH` index on a `DECIMAL` property therefore accepted both as separate rows, and a lookup for one spelling could not find a row stored under the other. Fixed in 26.10.1 (issue #7767).
+
+*Impact:* any `HASH`/`UNIQUE_HASH`/`NOTUNIQUE_HASH` index on a `DECIMAL` property created before 26.10.1. `LSM_TREE`/`UNIQUE`/`NOTUNIQUE` indexes are unaffected.
+
+*Action:* run `REBUILD INDEX` once, after upgrading, on every HASH index over a `DECIMAL` property:
+
+[source,sql]
+----
+REBUILD INDEX `Invoice[amount]`
+----
+
+Until it is rebuilt, the index file still holds the keys in their original form and lookups stay unreliable. If duplicates slipped in while a `UNIQUE_HASH` constraint was not being enforced, the rebuild reports them as a duplicated key — correct the data, then rebuild again.
+
+[discrete]
 ====== 26.10.1 — Case-insensitive HASH indexes need one `REBUILD INDEX` after upgrading
 
 A `HASH`/`UNIQUE_HASH`/`NOTUNIQUE_HASH` index created with `COLLATE CI` did not actually fold case: an existing key and its differently-cased duplicate could both be inserted into a `UNIQUE_HASH` index, and a case-insensitive query answered through such an index could return fewer rows than the same query without an index. Fixed in 26.10.1 (issue #7766).
