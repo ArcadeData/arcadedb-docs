@@ -275,6 +275,21 @@ often each happened. Persisting the graph before a restart -- a clean `close()`,
 whole situation: there is then nothing to rebuild on the first query.
 ====
 
+[[aborted-transaction-no-rebuild]]
+[NOTE]
+====
+A transaction that fails and is rolled back -- most often with a concurrent-modification error, when two
+transactions write the same record -- leaves the vector index exactly as it was. Before v26.10.1 it did not: the
+index had already applied the change in memory by the time the conflict was detected, and the rollback did not
+take it back. The index was then left holding a deletion marker for an embedding that was never replaced, so it
+believed vectors had been deleted and scheduled a full graph rebuild. On a busy index, retried transactions alone
+were enough to cause rebuild after rebuild, with no deletes anywhere in the application.
+
+Note also that rewriting a vector property with a value identical to the stored one never marks anything deleted:
+ArcadeDB compares the two embeddings and skips the index when they are equal. Avoiding redundant writes in your
+application therefore does not reduce rebuilds; reducing write conflicts does.
+====
+
 [[delta-scan-bound]]
 [NOTE]
 ====
