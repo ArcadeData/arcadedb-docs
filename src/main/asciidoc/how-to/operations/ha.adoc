@@ -630,11 +630,11 @@ For a security-strict deployment that should reject from the very first connecti
 [[ha-ssl]]
 ===== TLS/SSL for peer-to-peer transfers
 
-IMPORTANT: This section covers the *HTTP side channels* only — snapshot download and cross-node verify. It does not encrypt the Raft gRPC port, which carries AppendEntries, RequestVote and the Ratis admin/client calls. That is a separate axis, configured with `+arcadedb.ha.tls.*+`; see <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>. Enabling one does nothing for the other.
+IMPORTANT: This section covers the *HTTP side channels* only — every node-to-node call that is not Raft itself. It does not encrypt the Raft gRPC port, which carries AppendEntries, RequestVote and the Ratis admin/client calls. That is a separate axis, configured with `+arcadedb.ha.tls.*+`; see <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>. Enabling one does nothing for the other.
 
 When `arcadedb.ssl.enabled=true`, the server binds an HTTPS listener on `arcadedb.server.httpsIncomingPort` (default `2490`) *in addition to* the plain HTTP listener on `arcadedb.server.httpIncomingPort` (default `2480`). The two listeners use different ports.
 
-Peer-to-peer transfers such as snapshot download and cross-node verify travel over HTTP. To send them encrypted, declare each peer's HTTPS port in `arcadedb.ha.serverList` using the `https` field (object form) or the fifth positional field:
+The side channels covered here are the snapshot download, the cross-node verify, the follower-to-leader command forward, the peer capability and auth-session probes, the stalled-replica resync, the bootstrap-state probe and the remote shutdown command. Every one of them carries the cluster token, so on a cluster with `arcadedb.ssl.enabled` they should all travel encrypted. To send them encrypted, declare each peer's HTTPS port in `arcadedb.ha.serverList` using the `https` field (object form) or the fifth positional field:
 
 [source,shell]
 ----
@@ -649,7 +649,15 @@ $ bin/server.sh -Darcadedb.ha.enabled=true \
 
 The peer certificate is validated against the configured *trust store* (`arcadedb.ssl.trustStore`).
 
-If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP, logging a one-time warning.
+If the `https` port is omitted on a homogeneous cluster (every node listens on the same HTTPS port, e.g. a Kubernetes StatefulSet), each peer's HTTPS endpoint is derived automatically from the peer host plus this node's local HTTPS port, so no extra configuration is needed. Only when no HTTPS endpoint can be resolved does the transfer fall back to plain HTTP. The plain listener is the one that is always bound, so falling back keeps a cluster that never declared its `https` ports able to bootstrap, resync and be administered — but it does put the cluster token on the wire in clear text, so it is announced once per JVM:
+
+----
+WARNING: SSL is enabled but no HTTPS address is known for a peer; probing its bootstrap-state over plain HTTP,
+which puts the cluster token on the wire in clear text. Declare each node's 'https' port in
+arcadedb.ha.serverList to avoid it.
+----
+
+One such line is logged per JVM for the whole family of side channels, naming whichever happened to fall back first; the remedy is the same for all of them. Seeing it on a cluster you believe is encrypted end to end means at least one peer has no resolvable HTTPS endpoint — check that the `https` field is declared for every entry, and see <<ha-peer-endpoint-ambiguity,Peer-to-Peer Endpoints>> for the case where it is declared but shared between two nodes.
 
 NOTE: Declaring an HTTPS port that points at the plain HTTP port (e.g. `https:2480`) causes a TLS handshake failure (`Unsupported or unrecognized SSL message`). Always point `https` at the HTTPS listener's port.
 

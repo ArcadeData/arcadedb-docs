@@ -462,7 +462,7 @@ The following commands are available:
 * `create user { "name": "<username>", "password": "<password>", "databases": { "<dbname>": "admin", "<dbname>": "admin" } }` creates user credentials `username` and `password` and admin access to databases `dbname`.
 * `drop user <username>` deletes user `username`
 * `get server events [<filename>]` returns a list of server events, optionally a filename of the form `server-event-log-yyyymmdd-HHMMSS.INDEX.jsonl` (where `INDEX` is a integer, i.e. `0`) can be given to retrieve older event logs
-* `shutdown` kills the server gracefully.
+* `shutdown [<serverName>]` kills a server gracefully: this one when no name is given, otherwise the named peer of the HA cluster. See <<http-shutdown,Shutdown server>>.
 * `set server setting <key> <value>` sets the server setting with `key` to `value`, see the <<setting-table,list of server-level settings>>
 * `set database setting <dbname> <key> <value>` sets the database's <dbname> with `key` to `value`, see the <<setting-table,list of database-level settings>>
 * `connect cluster <address>` connects this server to a cluster with `address`
@@ -632,6 +632,7 @@ Return:
 {"result": "ok"}
 ----
 
+[[http-shutdown]]
 ====== Shutdown server
 
 [source,shell]
@@ -648,6 +649,26 @@ Return:
 ----
 {"result": "ok"}
 ----
+
+*Shutting down another node of an HA cluster*
+
+Naming a server after the command stops that peer instead of the one receiving the request. The command is relayed over the cluster's own transport — encrypted when the cluster has TLS configured for its side channels, see <<ha-ssl,TLS/SSL for peer-to-peer transfers>>:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "shutdown arcadedb-1"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+The name is matched as a substring against each peer's identifier and its HTTP address, so a partial name is enough:
+
+* *No peer matches* it — the request fails with `Cannot find server '<name>' in the cluster`.
+* *More than one peer matches* it — the request is refused rather than resolved to an arbitrary one. `arcadedb-1` matches `arcadedb-10` as well, so on a cluster holding both, name the one you mean exactly.
+* *The name is this server* — this server shuts down, exactly as the plain `shutdown` command does.
+
+NOTE: In a Kubernetes StatefulSet each pod's hostname is the name to use (`arcadedb-0`, `arcadedb-1`, …). Prefer `POST /api/v1/cluster/leave` when the intent is to take a node out of the cluster rather than to stop its process.
 
 ====== Get server events
 
