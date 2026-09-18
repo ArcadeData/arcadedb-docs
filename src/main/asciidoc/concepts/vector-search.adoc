@@ -249,6 +249,32 @@ Indexes using `PRODUCT` quantization are the exception and still rebuild after a
 compressed vectors are tied to the same node numbering the rebuild reassigns.
 ====
 
+[[query-triggered-rebuild-is-bounded]]
+[NOTE]
+====
+`vectorIndex.maxConcurrentRebuilds` (1 by default) limits how many vector index graphs are rebuilt at the same
+time anywhere in the JVM, because concurrent rebuilds are what exhaust the heap. Before v26.10.1 that limit
+covered only the rebuilds ArcadeDB started in the background. A rebuild that a *query* had to run itself, because
+the index had no usable graph on disk, ignored it entirely -- and that is the rebuild every index of a database
+runs at once, on the first query to reach each of them after a restart. A cluster that reopened eight large
+indexes this way filled its heap and had its nodes restarted under it.
+
+Since v26.10.1 such a query waits its turn like any other rebuild. The first query to need a graph of 1,000
+vectors or more takes one of the `maxConcurrentRebuilds` slots and holds it for the build; the others wait, and
+answer as soon as a slot frees. Smaller indexes are exempt and keep building immediately, since they cannot
+threaten the heap and would only be delayed by whatever larger rebuild is running. Before the build starts, the
+page cache is asked to give up whatever heap the build needs, the same way a background rebuild does.
+
+A query is never *refused* a rebuild, only delayed by one: with no graph there is nothing to search, so refusing
+would return an empty result set rather than a slow one. If no slot frees within `vectorIndex.rebuildPermitTimeoutMs`
+(ten minutes by default), the query builds anyway and logs a warning, because by then the slot is being held by a
+rebuild that is stuck rather than slow.
+
+The counters `searchRebuildsQueuedForPermit` and `searchRebuildsWithoutPermit` in the index statistics report how
+often each happened. Persisting the graph before a restart -- a clean `close()`, or `REBUILD INDEX` -- avoids the
+whole situation: there is then nothing to rebuild on the first query.
+====
+
 [[delta-scan-bound]]
 [NOTE]
 ====
