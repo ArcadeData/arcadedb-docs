@@ -1033,13 +1033,19 @@ curl -u root:arcadedb-password \
 }
 ----
 
-`overridden` is true when the setting has been given an explicit value rather than inheriting its default.
+`value` is what this server is actually running on, and `default` the built-in default.
+`overridden` is true when the setting has been given an explicit value rather than inheriting its default - in the
+server configuration file, by an embedding application, or at runtime with `set_server_setting`.
 
 [IMPORTANT]
 ====
 Secret settings are masked as `*****` in both `value` and `default`.
 The rule covers the HA cluster token and every key containing `password`, and it is applied by the server rather
 than by the client, so a secret is never serialized into the response in the first place.
+
+`arcadedb.server.defaultDatabases` is masked differently, because its value merely *embeds* credentials rather
+than being one: the database names, user names and groups are kept, and only each password is replaced, so
+`mydb[jay:hunter2:admins]` is reported as `mydb[jay:*****:admins]` _(since v26.10.1)_.
 ====
 
 ===== `set_server_setting`
@@ -1360,6 +1366,12 @@ The root password is mandatory: the process authenticates as `root` and exits wi
 `arcadedb.server.rootPassword` is unset.
 Because the client owns stdout, the server redirects its own logging to stderr so that log lines cannot corrupt the
 JSON-RPC stream.
+
+*Exit status.* The process exits non-zero on any fatal startup failure - a wrong root password, an HTTP port
+already in use, an unreadable database directory - and exits `0` only when it ended the way it is meant to, with
+the client closing its stdin.
+This matters when a supervisor launches it (a systemd unit, a container runtime, or the MCP client itself), since
+a zero status reads as "finished normally" and suppresses the restart and the alert _(since v26.10.1)_.
 
 Stdio mode enables the MCP server for the lifetime of the process regardless of the `enabled` flag, since the
 client started it precisely to speak MCP.
