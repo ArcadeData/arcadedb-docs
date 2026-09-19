@@ -106,11 +106,23 @@ BACKUP DATABASE [ <backup-file-url> ]
 [NOTE]
 ====
 `&lt;backup-file-url&gt;` must be a bare file name (e.g. `mybackup.zip`), never a path or a `file://` URL that carries
-one. `BACKUP DATABASE` always writes into the server-configured backup directory
-(`arcadedb.server.backupDirectory`) so the archive's location cannot be steered elsewhere through SQL; a value with
-a directory component - `/`, `\`, or `..` in it - is rejected with `Backup file cannot contain path change because
-the directory is specified`. Use the standalone `Backup` class or the embedded API directly (not through SQL) if a
-full path is genuinely needed.
+one. `BACKUP DATABASE` always writes into the server's backup directory so the archive's location cannot be steered
+elsewhere through SQL; a value with a directory component - `/`, `\`, or `..` in it - is rejected with `Backup file
+cannot contain path change because the directory is specified`. Use the standalone `Backup` class or the embedded
+API directly (not through SQL) if a full path is genuinely needed.
+====
+
+[NOTE]
+====
+Since 26.10.1 the backup directory is the one every other backup command uses - the running auto-backup plugin's
+configuration, then `config/backup.json` even when the schedule is off, then `arcadedb.server.backupDirectory` - so
+an archive written here is visible to `list backups` and reachable by `delete backup` and `restore backup`. See
+<<backup-directory-resolution,Where an On-Demand Backup Goes>>.
+
+Previously the statement read `arcadedb.server.backupDirectory` on its own, so with a `config/backup.json` naming a
+different directory the archive landed out of reach of those commands and was never retention-pruned. One
+consequence of the change: `BACKUP DATABASE` now fails if that configured directory is invalid (absolute, or
+escaping the server root), which is the same refusal the other backup commands already gave.
 ====
 
 *Examples*

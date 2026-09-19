@@ -350,15 +350,18 @@ curl -X POST "http://localhost:2480/api/v1/server" \
 BACKUP DATABASE
 ----
 
+[[backup-directory-resolution]]
 ====== Where an On-Demand Backup Goes
 
-`trigger backup`, `list backups`, `delete backup` and `restore backup` all use one definition of the backup directory,
-so an archive one of them writes the others can see, whether or not the scheduler is running. The directory is
-resolved in this order, first hit wins:
+`trigger backup`, `list backups`, `delete backup`, `restore backup` and the SQL `BACKUP DATABASE` statement all use one
+definition of the backup directory, so an archive one of them writes the others can see, whether or not the scheduler
+is running. The directory is resolved in this order, first hit wins:
 
 1. the `backupDirectory` of the running auto-backup plugin;
 2. the `backupDirectory` in `config/backup.json`, even when that file sets `"enabled": false`;
-3. the server setting `arcadedb.server.backupDirectory`, the same directory the SQL `BACKUP DATABASE` command writes to.
+3. the server setting `arcadedb.server.backupDirectory`.
+
+It is resolved per command, so a `set backup config` that moves the directory is picked up by the next one.
 
 Archives always live under `<backupDirectory>/<database>/`. `get backup config` reports the resolved directory as
 `backupDirectory` next to the configuration. A configured directory that fails validation (an absolute path, or one
@@ -366,6 +369,18 @@ escaping the server root) makes every backup command fail with an error naming i
 answer an empty list; `get backup config` reports the same failure as `backupDirectoryError`. A `config/backup.json`
 that cannot be read or parsed is skipped with a warning in the server log, and the chain continues to the server
 setting.
+
+[NOTE]
+====
+Since 26.10.1 the SQL `BACKUP DATABASE` statement is on this chain too. Before that it read
+`arcadedb.server.backupDirectory` directly, so whenever `config/backup.json` named a different directory the archive
+it wrote landed where `list backups` did not look and `delete backup` and `restore backup` could not reach: invisible
+through the API and never retention-pruned.
+
+As a consequence `BACKUP DATABASE` now fails, rather than quietly writing elsewhere, when the configured directory
+fails the validation above. Embedded databases and remote connections are unaffected: with no server configuration in
+play the statement uses `arcadedb.server.backupDirectory` exactly as before.
+====
 
 Retention runs only while the scheduler is enabled: with auto-backup off, an on-demand archive stays on disk until it is
 removed with `delete backup`.

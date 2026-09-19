@@ -159,11 +159,19 @@ that degraded this way says so: the response carries an `arcadedb-session-expire
 not be resolved, so a client can tell it apart from a read that ran inside its transaction. This applies to
 `GET /query`, `/begin`, `/commit`, `/rollback` and the time-series and Prometheus read endpoints.
 
-The three time-series endpoints - `/api/v1/ts/{database}/write`, `/query` and `/latest` - accept a session id so
-they run under that session's user and keep it from expiring while you use it, but they do *not* take part in its
-transaction: samples are durable as soon as they are written, and the reads only read. Since 26.10.1 an error on
-one of them therefore leaves your open transaction exactly as it was. Before, it rolled the transaction back while
-leaving the session alive, so a later `/commit` reported success and the work was silently gone.
+The time-series and observability endpoints accept a session id so they run under that session's user and keep it
+from expiring while you use it, but they do *not* take part in its transaction: samples are durable as soon as they
+are written, and the reads only read. Since 26.10.1 an error on one of them therefore leaves your open transaction
+exactly as it was. Before, it rolled the transaction back while leaving the session alive, so a later `/commit`
+reported success and the work was silently gone. The endpoints this covers:
+
+* the three time-series endpoints, `/api/v1/ts/{database}/write`, `/query` and `/latest`;
+* the PromQL endpoints under `/api/v1/ts/{database}/prom`, and the Prometheus `remote_read` and `remote_write`
+  endpoints;
+* the Grafana query, metadata and health endpoints.
+
+The two errors easiest to hit on the observability routes are a malformed `start`/`end` timestamp and a read whose
+answer exceeds `arcadedb.server.maxResultRows`; neither touches your transaction any more.
 
 ==== Transaction Scripts
 
@@ -270,7 +278,16 @@ The `batchAck` frame carries `chunkSeq`, the counters `received`, `inserted`, `u
 `errors` array with `rowIndex`, `code` and `message` for each record that could not be applied; the rest of the
 chunk still goes in. A session the client walks away from - the connection drops, or no frame arrives for
 `server.wsInsertSessionExpireTimeout` milliseconds - is rolled back, and the idle case is reported with an unsolicited
-`error` frame. Example, upserting people by `email`:
+`error` frame.
+
+A `/ws` connection is allowed `server.wsMaxControlFrameSize` (64 KB by default) per text frame until it has an
+insert session, and `server.wsMaxInsertFrameSize` (16 MB) while it has one, so a `chunk` can carry a whole batch
+while a connection that never inserts stays on the small budget. A frame over the budget in force closes the
+connection with a `1009` close code. A separate cap, `server.wsMaxInsertChunkRows` (100,000), bounds the number of
+records in one `chunk` after parsing; a chunk over it is refused with an `error` frame and leaves the session open,
+so the client can split the batch and resend it under the same `chunkSeq`.
+
+Example, upserting people by `email`:
 
 [source,json]
 ----
