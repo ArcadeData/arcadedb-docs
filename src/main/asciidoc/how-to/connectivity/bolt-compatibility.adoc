@@ -49,13 +49,66 @@ The matrix on this page summarizes the certified feature areas. Consult the gene
 | Certified
 
 | Errors
-| `Neo.ClientError.*` (syntax, semantic, security, missing entity, invalid argument, constraint, type) and `Neo.TransientError.*` (drives driver retry). Since 26.10.1 a missing record, an unknown type or property, and an invalid value report their own client error codes instead of the generic `Neo.DatabaseError.General.UnknownError`
+| `Neo.ClientError.*` (syntax, semantic, security, missing entity, invalid argument, constraint, type) and `Neo.TransientError.*` (drives driver retry). Since 26.10.1 a missing record, an unknown type or property, and an invalid value report their own client error codes instead of the generic `Neo.DatabaseError.General.UnknownError`. See <<bolt-error-codes,Error codes>>
 | Certified
 
 | Protocol
 | BOLT 3.0 / 4.0 / 4.4 and 5.0–5.4 negotiation; `RESET` mid-stream
 | Certified
 |===
+
+[[bolt-error-codes]]
+===== Error Codes
+
+Every failure carries the Neo4j status code that describes it, so a driver can tell a mistake in your request
+from a problem with the server, and retry only what is worth retrying.
+
+*Selecting a database.* These are the first errors a driver can meet, because the database is resolved before
+anything else runs:
+
+[%header,cols="2,3"]
+|===
+| Code | Meaning
+
+| `Neo.ClientError.Database.DatabaseNotFound`
+| The name in the `database` connection parameter does not exist on this server. Permanent: retrying cannot help,
+  fix the name.
+
+| `Neo.TransientError.Database.DatabaseUnavailable`
+| The database exists but cannot serve the request right now - it is closed, or the server has not finished
+  opening its databases. The same request succeeds once it is available, so a retry is worthwhile.
+
+| `Neo.ClientError.Security.Forbidden`
+| The user is not allowed to reach that database. A permissions problem, not a database one.
+
+| `Neo.DatabaseError.General.UnknownError`
+| The database is genuinely broken - corruption, an I/O failure. This is the only case that is the server's fault.
+|===
+
+*Transactions.* `BEGIN`, `COMMIT` and `ROLLBACK` all report the same code for the same underlying failure:
+
+[%header,cols="2,3"]
+|===
+| Code | Meaning
+
+| `Neo.TransientError.Transaction.DeadlockDetected`
+| A concurrent modification or lock contention. Drivers retry a managed transaction on this code automatically.
+
+| `Neo.ClientError.Transaction.TransactionTimedOut`
+| A query or transaction deadline ran out. Retrying with a longer timeout is a decision for the caller, so drivers
+  do not retry it on their own.
+
+| `Neo.ClientError.Security.Forbidden`
+| The operation was refused for permission reasons.
+
+| `Neo.ClientError.Transaction.TransactionNotFound`
+| The fallback when the failure matches none of the above.
+|===
+
+NOTE: Before 26.10.1, `BEGIN` and `ROLLBACK` reported `Neo.ClientError.Transaction.TransactionNotFound` for
+every failure, and all database-selection failures reported `Neo.DatabaseError.General.UnknownError`. If your
+application branches on the status code, a conflict on `BEGIN` is now retried by the driver instead of failing,
+and a wrong database name is no longer indistinguishable from a broken server.
 
 ===== Documented Limitations
 
