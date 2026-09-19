@@ -125,9 +125,11 @@ A cluster that has never declared its `http` ports therefore still gets the comp
 On the common single-host layout where every node shares an address and the Raft and HTTP ports move in step (`2434/2480`, `2435/2481`, ...), the capability check derives each peer's HTTP port from that same offset, so it reaches the peers the shared-address fallback cannot name.
 The derived port is used for the capability check only - never for a snapshot download, a cluster verify or a forwarded write, which keep refusing a shared address. _(Since v26.10.1)_
 
-A peer the leader still could not get an answer for carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port. _(Since v26.10.1)_
+A peer that still did not answer carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port. _(Since v26.10.1)_
 
-TIP: Ask the *leader* when you want to compare what the nodes understand, because the leader is the only node that asks the others. A follower answers for itself and omits the field for every other peer. _(Since v26.10.1: a follower reported its own capabilities under the leader's entry, which during a rolling upgrade pointed at the wrong node.)_
+TIP: Ask *any* node when you want to compare what the nodes understand: every node asks the others, so every node can report each peer's `capabilities`. This is what lets you check "is the rolling upgrade finished" through a Kubernetes Service or a load balancer, neither of which routes you to the leader. _(Since v26.10.1: only the leader asked, so a follower omitted the field for every peer but itself and you had to find the leader first.)_
+
+NOTE: Because every node asks, the probe traffic grows with the square of the cluster size. At normal Raft cluster sizes that is a few small HTTP calls every five seconds; it is worth knowing only if you run an unusually large voter set.
 
 [[ha-named-peers]]
 ===== Named Peers
@@ -498,7 +500,7 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/peer`
-|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>","priority":0}`. The optional `name` is the human-readable display name shown in logs and Studio. The optional `priority` (non-negative integer, default `0`) sets the new peer's leader-election priority the same way a `priority` in `arcadedb.ha.serverList` does - use `0` for a witness that must never become leader, a higher value for a preferred one. The new peer is seeded with the current user list so authentication works immediately. This call adds the named peer to *this* server's cluster; it does not make this server join another one, and an address that resolves to this server is refused with `400`. _(Since v26.10.1: `priority` can be set here too, and adding this server's own address is refused instead of silently doing nothing.)_
+|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>","priority":0}`. The optional `name` is the human-readable display name shown in logs and Studio. The optional `priority` (non-negative integer, default `0`) sets the new peer's leader-election priority the same way a `priority` in `arcadedb.ha.serverList` does - use `0` for a witness that must never become leader, a higher value for a preferred one. The new peer is seeded with the current user list so authentication works immediately. This call adds the named peer to *this* server's cluster; it does not make this server join another one, and an address that resolves to this server is refused with `400`. _(Since v26.10.1: `priority` can be set here too, and adding this server's own address is refused instead of silently doing nothing.)_ A peer that cannot join - it answers a connection but never catches up - is reported after `arcadedb.ha.membershipChangeTimeout` at the latest, and a peer that turns out to belong to a *different* cluster is refused at once, naming `arcadedb.ha.clusterName` as the thing to check. _(Since v26.10.1: the call could run about half a minute past the budget.)_
 
 |DELETE
 |`/api/v1/cluster/peer/{peerId}`
