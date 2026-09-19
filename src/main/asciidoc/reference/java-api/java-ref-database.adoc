@@ -1035,6 +1035,15 @@ Before calling the callback in `TransactionScope`, the transaction is begun and 
 In case of any exceptions, the transaction is rolled back.
 In case a `NeedRetryException` exceptions is thrown, the transaction is repeated up to `retries` times
 
+NOTE: The retry is skipped if the block already committed part of its work before failing. This happens
+when the block runs a statement with an explicit batch boundary, such as `UPDATE ... BATCH n`,
+`DELETE ... BATCH n` or `MOVE VERTEX ... BATCH n`: those commit every `n` records by design, so the
+rollback can no longer undo the records already committed and repeating the block would apply them a
+second time. In that case the exception is propagated to the caller, who is the only one who knows how
+to compensate for the part that already went through. `TRUNCATE TYPE` and `REBUILD TYPE` are not
+affected, because they skip their internal batching when they run inside a transaction opened by the
+caller.
+
 Syntax:
 
 [source,java]

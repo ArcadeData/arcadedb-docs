@@ -33,6 +33,13 @@ Practically `UPSERT` means: `UPDATE` if the `WHERE` condition is fulfilled, othe
 * <<filtering,`WHERE`>> Defines the subset of records to be updated.
 * `LIMIT` Defines the maximum number of records to update.
 * `BATCH` Defines the number of records to update in each transaction batch. When set, the command commits the current transaction every `<batch-size>` records and begins a new one. This is essential for updating large datasets (e.g., millions of records) that would otherwise consume too much memory in a single transaction.
++
+NOTE: Because `BATCH` commits as it goes, an `UPDATE ... BATCH` is not atomic: a failure part way through
+leaves the records committed up to the last batch boundary in place. For the same reason, running it inside
+a transaction opened by your application makes that transaction no longer atomic either, and a rollback
+cannot undo what the batches already committed. A `transaction()` block with retries does not retry in that
+case: the conflict is propagated to your application instead, since repeating the block would apply the
+already committed records a second time.
 * `TIMEOUT` Defines the time you want to allow the update run before it times out.
 
 *Examples*
