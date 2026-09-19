@@ -158,6 +158,10 @@ Nothing is made durable until you commit, and rolling back discards the imported
 In that case `commitEvery` has no effect, since the import commits nothing of its own.
 For large imports prefer letting the import manage its own transaction, so it can commit in batches instead of holding everything in memory until you commit.
 
+An import that fails still leaves your transaction alone: it discards only its own pending work and reports the error.
+_(Since v26.10.1: a JSON import whose commit failed could roll your transaction back instead, silently discarding the
+changes you had pending.)_
+
 [[importer-report]]
 ===== Import report
 
@@ -189,13 +193,13 @@ Below you can find all the supported settings for the Importer.
 | commitEvery | 5000 | Create transactions that commit every X records
 | onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL and CSV importers.
 | parallel| Half of the available cores - 1. If you have 8 cores, the default is 3 | The number of concurrent threads used
-| typeIdProperty| | Property that represents the ID of the vertex
+| typeIdProperty| | Property that represents the ID of the vertex. Also used by an RDF/N-Triples source to key its subjects and objects, where it defaults to `id`. _(Since v26.10.1: an explicit value is honoured for RDF too; before, recognising a source as RDF silently replaced it with `id`, and that replacement then applied to the other files of the same import as well)_
 | typeIdUnique| false | True creates a unique index on the type id property, otherwise a non unique index
 | typeIdType| String | Type of the id property
 | trimText| true | True if the imported text is trimmed from heading and tailing spaces
 | maxProperties| 512 | Maximum number of properties per type (CSV)
 | maxPropertySize| 4096 | Maximum size of a property in bytes (CSV)
-| delimiter| `,` | Delimiter used to separate fields  (CSV). When not set, it is auto-detected from the first line for files whose name does not end in `.csv`. A delimiter set explicitly always wins over the detected one; the precedence is the per-entity delimiter (`documentsDelimiter`, `verticesDelimiter`, `edgesDelimiter`), then `delimiter`, then the detected one. Each file of the same import resolves its own delimiter
+| delimiter| `,` | Delimiter used to separate fields  (CSV). When not set, it is auto-detected from the first line for files whose name does not end in `.csv`. A delimiter set explicitly always wins over the detected one; the precedence is the per-entity delimiter (`documentsDelimiter`, `verticesDelimiter`, `edgesDelimiter`), then `delimiter`, then the detected one. Each file of the same import resolves its own delimiter. A delimiter longer than one character is supported _(since v26.10.1; before, the schema analysis used only its first character while the load used the whole string, so values could land under the wrong property names with no error reported)_. An empty delimiter is refused with an error
 | analysisLimitBytes| 100,000| Maximum number of bytes parsed from the source to determine the source file type. _(Since v26.10.1 also applies to XML sources; before it was CSV-only and XML analysis was unbounded)_
 | analysisLimitEntries|10,000 |Maximum number of entries (if applicable) parsed from the source to determine the source file type. _(Since v26.10.1 also applies to XML sources)_
 | parsingLimitBytes| |Maximum number of bytes parsed from the source to be imported. _(Since v26.10.1 enforced on every format; before it had no effect at all)_
@@ -205,14 +209,14 @@ Below you can find all the supported settings for the Importer.
 | documents| |url of the file to import containing documents only. This is useful when the database is split in separate files
 | documentsFileType| | The format of the file containing documents (csv, graphml, graphson)
 | documentsDelimiter| | Delimiter used to separate documents
-| documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_
+| documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | documentsSkipEntries| |Number of rows to skip from the documents file. When not set, the first line is skipped as the header for delimited text - unless you supplied `documentsHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | documentPropertiesInclude| `*` | List of property to import from documents. `*` means all
 | documentType| Document| Name of the type defined in the schema when importing documents
 | vertices| |url of the file to import containing vertices only. This is useful when the database is split in separate files
 | verticesFileType| | The format of the file containing vertices (csv, graphml, graphson)
 | verticesDelimiter| | Delimiter used to separate vertices
-| verticesHeader| |Header containing the properties in the CSV vertices. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_
+| verticesHeader| |Header containing the properties in the CSV vertices. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | verticesSkipEntries| |Number of rows to skip from the vertices file. When not set, the first line is skipped as the header for delimited text - unless you supplied `verticesHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | expectedVertices| 0 | Number of vertices expected. This is useful to determine the ETA of the importing process of vertices. 0 means unknown
 | vertexType| Vertex| Name of the type defined in the schema when importing vertices
@@ -220,7 +224,7 @@ Below you can find all the supported settings for the Importer.
 | edges| |url of the file to import containing edges only. This is useful when the database is split in separate files
 | edgesFileType| | The format of the file containing edges (csv, graphml, graphson)
 | edgesDelimiter| | Delimiter used to separate edges
-| edgesHeader| |Header containing the properties in the CSV edges. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_
+| edgesHeader| |Header containing the properties in the CSV edges. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | edgesSkipEntries| |Number of rows to skip from the edges file. When not set, the first line is skipped as the header for delimited text - unless you supplied `edgesHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | expectedEdges| 0 | Number of edges expected. This is useful to determine the ETA of the importing process of edges. 0 means unknown
 | maxRAMIncomingEdges| 256MB | Maximum RAM used to create edges. The more RAM, the faster.
