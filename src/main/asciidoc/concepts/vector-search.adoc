@@ -265,6 +265,15 @@ answer as soon as a slot frees. Smaller indexes are exempt and keep building imm
 threaten the heap and would only be delayed by whatever larger rebuild is running. Before the build starts, the
 page cache is asked to give up whatever heap the build needs, the same way a background rebuild does.
 
+That exemption is itself bounded, from v26.10.1 on. "Too small to matter" describes one rebuild and says nothing
+about how many run at once, so a database of hundreds of small vector indexes reopening together used to start one
+rebuild per index with nothing limiting them. Exempt rebuilds now draw on a shared allowance of 1,000 vectors per
+`maxConcurrentRebuilds` slot: while the allowance lasts they keep building immediately, and once it is spent the
+next one waits for a slot like a large rebuild, because together they have become one. A thousand indexes of a few
+vectors each therefore still cost nothing, while a handful close to the 1,000-vector line already count. The
+counter `smallRebuildsOverBudget` in the index statistics reports how often a small rebuild had to wait for this
+reason -- distinct from `searchRebuildsQueuedForPermit`, which says some *other* index was holding the slot.
+
 A query is never *refused* a rebuild, only delayed by one: with no graph there is nothing to search, so refusing
 would return an empty result set rather than a slow one. If no slot frees within `vectorIndex.rebuildPermitTimeoutMs`
 (ten minutes by default), the query builds anyway and logs a warning, because by then the slot is being held by a
@@ -288,6 +297,14 @@ were enough to cause rebuild after rebuild, with no deletes anywhere in the appl
 Note also that rewriting a vector property with a value identical to the stored one never marks anything deleted:
 ArcadeDB compares the two embeddings and skips the index when they are equal. Avoiding redundant writes in your
 application therefore does not reduce rebuilds; reducing write conflicts does.
+
+Sparse vector indexes (`LSM_SPARSE_VECTOR`) had the same defect, with a different symptom, and it is fixed in the
+same release. A rolled-back insert could leave its entries searchable, and a rolled-back delete or embedding
+rewrite could leave deletion markers behind -- which is the damaging half, because a marker on any dimension hides
+the whole document from every query mentioning that dimension, so a live document nobody deleted silently stopped
+being found. Neither was temporary: the index writes its in-memory entries out to disk on its own schedule, so a
+rolled-back transaction's work could be made permanent. Since v26.10.1 a sparse vector index holds the entries of a
+transaction back until the transaction has actually committed, so a rollback has nothing to undo.
 ====
 
 [[delta-scan-bound]]
