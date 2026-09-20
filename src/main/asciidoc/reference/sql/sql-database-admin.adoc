@@ -149,6 +149,8 @@ Executes an integrity check and in case of a repair of the database. This comman
 * <<indexes,indexes>>: the structure of each index is validated. A corrupted index is dropped and rebuilt if the `FIX` option is
  enabled, keeping its name and its configuration - a full-text index's analyzers and BM25 parameters, a geospatial index's
  precision, a vector index's dimensions.
+* existence constraints: _since v26.10.1_, every record of a type that declares a `MANDATORY` or `NOTNULL` property is checked
+ against it. See <<sql-check-database-constraints,Existence constraints>> below.
 
 NOTE: the index check is *structural*: it validates the index's own pages, not that every record of the type appears in the index.
 An index that is intact but incomplete - for example one whose build was interrupted by a crash - is therefore reported as healthy.
@@ -201,7 +203,8 @@ concurrent writers.
 [source,sql]
 ----
 CHECK DATABASE [ TYPE <type-name>[,]* ] [ BUCKET <bucket-name>[,]* ] [ RECORD <rid>[,]* ]
-              [ FIX ] [ DELETE ORPHANS ] [ RECLAIM UNREFERENCED FILES ] [ DEEP ] [ COMPRESS ]
+              [ FIX ] [ DELETE ORPHANS ] [ DELETE INVALID RECORDS ] [ RECLAIM UNREFERENCED FILES ]
+              [ DEEP ] [ COMPRESS ]
 ----
 
 The optional clauses must appear in the order shown above.
@@ -217,6 +220,11 @@ The optional clauses must appear in the order shown above.
  vertices but which no vertex's edge list references. A clause of its own because the same shape is also produced by a
  vertex that merely lost its head-chunk pointer, whose edges are still recoverable. Without it the finding is still
  reported, under `unreachableEdgeRecords`
+* *`DELETE INVALID RECORDS`* Optional, requires `FIX`, _since v26.10.1_. Removes the records that do not satisfy their
+ own type's existence constraints. A clause of its own because `ALTER PROPERTY ... MANDATORY TRUE` on a type that
+ already holds records makes every one of them a finding while they hold real data - see
+ <<sql-check-database-constraints,Existence constraints>>. Without it the finding is still reported, under
+ `constraintViolatingRecords`
 * *`RECLAIM UNREFERENCED FILES`* Optional, requires `FIX`. Deletes files this node holds that no schema component was
  ever built for. Without it the finding is still reported, under `unreferencedFiles`
 * *`DEEP`* Optional, adds the checks that decode the stored data rather than reconciling what describes it. Today only
@@ -288,7 +296,57 @@ The command returns the integrity check report in one record with the fields:
 | `repairedTimeSeries` | number of TimeSeries repairs a `FIX` applied. Deliberately not folded into `autoFix`, which
                          counts record actions only.
 | `timeSeriesRepairs` | one line per repair applied, naming the type, the shard and what was rewritten.
+| `constraintViolatingRecords` | _since v26.10.1_, records that load correctly but do not satisfy an existence
+                                 constraint (`MANDATORY`, `NOTNULL`) of their own type. Deliberately not listed under
+                                 `corruptedRecords`: such a record reads, deserialises and indexes correctly, and
+                                 flagging it as corrupt would have `FIX` rebuild every index on its bucket for nothing.
+| `totalConstraintViolations` | how many such records the check found. Exact even when the list above is capped.
+| `deletedConstraintViolatingRecords` | which of them a `FIX DELETE INVALID RECORDS` actually removed. Empty on every
+                                        other run, and capped like every other RID list - read the exact count from
+                                        `totalDeletedConstraintViolatingRecords`, never from this list's size.
+| `totalDeletedConstraintViolatingRecords` | how many were removed. A record that another write completed while the
+                                             check was running is *not* removed and not counted here: the repair
+                                             re-checks each record immediately before deleting it.
 |===
+
+[[sql-check-database-constraints]]
+*Existence constraints*
+
+_Since v26.10.1_ the check also asks a schema question: does every record satisfy the `MANDATORY` and `NOTNULL`
+constraints its own type declares? It is the one question nothing else in the database could answer, and a record that
+fails it is not merely untidy - every later write to it fails, because the update path validates the whole document,
+so the record reads as broken to the application long before anyone thinks to look at the schema.
+
+A record can end up in that state three ways, and only the first is a fault:
+
+* an openCypher `CREATE`/`MERGE` pattern commits the record before the `SET` that completes it has run - which is what
+ makes the standard `MERGE (n:L {id: $id}) SET n.prop = $v` upsert work the way it does in Neo4j - and the process
+ dies, or the connection is killed, before the end of the statement;
+* a `RESTORE DOCUMENT`/`VERTEX`/`EDGE` run by a release older than `26.9.1`, which did not apply the schema contract;
+* a schema change that no existing record was measured against: `ALTER PROPERTY ... MANDATORY TRUE` on a type that
+ already holds records, which does not validate them, or renaming a `MANDATORY` property, which relabels the schema
+ and leaves every record that predates it carrying the old name. Every one of them becomes a finding while holding
+ data that is exactly as real as it was the day before the DDL ran.
+
+Because the third is legitimate and the state it leaves is identical to the first, the *removal is a clause of its
+own*: a `FIX` that deleted by default would answer a DDL by destroying the type's contents. Reporting is always on.
+
+There are two repairs, and which one is right depends on whether the records hold data:
+
+* complete the record with a **single** `UPDATE` supplying every missing property. It has to be a single statement -
+ the write path validates the whole document, so supplying two missing mandatory properties in two statements fails on
+ the first;
+* remove the records with `CHECK DATABASE FIX DELETE INVALID RECORDS`.
+
+The two are safe to use together, including at the same time: the repair re-reads and re-checks every record inside
+the transaction that deletes it, so a record an `UPDATE` completed while the check was running is reported and left
+in place rather than deleted. A removal a `beforeDelete` trigger refuses is reported too, and not counted as removed.
+The removal is committed in batches sized by `arcadedb.checkDatabaseRepairBatchPages`, like every other
+`CHECK DATABASE ... FIX` repair, so a bulk removal stays inside the replicated-entry limit under
+<<howto-high-availability,HA>>.
+
+The pass costs nothing on a database whose types declare no such constraint: the types to scan are resolved from the
+schema before a record is read, so a database with none runs no pass at all and its report simply says zero.
 
 [[sql-check-database-timeseries]]
 *TimeSeries integrity*
