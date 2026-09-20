@@ -484,6 +484,23 @@ The bootstrap protocol handles the following cases automatically:
 
 The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is visible in the response to `GET /api/v1/cluster` and in the Studio cluster dashboard.
 
+[[ha-node-stopped]]
+===== When a node has stopped for good
+
+Most problems a node reports are temporary: it is catching up, or downloading a snapshot, and it rejoins on its own.
+Two are not, and since v26.10.1 `GET /api/v1/cluster` says so directly:
+
+* `criticalHalt` - a replicated change could not be applied, so this node has stopped applying changes altogether. Its databases are frozen at that point and stay there until the node is restarted. If the reason mentions an unknown entry type, a newer node is writing a format this one cannot read: upgrade this node first, or it stops again at the same place.
+* `raftLogFailure` - the node cannot write to its replication log, almost always a full or read-only disk. It recovers by itself once there is room again.
+
+Both are `null` on a healthy node, and both raise a matching entry in `alerts`. A third field, `crashLoopEscalated`, is `true` once the node has given up restarting itself and needs to be restarted by hand.
+
+`alerts` also distinguishes two situations that used to look the same. `bootstrap-diverged-databases` means this node *kept* a copy that the cluster never adopted - the data is here and intact. `bootstrap-database-missing` means the opposite: this node is *missing* a database the cluster has. Do not copy a node's database directory to the other nodes when it is the one missing the database; run `POST /api/v1/cluster/resync/{database}` on it instead, transferring leadership first if that node is the leader.
+
+NOTE: The full text of the error behind `criticalHalt` and `raftLogFailure` is shown to the `root` user only. Other users see the condition, the position and the time, which is what a monitoring rule needs.
+
+A node in either state answers `503` on `/api/v1/ready`, so Kubernetes takes it out of the Service. _(Since v26.10.1 this no longer depends on `arcadedb.server.readinessRequiresHA`: a node whose replication has stopped is never ready, whatever that setting says.)_
+
 [[howto-ha-rest]]
 ===== Cluster Management REST API
 
