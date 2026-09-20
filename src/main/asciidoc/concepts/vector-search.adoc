@@ -307,6 +307,24 @@ rolled-back transaction's work could be made permanent. Since v26.10.1 a sparse 
 transaction back until the transaction has actually committed, so a rollback has nothing to undo.
 ====
 
+[[search-inside-transaction-committed-reads]]
+[NOTE]
+====
+Searching a vector index from inside an open transaction is safe: what the search finds, and what the index keeps
+afterwards, is built only from committed data.
+
+Before v26.10.1 it was not. A search can trigger a rebuild of the index graph, and when that happened inside a
+transaction the rebuild read the embeddings through that transaction -- so values written but not yet committed
+were baked into the index. A rollback took the records back but not the index, which was then left describing a
+row by an embedding the database does not hold: searching for that embedding returned the row, searching for its
+real one did not. Rolled-back inserts could be left in the index the same way. The damage was permanent for the
+life of the database, and survived a reopen and a backup for indexes storing their vectors in the graph file.
+
+The practical consequence of the fix is that a row written inside a transaction is not a search candidate until
+the transaction commits, which is also how it behaved before. If you write embeddings and want to search them in
+the same unit of work, commit first.
+====
+
 [[delta-scan-bound]]
 [NOTE]
 ====
