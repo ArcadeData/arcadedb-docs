@@ -160,7 +160,29 @@ For large imports prefer letting the import manage its own transaction, so it ca
 
 An import that fails still leaves your transaction alone: it discards only its own pending work and reports the error.
 _(Since v26.10.1: a JSON import whose commit failed could roll your transaction back instead, silently discarding the
-changes you had pending.)_
+changes you had pending. A failed GraphSON import could leave its own transaction open on top of yours, so your next
+commit published the failed import's partial work and discarded your own.)_
+
+[[importer-csv-column-count]]
+===== CSV rows and the header
+
+A CSV row is matched against the header by column count.
+
+A row with *fewer* columns than the header is imported with the columns it does supply; the remaining properties are
+left unset, and the row is counted under `warnings`.
+
+A row with *more* columns than the header cannot be imported as it stands - the extra values have no field name to be
+stored under - so by default the import fails, naming the line and both column counts. Set `onRowError` to `skip` to
+have such rows skipped and counted under `errors` instead.
+
+_(Since v26.10.1: a row with more columns used to abort the import with an error naming neither the file nor the line,
+and `onRowError = skip` could not reach it, because the failure happened while the schema was being analysed. A row
+with fewer columns used to abort as well. Note the consequence for large files: `analysisLimitEntries` and
+`analysisLimitBytes` bound only the analysis, so a row with extra columns beyond that window now fails the import
+where it previously imported with the extra values silently dropped.)_
+
+If the analysis reads only rows it has to refuse, it cannot derive any property and the import fails saying so,
+naming the analysis limit when one is set - widening it is usually the fix.
 
 [[importer-report]]
 ===== Import report
@@ -191,7 +213,7 @@ Below you can find all the supported settings for the Importer.
 | forceDatabaseCreate|false | If true, the database is created brand new at every import
 | wal | false | Use the WAL (journal) for the importing. If the WAL is enabled the importing process will be much slower and will require much more RAM
 | commitEvery | 5000 | Create transactions that commit every X records
-| onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL and CSV importers.
+| onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL and CSV importers. _(Since v26.10.1 it also governs a CSV row with more columns than the header - see <<importer-csv-column-count,CSV rows and the header>>. It does not rescue a source from which the analysis could derive no property at all: that fails either way, since the alternative is an import that completes having produced nothing.)_
 | parallel| Half of the available cores - 1. If you have 8 cores, the default is 3 | The number of concurrent threads used
 | typeIdProperty| | Property that represents the ID of the vertex. Also used by an RDF/N-Triples source to key its subjects and objects, where it defaults to `id`. _(Since v26.10.1: an explicit value is honoured for RDF too; before, recognising a source as RDF silently replaced it with `id`, and that replacement then applied to the other files of the same import as well)_
 | typeIdUnique| false | True creates a unique index on the type id property, otherwise a non unique index
@@ -207,14 +229,14 @@ Below you can find all the supported settings for the Importer.
 | mapping | null |
 | probeOnly | false | Only probe if url is reachable or file path is readable
 | documents| |url of the file to import containing documents only. This is useful when the database is split in separate files
-| documentsFileType| | The format of the file containing documents (csv, graphml, graphson)
+| documentsFileType| | The format of the file containing documents (csv, graphml, graphson). `graphml` and `graphson` require the optional `arcadedb-gremlin` module on the classpath; without it the import is refused _(since v26.10.1: it used to be read as generic XML and reported as successful, losing the graph)_
 | documentsDelimiter| | Delimiter used to separate documents
 | documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | documentsSkipEntries| |Number of rows to skip from the documents file. When not set, the first line is skipped as the header for delimited text - unless you supplied `documentsHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | documentPropertiesInclude| `*` | List of property to import from documents. `*` means all
 | documentType| Document| Name of the type defined in the schema when importing documents
 | vertices| |url of the file to import containing vertices only. This is useful when the database is split in separate files
-| verticesFileType| | The format of the file containing vertices (csv, graphml, graphson)
+| verticesFileType| | The format of the file containing vertices (csv, graphml, graphson). See `documentsFileType` for the `arcadedb-gremlin` requirement
 | verticesDelimiter| | Delimiter used to separate vertices
 | verticesHeader| |Header containing the properties in the CSV vertices. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | verticesSkipEntries| |Number of rows to skip from the vertices file. When not set, the first line is skipped as the header for delimited text - unless you supplied `verticesHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
@@ -222,7 +244,7 @@ Below you can find all the supported settings for the Importer.
 | vertexType| Vertex| Name of the type defined in the schema when importing vertices
 | vertexPropertiesInclude| `*` | List of property to import from vertices. `*` means all
 | edges| |url of the file to import containing edges only. This is useful when the database is split in separate files
-| edgesFileType| | The format of the file containing edges (csv, graphml, graphson)
+| edgesFileType| | The format of the file containing edges (csv, graphml, graphson). See `documentsFileType` for the `arcadedb-gremlin` requirement
 | edgesDelimiter| | Delimiter used to separate edges
 | edgesHeader| |Header containing the properties in the CSV edges. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | edgesSkipEntries| |Number of rows to skip from the edges file. When not set, the first line is skipped as the header for delimited text - unless you supplied `edgesHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
