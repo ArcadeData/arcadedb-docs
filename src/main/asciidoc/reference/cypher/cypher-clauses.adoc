@@ -1430,6 +1430,24 @@ NOTE: If the property does not already exist in the schema, ArcadeDB will automa
 
 NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple times will not cause an error if the constraint already exists.
 
+[[cypher-constraint-when-checked]]
+*When existence constraints are checked:*
+
+A property declared mandatory with `IS NOT NULL` (or `IS NODE KEY`) is checked when the statement finishes, not at the instant the node or relationship is created. This is what makes the standard upsert work, since the `SET` supplies the property after the pattern has created the node:
+
+[source,cypher]
+----
+CREATE CONSTRAINT rec_org_exists IF NOT EXISTS FOR (n:Record) REQUIRE n.orgId IS NOT NULL;
+
+MERGE (n:Record {id: $id}) SET n.orgId = $orgId RETURN n
+----
+
+Any clause of the same statement may supply the property. A statement that ends without supplying it fails, and the incomplete record is removed.
+
+Only `CREATE`/`MERGE` pattern writes are deferred this way. Every other constraint (`IS TYPED`, `min`, `max`, regular expressions, read-only) is still checked at the moment of the write, as are writes issued from SQL, the Java API and `CALL` procedures.
+
+CAUTION: Between the pattern creating the record and the statement ending, another connection can briefly read a record that does not yet satisfy its existence constraints. If the server stops in that window, the incomplete record is left behind.
+
 [[cypher-is-typed]]
 *IS TYPED data types:*
 
@@ -1518,7 +1536,35 @@ SHOW USERS
 ----
 // List all users
 SHOW USERS
+
+// Only the rows that match
+SHOW USERS WHERE user = $name
+
+// Pick the columns to return
+SHOW USERS YIELD user WHERE user STARTS WITH 'app_'
 ----
+
+[[cypher-show-filtering]]
+*Filtering the output of a SHOW command:*
+
+Every `SHOW` command accepts an optional trailing `WHERE`, or a `YIELD` that selects columns and may itself be followed by `ORDER BY`, `SKIP`, `LIMIT`, `WHERE` and `RETURN`:
+
+[source,cypher]
+----
+SHOW DATABASES WHERE name = $dbName
+SHOW DATABASES YIELD name, currentStatus WHERE name STARTS WITH 'prod'
+SHOW DATABASES YIELD name ORDER BY name SKIP 1 LIMIT 5
+SHOW INDEXES YIELD name, type RETURN count(name) AS total
+----
+
+The filter is evaluated by the Cypher engine, so operators, functions and query parameters behave exactly as they do in any other query. Checking whether a database exists is therefore a matter of asking for it by name and seeing whether a row comes back:
+
+[source,cypher]
+----
+SHOW DATABASES WHERE name = $dbName
+----
+
+NOTE: A trailing `;` is accepted. A `UNION` of several commands is answered branch by branch, so a trailing clause there applies only within its own branch.
 
 ---
 
