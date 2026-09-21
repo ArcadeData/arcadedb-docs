@@ -310,8 +310,8 @@ transaction back until the transaction has actually committed, so a rollback has
 [[search-inside-transaction-committed-reads]]
 [NOTE]
 ====
-Searching a vector index from inside an open transaction is safe: what the search finds, and what the index keeps
-afterwards, is built only from committed data.
+Searching a vector index from inside an open transaction is safe: what the index keeps afterwards is built only
+from committed data.
 
 Before v26.10.1 it was not. A search can trigger a rebuild of the index graph, and when that happened inside a
 transaction the rebuild read the embeddings through that transaction -- so values written but not yet committed
@@ -319,10 +319,27 @@ were baked into the index. A rollback took the records back but not the index, w
 row by an embedding the database does not hold: searching for that embedding returned the row, searching for its
 real one did not. Rolled-back inserts could be left in the index the same way. The damage was permanent for the
 life of the database, and survived a reopen and a backup for indexes storing their vectors in the graph file.
+====
 
-The practical consequence of the fix is that a row written inside a transaction is not a search candidate until
-the transaction commits, which is also how it behaved before. If you write embeddings and want to search them in
-the same unit of work, commit first.
+[[search-reads-own-writes]]
+[NOTE]
+====
+Since v26.10.1 a search issued inside a transaction also finds the rows that transaction has written but not yet
+committed, for both dense (`LSM_VECTOR`) and sparse (`LSM_SPARSE_VECTOR`) indexes. You can insert or re-embed rows
+and search them in the same unit of work.
+
+Before that, you could not. Writes reach the index only when the transaction commits, so a search issued before
+that simply did not see them -- and it did not report an error either: it returned *fewer* results, which an
+application cannot tell apart from "nothing matched". Full-text indexes have always merged their own
+transaction's writes this way; vector indexes now do too.
+
+The two guarantees hold together: what the search *returns* includes your uncommitted rows, while what the index
+*stores* is still built only from committed data. Roll the transaction back and both the rows and their
+embeddings are gone, with nothing left behind in the index.
+
+A related fix in the same release covers re-embedding: rewriting one record's embedding several times inside a
+single transaction now leaves the index holding the *last* value written. Previously every rewrite was kept, so
+the record could be ranked by an embedding it no longer had, and one search could return it more than once.
 ====
 
 [[delta-scan-bound]]
