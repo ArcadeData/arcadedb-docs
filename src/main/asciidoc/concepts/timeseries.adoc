@@ -510,7 +510,21 @@ thousands of real samples. Since 26.10.1 every sealed block also records the cou
 is what lets `AVG` be answered from the block statistics without decompressing the block. Blocks written by an
 earlier version are read as they are: a block whose recorded sum was poisoned is decompressed for every aggregate
 but `COUNT`, and the next compaction, downsampling or retention rewrite of the block records both statistics. The
-sealed store format version moved from 0 to 1 for this; a 26.10.1 store cannot be opened by an earlier version.
+sealed store format version moved from 0 to 1 for this.
+====
+
+[NOTE]
+====
+Since 26.10.1 each sealed block records an identity of its own, which is what lets a long-running read - a wide
+query, a PromQL range, an `EXPORT DATABASE` - find its blocks again if the shard is rewritten underneath it. On a
+high-availability follower that happens whenever the leader ships a newly compacted store: before this, such a read
+returned the rows it had reached and stopped there silently, with no error. Blocks written by an earlier version
+have no identity recorded and one is derived from the block itself, so they behave the same way; the next
+compaction, downsampling or retention rewrite records it.
+
+The sealed store format version moved to 2 for this, so a store written by 26.10.1 cannot be opened by an earlier
+version - deliberately, since the alternative is an older version reading it as if it held nothing. In a cluster,
+keep every node on the same version.
 ====
 
 [NOTE]
