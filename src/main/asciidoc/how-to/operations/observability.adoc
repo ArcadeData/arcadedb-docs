@@ -259,9 +259,11 @@ ArcadeDB exposes two complementary, unauthenticated endpoints so orchestrators c
 [%header,cols="22%,18%,60%"]
 |===
 | Endpoint | Probe | Behavior
-| `GET /api/v1/health` | liveness | Returns `204` whenever the HTTP layer is up. Performs no database I/O and never returns a busy/`503` status, so a node that is merely warming up is not killed. On a High Availability cluster it returns `503` if the node has given up recovering from a crash loop, so the orchestrator restarts a node that otherwise cannot recover on its own.
-| `GET /api/v1/ready` | readiness | Returns `204` once the server is `ONLINE`; `503` (`Server not started yet`) before that. On a High Availability cluster it also returns `503` while this node's replication log writer has failed -- a node in that state cannot catch up, so everything it serves is frozen at the moment the writer failed. It rejoins on its own once the writer recovers. _(Since v26.10.1; this check is not behind `server.readinessRequiresHA`, see below.)_ Otherwise unchanged by default.
+| `GET, HEAD /api/v1/health` | liveness | Returns `204` whenever the HTTP layer is up. Performs no database I/O and never returns a busy/`503` status, so a node that is merely warming up is not killed. On a High Availability cluster it returns `503` if the node has given up recovering from a crash loop, so the orchestrator restarts a node that otherwise cannot recover on its own.
+| `GET, HEAD /api/v1/ready` | readiness | Returns `204` once the server is `ONLINE`; `503` (`Server not started yet`) before that. On a High Availability cluster it also returns `503` while this node's replication log writer has failed -- a node in that state cannot catch up, so everything it serves is frozen at the moment the writer failed. It rejoins on its own once the writer recovers. _(Since v26.10.1; this check is not behind `server.readinessRequiresHA`, see below.)_ Otherwise unchanged by default.
 |===
+
+Both endpoints also accept `HEAD`, so healthcheck tools that probe with a HEAD request (e.g. `wget --spider`, common in Docker `HEALTHCHECK` instructions) work without a body being returned.
 
 Use `/api/v1/health` for the liveness probe and `/api/v1/ready` for the readiness probe:
 
