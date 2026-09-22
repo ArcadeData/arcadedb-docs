@@ -67,6 +67,24 @@ Common optimizations:
 * **Project only needed fields** -- `SELECT name, email FROM User` is faster than `SELECT * FROM User`
 * **Use parameterized queries** -- Avoid SQL parsing overhead for repeated queries
 
+[TIP]
+====
+Parameters are worth more than they look, especially in Cypher. A parsed query is cached by its exact text, so
+writing the value inside the query produces a new text on every call and the cache is never reused:
+
+[source,sql]
+----
+-- a different query text every time: re-parsed on every call, and fills the cache with single-use entries
+MATCH (p:Person) WHERE p.id = 1234 RETURN p.name, p.age
+
+-- one text, parsed once, reused from then on
+MATCH (p:Person) WHERE p.id = $id RETURN p.name, p.age
+----
+
+For a small indexed lookup the parse dominates the cost of the whole query, so this single change is often the
+difference between the two forms being several times apart in latency.
+====
+
 ===== Bucket Configuration
 
 ArcadeDB distributes records across buckets for parallel access. The default number of buckets per type equals the CPU core count.

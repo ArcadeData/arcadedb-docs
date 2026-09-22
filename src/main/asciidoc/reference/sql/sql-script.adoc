@@ -135,6 +135,23 @@ COMMIT [RETRY <n> [ELSE { <statements> } [AND] (FAIL | CONTINUE)]]
 
 This is the building block that makes server-side scripts safe to run from many concurrent clients: each conflict is resolved on the server, and the client only sees the final result.
 
+[WARNING]
+====
+A retry re-runs the block from the beginning, so it is only safe while the block has published nothing yet.
+A statement with an explicit batch boundary -- <<sql-update,`UPDATE`>>, <<sql-delete,`DELETE`>> or
+<<sql-move-vertex,`MOVE VERTEX`>> with `BATCH <n>` -- commits as it goes, so part of the block is already stored by the
+time a later statement fails, and a rollback cannot take it back.
+
+Since 26.10.1, when that has happened the block is *not* retried: the conflict is raised to the caller, who is the
+only one able to compensate for the part that is already stored. In that case the `ELSE` block does not run and
+`AND CONTINUE` does not suppress the error either -- `ELSE` statements are written for a block that did nothing,
+and returning an empty result would hide a conflict you need to see. A block that committed nothing before failing
+is still retried the full `<n>` times, as before.
+
+Before 26.10.1 the block was replayed, applying the already stored records a second time on every remaining
+attempt, and the script could still report success.
+====
+
 Examples:
 
 [source,sql]

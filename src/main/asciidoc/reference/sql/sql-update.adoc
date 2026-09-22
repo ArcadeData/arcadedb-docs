@@ -39,7 +39,8 @@ leaves the records committed up to the last batch boundary in place. For the sam
 a transaction opened by your application makes that transaction no longer atomic either, and a rollback
 cannot undo what the batches already committed. A `transaction()` block with retries does not retry in that
 case: the conflict is propagated to your application instead, since repeating the block would apply the
-already committed records a second time.
+already committed records a second time. Since 26.10.1 a SQL Script
+<<sql-script-commit,`BEGIN ... COMMIT RETRY <n>`>> block behaves the same way.
 * `TIMEOUT` Defines the time you want to allow the update run before it times out.
 
 *Examples*
@@ -107,7 +108,14 @@ ArcadeDB> UPDATE Account SET addresses[0] = 'Foo'
 ----
 
 NOTE: Before 26.10.1 these nested assignments were reported as successful but were never stored. If you relied on them
-on an earlier release, re-check the affected records.
+on an earlier release, re-check the affected records. Before the same release, a positional assignment on a property
+whose value is a *set* always failed with a `ConcurrentModificationException` and left the value truncated.
+
+NOTE: A positional assignment past the end of a collection, such as `addresses[5] = 'Foo'` on a 3-element list, pads
+the missing positions with `null`. A property whose value is a *set* is the exception: a set cannot hold `null` more
+than once, so several missing positions collapse into one and the value lands right after it -
+`[a, b, c, null, Foo]` rather than `[a, b, c, null, null, Foo]`. Declare the property as `LIST` if every position
+must be addressable.
 
 * Update to remove a value from a map
 
