@@ -178,6 +178,20 @@ Recommended rolling upgrade flow (zero downtime, requires quorum at all times):
 . Repeat for every remaining replica.
 . Step the leader down with `POST /api/v1/cluster/stepdown` (or simply stop it — Raft will elect a new leader) and upgrade it last.
 
+[NOTE]
+====
+From 26.10.1, a node that receives replicated TIMESERIES data for a type it does not have -- or for a type that
+exists locally but is not a TIMESERIES one -- refuses the entry, which quarantines that database and triggers an
+automatic resync from the leader. Earlier releases logged the problem and carried on, which left the node's copy
+of that type permanently behind the leader's with nothing but a log line to say so.
+
+This should not occur during an ordinary rolling upgrade, since the entry that creates a type is always applied
+before data for it arrives. It is a safeguard for the case where it does -- for instance a mixed-version window
+in which one node's build cannot construct a type another node has. If you see a database quarantined with a
+message about a TimeSeries sealed store, the resync will restore it; complete the rollout so every node runs the
+same build.
+====
+
 For first-time HA bring-up with a pre-existing database (e.g. when you scale a single-node install into a cluster), see <<ha-offline-bootstrap,Offline Cluster Bootstrap>>.
 
 [[upgrade-docker]]

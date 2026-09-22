@@ -570,6 +570,49 @@ compaction ran, with no new data. It now answers the number of `true` samples on
 field. `COUNT` is unaffected.
 ====
 
+===== Aggregating from Embedded Java
+
+Aggregation from embedded code goes through `TimeSeriesEngine.aggregateMulti`, which reads any number of columns
+in a single pass:
+
+[source,java]
+----
+TimeSeriesEngine engine = database.getSchema()
+    .getTimeSeriesType("SensorReading").getEngine();
+
+List<ColumnDefinition> columns = ((LocalTimeSeriesType) database.getSchema()
+    .getType("SensorReading")).getTsColumns();
+
+// The position of 'temperature' inside an engine row, from its position in the schema.
+int temperature = TimeSeriesGateway.aggregationRowIndex(columns,
+    TimeSeriesGateway.findColumnIndex("temperature", columns));
+
+MultiColumnAggregationResult result = engine.aggregateMulti(fromTs, toTs,
+    List.of(new MultiColumnAggregationRequest(temperature, AggregationType.AVG, "avg_temp")),
+    3_600_000L, null);
+
+for (long bucket : result.getBucketTimestamps())
+  System.out.println(bucket + " -> " + result.getValue(bucket, 0));
+----
+
+[IMPORTANT]
+====
+`MultiColumnAggregationRequest.columnIndex` is the position of the value inside an *engine row*: `0` is the
+timestamp and `1` onward are the non-`TIMESTAMP` columns in schema order. That is not the same as the column's
+position in the schema unless the `TIMESTAMP` column is declared first, which is why the example above converts
+with `TimeSeriesGateway.aggregationRowIndex`.
+
+*When upgrading to 26.10.1*: before this release the two halves of the aggregation engine disagreed about this
+number, so a type whose `TIMESTAMP` column was not declared first answered one value before compaction and
+another after it. Code that passed a schema index must now convert. Nothing will warn you -- the request's shape
+is unchanged, so such code still compiles and simply aggregates a different column. No change is needed for a
+type whose `TIMESTAMP` column is declared first, and none at all for the SQL, HTTP, Grafana and gRPC surfaces,
+which resolve the column by name.
+
+The single-column `TimeSeriesEngine.aggregate` and `TimeSeriesSealedStore.aggregate` methods, which counted
+columns a third way, were removed in the same release. Use `aggregateMulti` with a one-element list.
+====
+
 ==== PromQL Query Language
 
 ArcadeDB includes a native PromQL parser and evaluator, providing Prometheus-compatible query capabilities without requiring an external Prometheus server.
@@ -790,6 +833,46 @@ ALTER TIMESERIES TYPE SensorReading
 
 In this example, data older than 7 days is downsampled to 1-minute resolution, and data older than 30 days is further reduced to 1-hour resolution.
 The downsampling process aggregates values using AVG within each granularity bucket, preserving tag groupings.
+
+===== Reads That Cross a Downsampling Pass
+
+Downsampling replaces samples rather than deleting them, so a read already in flight when a pass runs cannot
+finish coherently: the rows it has already returned are the original samples, and the rows still to come are
+their coarser replacements. Joining the two would report the bucket at the crossing point at two different
+resolutions.
+
+Such a read is therefore *refused* rather than allowed to return a short answer:
+
+* Over HTTP -- including PromQL and the Grafana endpoints -- the response is `503`, so a client that already
+  retries on `503` recovers on its own.
+* Over gRPC, Bolt, MongoDB and Postgres the equivalent retryable status is returned.
+* `EXPORT DATABASE` fails only the TIMESERIES type it was reading; every other type in the database is still
+  exported.
+
+Re-running the read succeeds and returns a complete answer at a single resolution, because downsampling is a
+scheduled maintenance event rather than something that happens per request.
+
+A *retention* pass is different. It deletes old data outright, so a read that crosses one still completes and
+simply returns the rows that remain.
+
+===== What an Export Reports
+
+The `EXPORT DATABASE` summary carries two counters for TIMESERIES data that changed underneath it:
+
+[%header,cols="30%,70%"]
+|===
+| Field | Meaning
+
+| `vanishedTimeSeriesBlocks`
+| Blocks a retention pass deleted while the export was reading them. Their samples are genuinely gone, so the
+  export is still valid for the database as it now stands -- but it is not the snapshot it would have been a
+  moment earlier. Reported, never fatal.
+
+| `partialTimeSeriesTypes`
+| Types whose export was cut short by a downsampling pass. The rows already written for such a type are real but
+  incomplete, and the export as a whole is reported as failed so the gap cannot pass unnoticed. Re-run the
+  export for a complete result.
+|===
 
 ==== Grafana Integration
 
