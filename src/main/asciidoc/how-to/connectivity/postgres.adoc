@@ -106,6 +106,13 @@ ADBC PostgreSQL driver - could fail to open a transaction with `Failed to begin 
 release, a statement the server rejects no longer leaves the previously prepared statement usable under the
 same name, so a client can no longer receive the earlier statement's rows in answer to one that was refused.
 
+_Since v26.10.1_, a portal (the bound statement `Execute` runs) lives only as long as the transaction it was
+created in, as in PostgreSQL: in autocommit it ends at `Sync`, inside `BEGIN` it ends at `COMMIT`/`ROLLBACK`.
+Fetching a large result in chunks (JDBC `setFetchSize()`) therefore needs a transaction, which is what the
+PostgreSQL JDBC driver already requires. Binding from a prepared statement that does not exist is refused
+with SQLSTATE `26000`, and executing or describing a portal that does not exist with `34000`, instead of
+answering with a success message.
+
 ===== System catalog and schema introspection
 
 _Since v26.9.1_, queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
