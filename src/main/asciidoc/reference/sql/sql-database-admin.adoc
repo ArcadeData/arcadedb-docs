@@ -151,6 +151,8 @@ Executes an integrity check and in case of a repair of the database. This comman
  precision, a vector index's dimensions.
 * existence constraints: _since v26.10.1_, every record of a type that declares a `MANDATORY` or `NOTNULL` property is checked
  against it. See <<sql-check-database-constraints,Existence constraints>> below.
+* cached record counters: _since v26.10.1_, the counter `count(*)` answers from is compared against the records the bucket scan
+ actually found. See <<sql-check-database-record-counters,Cached record counters>> below.
 
 NOTE: the index check is *structural*: it validates the index's own pages, not that every record of the type appears in the index.
 An index that is intact but incomplete - for example one whose build was interrupted by a crash - is therefore reported as healthy.
@@ -347,6 +349,43 @@ The removal is committed in batches sized by `arcadedb.checkDatabaseRepairBatchP
 
 The pass costs nothing on a database whose types declare no such constraint: the types to scan are resolved from the
 schema before a record is read, so a database with none runs no pass at all and its report simply says zero.
+
+[[sql-check-database-record-counters]]
+*Cached record counters*
+
+`SELECT count(*)` does not scan: every bucket keeps a record counter that each commit folds its delta into, and the
+counter is what the query answers from. That counter is persisted in the database's `statistics.json` and restored
+when the database is opened, so a counter that goes wrong stays wrong across restarts and nothing recomputes it until
+something invalidates it.
+
+_Since v26.10.1_ the bucket pass compares the two. It already reads every slot of every bucket, so the authoritative
+number is in hand, and a disagreement is reported as an error naming the bucket, both numbers and the direction:
+
+----
+cached record count of bucket 'Order_0' is 10869 but the bucket holds 10906 records:
+count(*) on this bucket under-reports by 37; run CHECK DATABASE FIX to recompute the counter
+----
+
+`FIX` recomputes it - the counter is invalidated, and the next `count(*)` rescans and republishes it. A read-only run
+only reports, and the report carries `staleRecordCounters` and, under `FIX`, `staleRecordCountersFixed`.
+
+This is the symptom to look for when `count(*)` disagrees with a forced full scan such as
+`SELECT count(*) FROM <type> WHERE @rid IS NOT NULL`, in *either* direction. On a replicated database the drift is
+per node and per bucket, so the replicas disagree with each other while holding identical data, which looks exactly
+like <<howto-high-availability,HA>> state divergence until a full scan rules it out.
+
+NOTE: a bucket whose counter has never been computed is not reported - there is nothing to be wrong yet - and neither
+is one the current transaction has pending changes on, nor one this same run has just repaired, since in both of
+those cases the two sides of the comparison describe different moments.
+
+*Counters written by a release older than 26.10.1*
+
+Releases up to and including `26.9.1` could fold a replicated transaction's record-count delta twice when a
+<<howto-high-availability,Raft>> entry was replayed on a node that had been restarted *cleanly*, which includes every
+rolling upgrade and every Kubernetes pod rotation. Nothing in `statistics.json` says which counters that happened to,
+so `26.10.1` does not trust any of them: the file now carries a format version, counts written without one are
+discarded when the database is opened, and each affected bucket recomputes on its next `count(*)`. That is one extra
+bucket scan, once, and the marker is written back on the next clean close.
 
 [[sql-check-database-timeseries]]
 *TimeSeries integrity*
