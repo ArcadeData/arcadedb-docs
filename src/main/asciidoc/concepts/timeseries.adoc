@@ -752,7 +752,12 @@ Inspect continuous aggregates via:
 SELECT FROM schema:continuousAggregates
 ----
 
-This returns name, query, source type, bucket column, bucket interval, watermark timestamp, status, and metrics for each aggregate.
+This returns name, query, source type, bucket column, bucket interval, watermark timestamp, `watermarkSet`, status, and metrics for each aggregate.
+`watermarkSet` tells a watermark of `0` that has actually been reached -- an aggregate whose newest bucket is the epoch -- apart from an aggregate that has never been refreshed, which reports `0` as well.
+
+The watermark is the bucket boundary of the newest row the last refresh produced.
+Each refresh deletes the backing rows at or after it and recomputes them from the source, so the incomplete bucket that was open when the previous refresh ran is always rebuilt rather than duplicated.
+A defining query may carry its own `WHERE` clause, including a disjunction: the watermark filter is added as a separate conjunct around it, so `WHERE a OR b` keeps meaning `ts >= watermark AND (a OR b)`.
 
 ==== Retention Policies
 
