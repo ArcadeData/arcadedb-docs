@@ -55,6 +55,25 @@ In order to make the internal count from the Unix Epoch into something human rea
 
 A `DATE` is a calendar day, not an instant, so it is always rendered as the day it was stored: the result does not change with the time zone of the server that answers the request. Only `DATETIME` values carry a time of day.
 
+[discrete]
+#### Accepted Input Strings
+
+The configured formats above are what ArcadeDB *renders*. On input, a string assigned to a `DATE` or `DATETIME*` property is accepted in any of these spellings, tried in order:
+
+1. ISO 8601 without a zone, e.g. `2024-02-29T13:45:10.123456`;
+2. ISO 8601 with an offset or `Z`, e.g. `2024-02-29T13:45:10.123456+01:00`;
+3. the database's `DATETIMEFORMAT`;
+4. the database's `DATEFORMAT`;
+5. the SQL timestamp spelling: an ISO date, a *space*, an optional time with an optional fractional second of any precision, and an optional offset - e.g. `2024-02-29 13:45:10.123456`, `2024-02-29 13:45:10.123456+01`, `2024-02-29 13:45`, `2024-02-29`. This is what PostgreSQL prints and what `psqlodbc` binds a timestamp as.
+
+The database's own formats are tried before the last one, so customizing them can never be overridden by it.
+
+How an offset in the string is treated depends on the type the value is stored as, which is set by `arcadedb.dateTimeImplementation`. With the default `java.time.LocalDateTime` the time is kept as written and the offset is not applied, so `13:45:10+01:00` is stored as `13:45:10`. With an instant-bearing type such as `java.time.Instant` or `java.util.Date` the offset is honoured and the value is stored as the instant it names.
+
+A string that matches *none* of these is rejected: the `INSERT` or `UPDATE` fails with an error naming the property. It is never stored as `NULL`. The same applies to the `date()` function and the `.asDatetime()` method when called without an explicit format, except that `date()` keeps its documented `NULL` answer for a value it cannot read.
+
+NOTE: Before 26.10.1 an unparseable date string was silently stored as `NULL` and the write reported success.
+
 In the event that these default formats are not sufficient for the needs of your application, you can customize them through <<sql-alter-database,`ALTER DATABASE ... DATEFORMAT`>> and <<sql-alter-database,`DATETIMEFORMAT`>> commands.
 For instance,
 
