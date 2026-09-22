@@ -377,8 +377,10 @@ per node and per bucket, so the replicas disagree with each other while holding 
 like <<howto-high-availability,HA>> state divergence until a full scan rules it out.
 
 NOTE: a bucket whose counter has never been computed is not reported - there is nothing to be wrong yet - and neither
-is one the current transaction has pending changes on, nor one this same run has just repaired, since in both of
-those cases the two sides of the comparison describe different moments.
+is one the current transaction has pending changes on, nor one this same run has just repaired, since in those cases
+the two sides of the comparison describe different moments. The same applies to a read-only check that another
+transaction committed into while it was scanning, so running `CHECK DATABASE` on a live node under write load does not
+raise a false alarm.
 
 *Counters written by a release older than 26.10.1*
 
@@ -387,7 +389,8 @@ Releases up to and including `26.9.1` could fold a replicated transaction's reco
 rolling upgrade and every Kubernetes pod rotation. Nothing in `statistics.json` says which counters that happened to,
 so `26.10.1` does not trust any of them: the file now carries a format version, counts written without one are
 discarded when the database is opened, and each affected bucket recomputes on its next `count(*)`. That is one extra
-bucket scan, once, and the marker is written back on the next clean close.
+bucket scan, once, and the marker is written back on the next clean close. A `WARNING` in the server log says how many
+buckets it applied to, so the first `count(*)` that changes after an upgrade is not a mystery.
 
 [[sql-check-database-timeseries]]
 *TimeSeries integrity*
