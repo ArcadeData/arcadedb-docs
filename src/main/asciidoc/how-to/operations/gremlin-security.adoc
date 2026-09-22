@@ -35,6 +35,32 @@ The Groovy engine provides dynamic scripting capabilities but has critical secur
 - **Only use for development/testing in fully trusted environments**
 - Will display a security warning at startup
 
+===== Who Can Evaluate Groovy
+
+Evaluating Groovy is running arbitrary code on the server host, so its reach is the whole server, not one database.
+Since 26.10.1 ArcadeDB reserves it to the server administrator (`root`) on every entry point. A per-database grant,
+including a database administrator holding `updateSecurity`, is not enough:
+
+- *HTTP command endpoint* (`POST /api/v1/command/{database}` with `"language": "gremlin"`): when the database runs the
+  `groovy` engine, or the `auto` engine falls back to Groovy, any other user gets `403 Forbidden`. Under the default
+  `java` engine nothing changes: every authorized user keeps running traversals.
+- *Gremlin Server* (port 8182): a string script submitted in a language other than `gremlin-lang` is refused for any
+  other user. A script with no language is evaluated by TinkerPop as `gremlin-groovy`, so it is refused too. The same
+  applies to a bytecode traversal carrying a lambda (e.g. `Lambda.function(...)`), whose body is Groovy source.
+  Bytecode traversals without lambdas, and string scripts submitted with language `gremlin-lang`, stay available to
+  every authorized user:
++
+[source,java]
+----
+client.submit("g.V().count()", RequestOptions.build().language("gremlin-lang").create());
+----
+
+The `io()` step (`g.io('/path/file.xml').read()` / `.write()`) reads or writes a file at a caller-chosen path on the
+server host, so it is reserved to `root` as well, on every engine including `java`. Use
+<<sql-export-database,EXPORT DATABASE>> and <<sql-import-database,IMPORT DATABASE>> to move data in and out of a database.
+
+In embedded mode no user is bound to the request, so none of these checks apply.
+
 ===== Configuration
 
 Set the engine via database configuration:
