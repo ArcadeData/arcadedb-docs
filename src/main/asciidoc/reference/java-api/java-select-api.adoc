@@ -73,6 +73,8 @@ database.select().fromType("Person")
 |`isNotNull()`|Property is not null (unary)|`.property("email").isNotNull()`
 |===
 
+NOTE: `like()` and `ilike()` follow exactly the same rules as SQL `LIKE`/`ILIKE`: a record without the property, or a `null` pattern, does not match; a non-string value is matched by its text form; a list property matches when any of its items does. Before v26.10.1 `ilike()` threw a `NullPointerException` on a record without the property, and both failed on non-string values.
+
 NOTE: A comparison against a missing or `null` value is never true. `lt()`, `le()`, `gt()`, `ge()` and `between()` all skip a record that does not carry the property, or carries it as `null`, exactly as SQL does - so `age < 30` never matches a record without an `age`. Use `isNull()` / `isNotNull()` to ask about absent values. Before v26.10.1 `lt()` and `le()` treated a missing value as smaller than any value and matched such records, and they did so only while no index existed on the property - so the same query over the same data could return a different number of rows depending on whether an index was present.
 
 ===== IN Operator
@@ -386,10 +388,10 @@ The Select API automatically detects and leverages available indexes:
 
 * **Equality (`eq`)** -- single-key index lookup
 * **Range (`gt`, `ge`, `lt`, `le`)** -- range scan on the index
-* **IN (`in`)** -- multiple point lookups on the index
+* **IN (`in`)** -- multiple point lookups on the index; with an ascending `orderBy()` on the same property the rows come back in key order
 * **BETWEEN (`between`)** -- range scan with inclusive bounds
 * **AND logic** -- uses the best available index (prefers unique indexes)
-* **OR logic** -- uses both indexes when both sides are indexed; falls back to full scan when either side is not indexed
+* **OR logic** -- uses both indexes when both sides are indexed, even when they are on properties of different types; falls back to full scan when either side is not indexed
 * **Composite indexes** -- an AND chain of equality conditions covering a leading prefix of a composite (multi-property) index's properties uses that index too, even when not every property is bound; if the query's `orderBy()` matches the trailing indexed property, the scan also satisfies the ordering without a separate in-memory sort
 
 Operators that cannot use indexes (`neq`, `like`, `ilike`, `isNull`, `isNotNull`) always require a full scan (but can still benefit from indexes on other conditions in an AND chain).
