@@ -113,6 +113,10 @@ PostgreSQL JDBC driver already requires. Binding from a prepared statement that 
 with SQLSTATE `26000`, and executing or describing a portal that does not exist with `34000`, instead of
 answering with a success message.
 
+_Since v26.10.1_, running a prepared statement without asking for its row description again (what the PostgreSQL
+JDBC driver does once a statement has run `prepareThreshold` times, 5 by default) no longer sends an unrequested
+row description. Before, the JDBC connection failed with `NoSuchElementException` from the 6th execution on.
+
 ===== System catalog and schema introspection
 
 _Since v26.9.1_, queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
@@ -269,6 +273,25 @@ default settings or set:
 ----
 conn.setAutoCommit(true);
 ----
+
+===== Session settings (SET, SHOW, RESET)
+
+`SET` changes a setting for the current connection only: it never changes the database or any other connection,
+and `SHOW` reads it back. Since v26.10.1 it follows PostgreSQL's rules:
+
+* a `SET` made inside a transaction that is rolled back, or that fails, is undone;
+* `SET LOCAL` lasts only until the end of the current transaction (outside a transaction it has no lasting effect);
+* `RESET <name>`, `RESET ALL` and `SET <name> TO DEFAULT` restore the value the client sent when it connected, else
+the server default;
+* `SET TIME ZONE '<zone>'` is accepted as a synonym of `SET TimeZone TO '<zone>'`;
+* a `SET` answers only `SET`, like in PostgreSQL, instead of a one-row result;
+* the parameters PostgreSQL reports to drivers (`DateStyle`, `TimeZone`, `application_name`, `client_encoding`,
+`IntervalStyle`, `is_superuser`, `server_version`, ...) are sent at connection time and again whenever they change,
+so a driver that caches them sees the new value.
+
+Some settings describe what the server does and cannot be changed: dates always travel in ISO format (`DateStyle`
+keeps only the field order you choose), text is always `UTF8`, and `standard_conforming_strings` is always `on`.
+A `SET` of a read-only setting such as `server_version` is refused.
 
 ===== Postgres Tools Known to Work
 
