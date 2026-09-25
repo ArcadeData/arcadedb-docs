@@ -233,6 +233,26 @@ Since v26.10.1. Before, `=`, `<>` and `IN` compared the instant only and called 
 `DISTINCT` and grouping counted them as two values.
 ====
 
+[[cypher-temporal-storage]]
+===== Stored TIME, LOCAL TIME and DURATION Values
+
+ArcadeDB has no native storage type for `TIME`, `LOCAL TIME` and `DURATION`, so openCypher stores them as their ISO-8601
+text (for example `10:35-08:00` or `PT1M30.5S`) and turns that text back into a temporal value when a property is
+read. A property declared `STRING` in the schema is never converted: it always reads back as the string that was
+stored, so values such as an opening-hours range `'09:00-17:00'` or a code `'P100D'` compare, filter and sort as
+strings. Declare a property `STRING` when its values may look like a time or a duration but are plain text.
+
+`duration.between(a, b)` splits the interval into whole months, then whole days, then the remaining time, as Neo4j
+does, so `a + duration.between(a, b)` is always `b`.
+
+[NOTE]
+====
+Since v26.10.1. Before, a declared `STRING` property whose value looked like a time or a duration read back as a
+temporal value, `duration.between()` could be off by one or two days when the interval crossed a month that is not
+30 days long, and a duration with more than about 2.1 seconds given in `milliseconds`, `microseconds` or `nanoseconds`
+wrapped around.
+====
+
 ===== Strict Numeric Types
 
 The `IS TYPED` value-type predicate and `CREATE CONSTRAINT ... IS TYPED <type>` honor the GQL numeric width hierarchy (`INT8`/`INT16`/`INT32`/`INT64`, `FLOAT32`/`FLOAT64`), mapping each onto a native ArcadeDB width so a declared property persists and reloads at that width. See <<cypher-is-typed,IS TYPED data types>> for the full mapping.

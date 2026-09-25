@@ -117,6 +117,13 @@ _Since v26.10.1_, running a prepared statement without asking for its row descri
 JDBC driver does once a statement has run `prepareThreshold` times, 5 by default) no longer sends an unrequested
 row description. Before, the JDBC connection failed with `NoSuchElementException` from the 6th execution on.
 
+_Since v26.10.1_, when a prepared statement is described (`Describe` on the statement, what asyncpg, npgsql and pgx
+do) and the server answers that it returns no rows, running it keeps that promise. An `INSERT`, `UPDATE`, `DELETE`,
+`CREATE VERTEX` or `CREATE EDGE` without `RETURN` answers only its command tag with the number of affected records
+(e.g. `INSERT 0 1`), like PostgreSQL. A statement whose columns cannot be known before it runs (e.g. a `{cypher}`
+query) and that then returns rows is refused with SQLSTATE `0A000`: describe the portal instead (what the PostgreSQL
+JDBC driver, libpq and psycopg do), which runs the statement first and reports its real columns.
+
 ===== System catalog and schema introspection
 
 _Since v26.9.1_, queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
@@ -283,7 +290,8 @@ and `SHOW` reads it back. Since v26.10.1 it follows PostgreSQL's rules:
 * `SET LOCAL` lasts only until the end of the current transaction (outside a transaction it has no lasting effect);
 * `RESET <name>`, `RESET ALL` and `SET <name> TO DEFAULT` restore the value the client sent when it connected, else
 the server default;
-* `SET TIME ZONE '<zone>'` is accepted as a synonym of `SET TimeZone TO '<zone>'`;
+* `SET TIME ZONE '<zone>'` is accepted as a synonym of `SET TimeZone TO '<zone>'`, and `SHOW TIME ZONE` / `RESET TIME ZONE`
+as synonyms of `SHOW TimeZone` / `RESET TimeZone`;
 * a `SET` answers only `SET`, like in PostgreSQL, instead of a one-row result;
 * the parameters PostgreSQL reports to drivers (`DateStyle`, `TimeZone`, `application_name`, `client_encoding`,
 `IntervalStyle`, `is_superuser`, `server_version`, ...) are sent at connection time and again whenever they change,
