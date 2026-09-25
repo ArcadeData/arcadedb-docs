@@ -299,6 +299,27 @@ The Cypher query planner automatically detects ready GAVs and substitutes OLTP t
 
 No query changes are needed — the optimizer transparently accelerates matching traversal patterns.
 
+A one-hop pattern feeding an aggregation, such as
+
+[source,cypher]
+----
+MATCH (p:Person)-[:KNOWS]->(f:Person)
+WHERE p.city = f.city
+RETURN p.city AS city, avg(f.age) AS avgAge, count(*) AS n
+----
+
+is read entirely from the view since v26.10.1: the sources are the view's nodes carrying the source label, both
+endpoints read their properties from the view's columns, and every edge reaches the aggregation as a lightweight row
+rather than a copied record. `EXPLAIN` shows it as `GAV ONE-HOP SCAN`. This applies when the statement is a single
+`MATCH` of one fixed-length relationship feeding an aggregating `RETURN`, with no relationship or path variable and no
+inline property map, the optimizer would otherwise scan the source label (not seek it through an index), and the view
+is not stale and covers every vertex type the two labels can match. A count per endpoint alone
+(`RETURN p.city, count(*)`) keeps its own, even cheaper, edge-count plan.
+
+A transaction that holds uncommitted changes does not use the view: the view serves the committed graph only, and a
+query inside the transaction must see the transaction's own writes. Such a query runs on the records until the
+transaction commits.
+
 ==== Lifecycle
 
 [source,java]

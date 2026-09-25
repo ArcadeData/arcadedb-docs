@@ -53,6 +53,32 @@ Why ArcadeDB picks LSM by default:
 
 The classic B+Tree (the default in most relational databases) trades these write-side wins for slightly faster random-access reads on a steady-state index. If your workload is read-only and fits in memory, B+Tree can win small constants; under ingest pressure, mixed read/write, or large datasets on slow storage, LSM almost always wins. For the on-disk format and compaction details, see <<lsm-tree,LSM-Tree Internals>> in the reference.
 
+[[index-large-ranges]]
+===== Large ranges: physical order and the scan fallback
+
+Fetching records through an index costs one page access per record, in key order, which means in random order on
+disk. That is cheap for a selective condition and while the type fits the page cache, but a condition that matches a
+large share of the type - `WHERE shipdate <= '1998-09-02'` over most of a table - is then far slower than simply
+scanning the type. So, when the statement aggregates the rows (`count()`, `sum()`, `GROUP BY`, ...) or sorts them with
+an `ORDER BY` the index does not serve, the SQL engine reads the matching index entries alone, before loading any
+record, and decides:
+
+* when more of them match than `arcadedb.queryIndexMaxSelectivity` (25% by default) of the records the type holds, the
+  index is set aside and the rows come from a scan of the type, filtered by the same condition;
+* otherwise the matching records are loaded in *physical order* (bucket by bucket, in the order they are stored), so
+  every page is read once, in a forward sweep, however many of its records match.
+
+The decision is taken on every execution with the actual parameter values. `PROFILE` shows the choice under
+`EXTRACT VALUE FROM INDEX ENTRY` (`served by physical order` or `served by full scan`). OpenCypher does the same for a
+`MATCH` anchored on an index range whose `RETURN` aggregates or has an `ORDER BY`: `PROFILE` then shows
+`NodeIndexRangeScan` as `served in physical order` or `served by label scan`.
+
+A statement that returns its rows as they come, with no aggregation and no `ORDER BY`, keeps reading them in key
+order exactly as before, since that order is visible in its result. The adaptive fetch applies to `LSM_TREE` indexes
+with the default collation and no `BY ITEM`/`BY KEY`/`BY VALUE` property, searched with `=`, `<`, `<=`, `>`, `>=` or
+`BETWEEN`, and never to a point lookup on a `UNIQUE` index. Setting `arcadedb.queryIndexMaxSelectivity` to 0 turns it
+off.
+
 LSM indexes come in four flavours, picked at `CREATE INDEX` time:
 
 * `UNIQUE` -- rejects duplicate keys.
