@@ -199,19 +199,32 @@ If you explicitly set `txWalFlush=0` in production mode, a warning is logged at 
 Note the server mode *defaults to* `development`, so a server that never sets the mode - and any embedded application -
 runs with `txWalFlush=0`: set the mode (or the setting) explicitly for durability.
 
-The WAL flush setting can also be changed per-database or per-transaction via the Java API:
+The WAL flush setting can also be changed per-database or per-thread via the Java API:
 
 [source,java]
 ----
-// Per-database
+// Per-database: every thread's transactions, from now on
 database.setWALFlush(WALFile.FlushType.YES_NOMETADATA);
 
-// Per-transaction
+// Per-thread: this thread's transactions, from now on, whatever the database setting says
 database.getTransaction().setWALFlush(WALFile.FlushType.YES_FULL);
+
+// Hand the thread back to the database setting
+database.getTransaction().setWALFlush(null);
 
 // Per async executor
 database.async().setTransactionSync(WALFile.FlushType.YES_NOMETADATA);
 ----
+
+`setUseWAL()` and `setAsyncFlush()` follow the same rule: on `Database` they apply to every thread, on
+`getTransaction()` to the calling thread only, and the thread's own setting wins. Until either is called, the
+`arcadedb.txWAL` and `arcadedb.txWalFlush` configuration applies.
+
+NOTE: Before 26.10.1, `Database.setWALFlush()`, `setUseWAL()` and `setAsyncFlush()` changed only the calling thread's
+transactions, despite reading as database-wide. A multi-threaded application that called `setWALFlush(YES_FULL)` once
+at startup had its commits flushed on that thread only (issue #8352). They are database-wide now. An application that
+relied on the old per-thread scope, for example a bulk loader turning the WAL off on its own thread while other
+threads keep writing, must call the same setter on `database.getTransaction()` instead.
 
 TIP: If your storage hardware has battery-backed write cache (BBU/BBWC) or power-loss protection (common in enterprise SSDs and cloud block storage like AWS EBS), `txWalFlush=0` is safe even in production because the hardware guarantees that buffered writes reach persistent storage on power loss.
 

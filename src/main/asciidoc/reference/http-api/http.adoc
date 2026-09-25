@@ -302,6 +302,32 @@ The server answers a HTTP request with a response.
 This response can have a body, which will always be in the JSON format.
 Generally, a successful response (HTTP status codes 2xx) contains a `result` field, while an erroneous request (HTTP status code 4xx) has an `error` field, and a server error (HTTP status code 5xx), in addition to the `error` field, provides a `detail` and an `exception` field.
 
+[[http-request-replay]]
+==== Retrying Requests Safely (`X-Request-Id`)
+
+Every request can carry an `X-Request-Id` header. The server echoes it on the response and logs it with the request
+(it generates one when the request has none), which is what correlates a failure with the server log.
+
+On a `POST` it also makes a retry safe to send verbatim. A successful (`2xx`) response is kept for
+`arcadedb.ha.idempotencyCacheTtlMs` milliseconds, keyed by the id together with the method, path, database and body,
+and bound to the authenticated user. An identical retry is answered from it instead of executing the request a second
+time, so a client that lost the answer to a write, a restore or an import can simply send it again with the same id.
+
+* A failed request is not kept: its retry executes afresh.
+* While the first request is still executing, an identical retry waits briefly for it and then answers `409 Conflict`
+  with a `Retry-After` header, naming `RequestStillInFlightException`. The request was not executed again: retry it
+  later with the same id to receive the result of the execution in progress.
+* A `restore database`, `restore backup` or `import database` asked for as an SSE progress stream
+  (`Accept: text/event-stream`) is replayed as a one-event stream carrying its `completed` event, since a finished
+  stream cannot be sent again. A retry without that header receives the JSON answer instead, whichever way the first
+  request asked.
+* Not replayed: a request inside a client-managed transaction (it carries `arcadedb-session-id`), a request asking for
+  an NDJSON stream, a response larger than `arcadedb.ha.idempotencyCacheMaxBodyBytes` bytes, and the bulk-load route
+  `POST /api/v1/batch/{database}`, whose body is streamed rather than buffered and so cannot be part of the key.
+
+Use a new id for every distinct request. The OpenAPI document declares the header and the `409` on every `POST`
+operation that honours them.
+
 ==== Tutorial
 
 Let's first create an empty database "school" on the server:
@@ -497,6 +523,8 @@ The following commands are available:
 * `import database <dbname> <url>` creates a new database and imports data from the given URL (OrientDB export, GraphML, GraphSON, CSV, JSON). Combines `create database` and `IMPORT DATABASE` in a single command. See <<importer>>.
 
 Both `restore database` and `import database` support **SSE progress streaming**: send `Accept: text/event-stream` in the request headers to receive real-time progress events instead of waiting for the response.
+With an `X-Request-Id`, a retry of a restore or import that completed is replayed rather than run again, in either
+encoding (see <<http-request-replay>>).
 
 NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed.
 
