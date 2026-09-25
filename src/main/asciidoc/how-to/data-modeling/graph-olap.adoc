@@ -161,6 +161,12 @@ finished view (checked against what the scan already read, so nothing is counted
 published STALE, and in *ASYNCHRONOUS* mode it rebuilds once more. Writers are not blocked by a running build, including
 `REBUILD GRAPH ANALYTICAL VIEW`.
 
+In *SYNCHRONOUS* mode the view being rebuilt keeps serving queries, and keeps absorbing commits, until the rebuild
+publishes its new CSR: only the caller of `REBUILD GRAPH ANALYTICAL VIEW` (or of `build()`) waits for the scan. Since
+v26.10.1 the scan no longer runs while holding the view's lock, so neither a committing transaction nor a status check
+waits behind it (issue #8403); before, the view served during a blocking rebuild lagged the commits until the rebuild
+finished. A rebuild superseded by a newer one while it scans returns once the newer one has published.
+
 NOTE: Before 26.10.1, a transaction committed while a view was building could be missing from the view permanently,
 with the view still reporting itself READY and not stale (issue #8378). Rebuild a view created on an earlier version
 while writes were running if its answers must match the graph exactly.
@@ -308,6 +314,31 @@ The Cypher query planner automatically detects ready GAVs and substitutes OLTP t
 * The query does not return edge variables as first-class records (edges in CSR have no RID; edge *properties* are fully supported)
 
 No query changes are needed — the optimizer transparently accelerates matching traversal patterns.
+
+*Relationship uniqueness.* Cypher binds a relationship at most once per `MATCH` clause, so
+`MATCH (a)-[:KNOWS]-(b)-[:KNOWS]-(c)` never walks back to `a` over the edge it just took. A view holds adjacency, not
+edge records, so since v26.10.1 a hop that could reuse a relationship of another hop in its clause - they share an edge
+type, or either is untyped - is walked one edge type and direction at a time and remembers which relationship it took,
+and `EXPLAIN` marks it `unique relationships`. Such a clause is served from the view when every one of those hops is
+anonymous and has a fixed length; a named relationship variable or a variable-length relationship among them sends all
+of them to the records instead. Hops that cannot collide - `(a)-[:KNOWS]->(b)-[:WORKS_AT]->(c)` - are unaffected.
+Before v26.10.1 a view answered such patterns without the rule, counting for example every friend-of-a-friend path that
+returns to its start over the same edge, and every path that took a self-loop twice (issue #8394). An undirected chain
+of several hops also counted each self-loop once per adjacency list it sits in, even across separate `MATCH` clauses.
+
+*Stale views.* A view that is STALE (in `OFF` mode after a commit, or after a failed rebuild) is not used by the
+planner unless `arcadedb.gavUseWhenStale` is `true`, in which case queries read the snapshot as of its last build.
+The setting is per database, and applies to every view of that database immediately, including views already built
+and views restored at open (since v26.10.1; before, only the JVM-wide `-Darcadedb.gavUseWhenStale` had any effect,
+issue #7875):
+
+[source,sql]
+----
+ALTER DATABASE `arcadedb.gavUseWhenStale` true
+----
+
+The builder's `withUseWhenStale(boolean)` overrides it for one view, and that override is saved with the view's
+definition.
 
 A one-hop pattern feeding an aggregation, such as
 
