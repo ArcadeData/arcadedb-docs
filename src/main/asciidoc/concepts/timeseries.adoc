@@ -144,9 +144,17 @@ SensorReading,sensor_id=sensor-B,location=building-2 temperature=19.1,humidity=7
 
 Line Protocol format: `<measurement>[,<tag>=<value>...] <field>=<value>[,...] [<timestamp>]`
 
-A malformed line is skipped with a warning in the server log and the rest of the payload is ingested. A field with no
-value (`temp`, `temp=` or a line cut short after a field key, such as `weather temp=21.5,hum`) makes the whole line
-malformed. Before v26.10.1 a field missing its value at the end of a line was stored as `0.0`.
+A malformed line is not ingested; the rest of the payload is. When any line was malformed the endpoint answers `400`
+with a partial-write body: `written` and `dropped` counts (a malformed line counts as one dropped sample) and
+`malformedLines`, the 1-based numbers of the rejected lines in the payload (the first 100). A field with no value
+(`temp`, `temp=` or a line cut short after a field key, such as `weather temp=21.5,hum`) makes the whole line
+malformed.
+
+[NOTE]
+====
+Since v26.10.1. Before, a malformed line was only logged and the request answered `204`, and a field missing its value
+at the end of a line was stored as `0.0` instead of rejecting the line.
+====
 
 Precision parameter: `ns` (nanoseconds, default), `us` (microseconds), `ms` (milliseconds), `s` (seconds).
 
