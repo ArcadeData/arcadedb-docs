@@ -154,6 +154,16 @@ The GAV supports three synchronization modes between OLTP and OLAP:
 
 In *SYNCHRONOUS* mode, the engine captures transaction deltas (new/deleted vertices, added/removed edges, property changes) and merges them into an immutable overlay on top of the base CSR.
 Readers always see a consistent snapshot via an atomic volatile reference swap.
+
+*Writes during a build or rebuild.* A view starts tracking changes before it scans the graph, so a transaction that
+commits while the view is being built or rebuilt is never lost: in *SYNCHRONOUS* mode it is applied on top of the
+finished view (checked against what the scan already read, so nothing is counted twice), in *OFF* mode the view is
+published STALE, and in *ASYNCHRONOUS* mode it rebuilds once more. Writers are not blocked by a running build, including
+`REBUILD GRAPH ANALYTICAL VIEW`.
+
+NOTE: Before 26.10.1, a transaction committed while a view was building could be missing from the view permanently,
+with the view still reporting itself READY and not stale (issue #8378). Rebuild a view created on an earlier version
+while writes were running if its answers must match the graph exactly.
 When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
 
 [[gav-csr-persistence]]
