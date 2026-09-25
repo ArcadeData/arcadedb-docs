@@ -352,6 +352,23 @@ _(Since v26.10.1: if the transaction hit an internal conflict and had to retry a
 extra or duplicated entries instead of exactly one result per queued command. `HSET` and `HDEL` could be affected the
 same way on their own automatic retries. This is now fixed.)_
 
+*RAM commands inside a transaction.* The RAM commands are not stored in the database, so a transaction treats them
+in two different ways, depending on whether the caller acts on their reply:
+
+* `SET` follows the transaction. While a transaction is active (a `MULTI`/`EXEC` block, the transaction the HTTP
+  command endpoint runs every request in, or one your application opened), the new value is visible to that
+  transaction only, is published when the transaction commits, and is discarded if it rolls back. A block that fails,
+  for example on a duplicated key, leaves no `SET` behind.
+* `INCR`, `INCRBY`, `INCRBYFLOAT`, `DECR`, `DECRBY` and `GETDEL` are applied atomically at the moment they run, as in
+  Redis, so no two clients can ever receive the same counter value or claim the same key. When ArcadeDB retries a
+  block automatically after a conflict, the retry reuses the value the first attempt obtained instead of applying the
+  command a second time. If the block ultimately fails, the increment is not given back, just as a database sequence
+  is not: the next caller gets the next value, leaving a gap. On a key the same transaction already `SET`, these
+  commands work on the transaction's own value and follow the transaction like the `SET`.
+
+_(Since v26.10.1. Before, an automatic retry applied these commands once per attempt, so one `EXEC` could advance a
+counter twice, and a `SET` in a block that failed was still applied.)_
+
 The `DISCARD` command can be used to abort a transaction:
 
 [source,shell]
