@@ -272,6 +272,13 @@ are not run at all. This is what PostgreSQL does and what `BatchUpdateException`
 each statement in such a batch committed on its own, so a failure halfway left the earlier ones persisted; if you
 relied on that, split the batch into separate round trips.
 
+Since v26.10.1 a transaction-control statement is recognized in every spelling ArcadeDB SQL accepts, not only the
+bare keyword: with a leading or trailing comment (as added by sqlcommenter, OpenTelemetry or connection-pool routing
+hints, e.g. `COMMIT /*traceparent='...'*/`), with extra `;`, `BEGIN ISOLATION <level>` (which opens the transaction
+with that isolation level, e.g. `BEGIN ISOLATION REPEATABLE_READ`) and `COMMIT RETRY <n>` (a plain `COMMIT` outside a
+SQL script, which has no block to retry). A `COMMIT` that fails, for example on a duplicated unique key, reports the
+error and ends the transaction, as in PostgreSQL: the session is back in idle state and no `ROLLBACK` is needed.
+
 Setting auto commit to false is not 100% supported: it does not start a transaction on its own, so a write sent
 after `setAutoCommit(false)` without a `BEGIN` is refused with "Transaction not begun". With JDBC, leave the
 default settings or set:
