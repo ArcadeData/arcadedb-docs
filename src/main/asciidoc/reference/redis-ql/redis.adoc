@@ -362,6 +362,36 @@ curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
   -d '{"language": "redis", "command": "MULTI\nSET discarded value\nDISCARD"}'
 ----
 
+A batch can mix transaction blocks and standalone commands, and runs every line in order: a command outside a block
+runs on its own, the commands between `MULTI` and `EXEC` run as one atomic transaction, and the commands between
+`MULTI` and `DISCARD` are dropped. The reply holds one entry per command that ran, in batch order (the commands of a
+committed block included), so a batch with no `DISCARD` answers exactly one entry per command. A batch whose only
+content is a discarded block answers `"OK"`.
+
+[source,shell]
+----
+curl -X POST "http://localhost:2480/api/v1/command/MyDatabase" \
+  -H "Content-Type: application/json" \
+  -u root:password \
+  -d '{"language": "redis", "command": "SET a 1\nMULTI\nINCR a\nSET b x\nEXEC\nGET b"}'
+----
+
+[source,json]
+----
+{"result": [{"value": ["OK", 2, "OK", "x"]}]}
+----
+
+The whole batch is checked before any command runs. `EXEC` or `DISCARD` without `MULTI`, a nested `MULTI` and a
+`MULTI` never closed by `EXEC` or `DISCARD` are refused with an error, and none of the batch's commands is executed.
+
+[NOTE]
+====
+Since v26.10.1. Before, the batch stopped at its first `EXEC` or `DISCARD` and every line after it was silently
+ignored, commands before `MULTI` were executed inside the transaction, and an `EXEC` without `MULTI` committed the
+commands before it. Batches that relied on any of these behaviors now either run their remaining lines or are
+refused.
+====
+
 ===== Programmatic Access
 
 You can also use Redis commands directly from Java code via the query engine:

@@ -217,6 +217,22 @@ RETURN none(x IN list WHERE x > 5) AS b         // null: same reasoning
 RETURN all(x IN list WHERE x IS NOT NULL) AS c  // false: a definite mismatch always wins over unknown
 ----
 
+[[cypher-datetime-identity]]
+===== Zoned DateTime Equality and Ordering
+
+Two `DATETIME` values are ordered by the instant they denote; at the same instant, by their offset from west to east,
+then by time zone name. Two values are equal only when they denote the same instant in the same time zone, so
+`datetime('2026-01-01T12:00:00+01:00') = datetime('2026-01-01T11:00:00Z')` is `false`, and `DISTINCT` and grouping
+keep the two apart as well. Compare `d.epochMillis` (or test with `<=` and `>=`) to check for the same instant
+regardless of zone. A `java.util.Date` or `java.time.Instant` query parameter carries no time zone and is equal to any
+`DATETIME` at its instant.
+
+[NOTE]
+====
+Since v26.10.1. Before, `=`, `<>` and `IN` compared the instant only and called the two values above equal, while
+`DISTINCT` and grouping counted them as two values.
+====
+
 ===== Strict Numeric Types
 
 The `IS TYPED` value-type predicate and `CREATE CONSTRAINT ... IS TYPED <type>` honor the GQL numeric width hierarchy (`INT8`/`INT16`/`INT32`/`INT64`, `FLOAT32`/`FLOAT64`), mapping each onto a native ArcadeDB width so a declared property persists and reloads at that width. See <<cypher-is-typed,IS TYPED data types>> for the full mapping.
