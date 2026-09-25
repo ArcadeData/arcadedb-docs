@@ -71,7 +71,7 @@ The BOLT plugin supports the following configuration options:
 | Setting | Default | Description
 | `arcadedb.bolt.port` | 7687 | TCP/IP port for BOLT connections
 | `arcadedb.bolt.host` | 0.0.0.0 | Host/IP address to bind to
-| `arcadedb.bolt.defaultDatabase` | (none) | Default database when not specified by the client; if unset, the first available database is used
+| `arcadedb.bolt.defaultDatabase` | (none) | Default database when not specified by the client; if unset, the first database the user has access to is used
 | `arcadedb.bolt.maxConnections` | 0 | Maximum concurrent connections (0 = unlimited)
 | `arcadedb.bolt.ssl` | DISABLED | TLS mode for BOLT connections: `DISABLED`, `OPTIONAL`, or `REQUIRED` (see <<bolt-tls,TLS/SSL>>)
 | `arcadedb.bolt.routing.ttl` | 300 | Time-to-live in seconds for routing table entries returned to `neo4j://` clients
@@ -87,6 +87,17 @@ bin/server.sh -Darcadedb.server.plugins="Bolt:com.arcadedb.bolt.BoltProtocolPlug
               -Darcadedb.bolt.port=7687 \
               -Darcadedb.bolt.defaultDatabase=mydatabase
 ----
+
+[[bolt-access-control]]
+===== Access Control
+
+A BOLT connection can only use the databases its user has access to, as with every other ArcadeDB protocol:
+
+* Selecting a database the user has no access to (in the session, `RUN` or `BEGIN`) fails with `Neo.ClientError.Security.Forbidden`. The same error is returned for a database that does not exist, so a user cannot discover which databases the server hosts. The default database is checked the same way.
+* `SHOW DATABASES` lists only the databases the user has access to (plus the virtual `system` entry).
+* `SHOW INDEXES`, `SHOW CONSTRAINTS`, `CALL db.labels()`, `db.relationshipTypes()`, `db.propertyKeys()` and `db.schema.visualization()` hide the types the user is not allowed to read.
+
+_(Since v26.10.1; before, these commands were not filtered by the user's permissions.)_
 
 [[bolt-tls]]
 ===== TLS/SSL
@@ -466,7 +477,7 @@ Server errors are mapped to Neo4j-style structured status codes so driver-side e
 |===
 | Code | Raised when
 | `Neo.ClientError.Security.Unauthorized` | authentication failed or credentials were missing
-| `Neo.ClientError.Security.Forbidden` | an operation is not permitted for the user
+| `Neo.ClientError.Security.Forbidden` | an operation is not permitted for the user, including selecting a database the user has no access to (see <<bolt-access-control,Access Control>>)
 | `Neo.ClientError.Statement.SyntaxError` | the Cypher statement failed to parse
 | `Neo.ClientError.Statement.SemanticError` | the statement parsed but is semantically invalid
 | `Neo.ClientError.Statement.TypeError` | a value cannot be stored in a property — a map, or a list containing one. See <<cypher-compatibility,Map-Valued Properties>>
