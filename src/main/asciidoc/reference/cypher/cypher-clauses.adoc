@@ -739,6 +739,9 @@ RETURN p.name, p.age, p.city
 ORDER BY p.city ASC, p.age DESC, p.name ASC
 ----
 
+Strings are sorted by Unicode code point, the same order an index keeps them in (and the order Neo4j uses). The same
+order applies to string comparisons (`<`, `>`, ...) and to `min()`/`max()` _(since v26.10.1)_.
+
 ---
 
 [[cypher-skip-limit]]
@@ -776,6 +779,31 @@ ORDER BY p.name
 SKIP 20
 LIMIT 10
 ----
+
+[[cypher-keyset-pagination]]
+*Keyset pagination with an index:* when the `ORDER BY` sorts by the indexed property the `MATCH` reads its range from,
+and the query has a `LIMIT`, the rows are read directly from the index in the requested order: no sort is needed and
+the scan stops as soon as the page is full, however many nodes match the range. This makes keyset (cursor)
+pagination fast on large types _(since v26.10.1)_:
+
+[source,cypher]
+----
+// Next page: pass the last id of the previous page as $cursor
+MATCH (p:Person) WHERE p.id > $cursor
+RETURN p.id, p.name ORDER BY p.id LIMIT 10
+
+// Previous page: the index is read backwards
+MATCH (p:Person) WHERE p.id < $cursor
+RETURN p.id, p.name ORDER BY p.id DESC LIMIT 10
+
+// First page, with no WHERE: nodes without an id still come last
+MATCH (p:Person)
+RETURN p.id, p.name ORDER BY p.id LIMIT 10
+----
+
+It applies when the query only matches and returns (no `WITH`, `UNWIND`, aggregation or write clause in between), and
+also works with `SKIP`, `DISTINCT` and relationship expansions from the ordered node. `EXPLAIN` and `PROFILE` show
+`[index order]` on the `NodeIndexRangeScan` when it is used.
 
 ---
 
