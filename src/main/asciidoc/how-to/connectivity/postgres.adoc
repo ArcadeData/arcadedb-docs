@@ -308,6 +308,27 @@ Some settings describe what the server does and cannot be changed: dates always 
 keeps only the field order you choose), text is always `UTF8`, and `standard_conforming_strings` is always `on`.
 A `SET` of a read-only setting such as `server_version` is refused.
 
+A `SET` is answered `SET` only when it did what it asked. Since v26.10.1 every other `SET` is answered with an error,
+on both the simple and the extended query protocol, rather than accepted and ignored:
+
+* a `SET` the server cannot parse (for example `SET x`, with neither `=` nor `TO`) is a syntax error (`42601`),
+reported at Parse on the extended protocol, like in PostgreSQL;
+* `SET ROLE <role>` and `SET SESSION AUTHORIZATION <user>` are refused (`0A000`): a connection always keeps the
+privileges of the user it authenticated as, and a client told otherwise would believe it had dropped privileges it
+still holds. `SET ROLE NONE`, `SET SESSION AUTHORIZATION DEFAULT`, `RESET ROLE` and `RESET SESSION AUTHORIZATION`
+are accepted, since that is already the case;
+* `SET TRANSACTION ISOLATION LEVEL ...` and `SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL ...` (what
+the JDBC driver's `Connection.setTransactionIsolation()` sends) are accepted for the level transactions really run at
+(the database's `READ COMMITTED` by default, which is also what `READ UNCOMMITTED` means in PostgreSQL) and refused
+(`0A000`) for any other, such as `SERIALIZABLE`. To run a transaction at `REPEATABLE READ`, open it with
+`BEGIN ISOLATION LEVEL REPEATABLE READ`;
+* `READ ONLY` transactions are not supported, so `SET TRANSACTION READ ONLY` and `SET default_transaction_read_only = on`
+are refused (`0A000`); `READ WRITE` and `[NOT] DEFERRABLE` are accepted;
+* `SET CONSTRAINTS ALL DEFERRED | IMMEDIATE` is accepted without effect, as in PostgreSQL for constraints that are not
+deferrable, which ArcadeDB's never are;
+* `SET NAMES '<encoding>'` and `SET SCHEMA '<schema>'` are accepted as synonyms of `SET client_encoding` and
+`SET search_path`.
+
 ===== Postgres Tools Known to Work
 
 NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.
