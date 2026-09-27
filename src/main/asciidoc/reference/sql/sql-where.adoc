@@ -71,8 +71,8 @@ And `item` can be:
 |collection|`+IN+`|contains any of the elements listed. Uses the index on the property, including the leading columns of a composite index (`+transactionId IN (...)+` on an index over `+(transactionId, date)+`), with every list form: `+IN (a, b)+`, `+IN [a, b]+` and a bound parameter. The listed values are looked up in index order, so an `+ORDER BY+` on the indexed columns needs no extra sort step|`+name IN ['European','Asiatic']+`
 |collection|`+NOT IN+`|contains all of the elements not listed. Does not use index: an index can look up the listed values, not their complement, so the type is scanned. If the type is large, add a second indexed condition to the query to drive the lookup|`+name NOT IN ['European','Asiatic']+`
 |collection|`+CONTAINS+`|true if the collection contains at least one element that satisfy the next condition. Use `+@this+` as right item for lists. Condition can be a single item: in this case the behaviour is like the `+IN+` operator|`+children CONTAINS (name = 'Luke')+` ; `+map.values() CONTAINS (name = 'Luke')+` ; `+['a','b'] CONTAINS (@this ILIKE 'A')+`
-|collection|`+CONTAINSALL+`|true if every element of the right collection is contained in the left collection|`+children.name CONTAINSALL ['Luke','Leia']+`
-|collection|`+CONTAINSANY+`|true if at least one element of the right collection is contained in the left collection|`+children.name CONTAINSANY ['Jacen','Jaina','Ben']+`
+|collection|`+CONTAINSALL+`|true if every element of the right collection is contained in the left collection. A single value on the left is treated as a one-element collection _(since v26.10.1; before, it was always false)_|`+children.name CONTAINSALL ['Luke','Leia']+`
+|collection|`+CONTAINSANY+`|true if at least one element of the right collection is contained in the left collection. A single value on the left is treated as a one-element collection, so `+uuid CONTAINSANY ['u1','u2']+` answers like `+uuid IN ['u1','u2']+` _(since v26.10.1; before, it was always false)_|`+children.name CONTAINSANY ['Jacen','Jaina','Ben']+`
 |map|`+CONTAINSKEY+`|true if the map contains at least one key equals to the requested. You can also use `+map.keys() CONTAINS+` in place of it|`+connections CONTAINSKEY 'Luke'+`
 |map|`+CONTAINSVALUE+`|true if the map contains at least one value equals to the requested. You can also use `+map.values() CONTAINS+` in place of it|`+connections CONTAINSVALUE 10:3+`
 |string|`+CONTAINSTEXT+`| When used against an indexed field, a lookup in the index will be performed with the text specified as key. When there is no index a simple Java `+indexOf+` will be performed. So the result set could be different if you have an index or not on that field |`+text CONTAINSTEXT 'jay'+`
@@ -80,6 +80,12 @@ And `item` can be:
 |===
 
 NOTE: `+LIKE+`, `+ILIKE+`, `+MATCHES+` are not using full-text indexes.
+
+NOTE: A full-text index matches words, not whole values, so it only answers `+CONTAINSTEXT+` and the full-text search
+functions. Exact operators (`+=+`, `+IN+`, `+CONTAINS+`, `+CONTAINSANY+`, `+CONTAINSALL+`) never use it and always
+return exact matches, also on a list indexed `+BY ITEM+`. To have an exact lookup indexed, create a regular
+(`+UNIQUE+`/`+NOTUNIQUE+`) index. _(Since v26.10.1: before, `+name = 'x'+` on a full-text indexed property also
+returned every record sharing a word with `+'x'+`.)_
 
 NOTE: `+CONTAINS+` asks whether the collection on the left holds a *single* value: either one matching the condition,
 or, when the right side is a plain value, one equal to it. Put a collection on the right and it is searched for as one
