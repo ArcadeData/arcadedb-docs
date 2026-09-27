@@ -482,6 +482,8 @@ The bootstrap protocol handles the following cases automatically:
 * *Cluster restart*: the bootstrap path is gated on every peer's Raft log being empty. After the cluster has committed at least one Raft entry, restarts use the regular Raft log replay or leader-shipped snapshot path; the bootstrap path does not engage, and stale local data on a single pod cannot cause divergence.
 * *Databases created while the cluster forms*: an application that creates and seeds its databases right after the first leader election is not baselined against them. The peer that sourced the baseline is never refused for its own copy advancing past the sampled `lastTxId`, and a baseline committed for a database that already has Raft history on a node is ignored on every node alike, because replication - not bootstrap - keeps those copies in step. _(Since v26.9.1: before, the election could sample a database the leader had just created and then refuse the leader's own copy as "fresher", and the cluster never converged.)_
 
+While the cluster is deciding which copy to keep, *every* node - the leader included - answers `503` on `/api/v1/ready` and refuses client requests on the databases being decided, then serves normally as soon as the decision is applied. This usually takes seconds; if a peer is unreachable it can last up to `arcadedb.ha.bootstrapTimeoutMs`. _(Since v26.10.1 the leader is held too: before, it served its own copy while collecting, and a write accepted there could stop the cluster from ever agreeing on a baseline.)_
+
 The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is visible in the response to `GET /api/v1/cluster` and in the Studio cluster dashboard.
 
 [[ha-node-stopped]]
