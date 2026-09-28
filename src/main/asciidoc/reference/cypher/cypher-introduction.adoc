@@ -146,7 +146,11 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
 * Detects bounded patterns for efficient relationship traversal
 * Joins the parts of a pattern no relationship connects - `MATCH (a:Person), (c:City)`, or two `MATCH` clauses - on
   the `WHERE` conjuncts that relate them instead of crossing every row with every row _(since v26.10.1)_. A conjunct
-  that reads one part alone narrows that part before the join. A `c.property = expression` conjunct over an indexed
+  that reads one part alone narrows that part before the join. Cypher does not fix the order conjuncts are evaluated
+  in, so a conjunct that reads one part, like either side of a join key, is evaluated once per row of that part rather
+  than per pair, and ahead of the conjuncts written before it: `rand()` there is drawn per row, and an expression that
+  can fail, such as `1 / 0`, can fail on a row the written order would have skipped. A `c.property = expression`
+  conjunct over an indexed
   property seeks the index once per row of the other part (`IndexNestedLoopJoin` in the plan), which holds nothing in
   memory; any other `left = right` conjunct is answered by a hash join (`ValueHashJoin`). Only parts nothing relates
   are crossed (`CartesianProduct`). The rows a join buffers count against
