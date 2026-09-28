@@ -144,6 +144,14 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   instead of scanning every edge. The plan shows it as `MATCH EDGE BY INDEX`
 * Optimizes join order based on cardinality estimation
 * Detects bounded patterns for efficient relationship traversal
+* Joins the parts of a pattern no relationship connects - `MATCH (a:Person), (c:City)`, or two `MATCH` clauses - on
+  the `WHERE` conjuncts that relate them instead of crossing every row with every row _(since v26.10.1)_. A conjunct
+  that reads one part alone narrows that part before the join. A `c.property = expression` conjunct over an indexed
+  property seeks the index once per row of the other part (`IndexNestedLoopJoin` in the plan), which holds nothing in
+  memory; any other `left = right` conjunct is answered by a hash join (`ValueHashJoin`). Only parts nothing relates
+  are crossed (`CartesianProduct`). The rows a join buffers count against
+  <<settings-sql,`arcadedb.queryMaxHeapElementsAllowedPerOp`>>, and past a few thousand rows a read-only query holds them
+  by record identity rather than in full (`[compact buffer]` in the plan)
 
 For best performance:
 
