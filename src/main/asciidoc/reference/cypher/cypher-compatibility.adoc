@@ -242,6 +242,12 @@ read. A property declared `STRING` in the schema is never converted: it always r
 stored, so values such as an opening-hours range `'09:00-17:00'` or a code `'P100D'` compare, filter and sort as
 strings. Declare a property `STRING` when its values may look like a time or a duration but are plain text.
 
+The `millisecond`, `microsecond` and `nanosecond` fields of `time()`, `localtime()`, `datetime()`, `localdatetime()`
+and the `*.truncate()` functions must each fit in their own range, as in Neo4j: `millisecond` 0-999, `microsecond`
+0-999 when `millisecond` is also given (else 0-999999), `nanosecond` 0-999 when a coarser field is given (else up to
+999999999). A value out of range, such as `time({hour: 12, millisecond: 5000})`, is an error rather than being carried
+into the seconds.
+
 `duration.between(a, b)` splits the interval into whole months, then whole days, then the remaining time, as Neo4j
 does, so `a + duration.between(a, b)` is always `b`.
 
@@ -250,7 +256,8 @@ does, so `a + duration.between(a, b)` is always `b`.
 Since v26.10.1. Before, a declared `STRING` property whose value looked like a time or a duration read back as a
 temporal value, `duration.between()` could be off by one or two days when the interval crossed a month that is not
 30 days long, and a duration with more than about 2.1 seconds given in `milliseconds`, `microseconds` or `nanoseconds`
-wrapped around.
+wrapped around. So did a sub-second field of `time()`, `datetime()` and the other temporal constructors: for example
+`time({hour: 12, millisecond: 5000})` answered `12:00:00.705032704Z`, and `time({hour: 4294967308})` answered `12:00`.
 ====
 
 ===== Strict Numeric Types

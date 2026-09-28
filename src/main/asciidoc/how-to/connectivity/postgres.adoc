@@ -299,6 +299,11 @@ and `SHOW` reads it back. Since v26.10.1 it follows PostgreSQL's rules:
 the server default;
 * `SET TIME ZONE '<zone>'` is accepted as a synonym of `SET TimeZone TO '<zone>'`, and `SHOW TIME ZONE` / `RESET TIME ZONE`
 as synonyms of `SHOW TimeZone` / `RESET TimeZone`;
+* `SHOW TRANSACTION ISOLATION LEVEL` is a synonym of `SHOW transaction_isolation`: it answers the level of the transaction
+that is open (for example `repeatable read` after `BEGIN ISOLATION REPEATABLE_READ`), under the column
+`transaction_isolation`, which is also what the JDBC driver's `Connection.getTransactionIsolation()` reads;
+* `SHOW` answers under PostgreSQL's spelling of the parameter (`DateStyle`, `TimeZone`), and `SHOW ALL` lists the
+parameters the server answers for plus every one the connection has set;
 * a `SET` answers only `SET`, like in PostgreSQL, instead of a one-row result;
 * the parameters PostgreSQL reports to drivers (`DateStyle`, `TimeZone`, `application_name`, `client_encoding`,
 `IntervalStyle`, `is_superuser`, `server_version`, ...) are sent at connection time and again whenever they change,
@@ -327,7 +332,13 @@ are refused (`0A000`); `READ WRITE` and `[NOT] DEFERRABLE` are accepted;
 * `SET CONSTRAINTS ALL DEFERRED | IMMEDIATE` is accepted without effect, as in PostgreSQL for constraints that are not
 deferrable, which ArcadeDB's never are;
 * `SET NAMES '<encoding>'` and `SET SCHEMA '<schema>'` are accepted as synonyms of `SET client_encoding` and
-`SET search_path`.
+`SET search_path`;
+* a parameter PostgreSQL does not know is refused by `SET`, `SHOW` and `RESET` alike with
+`42704 unrecognized configuration parameter`, as in PostgreSQL (for example `SET bogus_param = 1` or `SHOW databases`).
+Every parameter PostgreSQL 17 knows is accepted, as is any name the client sent when it connected. A name with a dot
+(`SET myapp.tenant = 'acme'`) is a custom setting: it is always accepted, and `SHOW` reads it back once it is set;
+* a parameter PostgreSQL lets only the server configuration change, such as `shared_buffers` or `wal_level`, is refused
+with `55P02`.
 
 ===== Postgres Tools Known to Work
 
