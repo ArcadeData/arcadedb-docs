@@ -472,13 +472,13 @@ The two parallel array properties carry the non-zero dimension ids and matching 
 | Value | Storage / trade-off
 
 | `INT8`
-| 1 byte per weight (the default). Smallest index; scores are approximate.
+| 1 byte per weight (the default). Smallest index; the stored weights are approximate, the returned scores are exact (see `rescoreOversample` below).
 
 | `FP16`
-| 2 bytes per weight. Half the size of `FP32` with near-exact scoring.
+| 2 bytes per weight. Half the size of `FP32` with near-exact stored weights; the returned scores are exact (see `rescoreOversample` below).
 
 | `FP32`
-| 4 bytes per weight. Exact scoring; largest index. Choose this when approximate weights measurably hurt ranking quality.
+| 4 bytes per weight. Exact stored weights; largest index.
 |===
 
 Omit `weightQuantization` to keep the `INT8` default. The setting is fixed at index-creation time; to change it, drop and recreate (or `REBUILD INDEX`) the index.
@@ -486,6 +486,32 @@ Omit `weightQuantization` to keep the `INT8` default. The setting is fixed at in
 `FP16` stores weights as IEEE 754 half-precision, subnormals included, so magnitudes down to `6e-8` keep their value
 rather than flushing to zero. A weight whose magnitude exceeds the format's largest finite value (`65504`) is
 saturated to it rather than stored as infinity, and `NaN` is rejected at write time.
+
+`rescoreOversample` controls *exact rescoring*. With `INT8` or `FP16` weights, a search fetches
+`k * rescoreOversample` candidates from the index, recomputes each one's score from the record's own full-precision
+`weights` (with the IDF weighting too, when `modifier: 'IDF'` is set), and returns the best `k` by that exact score. The
+quantized weights only choose the candidates, so the results and their scores do not depend on the quantization, or on
+how the data was committed and compacted, which otherwise shifts `INT8` weights a little at every segment merge. This
+applies to `groupBy` searches as well.
+
+[%header,cols="1,3"]
+|===
+| Value | Behavior
+
+| _omitted_
+| `2` for `INT8` and `FP16`, off for `FP32` (whose stored weights are already exact). On the BigANN sparse track (SPLADE, top-10) this takes `INT8` recall from 0.995 to 1.0, for 10-20% more query time.
+
+| `0`
+| Off: results are ranked by the quantized scores, as before v26.10.1.
+
+| `1`
+| Exact scores for the returned results, without widening the candidate set.
+
+| `2` .. `100`
+| Candidates fetched per requested result.
+|===
+
+A sparse-vector index can be created on a type that already holds records: the build indexes the existing rows.
 
 Query with `vector.sparseNeighbors`:
 
@@ -559,7 +585,7 @@ Forces an immediate compaction of automatic indexes, merging their on-disk segme
 
 ArcadeDB compacts indexes automatically in the background. `COMPACT INDEX` lets you trigger it on demand, which is useful right after a bulk load to settle an index and get lower, more stable query latency without waiting for the background schedule. Unlike <<sql-rebuild-index,`REBUILD INDEX`>>, it does not re-index the data: it only merges the existing segments, so it is much faster.
 
-It works for standard <<index-lsm-tree,LSM-Tree>> indexes as well as vector and sparse-vector indexes, and runs synchronously (it returns when the compaction has finished). Because it is a regular SQL command, it can be executed from any client, including the HTTP `/command` endpoint.
+It works for standard <<index-lsm-tree,LSM-Tree>> indexes as well as vector and sparse-vector indexes, and runs synchronously (it returns when the compaction has finished). On a sparse-vector index it also seals the in-memory buffer of recent writes, so afterwards the whole index sits in a single segment. Because it is a regular SQL command, it can be executed from any client, including the HTTP `/command` endpoint.
 
 *Syntax*
 
