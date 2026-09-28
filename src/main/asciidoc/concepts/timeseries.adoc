@@ -116,6 +116,24 @@ It cannot be given a `SUPERTYPE`, and it cannot be used as a `SUPERTYPE` for ano
 would be silently dropped by every write, so both directions are rejected. For the same reason, `CREATE PROPERTY`
 on a TIMESERIES type is also rejected unless the name matches an already-declared column.
 
+==== Compacting a TimeSeries Type
+
+New samples land in each shard's mutable bucket, and the maintenance scheduler seals them into compressed blocks
+every 60 seconds. To seal them now, for example right after a bulk load or before measuring a query on the settled
+layout, run:
+
+[source,sql]
+----
+COMPACT TIMESERIES TYPE SensorReading
+----
+
+It runs the same compaction the scheduler runs, requires the `updateSchema` permission like `COMPACT INDEX`, and
+under HA runs on the leader. The result carries `mutableSamplesBefore` and `mutableSamples`, the samples still in the
+mutable buckets when it finished: rows appended while it ran stay there until the next pass.
+
+Reads do not need a compaction to be fast. A query for one tag, such as the newest reading of one host, skips every
+mutable page that holds no row of that tag without reading its rows, whether or not the tail has been sealed yet.
+
 ==== Dropping a TimeSeries Type
 
 [source,sql]
