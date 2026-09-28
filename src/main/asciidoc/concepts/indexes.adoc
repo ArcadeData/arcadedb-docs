@@ -63,13 +63,22 @@ scanning the type. So, when the statement aggregates the rows (`count()`, `sum()
 an `ORDER BY` the index does not serve, the SQL engine reads the matching index entries alone, before loading any
 record, and decides:
 
-* when more of them match than `arcadedb.queryIndexMaxSelectivity` (25% by default) of the records the type holds, the
-  index is set aside and the rows come from a scan of the type, filtered by the same condition;
+* when more of them match than a share of the records the type holds, the index is set aside and the rows come from
+  a scan of the type, filtered by the same condition;
 * otherwise the matching records are loaded in *physical order* (bucket by bucket, in the order they are stored), so
   every page is read once, in a forward sweep, however many of its records match.
 
+In SQL both run in parallel wherever a scan of the type would: the scan is the parallel scan, and the records loaded in
+physical order are shared among its workers, a slice of the sorted record addresses each. An aggregation over them
+runs in those workers too, together with the conditions the index does not answer. The index entries themselves are
+read by one thread, so the more workers the scan has, the sooner it wins: the share is
+`arcadedb.queryIndexMaxSelectivity` (0.6 by default) for a sequential scan, divided by (1 + W) / 2 for a scan on W
+workers - 24% of the type on 4 workers, 6% on 18. The OpenCypher label scan runs on one thread, so it gives way at the
+sequential share.
+
 The decision is taken on every execution with the actual parameter values. `PROFILE` shows the choice under
-`EXTRACT VALUE FROM INDEX ENTRY` (`served by physical order` or `served by full scan`). OpenCypher does the same for a
+`EXTRACT VALUE FROM INDEX ENTRY` (`served by physical order`, with `loaded in parallel` when the workers loaded
+the records, or `served by full scan`). OpenCypher does the same for a
 `MATCH` anchored on an index range whose `RETURN` aggregates or has an `ORDER BY`: `PROFILE` then shows
 `NodeIndexRangeScan` as `served in physical order` or `served by label scan`.
 An OpenCypher `ORDER BY` on the indexed property itself, under a `LIMIT`, is answered from the index order instead, so
