@@ -75,6 +75,22 @@ The SQL standard transaction isolation levels are described in the table below:
 
 The SQL `SERIALIZABLE` level is not supported by ArcadeDB.
 
+*Lost updates.* Under `READ_COMMITTED`, reading a record and then writing a value computed from it is protected against a
+concurrent change: if another transaction committed a change to the record after you read it, saving a property on it
+fails with a retryable `ConcurrentModificationException`, instead of silently overwriting that change. Retrying the
+transaction, for example with `database.transaction(...)`, reads the record again and applies the write on the new value.
+
+[source,java]
+----
+database.transaction(() -> {
+  Vertex v = rid.asVertex();
+  v.modify().set("n", v.getInteger("n") + 1).save(); // retried, never lost
+});
+----
+
+Adding or removing edges on a vertex is never refused, and a record kept from an earlier transaction is refreshed as
+before. The check can be disabled with the `txStaleReadCheck` setting _(since v26.10.1)_.
+
 Using `remote` access all the commands are executed on the server, so out of transaction scope.
 Look below for more information.
 
