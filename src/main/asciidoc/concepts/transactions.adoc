@@ -176,6 +176,26 @@ Two technical notes:
 * `txWalFlush=0` *is* safe against process crashes (the OS page cache survives the process), only power loss and
   kernel panics are at risk.
 
+===== Data files and WAL deletion
+
+A WAL file is deleted in three places: on a clean close of the database, when the background WAL rotation retires a
+full WAL file, and at the end of the recovery that replayed it after a crash. Before each deletion ArcadeDB forces to
+disk the data files that the WAL still protects, because once the WAL is gone the data files are the only copy of
+those pages.
+
+Only the files that need it are forced: a data file is forced when a page was written to it, or when it was created or
+renamed, since its last successful fsync. A file that was only read is skipped, since it holds nothing that is not
+already on disk. A file with page writes only is forced with `fdatasync`, which also persists the file-size change of
+an append. A created or renamed file is forced with a full `fsync`, followed by an fsync of its directory, so its
+directory entry survives a power loss too. If an fsync fails, the WAL is kept, and the next pass retries the fsync.
+If a clean close cannot complete it, the WAL and the lock file stay on disk, and the next open runs recovery.
+
+NOTE: Up to version 26.9.x, a clean close forced every data file of the database, including the files that nothing
+had written. Each of those fsyncs costs a flush of the device write cache, about half a millisecond per file on a
+laptop NVMe drive and more on network or cloud block storage. So the close of a database with 100 indexed types took
+about 100 ms even after a read-only session. Now a close after a read-only session forces no file. After a crash,
+recovery forces every data file once, because it is not known which writes of the crashed process reached the disk.
+
 ===== Measured cost
 
 Commit-heavy benchmark (one small insert per transaction, so the WAL flush dominates; Apple silicon laptop, macOS):
