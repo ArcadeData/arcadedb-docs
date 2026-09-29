@@ -42,7 +42,7 @@ In optimistic transactions, ArcadeDB checks the version in order to avoid confli
 ==== Schema File Persistence
 
 The schema of a database lives in two JSON files in the database directory: `schema.json`, the current generation, and `schema.prev.json`, the generation it replaced.
-Every DDL statement rewrites them.
+Every DDL statement rewrites them, once (see <<schema-change-cost>>).
 
 Since v26.10.1, both files are published by an *atomic replacement*: the new content is written to a temporary sibling file, flushed to disk, and then renamed over its target.
 A process reading `schema.json` from the filesystem - an external backup, a monitoring script, a snapshot tool - therefore always observes one complete generation.
@@ -61,3 +61,27 @@ File systems without hard links (FAT/exFAT, some network mounts) fall back to a 
 
 On a file system that cannot rename atomically at all, ArcadeDB falls back to a plain replacement and logs a warning once per JVM.
 The schema still saves; only the crash-time guarantee is lost.
+
+[[schema-change-cost]]
+==== Cost of a Schema Change, and Batching Many
+
+Each schema write is durable: the new `schema.json` is flushed to disk and the directory that holds it is flushed once, after both files are published.
+On a real disk that is a few milliseconds to a few tens of milliseconds per write, depending on the device, against a fraction of a millisecond on `tmpfs`.
+Since v26.10.1 every DDL statement writes the schema exactly once, however many bucket and index files and internal steps it involves.
+Before, a `CREATE TYPE` wrote it five or six times, a `CREATE PROPERTY` or a `CREATE INDEX` twice, and each write flushed the directory twice.
+
+An application or a test suite that creates hundreds of types pays that write once per statement.
+To pay it once for a whole batch:
+
+* *SQL*: send the statements as one `sqlscript`.
+A script made only of schema definition statements runs as one schema session and writes the schema once (setting `schemaBulkDDLScript`, on by default).
+Under HA the batch is also replicated as one Raft entry.
+* *Java*: wrap the calls in `db.getSchema().bulkChange(() -> { ... })`, which does the same for any sequence of schema API calls.
+* *Any API*: run the DDL inside a transaction. The schema write is postponed to the end of the transaction.
+
+Creating the bucket and index files themselves is cheap: about a millisecond per type with one index, once the schema writes are batched.
+
+IMPORTANT: Schema changes are not transactional.
+A DDL statement run inside a transaction takes effect immediately and is visible to every other session; a rollback does not undo it.
+Its types, properties and files stay, and the schema is written at the end of the transaction whether it commits or rolls back.
+Under HA, each DDL statement inside a transaction is still replicated on its own, so prefer a script or `bulkChange()` there.

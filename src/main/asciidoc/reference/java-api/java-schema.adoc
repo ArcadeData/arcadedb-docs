@@ -63,6 +63,24 @@ DocumentType             getTypeByBucketId(int bucketId);
 boolean                  existsType(String typeName);
 ----
 
+===== Creating many types at once
+
+Every schema change is written to disk before the call returns, which costs a durable file write per statement.
+To create many types, properties and indexes at once, wrap them in `bulkChange()`: the schema is written once, at the end, and under HA the whole batch is replicated as one entry.
+
+[source,java]
+----
+db.getSchema().bulkChange(() -> {
+  for (String name : List.of("Customer", "Order", "Product")) {
+    db.getSchema().createDocumentType(name).createProperty("id", Type.LONG);
+    db.getSchema().createTypeIndex(Schema.INDEX_TYPE.LSM_TREE, true, name, "id");
+  }
+});
+----
+
+If a statement fails, the changes before it are kept and the exception is rethrown.
+See <<schema-change-cost>> for the other ways to batch schema changes.
+
 ==== Working with buckets
 
 A bucket is like a file.
