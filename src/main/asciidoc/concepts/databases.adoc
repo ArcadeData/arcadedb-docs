@@ -39,6 +39,16 @@ NOTE: ArcadeDB automatically closes all opened databases when the process dies *
 On Unix/Linux this is the case for `SIGTERM` (Docker exit code `143`) but not `SIGKILL` (Docker exit code `137`).
 On a forced kill the next start replays the WAL to restore consistency, but you will pay that recovery cost; clean shutdown is always preferable.
 
+The log tells you how the replay ended:
+
+* `Recovery of database '<name>' completed` is logged only when every transaction in the WAL was replayed.
+* `Recovery of database '<name>' did not complete` means the replay stopped early. If an error interrupted it (for
+  example the JVM ran out of heap while replaying a large WAL), the open fails, the WAL files are left exactly as they
+  were and the database lock is released: fix the cause and open the database again, even from the same JVM, and the
+  replay starts over. If the WAL itself is damaged (a corrupt record followed by valid ones, or a version gap), the
+  files are moved aside with a `.corrupt` extension for manual inspection and the database opens without the
+  transactions that follow the damage.
+
 [[creating-databases]]
 ==== Creating Databases
 
