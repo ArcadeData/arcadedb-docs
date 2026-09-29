@@ -515,6 +515,15 @@ A property value must be a scalar, a list of scalars, or a `point()` value. A ma
 {city: 'Rome'}`), or a right-hand side of `=` / `+=` that is neither a map nor an entity (`SET p = 5`), is
 rejected with a `TypeError` and no part of the clause is written.
 
+*Concurrent updates.* A `SET` (stand-alone, or in `MERGE ... ON CREATE SET` / `ON MATCH SET`) computes the value it
+writes from the latest committed version of the record, even under the default `READ_COMMITTED` isolation. So
+`SET n.count = n.count + 1` run by concurrent transactions never silently loses an increment: a change committed by
+another transaction after that point makes the commit fail with a retryable conflict. Two things follow:
+
+* under contention the right-hand side can be evaluated more than once, so keep it free of side effects;
+* a `MERGE ... ON MATCH SET` that assigns a value the matched record already holds writes nothing, so read-mostly
+  `MERGE` workloads do not conflict. It keeps a different value committed concurrently after the match.
+
 ---
 
 [[cypher-delete]]
