@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.10.1 — The remote `ArcadeGraph` connects to the Gremlin port the server is bound to
+
+The remote `ArcadeGraph` client used to connect to Gremlin Server on the fixed port `8182`. It now uses the port the server advertises (`GET /api/v1/server?mode=cluster`, `ports.gremlin`), and falls back to `8182` when the server advertises none (issue #8578).
+
+*Impact:* only a client that reaches Gremlin Server through a port mapping (for example a container or load balancer publishing `8182` to a different internal port), which worked by accident before.
+
+*Action:* set the client setting `arcadedb.gremlin.client.port` to the port the client must connect to.
+
+[discrete]
 ====== 26.10.1 — HASH indexes on a DECIMAL property need one `REBUILD INDEX` after upgrading
 
 A `DECIMAL` keeps the scale it was written with, so `5` and `5.00` are the same number stored two different ways. The `LSM_TREE` index family already treated them as one key; the `HASH` family did not, because it settles key identity on the serialized bytes and the two spell out differently. A `UNIQUE_HASH` index on a `DECIMAL` property therefore accepted both as separate rows, and a lookup for one spelling could not find a row stored under the other. Fixed in 26.10.1 (issue #7767).
