@@ -42,6 +42,10 @@ On a forced kill the next start replays the WAL to restore consistency, but you 
 The log tells you how the replay ended:
 
 * `Recovery of database '<name>' completed` is logged only when every transaction in the WAL was replayed.
+* `Recovery of database '<name>' completed, its WAL files are kept until an fsync of the data files succeeds` means
+  every transaction was replayed but the replayed pages could not be forced to disk. The WAL stays the durable copy of
+  them and is deleted automatically once a later fsync succeeds; a close whose fsync fails too keeps it, and the next
+  open replays it again.
 * `Recovery of database '<name>' did not complete` means the replay stopped early. If an error interrupted it (for
   example the JVM ran out of heap while replaying a large WAL), the open fails, the WAL files are left exactly as they
   were and the database lock is released: fix the cause and open the database again, even from the same JVM, and the
