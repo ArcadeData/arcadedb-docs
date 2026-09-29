@@ -87,5 +87,6 @@ Its types, properties and files stay, and the schema is written at the end of th
 A crash before that write leaves the new bucket and index files on disk without a schema entry naming them: the database opens normally without the new types, and running the same DDL again succeeds.
 The window lasts as long as the transaction, so it is worth keeping a transaction that creates types or indexes short, and creating them before a long import rather than inside it.
 Records another session committed into such a type before the crash are in those files too, and are not reachable after the restart: recreate the type and they stay unreferenced.
+Because a schema change is not transactional, the next commit on any session writes it, including a session that only writes records, and the type it names may belong to a transaction that has not ended yet.
 The transaction that ran the DDL is not exposed to this for its own records: the schema is written just before its commit becomes durable, so `begin(); CREATE TYPE; INSERT; commit()` never leaves acknowledged records in files the schema does not name.
 Under HA, each DDL statement inside a transaction is still replicated on its own, so prefer a script or `bulkChange()` there.
