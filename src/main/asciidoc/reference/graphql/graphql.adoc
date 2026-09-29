@@ -232,6 +232,27 @@ The top-level query field itself can also be aliased, including when it takes ar
 { myBooks: books(inStock: true) { name } }
 ----
 
+[[graphql-fragments]]
+==== Fragments
+
+A selection set can reuse a named fragment with the spread syntax `...Name`, or write an inline fragment with
+`... on Type { }`. The fields the fragment selects are resolved as if they were written in place of the spread, at any
+depth, and a fragment can be declared before or after the operation that uses it:
+
+[source,graphql]
+----
+fragment AuthorName on Author { firstName lastName }
+fragment BookInfo on Book { name authors { ...AuthorName } }
+
+{ bookById(id: "book-1") { id ...BookInfo } }
+----
+
+A fragment applies when its type condition names the type the selection is written against, or the database type of
+the record or one of its super types, so `... on Novel { pageCount }` under a `Book` field returns `pageCount` only for
+the records that are novels. When the same field is selected more than once, directly or through fragments, the
+sub-selections are merged into one field. A fragment that is not defined, or fragments that spread each other in a
+cycle, are rejected before any record is read. _(Since v26.10.1)_
+
 ==== Supported directives
 
 Directives can be defined on both types and queries.
@@ -367,3 +388,33 @@ Example:
   }
 }
 ----
+
+[[graphql-skip-include]]
+===== @skip and @include
+
+Applies to: `Query Field`, fragment spread and inline fragment
+
+Syntax: `@skip(if: <Boolean>)`, `@include(if: <Boolean>)`
+
+The two built-in directives of the GraphQL specification. The selection they are written on is left out of the result
+when the `@skip` condition is `true`, or when the `@include` condition is `false`; written together, the selection is
+returned only when both let it through. The condition is a literal or a <<graphql-variables,variable>>, so the same
+query text can toggle parts of the result at execution time:
+
+[source,graphql]
+----
+fragment Details on Book { pageCount authors { lastName } }
+
+query($brief: Boolean!, $withName: Boolean = true) {
+  bookById(id: "book-1") {
+    id
+    name @include(if: $withName)
+    ...Details @skip(if: $brief)
+  }
+}
+----
+
+The `if` argument is required and must be a Boolean: a missing, repeated or non-Boolean `if`, an argument other than
+`if`, the same directive written twice on one selection, or either directive written on a fragment definition rather
+than on its spread, is rejected before any record is read. When the only field of the query is left out, the result
+has no record. _(Since v26.10.1: before, both directives were ignored and every selection was returned.)_
