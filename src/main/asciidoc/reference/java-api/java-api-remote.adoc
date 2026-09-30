@@ -166,6 +166,8 @@ If the transaction fails because another client modified the same records, it is
 
 The same happens when the server refuses the transaction before running it: the `503` a node answers while it installs a snapshot, a leader change, or a `begin` whose connection could not be established. Each retry waits first, with the exponential backoff the embedded `transaction()` uses (`arcadedb.txRetryDelayBase` doubling up to `arcadedb.txRetryDelay`), and when the refusal carries a `Retry-After` header the retry waits at least that long, up to `arcadedb.network.retryAfterMaxWait` (30 seconds by default). A duplicated key is retried only once, since failing twice means the duplicate is genuine. A commit the server answered with an error also releases the server-side session right away instead of leaving it to the session timeout. _(Since v26.10.1: before, the retries ran back to back, so a node installing a snapshot used up the whole budget within milliseconds.)_
 
+A commit whose connection drops after the request was sent is different: the server may already have applied it. Over gRPC such a commit (status `UNAVAILABLE` with no error from the server) raises a `TransactionException` and is *not* retried, so the work is never applied twice. Read the data back to find out whether the commit landed. _(Since v26.10.1: before, it was reported as a retryable conflict.)_
+
 Now that the schema is in place, we will insert some data:
 
 [source, java]
