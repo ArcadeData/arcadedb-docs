@@ -1004,6 +1004,8 @@ A node that cannot complete the reinstall -- no leader reachable yet, for exampl
 
 While the leader runs a schema change (for example `CREATE INDEX` on a large type), or drops or reinstalls a database, it refuses write transactions that other nodes send for that database with a retryable error, and accepts them again as soon as the operation ends. Retry the write; a long index build means retries for as long as it runs. _(Since v26.10.1: those writes were previously accepted and could be applied inconsistently around the schema change.)_
 
+A write on a replica is also refused with a retryable error when its transaction began before the replica had applied a schema change the leader has already applied (for example a new index), so that it cannot leave a record out of that index. The retry waits for the schema change to be applied locally and then succeeds. Callers that do not retry see a `ConcurrentModificationException` during DDL bursts; set transaction retries accordingly. One peer that is older, not yet probed or offline turns this protection off for every writer, and it is best-effort across a leader restart. Set `arcadedb.ha.txSchemaCheck=false` on the writing nodes to switch it off. _(Since v26.10.1.)_
+
 ====== Verbose HA logging
 
 Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
@@ -1033,6 +1035,10 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |`+arcadedb.ha.serverList+`
 |Comma-separated list of peers. Each entry uses the readable object form `[name@]host:{raft:2434,http:2480,https:2490,priority:10}` (recommended) or the positional form `[name@]host:raftPort:httpPort[:priority[:httpsPort]]`; see <<ha-server-list-format,Server List Entry Format>>. The optional `name@` prefix gives the peer a human-readable name used in logs and Studio; see <<ha-named-peers,Named Peers>>. The optional priority (integer, default 0) prefers higher-valued nodes during elections. The optional `https` port encrypts peer-to-peer transfers when `arcadedb.ssl.enabled=true`; see <<ha-ssl,TLS/SSL>>. Example: `frankfurt@db1:{raft:2434,http:2480,https:2490,priority:10},london@db2:{raft:2434,http:2480,https:2490}`
 |(empty)
+
+|`+arcadedb.ha.txSchemaCheck+`
+|Replicated transactions state the Raft index their node had applied when they began, so the leader refuses (retryably) a replica transaction prepared before a schema change it already applied. See <<ha-troubleshooting,Troubleshooting>>
+|true
 
 |`+arcadedb.ha.raftPort+`
 |Default Raft gRPC port used when an entry in `serverList` does not specify one
