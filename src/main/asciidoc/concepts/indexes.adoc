@@ -83,6 +83,15 @@ the records, or `served by full scan`). OpenCypher does the same for a
 `NodeIndexRangeScan` as `served in physical order` or `served by label scan`.
 An OpenCypher `ORDER BY` on the indexed property itself, under a `LIMIT`, is answered from the index order instead, so
 the scan stops at the first rows rather than reading the whole range (see <<cypher-keyset-pagination,keyset pagination>>).
+Over a whole label this holds in both directions when the property is declared `MANDATORY` and `NOTNULL` (the constraint is
+trusted: `ALTER PROPERTY` does not validate vertices written before it), when the only `WHERE` is `x IS NOT NULL`, and for an
+index created with `NULL_STRATEGY INDEX`, whose null keys are read from the end openCypher sorts them at (last ascending,
+first descending). Descending over a nullable property with the default null strategy still scans, because nulls sort first.
+
+An OpenCypher `WHERE` that is an `OR` of equalities or `IN` lists on indexed properties is answered from the indexes, one
+seek per property with the vertices found by both returned once; with a disjunct on a property that has no index it scans.
+A `MATCH` whose filter uses only comparisons, arithmetic, string matching and `IN` on the node's properties (no function
+calls) scans its label in parallel, like the SQL scan, when the type is large enough and no transaction is open.
 
 A statement whose result can show the order the rows arrive in keeps reading them in key order exactly as before:
 one that returns its rows as they come, with no aggregation and no `ORDER BY`; one using an order-sensitive aggregate
