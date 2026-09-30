@@ -708,7 +708,7 @@ RETURN node, eccentricity, isCenter, isPeripheral ORDER BY eccentricity ASC
 
 [source,cypher]
 ----
-CALL algo.personalizedPageRank(sourceNode [, relTypes, dampingFactor, maxIterations, tolerance])
+CALL algo.personalizedPageRank(sourceNodes [, relTypes, dampingFactor, maxIterations, tolerance])
 YIELD nodeId, score
 ----
 
@@ -718,7 +718,7 @@ YIELD nodeId, score
 |===
 | Parameter | Type | Required | Default | Description
 
-| `sourceNode` | Vertex | Yes | — | The personalization origin vertex
+| `sourceNodes` | Vertex or List | Yes | — | The personalization origin: a vertex, a list of vertices (equal weight), or a list of `[vertex, weight]` pairs. Plain vertices and pairs can be mixed (a plain vertex weighs 1)
 | `relTypes` | String | No | all types | Comma-separated relationship types
 | `dampingFactor` | Double | No | `0.85` | Probability of following an edge
 | `maxIterations` | Integer | No | `20` | Maximum power-iteration steps
@@ -737,7 +737,7 @@ YIELD nodeId, score
 
 *Description*
 
-Computes Personalized PageRank (PPR) relative to a single source vertex. Unlike standard PageRank, the teleportation probability is concentrated entirely at the source node (personalization vector = 1 at source, 0 everywhere else). Scores represent structural proximity/importance relative to the source. Dangling nodes contribute their rank back to the source only.
+Computes Personalized PageRank (PPR) relative to one or more source vertices. Unlike standard PageRank, the teleportation probability is concentrated at the source vertices (0 everywhere else). With a single vertex, all of it is on that vertex; with a list, it is split equally; with `[vertex, weight]` pairs, it follows the weights, which must be non-negative and are normalized to sum to 1 (only their ratios matter). A vertex listed twice counts twice. Scores represent structural proximity/importance relative to the sources. Dangling nodes contribute their rank back to the sources, in proportion to their weights.
 
 *Use Cases*
 
@@ -751,6 +751,16 @@ Computes Personalized PageRank (PPR) relative to a single source vertex. Unlike 
 ----
 MATCH (s:Person {name:'Alice'})
 CALL algo.personalizedPageRank(s, 'KNOWS', 0.85, 20, 0.000001)
+YIELD nodeId, score
+RETURN nodeId, score ORDER BY score DESC LIMIT 10
+----
+
+Weighted personalization vector (Alice counts three times as much as Bob):
+
+[source,cypher]
+----
+MATCH (a:Person {name:'Alice'}), (b:Person {name:'Bob'})
+CALL algo.personalizedPageRank([[a, 3.0], [b, 1.0]], 'KNOWS')
 YIELD nodeId, score
 RETURN nodeId, score ORDER BY score DESC LIMIT 10
 ----
