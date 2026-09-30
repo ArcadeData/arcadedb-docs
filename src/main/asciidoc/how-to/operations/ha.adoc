@@ -515,7 +515,7 @@ All endpoints require authentication as the `root` user.
 
 |GET
 |`/api/v1/cluster`
-|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert. _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_
+|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. _(Since v26.10.1: two concurrent add-peer requests for one address under different ids could both commit; the add now refuses the second.)_ _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_
 
 |POST
 |`/api/v1/cluster/peer`
@@ -999,6 +999,10 @@ without the database.
 A node that cannot complete the reinstall -- no leader reachable yet, for example -- now reports the database in
 `GET /api/v1/cluster` and retries periodically until it succeeds, instead of running short of it silently.
 ====
+
+====== Writes on a replica fail with a retry error during a schema change
+
+While the leader runs a schema change (for example `CREATE INDEX` on a large type), or drops or reinstalls a database, it refuses write transactions that other nodes send for that database with a retryable error, and accepts them again as soon as the operation ends. Retry the write; a long index build means retries for as long as it runs. _(Since v26.10.1: those writes were previously accepted and could be applied inconsistently around the schema change.)_
 
 ====== Verbose HA logging
 
