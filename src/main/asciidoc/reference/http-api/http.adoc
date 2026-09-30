@@ -1072,6 +1072,12 @@ empty -- the plan is the answer, not a row. Requesting it with `Accept: applicat
 one. Before 26.10.1 the `GET` variant reached neither rule: it serialized the plan as an ordinary result row, and
 streamed it as an ndjson `record` line that no consumer of that encoding can read.
 
+With `Accept: application/x-ndjson` the rows are streamed one per line (`record`), followed by a `stats` trailer. While the
+server is still producing the next row it writes an empty line every `arcadedb.server.httpStreamingKeepAliveInterval`
+milliseconds (default 5000, `0` disables), so a client that bounds silence does not mistake a slow query for a dead server.
+Consumers must ignore blank lines, which the Java driver does. The Java driver fails a stream after
+`arcadedb.network.socketTimeout` of silence, with a minimum of 30 seconds, as for any other call.
+
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
