@@ -974,6 +974,8 @@ While that marker exists, the database is *not opened by anything*: not the star
 
 The node still starts. HA snapshot recovery runs during startup and either completes the interrupted swap (the download had finished) or rolls it back to the previous copy (it had not); either way it removes the marker, and the database is opened before the server reports itself online. In the normal case the only trace is one INFO line naming the deferred database.
 
+This includes a swap interrupted by a release older than v26.10.1, which recorded no phase: recovery works out from the files whether the new copy was already going in (it finishes the install) or the old copy was still being moved aside (it restores the old database). In the rare case a file of the incoming copy has to be set aside to let the old database open, it is moved to `databases/<name>/.snapshot-orphans/` and a WARNING names it; it is safe to delete once the database is verified. _(Since v26.10.1)_
+
 The marker survives startup in two cases:
 
 * *The node is not running HA* -- `arcadedb.ha.enabled=false`, or the `arcadedb-ha-raft` module is absent from an embedded deployment. Nothing runs the recovery pass, so nothing reconciles the directory.
