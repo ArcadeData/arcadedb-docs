@@ -91,34 +91,6 @@ database.transaction(() -> {
 Adding or removing edges on a vertex is never refused, and a record kept from an earlier transaction is refreshed as
 before. The check can be disabled with the `txStaleReadCheck` setting _(since v26.10.1)_.
 
-[[transactions-parallel-scan]]
-*Parallel scans inside a transaction* _(since v26.10.1)_. A full scan of a type, an aggregation over it or an index-range
-load can run on several threads (see `queryParallelScan`). Those threads have no transaction: they read the committed pages.
-A `READ_COMMITTED` transaction that has written nothing yet sees exactly the committed pages too, so its scans run in
-parallel by default, which is what makes a read-only `database.transaction(...)` block as fast as a read outside one.
-
-The consequence concerns the transaction's *own* writes, not other transactions: once such a scan has started, it does not
-see what its transaction writes afterwards.
-
-- a record the transaction *updates* later in the scan comes back with its committed content
-- a record the transaction *deletes* is skipped
-- a record the transaction *inserts* is not returned
-
-A loop that updates only the record it is currently on is not affected. A loop that updates a record the scan has not
-reached yet, and then reads it back from the scan, is. A transaction that has already written something when the query
-starts, and every `REPEATABLE_READ` transaction, read through the transaction on one thread as before.
-
-To keep read-your-writes for every scan, set `arcadedb.queryParallelScanInTransaction` to `false` on the database. To
-decide per transaction, override it on the transaction (embedded API):
-
-[source,java]
-----
-database.begin();
-((DatabaseInternal) database).getTransaction().setParallelScanForThisTransaction(false); // or true, or null for the setting
-----
-
-The override ends with the transaction.
-
 Using `remote` access all the commands are executed on the server, so out of transaction scope.
 Look below for more information.
 
