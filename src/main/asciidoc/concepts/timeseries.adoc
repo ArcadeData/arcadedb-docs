@@ -131,6 +131,11 @@ It runs the same compaction the scheduler runs, requires the `updateSchema` perm
 under HA runs on the leader. The result carries `mutableSamplesBefore` and `mutableSamples`, the samples still in the
 mutable buckets when it finished: rows appended while it ran stay there until the next pass.
 
+The scheduler (and `COMPACT TIMESERIES TYPE`) also merges the small blocks a slow feed leaves behind into full-size
+ones, so the number of blocks follows the data volume and not the time. A read that is scanning the old blocks at the
+very moment they are merged is refused with a retryable error (HTTP `503`) instead of returning a partial answer:
+run it again. A merge rewrites the sealed file, so it needs free disk space of about the size of that file.
+
 Reads do not need a compaction to be fast. A query for one tag, such as the newest reading of one host, skips every
 mutable page that holds no row of that tag without reading its rows, whether or not the tail has been sealed yet.
 
@@ -358,8 +363,8 @@ ArcadeDB provides a comprehensive set of `ts.*` SQL functions for time series an
 |===
 | Function | Description
 
-| `ts.timeBucket(interval, timestamp)`
-| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc.
+| `ts.timeBucket(interval, timestamp [, options])`
+| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc. Buckets are counted from the Unix epoch unless `options` moves the grid, see <<ts-bucket-origin,Moving the bucket grid>>.
 
 | `ts.first(value, timestamp)`
 | Returns the value corresponding to the earliest timestamp in the group.
@@ -397,6 +402,38 @@ ArcadeDB provides a comprehensive set of `ts.*` SQL functions for time series an
 | `ts.rank(value, timestamp)`
 | Window function: rank with ties, gaps after ties.
 |===
+
+[[ts-bucket-origin]]
+==== Moving the bucket grid
+
+By default buckets are multiples of the interval counted from the Unix epoch, which was a Thursday at 00:00 UTC: a
+`'1w'` bucket starts on Thursday and a `'1d'` bucket starts at 08:00 in UTC+8. The optional third parameter of
+`ts.timeBucket` moves the grid; use one of:
+
+[source,sql]
+----
+-- weeks start on Monday
+SELECT ts.timeBucket('1w', ts, {'origin': '2024-01-01T00:00:00Z'}) AS week, sum(kwh) FROM Energy GROUP BY week
+
+-- days start at local midnight in UTC+8
+SELECT ts.timeBucket('1d', ts, {'offset': '-8h'}) AS day, sum(kwh) FROM Energy GROUP BY day
+SELECT ts.timeBucket('1d', ts, {'timezone': '+08:00'}) AS day, sum(kwh) FROM Energy GROUP BY day
+----
+
+* `origin`: any instant a bucket starts at (a bare instant as third parameter means the same).
+* `offset`: a signed duration added to the epoch grid.
+* `timezone`: local midnight (local Monday for `'1w'`) of a zone with a fixed offset such as `'+08:00'`. Zones with
+daylight saving are refused, because their days do not all have the same length.
+
+The same grid is used by the aggregation push-down, the HTTP/gRPC/Grafana `bucketOrigin`, continuous aggregates
+(write the option in the defining query) and downsampling tiers, which take an `OFFSET` clause:
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading ADD DOWNSAMPLING POLICY AFTER 30 DAYS GRANULARITY 1 DAYS OFFSET -8 HOURS
+----
+
+Blocks already downsampled are not re-bucketed if you change the offset later.
 
 Examples:
 
@@ -450,6 +487,10 @@ Content-Type: application/json
 ----
 
 For raw (non-aggregated) queries, omit the `aggregation` and `bucketInterval` fields.
+
+The optional `bucketOrigin` (epoch milliseconds, also available on the Grafana endpoint, on gRPC as `bucket_origin_ms`
+and in the Java client as `TimeSeriesQuery.bucketOrigin()`) moves the bucket grid like the `origin` option of
+`ts.timeBucket`, see <<ts-bucket-origin,Moving the bucket grid>>.
 
 NOTE: `from`, `to`, `bucketInterval` and `maxDataPoints` must be whole numbers. A value with a fractional part
 is refused with `400` and a message naming the member, rather than being rounded down to something you did not
