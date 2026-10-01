@@ -182,8 +182,12 @@ To push metrics to an OpenTelemetry Collector (in addition to the unchanged `/pr
 [source,properties]
 ----
 arcadedb.serverMetrics.otlp.enabled=true
-arcadedb.serverMetrics.otlp.endpoint=http://otel-collector:4317
+arcadedb.serverMetrics.otlp.endpoint=http://otel-collector:4318/v1/metrics
 ----
+
+The metrics exporter speaks **OTLP/HTTP** (protobuf), not gRPC, so the endpoint is the collector's HTTP receiver: port `4318`, path `/v1/metrics` (this is also the default). Port `4317` is the gRPC receiver and does not work for metrics; the server logs a warning if it is configured. A URL without a path gets `/v1/metrics` appended. Tracing is different: it uses OTLP/gRPC on port `4317` (see below).
+
+The metrics and tracing plugins report the OpenTelemetry `service.name` resource attribute. The standard `OTEL_SERVICE_NAME` environment variable is honored and takes precedence over `OTEL_RESOURCE_ATTRIBUTES` and over the `arcadedb.serverMetrics.serviceName` setting (default `arcadedb`), so in a container set it with `-e OTEL_SERVICE_NAME=my-arcadedb`.
 
 This registers an OTLP meter registry alongside Prometheus; the scrape path is unaffected whether or not OTLP is enabled. The OTLP exporter lives in the optional `metrics` module bundled with the standard distributions.
 
