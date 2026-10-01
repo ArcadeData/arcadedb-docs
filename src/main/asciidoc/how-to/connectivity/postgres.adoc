@@ -89,13 +89,34 @@ Example of using Gremlin:
 {gremlin}g.V()
 ----
 
+===== TLS/SSL
+
+The plugin supports TLS through the Postgres protocol's own handshake, so `psql`, JDBC and BI tools can connect with `sslmode=require`.
+Set `arcadedb.postgres.ssl` to one of:
+
+- `DISABLED` (default): no TLS. A client asking for TLS is told to continue in plain text.
+- `OPTIONAL`: the client chooses TLS or plain text.
+- `REQUIRED`: plain text connections are refused before any password is requested.
+
+TLS uses the same key store and trust store settings as the HTTP server (`arcadedb.ssl.keyStore`, `arcadedb.ssl.keyStorePassword`, `arcadedb.ssl.trustStore`, `arcadedb.ssl.trustStorePassword`), and all four must be set.
+The server does not ask clients for a certificate.
+
+[source,shell]
+----
+bin/server.sh -Darcadedb.server.plugins="Postgres:com.arcadedb.postgres.PostgresProtocolPlugin" \
+  -Darcadedb.postgres.ssl=REQUIRED \
+  -Darcadedb.ssl.keyStore=/path/keystore.pkcs12 -Darcadedb.ssl.keyStorePassword=secret \
+  -Darcadedb.ssl.trustStore=/path/truststore.jks -Darcadedb.ssl.trustStorePassword=secret
+psql "host=localhost port=5432 dbname=mydb user=root sslmode=require"
+----
+
+NOTE: PostgreSQL 17 "direct" TLS (`sslnegotiation=direct`) is not supported.
+
 ===== Current limitations
 
 The documentation about Postgres wire protocol is not exhaustive to build a bullet proof protocol.
 In particular the state machine.
 For this reason this plugin was created by reading the available documentation online (official and not official) and looking into Postgres drivers or implementations.
-
-NOTE: ArcadeDB does not support SSL/TLS connections over this protocol.
 
 NOTE: Both the "simple" query protocol and the extended query protocol (`Parse`/`Bind`/`Describe`/`Execute`/
 `Sync`, what `PreparedStatement` uses) are supported.
