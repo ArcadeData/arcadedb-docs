@@ -1,7 +1,7 @@
 [[studio-query]]
 ==== Query Panel
 
-The *Query* panel is the everyday workspace: write a command in any supported language, run it against the selected database, and inspect the result as a table, a graph, a JSON document, or an execution plan.
+The *Query* panel is the everyday workspace: write a command in any supported language, run it against the selected database, and inspect the result as a table, a graph, a chart, a JSON document, or an execution plan.
 
 // TODO: full screenshot of the Query tab showing the icon sidebar, editor and a result.
 image::../../images/studio-query.png[Query Panel]
@@ -32,7 +32,7 @@ The editor is a CodeMirror instance with syntax highlighting that follows the se
 
 The toolbar above the editor exposes:
 
-* *Language* selector with: *SQL*, *SQL Script* (multi-statement), *Open Cypher* (native engine), *Apache TinkerPop Gremlin*, *GraphQL*, *MongoDB*, *Redis*.
+* *Language* selector with: *SQL*, *SQL Script* (multi-statement), *Open Cypher* (native engine), *Apache TinkerPop Gremlin*, *GraphQL*, *MongoDB*, *Redis*, *PromQL (Time Series)*, and under *Index search*: *Vector search*, *Hybrid search*, *Full-text search* (see <<studio-query-index-search,Index search>>).
 * *Auto Limit* dropdown — caps the number of rows returned by interactive runs (`20`, `50`, `100`, `500`, *No Limits*).
 Useful to stay safe on large datasets; the cap is applied as a `LIMIT` when the language supports it.
 * *Clear* — empties the editor.
@@ -41,6 +41,27 @@ Useful to stay safe on large datasets; the cap is applied as a `LIMIT` when the 
 
 // TODO: close-up of the language selector and toolbar.
 image::../../images/studio-query-editor.png[Query editor toolbar]
+
+[[studio-query-index-search]]
+===== Index search (Vector, Hybrid, Full-text)
+
+The last three entries of the *Language* selector query an index instead of running a command.
+Selecting one replaces the editor with a small form, while *Auto Limit* is hidden because the form carries its own `k` or limit.
+*Run*, *Clear*, *Save Query*, the history and the result views (Table, Json, Explain) work as for any other language.
+
+* *Vector search* - pick an `LSM_VECTOR` or `LSM_SPARSE_VECTOR` index, enter the query vector (`[0.12, -0.5, 0.33]` or `0.12, -0.5, 0.33`), `k`, an optional SQL `WHERE` filter, and for a dense index `efSearch`. For a sparse index you can also enter the sparse dimension ids.
+* *Hybrid search* - the vector inputs above plus a full-text leg (index and Lucene query), the fusion strategy, per-leg weights and an optional graph expansion (edge types, direction, max depth).
+* *Full-text search* - pick a `FULL_TEXT` index, enter a Lucene query (for example `+java -python`) and a limit.
+
+The form checks what it can before sending: a vector whose length differs from the index dimensions is refused without a round trip, and the limits for `k`, `efSearch`, `limit` and `maxDepth` are read from the server, so they always match the running version.
+The index list is read from the database schema; a database without a vector or full-text index shows a note instead.
+
+Each hit is one table row: `@rid`, `@type`, then the ranking value (`distance`, `score` or `fusedScore`, and for hybrid the `sources`), then the record properties.
+The *Json* tab holds the raw response, and the *Explain* tab summarizes which index answered, how it ranks, and whether the result window was filled.
+When the count reads *(truncated)*, more matches exist: raise `k`.
+
+The form runs the same operations as the HTTP endpoints `POST /api/v1/vector/{database}/search`, `/hybrid` and `/fulltext`.
+These searches used to live in a separate *Vector* tab, which was removed.
 
 [[studio-query-results]]
 ===== Result views
@@ -97,6 +118,32 @@ image::../../images/studio-query-graph.png[Graph view]
 
 // TODO: optional close-up of the node context menu (replaces old studio-graph-node-menu-selected.png / -unselected.png).
 image::../../images/studio-query-graph-node-menu.png[Graph node context menu]
+
+[[studio-query-chart]]
+====== Chart
+
+The *Chart* tab plots the rows of the last result, whatever language produced them: SQL, Open Cypher, Gremlin, PromQL and so on.
+The role of each column is inferred from its values, and every choice can be changed in the tab:
+
+* *X axis* - the first time column (epoch milliseconds or an ISO date string), otherwise the first text column, otherwise the row number. A time axis is sorted; a text axis keeps the row order, so a `GROUP BY` result becomes a bar-friendly category chart.
+* *Measures* - the numeric columns to plot, one line, area or bar series each.
+* *Split by* - a text column to turn into one series per value. On a time chart it defaults to the first text column with at most 12 distinct values (a host, a metric label), so a result with `ts, host, usage` draws one line per host.
+* *Line*, *Area*, *Bar* - the chart type.
+
+Record metadata (`@rid`, `@type`) and nested values are not plotted, and a value that is not a number leaves a gap rather than a zero.
+Chart does not run anything by itself: run a query as usual, then open the tab.
+
+[source,sql]
+----
+SELECT ts, host, usage FROM Cpu
+----
+
+[[studio-query-promql]]
+====== PromQL
+
+Selecting *PromQL (Time Series)* in the language selector lets you type a PromQL expression, for example `Cpu{host="a"}`.
+*Auto Limit* is replaced by a *Range* (last 5 minutes to 7 days) and a *Step* (1 second to 1 hour).
+The expression runs as a range query against the database's Prometheus-compatible endpoint, and the points arrive as rows `timestamp`, `metric`, `value`, so they can be read in the Table and Json tabs; the Chart tab opens automatically, with one series per `metric`.
 
 [[studio-query-json]]
 ====== JSON
