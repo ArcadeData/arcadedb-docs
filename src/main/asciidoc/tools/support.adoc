@@ -182,6 +182,21 @@ Under *Advanced / offline server* in the Support tab of Studio, enter the Client
 Studio verifies the key with the portal and keeps it on the server, never in the browser. The *Synchronize* button sends the diagnostics again; it only fills fields that are blank in the portal and reports the ones that differ.
 
 [[support-instance-id]]
+==== Support requests in a cluster
+
+Support can ask you, in a reply, to run a read-only query and send the result. In Studio each request is a card with the exact statement; nothing runs until you click *Run*, and nothing is sent until you have reviewed the result (and masked what you do not want to share) and click *Send*.
+
+In a cluster, a request can be run on this node, on every node, or on one named node. When the server is part of a cluster, the card has a selector with *This node*, *All nodes* and each other node by name; it starts on what support asked for. The result of all the nodes you ask comes back as *one table* with a leading `node` column, so a difference between replicas (for example 112914 against 112623 rows) is visible at a glance. A node that cannot answer, because it is down, too slow or refuses the query, is a row with its error in an `error` column, and the other nodes still answer.
+
+How it works, and why it is safe:
+
+* The node Studio is connected to runs the query on itself through the ordinary query endpoint, as for a single server.
+* That node asks the other nodes over the cluster connection (`POST /api/v1/server/support/peer-query`, root only). It reaches only the members of the cluster, chosen by name from the HA configuration: a request can never name an address.
+* Every node runs the statement through its own idempotent query endpoint, so the engine of each node refuses anything that is not read-only (SQL and OpenCypher), whatever the request says. The query runs on each node with the permissions of the user who is logged in to Studio, and no password is sent between nodes.
+* The limits are 16 nodes, 8 at a time, 35 seconds and 4 MB per node, and at most 1000 rows in the answer in total, shared evenly between the nodes.
+
+On a server that is not part of a cluster, a request for "all nodes" runs on this server only, and Studio says so.
+
 ==== The instance id
 
 Each server is identified to the portal by its instance id (`adb-` followed by a UUID, shown in the log line `Instance id: adb-...` and on the *Summary* tab of Studio). It identifies the server and is never a credential.
