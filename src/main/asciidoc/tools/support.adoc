@@ -1,0 +1,235 @@
+[[support]]
+=== Support
+
+If you have an ArcadeData professional support plan, you can *register* your ArcadeDB servers with the customer portal at https://portal.arcadedb.com[portal.arcadedb.com].
+A registered server can open support issues from the *Support* tab of Studio, with its logs and diagnostics attached, and show you the replies without leaving Studio.
+The same registration also adds the server to the *Installations* of your workspace in the portal, so support sees its version and environment from the first message.
+
+This page describes every way to register a server. They all end in the same state: the server holds a *workspace key* and registers itself as an installation.
+
+TIP: Pick the way that matches how you run the server: <<support-connect-studio,Studio>> when you have it, the <<support-connect-console,console>> or <<support-connect-http,HTTP>> for a server without Studio or reachable only over SSH, a <<support-connect-config,key as configuration>> for containers and Kubernetes, or <<support-connect-manual,manual>> entry for a server that cannot open a browser at all.
+
+==== What registration gives you
+
+* Open a support issue from Studio, choosing the log window and previewing exactly what will be sent before it leaves the server.
+* See the replies, the status and the support requests of your issues in Studio.
+* The server appears as an installation in the portal, with the version, operating system, CPU, memory, Java version, runtime (VM, Docker or Kubernetes), enabled plugins and HA size as the server reported them.
+  A new installation has *no seat*: you assign the seat in the portal, under Installations.
+  Values you entered in the portal are never overwritten by what the server reports; differences are shown and you decide, one field at a time.
+
+==== What is sent and what is not
+
+Registration sends the *diagnostics* of the server: version and build, server name, operating system and CPU, memory, JVM version and heap, the container runtime, the names of the enabled plugins, the HA cluster name and size, and the settings that differ from the defaults.
+Values of settings that look like secrets (passwords, tokens, keys) are masked on the server before anything is sent.
+
+*Never sent*: database contents, user names and password hashes, keys and tokens, and the internal host names of HA peers.
+Logs are sent only when you open an issue, after you have seen them in the preview.
+
+The *workspace key* (`wsk_...`) is a credential. The portal stores only a hash of it and shows it once.
+On the server it is kept in `support.json` in the configuration directory (readable by the owner only), is masked when settings are listed or dumped, is never returned by any API and is never logged.
+
+[[support-connect-studio]]
+==== Way 1: Connect from Studio
+
+This is the easiest way and needs no copy and paste.
+
+. Open the *Support* tab of Studio, signed in as a server administrator (`root`), and click *Connect to ArcadeDB Portal*.
+. Studio shows a code like `WDJB-MJHT` and opens the portal in a new tab. If your browser blocks the tab, click *Open the portal*.
+. In the portal, sign in if needed. The page shows the code, the host name, the version and the instance id the server reported, and asks which workspace to connect to.
+. *Check that the code in the portal is exactly the one Studio shows.* If it is not, deny the request.
+. Click *Approve*, then confirm. Close the tab.
+
+Studio changes from *Waiting for approval...* to *Connected to <workspace>* and tells you what happened to the installation: *Registered as installation* (a new one), or *Already registered as installation* with the number of fields that differ from the portal.
+
+The code is valid for 10 minutes and can be used once. *Cancel* in Studio stops the wait.
+
+NOTE: Only an *owner* or *admin* of the workspace can approve. A member or viewer is told to ask an administrator.
+Nobody can sign up for a workspace from this page: there is no self-service signup in the portal, your ArcadeData contact creates your workspace.
+
+[[support-connect-console]]
+==== Way 2: Connect from the console
+
+For a server without Studio, or one you reach over SSH, use the <<console,console>> command `connect portal`:
+
+[source,shell]
+----
+$ bin/console.sh
+> connect portal remote:localhost:2480 root
+Password: ********
+Open https://portal.arcadedb.com/#/connect?code=WDJB-MJHT and approve. Code: WDJB-MJHT. Waiting...
+Connected to workspace 'Acme Corp'
+Registered this server as installation 'arcadedb-prod-1'. It has no seat yet: assign it in the portal
+----
+
+The syntax is:
+
+----
+connect portal [remote:<host>[:<port>] <user> [<password>]]
+----
+
+Without arguments it uses the remote server the console is already connected to. If there is none, it answers `Not connected to a remote server. Use `connect portal remote:<host>[:<port>] <user> [<password>]`, or connect to a remote database first`.
+An omitted password is asked for without echo.
+
+The browser that approves can be on any machine: open the printed address on your laptop while the console runs on the server. Press `Ctrl-C` to stop waiting; the wait ends on the server too.
+
+The console reports a server that is already registered as `This server is already registered as installation '<name>'` and fields that differ as `N field(s) differ from what the portal has (...)`.
+Denied, expired, cancelled and failed connections are errors, so in batch mode (`-b`) the exit code is not `0`.
+
+[[support-connect-http]]
+==== Way 3: Connect over HTTP
+
+The console and Studio use three routes of the server, available with `root` HTTP Basic authentication. You can call them from a script (shell, Ansible, a deployment pipeline):
+
+[source,shell]
+----
+# 1. Ask for a code. The optional "label" (up to 60 characters) names the key in the portal.
+$ curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' \
+    -d '{"label":"prod-1"}' http://localhost:2480/api/v1/server/support/connect
+{"userCode":"WDJB-MJHT","verifyUrl":"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT","expiresIn":600}
+
+# 2. Open verifyUrl in any browser, check the code, approve. Then poll until the status is no longer "pending".
+$ curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect
+{"status":"connected","workspaceName":"Acme Corp","registration":{"status":"created",...}}
+
+# 3. To stop waiting (a key already received stays registered):
+$ curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect
+----
+
+The status is one of `none`, `pending`, `connected`, `expired`, `denied`, `error` (with `error` and `message`) or `cancelled`.
+Polling every 2 seconds is plenty. The server itself polls the portal; you never handle the device code or the key.
+
+Errors are JSON `{error, detail, message}`:
+
+[cols="1,2"]
+|===
+| 401 / 403 | no credentials / the user is not `root`
+| 404 `not_supported` | the portal has no such flow
+| 409 `connect_in_progress` | another connection is already waiting
+| 409 `registered_by_settings` | the registration comes from the settings, see <<support-connect-config,below>>
+| 409 `config_not_writable` | the configuration directory is not writable
+| 409 `key_limit` | the workspace already has 25 active keys: revoke one in the portal
+| 429 `rate_limited` | too many attempts from this server; wait for `Retry-After`
+| 503 `portal_unreachable` | the server cannot reach the portal
+|===
+
+The complete description is in the OpenAPI document served at `/api/v1/docs`, under the Support tag.
+
+[[support-connect-config]]
+==== Way 4: A key as configuration (containers, Kubernetes)
+
+For automated deployments there is no person at the keyboard. Create the key in the portal, then give it to the server as configuration.
+
+. In the portal open *Studio keys* (owners and admins only) and click *Create key*. Give it the name of the server or environment.
+. Copy the *Client ID* and the *Client key*. *The key is shown only once.*
+. Under *Server without Studio* the portal shows the same two values as ready-to-paste text for Docker, Kubernetes and JVM flags. The text contains the key: paste it into your deployment tooling or secret store, never into a chat or a ticket.
+
+The server reads three settings (see <<settings-server-level,server settings>>):
+
+[cols="1,2,1"]
+|===
+| Setting | Meaning | Default
+
+| `arcadedb.support.clientId` | The Client ID (workspace id). | empty
+| `arcadedb.support.clientKey` | The Client key, `wsk_...`. A credential: masked in listings, never logged. | empty
+| `arcadedb.support.url` | The portal address. HTTPS only (plain HTTP is accepted for `localhost`). | `\https://portal.arcadedb.com`
+|===
+
+When `arcadedb.support.clientId` and `arcadedb.support.clientKey` are set they take precedence over `support.json`, and the registration cannot be changed from Studio (`registered_by_settings`): change the settings instead.
+The server verifies the key with the portal and registers itself as an installation by itself, at startup and then once a day. Set `arcadedb.support.autoRegister` to `false` to turn that off.
+
+*JVM flags* (the safest form, valid in any launcher):
+
+[source,shell]
+----
+-Darcadedb.support.clientId=<client id> -Darcadedb.support.clientKey=wsk_...
+----
+
+*Docker*:
+
+[source,shell]
+----
+docker run -d --name arcadedb \
+  -e 'JAVA_OPTS=-Darcadedb.support.clientId=<client id> -Darcadedb.support.clientKey=wsk_...' \
+  arcadedata/arcadedb:latest
+----
+
+*Kubernetes*: keep the key in a Secret and reference it from the container; do not write it in the manifest.
+
+[source,shell]
+----
+kubectl create secret generic arcadedb-support \
+  --from-literal=clientId='<client id>' \
+  --from-literal=clientKey='wsk_...'
+----
+
+[source,yaml]
+----
+env:
+  - name: JAVA_OPTS
+    value: "-Darcadedb.support.clientId=$(SUPPORT_CLIENT_ID) -Darcadedb.support.clientKey=$(SUPPORT_CLIENT_KEY)"
+  - name: SUPPORT_CLIENT_ID
+    valueFrom: { secretKeyRef: { name: arcadedb-support, key: clientId } }
+  - name: SUPPORT_CLIENT_KEY
+    valueFrom: { secretKeyRef: { name: arcadedb-support, key: clientKey } }
+----
+
+[[support-connect-manual]]
+==== Way 5: Paste the key in Studio (servers that cannot open a browser)
+
+Under *Advanced / offline server* in the Support tab of Studio, enter the Client ID and the Client key created in the portal as in Way 4, and register.
+Studio verifies the key with the portal and keeps it on the server, never in the browser. The *Synchronize* button sends the diagnostics again; it only fills fields that are blank in the portal and reports the ones that differ.
+
+[[support-instance-id]]
+==== The instance id
+
+Each server is identified to the portal by its instance id (`adb-` followed by a UUID, shown in the log line `Instance id: adb-...` and on the *Summary* tab of Studio). It identifies the server and is never a credential.
+The id is generated on the first start and saved in the file `.instance.id` in the *databases directory*, so it survives a restart wherever the data does.
+Servers that kept it in the file `instance.id` of the configuration directory (older versions) keep the same id: it is read from there and copied to the new place.
+The file also records the name of the server that created it (`server.name`).
+
+If a volume or a directory is cloned to create another node, the names differ and the new server generates its own id and writes this warning in the log:
+
+----
+The instance id file '/.../databases/.instance.id' was created by the server 'node-0' but this server is 'node-1': probably a cloned volume or a copied directory. A new instance id adb-... was generated
+----
+
+This is expected and needs no action. If the warning appears when you did not clone anything, check that two servers do not share one databases directory.
+To choose the id yourself, set `arcadedb.instance.id`; to start over, stop the server and delete `.instance.id`.
+
+A server with no persistent directory, such as a container without a volume, would get a new id (and a new installation in the portal) on every restart. There are two ways to avoid that:
+
+* mount a persistent volume on the databases directory (you need one for your data anyway), or
+* set `arcadedb.instance.derived=true`: the id is then computed from `ha.clusterName` and `server.name`, so the same server has the same id on every start with no file. The names must be unique per node and stable. A Kubernetes StatefulSet pod name (`arcadedb-0`, `arcadedb-1`, ...) is stable, so `arcadedb.instance.derived=true` is the simplest setting for a StatefulSet.
+
+If no directory is writable the server keeps the id in memory and logs one warning that it will not survive a restart.
+
+[[support-ha]]
+==== Clusters (HA)
+
+One key can serve a whole cluster: register each node with the same Client ID and key.
+Every node has its own instance id (`adb-...`), so each node is registered as its own installation.
+Give every cluster its own name with `arcadedb.ha.clusterName` (the same value on all nodes of one cluster, default `arcadedb`). The portal groups the nodes of a cluster into one installation by that name, so two different clusters that both keep the default `arcadedb` would be shown as one installation. The name is also what the Raft group id and the cluster token are derived from, so it has to be unique anyway.
+
+Seats are counted as the number of servers of the cluster that are running: a node counts while it has reported in during the last days (7 by default), so servers that are restarted or replaced do not use seats for ever. Your plan has a committed number of seats with a small allowance above it. Going over is reported to you and to ArcadeData, and never stops a server.
+
+[[support-troubleshooting]]
+==== Troubleshooting
+
+[cols="1,2"]
+|===
+| The code is not accepted or has expired | Codes last 10 minutes and work once. Start again with *Connect to ArcadeDB Portal*.
+| `instance_id.taken` | Another workspace already registered this instance id. Contact ArcadeData support if the server is yours. The portal does not say whose it is.
+| `key_limit` / "25 active keys" | A workspace has at most 25 active keys. Revoke the ones you no longer use under *Studio keys* in the portal.
+| `registered_by_settings` | The server is registered by `arcadedb.support.clientId` and `arcadedb.support.clientKey`. Change or remove them in the server configuration.
+| `portal_unreachable` | The server must be able to open HTTPS connections to `portal.arcadedb.com`. Check the firewall and proxy of the *server*, not of your browser.
+| `not_registered` | The server has no key yet: connect it with one of the ways above.
+| The key leaked or the server is retired | Revoke the key under *Studio keys*. It stops working on its next call.
+|===
+
+[[support-security]]
+==== Security notes
+
+* The *device code* that completes the connection never leaves the server and never appears in Studio, in logs or in any API answer. The browser only sees the short code.
+* Only an *owner or admin* of the workspace can approve, and the key belongs to that workspace only: it can open and read issues of that workspace and nothing else.
+* *Always check that the code in the portal is the one your Studio or console shows.* The host name and version on the approval page are reported by the server and are not verified; approve only a request you started yourself a moment ago.
+* The key is stored hashed in the portal, shown once, and can be revoked at any time. Every creation, first use from a new server, issue and refusal is audited, and the workspace administrators are notified the first time a key is used from a new server.
