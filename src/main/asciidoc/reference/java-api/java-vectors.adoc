@@ -699,6 +699,8 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 
 Binary quantization (1 bit per dimension). Provides 32x memory reduction for extreme compression scenarios.
 
+Each vector is stored as one bit per dimension (at or above the vector's own median, or below it). The graph is searched on the sign pattern, which for COSINE is a Hamming distance, and a search then fetches four times the requested neighbours and reranks them with the similarity function on the vectors the records store, so every BINARY query pays up to `4 * k` record reads and the distances it returns are exact. Candidates whose record is gone or carries no usable vector are dropped, so a query can return fewer than `k` rows. The grouped and PQ-approximate searches are not reranked. An index created before 26.10.1 keeps its graph until it is rebuilt (`REBUILD INDEX`), which is recommended to get the full recall.
+
 [source,sql]
 ----
 CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
