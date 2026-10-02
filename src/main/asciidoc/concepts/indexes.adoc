@@ -200,10 +200,10 @@ The text indexes above are case-sensitive by default: `"Hello"` and `"hello"` ar
 Effect:
 
 * *Equality lookups* fold case: `WHERE Name = 'Hello World'` matches `"Hello World"`, `"HELLO WORLD"`, `"hello world"`.
-* *Range queries* compare the lowercased form.
+* *Range queries on the plain property* (`Name >= 'C'`, `Name BETWEEN 'a' AND 'c'`) never use the index. The index holds lower-cased keys and probes with a lower-cased bound, which is not the case-sensitive comparison the predicate asks for, so these conditions are evaluated by a scan and answer exactly as they do without the index (since 26.10.1, issue #8932). To get a case-insensitive range, write it on `Name.toLowerCase()`, which the index serves (see below).
 * *Unique constraints* fold case: a `UNIQUE` index with `COLLATE CI` prevents inserting both `"Admin"` and `"admin"`.
 * *Original values are preserved* in the document; only the index key is lowercased (using the root locale).
-* *Sorting and aggregates ignore the index*: because the index order is the lowercased order, `ORDER BY`, SQL `min()`/`max()` and Cypher range predicates (`<`, `<=`, `>`, `>=`) on the property never use a `COLLATE CI` index for ordering, so they return the same result as without the index. SQL range conditions in `WHERE` still use the lowercased form.
+* *Sorting and aggregates ignore the index*: because the index order is the lowercased order, `ORDER BY`, SQL `min()`/`max()` and Cypher range predicates (`<`, `<=`, `>`, `>=`) on the property never use a `COLLATE CI` index for ordering, so they return the same result as without the index.
 
 [source,sql]
 ----
