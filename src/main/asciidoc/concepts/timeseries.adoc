@@ -331,7 +331,7 @@ that is not the shard's to retry.
 ===== SQL Queries
 
 Time series types support standard SQL `SELECT` with `WHERE`, `GROUP BY`, and `ORDER BY`.
-Time range conditions (`BETWEEN`, `>`, `>=`, `<`, `\<=`, `=`) on the timestamp column are pushed down to the storage engine for efficient range scans.
+Time range conditions (`BETWEEN`, `>`, `>=`, `<`, `\<=`, `=`) on the timestamp column are pushed down to the storage engine for efficient range scans. A time range on one branch of an `OR` never narrows the other branch, and two equalities on the same tag in one `AND` match nothing when the values differ, exactly as on a document type.
 
 [source,sql]
 ----
@@ -537,7 +537,7 @@ way:
   the real values alone: `SUM` is the sum of the real samples and `AVG` divides it by the number of real samples,
   not by the number of samples. Over a window whose samples are *all* `NaN` they return `NaN`, meaning the window
   has no measurement to report.
-* `COUNT` counts rows, like SQL's `count(*)`, so it counts `NaN` samples too.
+* `count(*)` counts rows, so it counts `NaN` samples too. In SQL, `count(field)` counts only the rows where the field is not null, as on any other type, and returns a `Long`.
 * A genuine `Infinity` or `-Infinity` sample is a measurement and is returned as such.
 * Downsampling averages the real samples of each bucket; a bucket with no real sample is downsampled to `NaN`.
 
@@ -622,9 +622,9 @@ A column that is not stored as a number is refused, and the message names it:
 Tags are always stored as text, whatever type they are declared with, so a tag cannot be aggregated even when it
 is declared `LONG`. The same applies to a `STRING` field and to the timestamp column itself.
 
-`COUNT` is the exception and works on any column, because it counts rows without reading them. The SQL push-down
-also behaves differently: rather than refusing the query it simply falls back to the generic aggregation path, so
-`SELECT ... max(host) ... GROUP BY` still answers.
+`COUNT` is the exception and works on any column. The SQL push-down also behaves differently: rather than refusing
+the query it simply falls back to the generic aggregation path, so `SELECT ... max(host) ... GROUP BY` and
+`count(field) ... GROUP BY` (which skips null values) still answer. Only `count(*)` is answered by the push-down.
 
 [NOTE]
 ====
