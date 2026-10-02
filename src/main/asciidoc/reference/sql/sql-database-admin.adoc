@@ -275,6 +275,9 @@ The command returns the integrity check report in one record with the fields:
                        record, which is wasted work when the record is not there at all.
 | `totalPages` | total number of pages in the database.
 | `rebuiltIndexes` | list of indexes that have been rebuilt automatically if corrupted records were found.
+| `corruptedIndexes` | names of the indexes the check found damaged on their own, independently of record corruption. The findings are
+                       in `warnings`. A `FIX` rebuilds each of them, and they are listed in `rebuiltIndexes` as well.
+                       See <<sql-check-database-vector-ids,Vector indexes>> for the `LSM_VECTOR` finding.
 | `topMissingReferences` | records an edge points at that could not be loaded, each with the number of edges that
                            reference it - the usual shape after vertices were deleted while their edges survived.
                            One line per target rather than per edge, so a single missing vertex referenced by
@@ -310,6 +313,25 @@ The command returns the integrity check report in one record with the fields:
                                              check was running is *not* removed and not counted here: the repair
                                              re-checks each record immediately before deleting it.
 |===
+
+[[sql-check-database-vector-ids]]
+*Vector indexes*
+
+_Since v26.10.1_ the check reads the pages of every `LSM_VECTOR` index and reports one that has two records on the same
+vector id. The index appears under `corruptedIndexes`, and `warnings` carries how many records are affected and the
+first few RIDs.
+
+Such an index never keeps its persisted graph. A graph build counts both records, while every load of the same pages
+keeps only the one written last, so the graph holds more nodes than the load has live vectors and is rejected as stale
+on the next load. Each search that finds it rejected waits for a full rebuild of the graph, and the rebuild produces
+the same graph again. The record that lost its vector id is not returned by a vector search until its vector is indexed
+again. A graph build now logs those records by RID and keeps one record per id, which ends the loop but does not
+restore them.
+
+`CHECK DATABASE` alone only reports. `FIX` rebuilds the index from the records, which gives every record that holds an
+embedding a vector id of its own. The rebuild reads every vector of the type, so on a large index it takes as long as
+a `REBUILD INDEX`: run it off-peak. In a cluster the statement runs on the leader, wherever it is issued, and the
+rebuilt index reaches the followers as replicated data like any other `FIX` of an index.
 
 [[sql-check-database-constraints]]
 *Existence constraints*
