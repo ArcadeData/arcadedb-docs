@@ -126,7 +126,7 @@ name, or a `-N` / `_N` suffix giving the position in the list (the Kubernetes He
 A token whose name matches no member is refused without asking anyone. Tokens in the previous `AU-<uuid>` form
 are still accepted, but only by the server that issued them.
 
-API tokens (`at-` prefix) are not shared across servers: each server holds its own `server-api-tokens.json`.
+API tokens (`at-` prefix) work the same way on every server: since 26.10.1 they are replicated to the whole cluster, like users and groups (see <<ha-security-documents,Cluster security documents>>).
 ====
 
 *Number of concurrent tokens:*
@@ -1035,6 +1035,77 @@ Return:
 ----
 
 The `elapsedMs` field indicates how many milliseconds have passed since the last request using that token.
+
+[[http-api-tokens]]
+===== Create an API token (POST)
+
+Mints a long-lived API token (`at-` prefix) for a script or service. Root only. The plaintext token is returned once, in
+`result.token`, and is never shown again: the server keeps only its hash. On a cluster the request is forwarded to the
+leader and the token is replicated to every node. `GET /api/v1/server/api-tokens` lists the tokens and
+`DELETE /api/v1/server/api-tokens?token=<hash>` revokes one. Studio's <<studio-security-tokens,API Tokens>> panel uses the
+same routes.
+
+URL Syntax: `/api/v1/server/api-tokens`
+
+Body: `name` (required), `database` (default `*`, every database), `expiresAt` (epoch milliseconds, `0` for no expiry) and
+`permissions` (the same structure as a group).
+
+Responses:
+
+* https://httpstatuses.io/201[`201`] created - the token is in `result.token`
+* https://httpstatuses.io/400[`400`] missing name or malformed permissions
+* https://httpstatuses.io/403[`403`] forbidden (non-root user)
+* https://httpstatuses.io/409[`409`] a token with that name already exists
+* https://httpstatuses.io/412[`412`] the request did not arrive over a protected transport and
+  `arcadedb.server.apiTokenRequireSecureTransport` is on _(since v26.10.1)_
+
+[source,shell]
+----
+$ curl -X POST https://localhost:2490/api/v1/server/api-tokens \
+       --user root:arcadedb-password \
+       -d '{"name":"etl-job","database":"mydb"}'
+----
+
+*Transport check (since v26.10.1).* The token authenticates whoever holds it, so the server checks how the mint reached
+it. The transport counts as protected when the request came over HTTPS, from a loopback address, or from a reverse proxy
+listed in `arcadedb.server.apiTokenTrustedProxies` that reports `https` for every hop through `X-Forwarded-Proto` or the
+RFC 7239 `Forwarded` header. What happens otherwise depends on `arcadedb.server.apiTokenRequireSecureTransport`:
+
+* `false` (the default in 26.10.1): the token is minted and the server logs `Minting an API token over an unprotected
+  transport (scheme=..., peer=...)` at WARNING.
+* `true`: the mint is refused with `412` and a body explaining the three ways out: connect over TLS, list the proxy, or
+  turn the check off.
+
+On a cluster the check also covers the hop between nodes: a mint forwarded to the leader over cleartext inter-node HTTP
+is refused with `412` too, even when the client itself used HTTPS.
+
+[WARNING]
+====
+The default of `arcadedb.server.apiTokenRequireSecureTransport` is scheduled to change to `true` in 27.1.1. From that
+release an unprotected mint is refused unless you set the value back to `false`. It is `false` today only because Studio's
+own *Create Token* button uses this route, and enforcing it would break Studio served over plain HTTP from a remote host.
+If you mint tokens over plain HTTP, plan for HTTPS (or a trusted proxy) before upgrading.
+====
+
+[[http-api-tokens-reverse-proxy]]
+*Behind a TLS-terminating reverse proxy.* When nginx, Envoy or a Kubernetes ingress terminates TLS and forwards to
+ArcadeDB over HTTP, the server sees a cleartext request from the proxy's address. List that address (or its subnet) in
+`arcadedb.server.apiTokenTrustedProxies`, for example `-Darcadedb.server.apiTokenTrustedProxies=10.0.0.5,10.1.0.0/16`,
+and make sure the proxy sets `X-Forwarded-Proto` (nginx: `proxy_set_header X-Forwarded-Proto $scheme;`). The rules are
+strict on purpose:
+
+* A peer that is not on the list gains nothing by sending the same headers. They are ignored, because the client asking
+  for a token is the one that would forge them.
+* Entries must be literal addresses or CIDR ranges. A hostname is rejected rather than resolved.
+* A list that does not parse is treated as empty, so a typo denies instead of opening the gate. The server logs the
+  discarded list at SEVERE (`Ignoring the whole of arcadedb.server.apiTokenTrustedProxies (...)`).
+* List only an L7 proxy that writes the header itself. An L4 balancer (nginx `stream`, HAProxy `mode tcp`) passes the
+  client's own headers through, so listing one lets any client vouch for itself.
+* If the request carries a `Forwarded` header, every element must include `proto=https`; an element without `proto=`
+  refuses the mint. A proxy that does not use `Forwarded` should strip any it receives.
+
+The gRPC `CreateApiToken` RPC applies the same list, reading the `x-forwarded-proto` and `forwarded` metadata keys. Unlike
+HTTP it always refuses an unprotected mint, whatever `apiTokenRequireSecureTransport` says.
 
 [[http-executequery]]
 ===== Execute a query (GET|POST)
