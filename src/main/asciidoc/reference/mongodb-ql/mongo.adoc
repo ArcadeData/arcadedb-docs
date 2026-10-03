@@ -174,6 +174,17 @@ Notes:
 A String `_id` that happens to look like a 24-character hex ObjectId (e.g. `"abcdef0123456789abcdef01"`) is indistinguishable from a real ObjectId once stored, so it round-trips back as an ObjectId rather than the original String. Avoid choosing String `_id` values in that specific shape if your client needs to tell them apart.
 ====
 
+[[mongodb-protocol-bson-types]]
+====== BSON value types
+
+Besides strings, numbers, booleans, dates, embedded documents and arrays, the plugin stores and returns these BSON types with their type kept: binary, regular expression, timestamp, MinKey, MaxKey, JavaScript code, Decimal128 and ObjectId. A value the server cannot store is refused with an error instead of being dropped.
+
+* Decimal128 is stored as an exact decimal. A decimal with more than 34 digits, written through SQL, is returned as a double.
+* An ObjectId outside `_id` is stored as the text `$oid:<24 hex digits>` and returned as an ObjectId. Filters (`eq`, `$ne`, `$in`) also match the plain hex text stored by older versions. `_id` keeps the plain hex form.
+* Binary, timestamp, regular expression, MinKey, MaxKey and JavaScript values are stored as a small document with the reserved field `$bson`. Equality and `$in` work on them, but range queries and sorting do not follow BSON order.
+* Reserved names: a field called `$bson` is refused, and a text starting with `$oid:` or `$str:` is escaped on write, so it comes back unchanged.
+* The Symbol type and binary subtypes other than 0 and 4 are not supported by the bundled MongoDB library.
+
 [[mongodb-protocol-authentication]]
 ===== Authentication
 
