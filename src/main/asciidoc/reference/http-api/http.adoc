@@ -1602,6 +1602,10 @@ Responses:
 * https://httpstatuses.io/200[`200`] OK
 * https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, vertices after edges
 * https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/413[`413`] the body exceeds `server.httpBodyContentMaxSize`; the load is cut short and the records loaded before the cut *stay loaded*
+* https://httpstatuses.io/503[`503`] / https://httpstatuses.io/504[`504`] the request could not be forwarded (for example from a follower to the leader); the records loaded before the failure *stay loaded*
+
+WARNING: A `413`, `503` or `504` does NOT mean that nothing was applied. A batch that is cut short may be partially applied: the server log carries the counts, but the HTTP answer does not. A client that reads such an error as "rejected, nothing applied" and resends the whole payload after raising the limit or splitting it creates duplicates, unless the payload is idempotent (for example `@id`-keyed upserts). Deduplicate on the client side, or reload into a clean target database.
 
 IMPORTANT: This endpoint is NOT atomic by design. The underlying GraphBatch commits internally in chunks for maximum throughput. The response tells you exactly how many records were committed. Treat it as a bulk-loading operation, not a transactional one.
 
