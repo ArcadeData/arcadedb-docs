@@ -150,6 +150,32 @@ $ docker run --rm -p 2480:2480 --name my_arcadedb \
     --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
 ----
 
+[[docker-config-directory]]
+====== Relocating the configuration directory
+
+The server keeps its configuration files in `/home/arcadedb/config`: `server-configuration.json`, the users, groups and API
+tokens (`server-users.jsonl`, `server-groups.json`, `server-api-tokens.json`), `backup.json`, `ai.json`, `mcp-config.json` and
+`gremlin-server.yaml`. Since v26.10.1 you can move them with `arcadedb.server.configDirectory`, for example onto the volume that
+already holds the databases, so a single mount persists both:
+
+[source,shell,subs="attributes+"]
+----
+$ docker run --rm -p 2480:2480 --name my_arcadedb \
+    -v /path/on/host/arcadedb:/data \
+    --env ARCADEDB_SETTINGS="-Darcadedb.server.databaseDirectory=/data/databases \
+                     -Darcadedb.server.configDirectory=/data/config \
+                     -Darcadedb.server.rootPassword=playwithdata" \
+    --hostname my_arcadedb arcadedata/arcadedb:{revnumber}
+----
+
+Keep in mind:
+
+* Pass the setting as a `-D` property (here through `ARCADEDB_SETTINGS`). Setting it in `server-configuration.json` has no
+  effect, because that file is itself read from the configuration directory.
+* The server creates the directory if it does not exist, but it does not copy the files shipped in the image's `config/`
+  directory into it. If you rely on one of them, such as `gremlin-server.yaml` for the Gremlin plugin, copy it over yourself.
+* Logging is not affected: `arcadedb-log.properties` is still loaded through `-Djava.util.logging.config.file`.
+
 ===== Tuning
 
 The image sizes the JVM heap as a share of the container's memory limit (`-XX:MaxRAMPercentage=75`),
