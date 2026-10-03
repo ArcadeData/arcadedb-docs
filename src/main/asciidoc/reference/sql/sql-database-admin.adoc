@@ -319,7 +319,7 @@ The command returns the integrity check report in one record with the fields:
 
 _Since v26.10.1_ the check reads the pages of every `LSM_VECTOR` index and reports one that has two records on the same
 vector id. The index appears under `corruptedIndexes`, and `warnings` carries how many records are affected and the
-first few RIDs.
+first few RIDs, each with the record that took its id.
 
 Such an index never keeps its persisted graph. A graph build counts both records, while every load of the same pages
 keeps only the one written last, so the graph holds more nodes than the load has live vectors and is rejected as stale
@@ -327,6 +327,11 @@ on the next load. Each search that finds it rejected waits for a full rebuild of
 the same graph again. The record that lost its vector id is not returned by a vector search until its vector is indexed
 again. A graph build now logs those records by RID and keeps one record per id, which ends the loop but does not
 restore them.
+
+While an index has records left out this way it does not compact, because a compaction would erase the shared ids from
+the pages. The index keeps growing until it is rebuilt. `getStats()` exposes `compactionBlockedBySharedIds` and
+`recordsLeftOutBySharedIds` so this can be monitored. The check reads every page of each vector index and holds that
+index's read lock while it does, so writes to the index wait for the scan.
 
 `CHECK DATABASE` alone only reports. `FIX` rebuilds the index from the records, which gives every record that holds an
 embedding a vector id of its own. The rebuild reads every vector of the type, so on a large index it takes as long as
