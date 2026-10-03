@@ -194,9 +194,9 @@ Execute an asynchronous query:
 ----
 db.async().query("sql", "select from User", new AsyncResultsetCallback() {
   @Override
-  public boolean onNext(Result result) {
-    System.out.println( "Name = " + result.getProperty("name"));
-    return true;
+  public void onComplete(ResultSet resultSet) {
+    while (resultSet.hasNext())
+      System.out.println( "Name = " + resultSet.next().getProperty("name"));
   }
 
   @Override
@@ -637,9 +637,10 @@ Iterator<Record> result = db.iterateBucket("Customer");
 while( result.hasNext() ){
   Record record = result.next();
 
-  Integer age = (Integer) record.get("age");
-  if (age =! null && age >= 21 )
-    System.out.println("Found customer: " + record.get("name") );
+  final Document customer = record.asDocument();
+  final Integer age = customer.getInteger("age");
+  if (age != null && age >= 21 )
+    System.out.println("Found customer: " + customer.getString("name") );
 }
 ----
 
@@ -752,7 +753,7 @@ Load the vertex by RID and its content:
 
 [source,java]
 ----
-Vertex v = (Vertex) db.lookupByRID(new RID(db, "#3:47"));
+Vertex v = (Vertex) db.lookupByRID(new RID("#3:47"));
 ----
 
 '''
@@ -927,9 +928,10 @@ Prints all the records in the bucket "Customer" with age major or equals to 21.
 [source,java]
 ----
 db.scanBucket("Customer", (record) -> {
-  Integer age = (Integer) record.get("age");
-  if (age =! null && age >= 21 )
-    System.out.println("Found customer: " + record.get("name") );
+  final Document customer = record.asDocument();
+  final Integer age = customer.getInteger("age");
+  if (age != null && age >= 21 )
+    System.out.println("Found customer: " + customer.getString("name") );
   return true;
 });
 ----
@@ -1078,8 +1080,8 @@ Example by using Java7 syntax:
 ----
 db.transaction( new Database.TransactionScope() {
   @Override
-  public void execute(Database database) {
-    final MutableVertex v = database.newVertex("Author");
+  public void execute() {
+    final MutableVertex v = db.newVertex("Author");
     v.set("name", "Jay");
     v.set("surname", "Miner");
     v.save();
