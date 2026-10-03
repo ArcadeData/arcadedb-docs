@@ -23,15 +23,15 @@ Note the creation of the types at the beginning:
 
 [source,java]
 ----
-db.transaction( (tx) -> {
+db.transaction( () -> {
   // CREATE THE SCHEMA (NEED ONLY ONCE BEFORE CREATING RECORDS)
   DocumentType employee = db.getSchema().createDocumentType("Employee");
   DocumentType company = db.getSchema().createDocumentType("Company");
 
   // CREATE DOCUMENTS
-  MutableDocument jay = db.newDocument("Employee", "firstName", "Jay", "lastName", "Miner");
+  MutableDocument jay = db.newDocument("Employee").set("firstName", "Jay", "lastName", "Miner");
 
-  EmbeddedDocument commodore = jay.newEmbeddedDocument("Company", "worksAt").set("compamyName", "Commodore", "since", 2010);
+  jay.newEmbeddedDocument("Company", "worksAt").set("companyName", "Commodore", "since", 2010);
 
   // MAKE THE MAIN DOCUMENT PERSISTENT
   jay.save();
@@ -62,7 +62,7 @@ And this would be the code to create the types and the graph.
 
 [source,java]
 ----
-db.transaction( (tx) -> {
+db.transaction( () -> {
   // CREATE THE SCHEMA (NEED ONLY ONCE BEFORE CREATING RECORDS)
   VertexType employee = db.getSchema().createVertexType("Employee");
   VertexType company = db.getSchema().createVertexType("Company");
@@ -80,7 +80,7 @@ Check out this example that uses a graph to connect Employee with Company, but k
 
 [source,java]
 ----
-db.transaction( (tx) -> {
+db.transaction( () -> {
   // CREATE THE SCHEMA (NEED ONLY ONCE BEFORE CREATING RECORDS)
   VertexType employee = db.getSchema().createVertexType("Employee");
   VertexType company = db.getSchema().createVertexType("Company");
@@ -89,11 +89,11 @@ db.transaction( (tx) -> {
 
   // CREATE THE GRAPH + EMBEDDED DOCUMENTS
   MutableVertex jay = db.newVertex("Employee").set("firstName", "Jay", "lastName", "Miner").save();
-  jay.newEmbeddedDocument("Address", "residenceAddress").set("city", "San Francisco", "state": "CA", "country": "USA");
+  jay.newEmbeddedDocument("Address", "residenceAddress").set("city", "San Francisco", "state", "CA", "country", "USA");
 
   MutableVertex commodore = db.newVertex("Company").set("name", "Commodore").save();
-  commodore.newEmbeddedDocument("Address", "hqAddress").set("city", "Palo Alto", "state": "CA", "country": "USA");
-  commodore.newEmbeddedDocument("Address", "ukAddress").set("city", "London", "state": "London", "country": "UK");
+  commodore.newEmbeddedDocument("Address", "hqAddress").set("city", "Palo Alto", "state", "CA", "country", "USA");
+  commodore.newEmbeddedDocument("Address", "ukAddress").set("city", "London", "state", "London", "country", "UK");
 
   jay.newEdge("WorksAt", commodore, "since", 2010);
 });
@@ -104,9 +104,9 @@ Example:
 
 [source,java]
 ----
-db.transaction( (tx) -> {
+db.transaction( () -> {
   ResultSet result = db.query( "SQL", "select from Employee where firstName = ? and lastName = ?", "Jay", "Miner" );
-  Vertex jay = result.next();
+  Vertex jay = result.next().getVertex().get();
 
   EmbeddedDocument residenceAddress = (EmbeddedDocument) jay.get("residenceAddress");
   System.out.println( "Jay's lives in " + residenceAddress.getString("city") );
