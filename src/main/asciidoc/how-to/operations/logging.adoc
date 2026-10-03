@@ -66,6 +66,22 @@ The same mechanism silences noisy third-party libraries. The shipped configurati
 org.apache.ratis.grpc.server.GrpcLogAppender.level = SEVERE
 ----
 
+Not every suppression is a line in this file. A properties entry sets one threshold for a whole logger, which is fine when
+everything that logger says at WARNING is noise. When a logger mixes expected noise with real failures, ArcadeDB installs a
+`java.util.logging.Filter` in code that drops only the one message. Since v26.10.1 the server does this for the Ratis
+warning
+
+----
+Snapshot file SingleFileSnapshotInfo(t:N, i:M):[.../sm/snapshot.N_M] has missing MD5 file.
+----
+
+through `com.arcadedb.server.ha.raft.ratis.RatisSnapshotDigestWarningFilter`. The same logger,
+`org.apache.ratis.statemachine.impl.SimpleStateMachineStorage`, also reports `Failed to updateLatestSnapshot from ...` when
+the snapshot directory cannot be read, a genuine I/O failure. Raising that logger to `SEVERE` would hide both. The filter
+drops the record only at WARNING or below, so if a future Ratis release logged the same text at SEVERE it would still
+show up. You will not find this suppression in `arcadedb-log.properties`, and there is no setting to bring the warning
+back; see <<ha-troubleshooting-missing-md5,the HA troubleshooting entry>> for why it is harmless.
+
 Handlers filter independently of loggers, so raising a logger to `FINE` also requires lowering the handler: a `ConsoleHandler.level` of `INFO` discards `FINE` records no matter what the logger allows.
 
 [[logging-directory]]

@@ -1019,6 +1019,20 @@ Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
 * `2` -- detailed: commands, WAL replication, schema.
 * `3` -- trace: every state machine apply.
 
+[[ha-troubleshooting-missing-md5]]
+====== Ratis warning: snapshot "has missing MD5 file"
+
+Versions before 26.10.1 log this WARNING on every checkpoint and every restart, more often the longer a node runs:
+
+----
+Snapshot file SingleFileSnapshotInfo(t:1, i:7293):[.../sm/snapshot.1_7293] has missing MD5 file.
+----
+
+It never meant corruption. ArcadeDB's real snapshot is the set of database files the transaction manager has already
+flushed to disk. The file Ratis inspects is a zero-byte marker whose name carries the `(term, index)` pair used to decide
+which Raft log segments can be purged, and it deliberately has no `.md5` companion. Since 26.10.1 the warning is filtered
+out (see <<logging-levels,Per-package verbosity>>); other messages from the same Ratis logger are still logged.
+
 ===== HA Settings
 
 The following <<settings-sql,settings>> control HA behavior.
