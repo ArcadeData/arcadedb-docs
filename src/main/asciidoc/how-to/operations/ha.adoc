@@ -299,6 +299,63 @@ Phase 3 runs on the Raft apply thread of every node, the leader included, when t
 
 Two transactions validated on different nodes against the same version of a page (for example two documents that share a page, each written by a different node) are both shipped to the leader with the same next version. The leader validates every entry, page by page, against the versions the log has already assigned, at the point that decides the log order, and refuses the second one *before appending it*: the originator receives a retryable `ConcurrentModificationException`, exactly as it would for a conflict on a single node, re-reads the page and retries. An entry is never merged onto another one region by region, so a node can neither lose an acknowledged write nor drift from its peers. While such an entry is in flight, a transaction on the leader that touches one of its pages fails its own Phase 1 with the same retryable error, without a round trip.
 
+[[ha-schema-replication]]
+===== Schema Replication
+
+Schema DDL does not travel through the WAL pages described above. A schema change is recorded in a *schema recording
+session*, and when the outermost session on the thread closes, the leader replicates it as its own Raft entry type
+(`SCHEMA_ENTRY`), carrying the schema document and any bucket or index files the change created. One session is one entry.
+
+Normally each DDL statement is one session. Since v26.10.1 a SQL script made only of schema definition statements runs as a
+single session when `arcadedb.schemaBulkDDLScript` is on (the default), and so does a Java `Schema.bulkChange()` block: the
+whole batch is one Raft entry (see <<sql-script-ddl-batching>>). The trade-off is that the database write lock is held for
+the whole script.
+
+That matters on the leader. Before appending an ordinary transaction, a commit waits for an active schema session to
+finish, so the transaction cannot reach the log ahead of the schema entry that creates the files it writes to. The wait
+lasts at most `arcadedb.ha.quorumTimeout` (10 s by default); after that the commit goes ahead anyway. A DDL script that
+runs longer than that leaves concurrent writers racing the schema entry. A long index build already opens the same window,
+so this is not new, but batching makes long sessions more common. Keep DDL scripts to schema definition, run data loads
+separately, or set `arcadedb.schemaBulkDDLScript=false` to go back to one entry per statement.
+
+On the follower, since v26.10.1, a DDL entry is applied incrementally: only the components for the files the entry created
+are instantiated, instead of every component in the database being rebuilt (`arcadedb.ha.schemaIncrementalApply`, on by
+default). Building a large schema used to cost time quadratic in the number of types.
+
+[[ha-schema-delta]]
+===== Schema Delta Replication (from v26.10.1)
+
+By default each `SCHEMA_ENTRY` carries the whole schema document, so on a schema of several megabytes a one-property
+`CREATE PROPERTY` costs megabytes on the leader's CPU, on the wire, in every node's Raft log and in each follower's rewrite of
+`schema.json`. With `arcadedb.ha.schemaDelta` (on by default) the leader ships a delta against the schema the followers
+already hold. It falls back to the whole document whenever a delta cannot be trusted: the first schema entry after it
+becomes leader, an entry shipped in instalments, a compaction entry, or a change too large for a delta to be worth it.
+
+*Upgrades need no ordering.* A node running a version that predates the delta cannot see it: it would apply an empty
+schema change and its schema would diverge from the leader's without an error. To prevent that, the leader asks every peer
+in the Raft configuration, through `POST /api/v1/cluster/capabilities`, whether it can decode a delta, and ships whole
+documents unless every peer has said yes. A peer that is unknown, unreachable, too old to have the endpoint, or whose
+answer has gone stale counts as no. During a rolling upgrade, deltas start on their own once the last node runs v26.10.1 or
+later.
+
+[WARNING]
+====
+*A rolling downgrade below v26.10.1 is not protected.* The negotiation controls what the leader writes from now on, not
+the delta entries already committed to the Raft log. A node restarted on an older build replays those entries with a
+decoder that cannot see the delta, applies empty schema changes and diverges silently. To roll a node back that far,
+rebuild it from a snapshot (reinstall its databases from a current leader and discard its Raft storage) instead of
+restarting it on its retained log.
+====
+
+While the setting is on, the leader keeps one parsed copy of the schema document per replicated database in heap to diff
+the next change against: tens of MB per database on a multi-MB schema. Turning the setting off releases it and forces
+whole documents, which is also useful when diagnosing a schema divergence. Turning it off is safe at any time; turning it
+back on costs one whole-document entry per database to rebuild the diff base.
+
+Whether deltas are actually being shipped is not exposed through metrics yet. The counters are available only from Java,
+through `RaftReplicatedDatabase.getSchemaDeltasShipped()` and `getSchemaDocumentsShipped()`, and with
+`arcadedb.ha.logVerbose=2` a follower logs `Applying a <n>-char schema delta to database '<name>' ...` for each one.
+
 ===== Write Quorum
 
 A *quorum* is the number of peers that must acknowledge a write before it commits.
@@ -665,6 +722,8 @@ _(Since v26.10.1: a rare internal scheduling hiccup while queuing that request c
 node believing it had already asked when it never had, so it would not try again on its own until it saw another
 leader change or snapshot. This is now fixed, and the request is retried instead of dropped.)_
 +
+With `arcadedb.server.readinessRequiresHA` on, a node that joined at runtime or was caught up by a snapshot is held NOT READY until its documents converge, for at most `arcadedb.ha.securityConvergenceReadinessTimeout` (30 s by default), so a load balancer does not route logins to it while it still enforces stale credentials. See <<observability-health-security-convergence,security-convergence readiness>>.
++
 NOTE: A node that is already leading the cluster by the time its catch-up runs has no peer to ask, so its own copy becomes the cluster's reference. It says so once, at `INFO`, starting with `This node leads the cluster by the time its security catch-up ran`. If that node's `config/` directory was restored out of band, re-apply the security changes made while it was away.
 
 [[ha-ssl]]
@@ -1017,6 +1076,20 @@ Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
 * `2` -- detailed: commands, WAL replication, schema.
 * `3` -- trace: every state machine apply.
 
+[[ha-troubleshooting-missing-md5]]
+====== Ratis warning: snapshot "has missing MD5 file"
+
+Versions before 26.10.1 log this WARNING on every checkpoint and every restart, more often the longer a node runs:
+
+----
+Snapshot file SingleFileSnapshotInfo(t:1, i:7293):[.../sm/snapshot.1_7293] has missing MD5 file.
+----
+
+It never meant corruption. ArcadeDB's real snapshot is the set of database files the transaction manager has already
+flushed to disk. The file Ratis inspects is a zero-byte marker whose name carries the `(term, index)` pair used to decide
+which Raft log segments can be purged, and it deliberately has no `.md5` companion. Since 26.10.1 the warning is filtered
+out (see <<logging-levels,Per-package verbosity>>); other messages from the same Ratis logger are still logged.
+
 ===== HA Settings
 
 The following <<settings-sql,settings>> control HA behavior.
@@ -1053,6 +1126,14 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |`+arcadedb.ha.quorumTimeout+`
 |Timeout in ms waiting for the quorum acknowledgment
 |10000
+
+|`+arcadedb.ha.schemaDelta+`
+|Ship schema changes as a delta instead of the whole schema document, once every peer has confirmed it can decode one. See <<ha-schema-delta>>
+|true
+
+|`+arcadedb.ha.schemaIncrementalApply+`
+|Followers apply a DDL entry by creating only the components for the files it added, instead of rebuilding all of them. See <<ha-schema-replication>>
+|true
 
 |`+arcadedb.ha.readConsistency+`
 |Default read consistency for follower reads: `eventual`, `read_your_writes`, `linearizable`

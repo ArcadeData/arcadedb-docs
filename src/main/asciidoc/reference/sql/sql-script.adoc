@@ -13,7 +13,7 @@ SQL Script solves both:
 
 * *One round-trip instead of many.* The whole script is sent to the server once.
   A graph mutation that takes 5 commands no longer pays 5x the latency -- the server runs them locally and sends back one response.
-* *Implicit transaction.* A script is automatically wrapped in a transaction (unless you open one yourself with `BEGIN`), so it is all-or-nothing: any failure rolls back the entire script.
+* *Implicit transaction.* A script is automatically wrapped in a transaction (unless you open one yourself with `BEGIN`), so it is all-or-nothing for records: any failure rolls back every record change in the script. Schema changes are the exception, see below.
 * *Automatic retry on conflict.* Wrap the body in `BEGIN ... COMMIT RETRY <n>` and ArcadeDB will retry the transaction on `NeedRetryException` (typically a concurrent-modification or transient lock-timeout). This is what lets you run the same script in parallel from many clients without writing your own retry loop -- the server resolves the contention.
 * *Server-side variables and control flow.* `LET`, `IF`, `WHILE`, `FOREACH`, `RETURN`, etc. let you express small pieces of imperative logic without leaving SQL.
 
@@ -22,8 +22,33 @@ A typical use case is a graph upsert: find or create a vertex, then attach an ed
 [NOTE]
 ====
 A script is a transaction.
-The atomicity guarantee -- "all-or-nothing" -- applies to every script: if any statement fails (and is not caught by a retry/else clause), every change made by the script is rolled back.
+The atomicity guarantee -- "all-or-nothing" -- applies to the records a script changes: if any statement fails (and is not caught by a retry/else clause), every record change made by the script is rolled back.
+
+Schema DDL (`CREATE TYPE`, `CREATE PROPERTY`, `CREATE INDEX`, `ALTER ...`, `DROP ...`) is not transactional and is never rolled back.
+If a script fails part way, the schema statements that ran before the failure stay applied, and the error is returned.
+Do not write a migration script that assumes a failed run leaves the schema untouched: make each statement safe to run again (for example with `IF NOT EXISTS`) and rerun the script.
+See <<schema-change-cost>>.
 ====
+
+[[sql-script-ddl-batching]]
+===== Schema-only scripts run as one schema change
+
+Since v26.10.1 a script of two or more statements that are *all* schema definition DDL runs as a single schema change: the schema file is written once for the whole script and, under High Availability, the batch is replicated as one Raft entry instead of one per statement.
+The database write lock is held for the whole script, so keep such scripts to schema definition and out of data loads.
+If a statement fails, the statements before it are kept and published to the cluster as one change, so every node agrees on the same partially applied schema, and the original error is returned.
+Set the database setting `schemaBulkDDLScript` to `false` to go back to one schema change per statement.
+
+A script that contains any statement other than schema definition runs statement by statement, as before.
+That includes DML and these DDL statements, which work on records or files rather than definitions:
+
+* `REBUILD INDEX`, `REBUILD TYPE`, `REBUILD GRAPH ANALYTICAL VIEW`
+* `TRUNCATE TYPE`, `TRUNCATE BUCKET`
+* `REFRESH MATERIALIZED VIEW`, `REFRESH CONTINUOUS AGGREGATE`
+* `COMPACT INDEX`
+* `CREATE MATERIALIZED VIEW`, `CREATE CONTINUOUS AGGREGATE`
+* the other graph analytical view statements
+* `ALTER TYPE ... WITH repartition = true`
+* `CREATE INDEX` on a type that existed before the script started
 
 [NOTE]
 ====

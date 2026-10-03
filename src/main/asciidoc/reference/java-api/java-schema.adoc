@@ -78,7 +78,11 @@ db.getSchema().bulkChange(() -> {
 });
 ----
 
-If a statement fails, the changes before it are kept and the exception is rethrown.
+There is no rollback. If a call fails, the changes made before it are kept and published (under HA, as one replicated entry, so every node holds the same partial schema), and the exception is rethrown.
+This is the same rule a schema-only SQL script follows; see <<sql-script-ddl-batching>>.
+
+The database write lock is held for the whole callback, so use it for schema definition, not for loading data.
+On a remote database (`RemoteDatabase`) `bulkChange()` simply runs the callback: each call is already its own HTTP request, so it is safe to call but batches nothing.
 See <<schema-change-cost>> for the other ways to batch schema changes.
 
 ==== Working with buckets
