@@ -198,11 +198,13 @@ Use it when an MVCC retry would not be enough -- typically for a "read-modify-wr
 [source,sql]
 ----
 BEGIN;
-LOCK TYPE Account;                              -- nobody else can modify Account until we commit
+LOCK TYPE Account, Audit;                       -- nobody else can modify Account or Audit until we commit
 LET total = SELECT sum(balance) FROM Account;
 INSERT INTO Audit SET kind = 'snapshot', total = $total[0].sum, ts = sysdate();
 COMMIT;
 ----
+
+NOTE: Every type written in the transaction has to be locked. Committing a transaction that modified a type (or bucket) that was not locked fails with `Cannot commit transaction because not all the modified resources were locked`. In the example above `Audit` is written, so it is listed in `LOCK TYPE` together with `Account`.
 
 [source,sql]
 ----
