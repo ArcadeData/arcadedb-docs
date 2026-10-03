@@ -19,6 +19,23 @@ The remote `ArcadeGraph` client used to connect to Gremlin Server on the fixed p
 *Action:* set the client setting `arcadedb.gremlin.client.port` to the port the client must connect to.
 
 [discrete]
+====== 26.10.1 — Negative zero equals zero, and a few query results change
+
+`-0.0` is now equal to `0.0` everywhere (SQL and Cypher, `=`, `IN`, ordering, indexed or not), as IEEE 754 and openCypher define it.
+
+*Action:* a HASH index over a `FLOAT` or `DOUBLE` property that already stores `-0.0`, or an LSM index that stored both `-0.0` and `0.0`, should be rebuilt once after upgrading:
+
+[source,sql]
+----
+REBUILD INDEX `Measure[value]`
+----
+
+Other results that change:
+
+* `vector.neighbors`, `vector.sparseNeighbors` and `db.index.vector.queryNodes` on a parent type spec (`Parent[prop]`) now also search the records of its sub-types. Use the sub-type name in the spec to search only that sub-type.
+* A `FLOAT` property is equal to the `DOUBLE` bound that narrows to it, so `<`, `<=`, `>` and `>=` agree with `=` and with an index (`v = 16777217.0` finds `16777216f`, and `v < 16777217.0` no longer does).
+* An integer bound above 2^53 on a `DOUBLE` property, or above 2^24 on a `FLOAT` property, is answered by a scan instead of the index, so the result is exact.
+
 ====== 26.10.1 — HASH indexes on a DECIMAL property need one `REBUILD INDEX` after upgrading
 
 A `DECIMAL` keeps the scale it was written with, so `5` and `5.00` are the same number stored two different ways. The `LSM_TREE` index family already treated them as one key; the `HASH` family did not, because it settles key identity on the serialized bytes and the two spell out differently. A `UNIQUE_HASH` index on a `DECIMAL` property therefore accepted both as separate rows, and a lookup for one spelling could not find a row stored under the other. Fixed in 26.10.1 (issue #7767).

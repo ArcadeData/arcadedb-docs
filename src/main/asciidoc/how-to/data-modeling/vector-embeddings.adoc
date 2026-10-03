@@ -218,6 +218,27 @@ SELECT name, distance FROM (
 )
 ----
 
+===== Searching a Type Hierarchy
+
+The type in the index spec decides which records are searched. A parent spec covers the parent and all its sub-types, like `SELECT FROM Parent`. A sub-type spec covers only that sub-type and its own sub-types:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Embedding
+CREATE PROPERTY Embedding.vector ARRAY_OF_FLOATS
+CREATE INDEX ON Embedding (vector) LSM_VECTOR METADATA { dimensions: 768, similarity: 'COSINE' }
+CREATE VERTEX TYPE EmbeddingImage EXTENDS Embedding
+CREATE VERTEX TYPE EmbeddingText  EXTENDS Embedding
+
+-- images and texts (and any record of Embedding itself)
+SELECT expand(vector.neighbors('Embedding[vector]', $q, 10))
+
+-- images only
+SELECT expand(vector.neighbors('EmbeddingImage[vector]', $q, 10))
+----
+
+The same rule applies to `vector.sparseNeighbors` and the Cypher procedure `db.index.vector.queryNodes`.
+
 ===== Hybrid Search: Dense + Sparse + Full-Text
 
 Combine dense vector similarity with sparse retrieval and/or keyword matching in a single server-side query. `vector.fuse` accepts any number of ranked sub-pipelines plus a fusion strategy (`RRF`, `DBSF`, `LINEAR`) and returns one ranked top-K:
