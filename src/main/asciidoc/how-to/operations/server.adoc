@@ -170,6 +170,7 @@ The values of a duplicated key are stored data, so they are hidden too. When a u
 
 NOTE: The `/ws` insert session, Bolt and Redis do not yet apply this rule and still return the error message as is.
 
+[[server-default-databases]]
 ===== Create default database(s)
 
 Instead of starting a server and then connect to it, to create the default databases, ArcadeDB Server takes an initial default databases list by using the setting <<settings-sql,`server.defaultDatabases`>>.
@@ -195,6 +196,17 @@ database and are not told anything. This is intentional - it is per-node boot co
 the database cluster-wide - but it does mean a node can come back with different content than its peers. Since 26.10.1 the server
 logs a WARNING naming the database whenever this replaces a replicated one, so the divergence is visible in the log.
 ====
+
+A client can reach the server while it is still booting and start a backup, restore or import of the same database. Since 26.10.1
+the `restore:` command waits for that operation to finish instead of refusing at once, for up to
+`arcadedb.server.startupRestoreSlotWaitMs` (60000 ms by default). While it waits the server logs at INFO:
+
+----
+The startup 'restore:' command for database 'Universe' is waiting up to 60000ms for <operation> that was running on it to finish
+----
+
+If the other operation is still running when the wait runs out, the command refuses, the database on disk is left untouched, and
+the server boot fails. Set the value to `0` (or a negative number) to refuse immediately, as earlier versions did.
 
 Once the server is started, multiple clients can be connected to the server by using one of the supported protocols:
 
