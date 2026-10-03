@@ -325,6 +325,12 @@ time, so a client that lost the answer to a write, a restore or an import can si
   an NDJSON stream, a response larger than `arcadedb.ha.idempotencyCacheMaxBodyBytes` bytes, and the bulk-load route
   `POST /api/v1/batch/{database}`, whose body is streamed rather than buffered and so cannot be part of the key.
 
+Every response carries the header `X-ArcadeDB-Replay-Protection: true`, which tells a client that this server answers a
+repeated id from that cache. The remote Java driver (`RemoteDatabase`, `RemoteServer`) sends one `X-Request-Id` per
+`command` call, outside a transaction, and once it has seen that header it sends the same call again, with the same id,
+to the same server when the response was lost, instead of failing with "the server may already have applied it".
+_(Since v26.10.1.)_
+
 Use a new id for every distinct request. The OpenAPI document declares the header and the `409` on every `POST`
 operation that honours them.
 
@@ -1443,10 +1449,17 @@ The commit ends the session, whether it succeeds or fails: a commit that fails r
 answer carries the header `arcadedb-session-closed: true`, so there is no need to send a <<http-rollback,/rollback>>
 afterwards. _(Since v26.10.1: before, the session of a failed commit stayed registered until it timed out.)_
 
+A command that fails inside a session rolls the session's transaction back. When the transaction held changes, they are
+lost, so the session is marked as rolled back: the next command naming it is refused with `404`, and `/commit` answers
+`404` with a message saying that the transaction was rolled back, instead of `204`. Send a <<http-rollback,/rollback>> (or
+the `/commit`) to end it. When nothing was lost (a failed read, an error before the first write) the session goes on in a
+fresh transaction. _(Since v26.10.1: before, the commands after the failure ran in autocommit and `/commit` answered `204`.)_
+
 Response:
 
 * https://httpstatuses.io/204[`204`] OK
 * https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/404[`404`] the session's transaction was rolled back by a failed command
 * https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
 
 Example:
