@@ -930,7 +930,9 @@ For the manifests, the openssl equivalent, and the certificate-rotation caveat, 
 The server users, groups and API tokens live in the server's `config/` directory, not in a database, so a pod whose data volume is persistent but whose `config/` directory is not comes back without them.
 Because it is still a member of the Raft group, it is not re-admitted, and before 26.10.1 it was never re-seeded either: it served only the users created from its own environment at bootstrap and rejected logins that worked on every other pod.
 Such a pod now asks the leader for the current documents shortly after it first sees one, so no action is needed.
+With `arcadedb.server.readinessRequiresHA=true`, a pod added by auto-join on scale-up, or one caught up by a snapshot, also stays out of the Service endpoints until those documents arrive, for at most `arcadedb.ha.securityConvergenceReadinessTimeout` (30 s by default); see <<observability-health-security-convergence,security-convergence readiness>>.
 Persisting `config/` is still worth doing if you want a pod to come back with them already in place; see <<ha-security-documents,Cluster security documents>>.
+Since 26.10.1 you can mount a persistent volume through the chart's `volumes` / `volumeMounts` (see <<kubernetes-values-extras,Extras>>) and point `arcadedb.server.configDirectory` at it with an entry in `arcadedb.extraCommands`; see <<docker-config-directory,Relocating the configuration directory>> for what moves and what does not.
 
 For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
 

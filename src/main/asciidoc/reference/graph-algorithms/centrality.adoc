@@ -19,7 +19,7 @@
 
 [source,cypher]
 ----
-CALL algo.pagerank([{dampingFactor: 0.85, maxIterations: 20, tolerance: 0.0001, weightProperty: null}])
+CALL algo.pagerank([{dampingFactor: 0.85, maxIterations: 20, tolerance: 0.0001, weightProperty: null, direction: 'OUT'}])
 YIELD node, score
 ----
 
@@ -34,6 +34,7 @@ YIELD node, score
 | `maxIterations` | Integer | No | `20` | Maximum number of power-iteration steps
 | `tolerance` | Double | No | `0.0001` | Convergence threshold (max score change)
 | `weightProperty` | String | No | `null` | Edge property for weighted PageRank
+| `direction` | String | No | `OUT` | Direction rank is pushed along: `OUT`, `IN` or `BOTH`
 |===
 
 *Yield Fields*
@@ -48,7 +49,17 @@ YIELD node, score
 
 *Description*
 
-Computes the PageRank centrality score for every vertex using the power-iteration method. Dangling nodes (no outgoing edges) contribute their rank to all nodes proportionally via the teleportation mechanism. When `weightProperty` is specified, edge weights are used as transition probabilities (normalized per node).
+Computes the PageRank centrality score for every vertex using the power-iteration method. Dangling nodes (no edges in the direction rank is pushed along) contribute their rank to all nodes proportionally via the teleportation mechanism. When `weightProperty` is specified, edge weights are used as transition probabilities (normalized per node).
+
+`direction` selects which way rank flows, and unlike most algorithms it defaults to `OUT`:
+
+- `OUT`: rank is pushed along the stored edges, so a vertex is important when important vertices point at it. This is classic PageRank.
+- `IN`: rank is pushed along the reverse of every edge, which is PageRank over the reversed graph without building a reversed copy. Use it to rank the sources rather than the sinks, for example the papers that cite the most influential work in a citation graph. Under `IN` a dangling node is one with no incoming edges.
+- `BOTH`: rank is pushed both ways, treating the graph as undirected. A dangling node is one with no edges at all.
+
+Before v26.9.1 `IN` was not honored and returned the same scores as `OUT`.
+
+Unweighted PageRank uses a Graph Analytical View when one covers the graph. Weighted PageRank (`weightProperty` set) always runs on the slower OLTP path, even when such a view exists. `direction` works the same on both paths.
 
 *Use Cases*
 

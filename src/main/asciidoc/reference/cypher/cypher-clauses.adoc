@@ -1097,11 +1097,16 @@ ArcadeDB provides built-in procedures for searching a `FULL_TEXT` index (BM25-ra
 [%header,cols="2,3"]
 |===
 | Procedure | Description
-| `db.index.fulltext.queryNodes(indexName, query)` | Searches a full-text index on a vertex type. Returns `node` and `score` (BM25 relevance, higher is better)
-| `db.index.fulltext.queryRelationships(indexName, query)` | Searches a full-text index on an edge type. Returns `relationship` and `score`
+| `db.index.fulltext.queryNodes(indexName, query [, options])` | Searches a full-text index on a vertex type. Returns `node` and `score` (BM25 relevance, higher is better)
+| `db.index.fulltext.queryRelationships(indexName, query [, options])` | Searches a full-text index on an edge type. Returns `relationship` and `score`
 |===
 
 NOTE: The `indexName` parameter uses ArcadeDB's `'Type[property]'` format (e.g., `'Article[content]'`), and `query` accepts Lucene query syntax.
+
+Rows come back ordered by descending score, with ties broken by record id. The optional `options` map _(since v26.10.1)_
+pages over that order with two keys, both non-negative integers: `skip` (rows to drop from the top, default `0`) and `limit`
+(rows to return, default unlimited). Neo4j also accepts an `analyzer` key; ArcadeDB refuses it by name, because the analyzer
+is fixed by the index metadata when the index is created and cannot be overridden per query. Any other key is refused too.
 
 *Examples:*
 
@@ -1112,6 +1117,11 @@ CALL db.index.fulltext.queryNodes('Article[content]', 'java AND database')
 YIELD node, score
 RETURN node.title AS title, score
 ORDER BY score DESC
+
+// Second page of ten results
+CALL db.index.fulltext.queryNodes('Article[content]', 'java AND database', {skip: 10, limit: 10})
+YIELD node, score
+RETURN node.title AS title, score
 
 // Search relationships and continue graph pattern matching
 CALL db.index.fulltext.queryRelationships('Cites[note]', 'java')

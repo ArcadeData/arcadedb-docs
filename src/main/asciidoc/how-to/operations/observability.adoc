@@ -298,6 +298,32 @@ arcadedb.server.readinessRequiresHA=true
 
 When this flag is `true` and HA is active, `/api/v1/ready` returns `503` (`Node has not yet joined the Raft group`) until a leader has been elected. Once a leader is known, a second gate checks that the node is a member of the current Raft configuration and, for a follower, that it has caught up to within `arcadedb.server.readinessHAMaxLag` log entries (default `100`) of the commit index; until then it keeps returning `503` (`Node is not yet in the Raft configuration or has not caught up`). Only then does it return `204`. This prevents a (re)joined follower with a wiped or lagging log from being marked ready mid-catch-up, which would otherwise let a rolling restart drop the write quorum. The default (`false` for `readinessRequiresHA`) preserves current readiness behavior.
 
+[[observability-health-security-convergence]]
+With `readinessRequiresHA` on, a third reason can hold a node at `503` _(since v26.10.1)_: its users, groups and API tokens
+may not be the cluster's. These live in `server-users.jsonl`, `server-groups.json` and `server-api-tokens.json`, outside
+the databases, so no snapshot carries them (see <<ha-security-documents,Cluster security documents>>). Two kinds of node
+are held:
+
+* a node added to the cluster while running (`POST /api/v1/cluster/peer`, `connect cluster` or a Kubernetes auto-join)
+  that has not yet installed the documents the leader seeds to it;
+* a node caught up by a snapshot install from the leader, until the leader confirms its copies or sends new ones.
+
+Until then the node enforces its own copies, so a user dropped, a group narrowed or a token revoked while it was away
+would still work there. `/api/v1/ready` answers `503` with `Cluster security documents have not reached this node yet:
+<documents>`. A statically configured member that simply restarts is not held, and neither is a node while it leads,
+because nobody else can confirm its copies.
+
+The hold is bounded by `arcadedb.ha.securityConvergenceReadinessTimeout` (default `30000` ms; `0` turns it off). When the
+window expires the node reports ready anyway, so a scale-up or rolling restart cannot stall behind a seed that never
+arrives, and logs a single SEVERE line naming the documents:
+
+----
+Reporting READY after waiting 30000ms for the cluster's security documents, which never reached this node: server-groups.json. ...
+----
+
+When you see it, re-run `connect cluster` or re-POST the node to `/api/v1/cluster/peer` to send the seed again, or reissue
+the security change. The gRPC `Ready` RPC uses the same check.
+
 The replication-log-writer check described in the table above is deliberately *not* behind this flag. This flag gates a node that is merely behind and which you may reasonably choose to serve from; a node whose log writer has failed cannot catch up at all, so it is withheld from traffic whether or not the flag is set. See <<kubernetes,Kubernetes deployment>> for the full StatefulSet example.
 
 ===== Further reading
