@@ -160,7 +160,7 @@ RETURN node
 
 Create or match a relationship between two nodes.
 
-*Syntax:* `CALL merge.relationship(startNode, relType, matchProps, createProps, endNode) YIELD rel`
+*Syntax:* `CALL merge.relationship(startNode, relType, matchProps, createProps, endNode [, onMatchProps]) YIELD rel`
 
 *Parameters:*
 [%header,cols="2,2,4"]
@@ -171,9 +171,14 @@ Create or match a relationship between two nodes.
 | matchProps | Map | Properties to match on
 | createProps | Map | Properties to set on create
 | endNode | Node | Ending node
+| onMatchProps | Map | Optional. Properties to set when the relationship already exists. Default `{}` _(since v26.10.1)_
 |===
 
 *Returns:* `rel` - The merged relationship
+
+`createProps` is applied only when the relationship is created, and `onMatchProps` only when an existing one is matched.
+Leaving `onMatchProps` out, or passing `{}`, leaves a matched relationship untouched, which is what the five-argument form has
+always done. A `LIGHTWEIGHT` edge type has no record to hold properties, so a non-empty `onMatchProps` on one is refused.
 
 *APOC Compatible:* `apoc.merge.relationship`
 
@@ -181,6 +186,11 @@ Create or match a relationship between two nodes.
 ----
 MATCH (a:Person {name: "Alice"}), (b:Person {name: "Bob"})
 CALL merge.relationship(a, "KNOWS", {}, {since: 2024}, b) YIELD rel
+RETURN rel
+
+// Set a property on create, update another one when the relationship is already there:
+MATCH (a:Person {name: "Alice"}), (b:Person {name: "Bob"})
+CALL merge.relationship(a, "KNOWS", {}, {since: 2024}, b, {confirmed: true}) YIELD rel
 RETURN rel
 
 // With batch processing:
