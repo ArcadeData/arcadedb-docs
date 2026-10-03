@@ -64,6 +64,8 @@ EXECUTE SQL 'SELECT ($rid IS NOT NULL) AS ok';
 
 A trigger that needs the record's content wants `AFTER READ` instead, which does receive `$record`.
 
+NOTE: The body of `EXECUTE SQL` and `EXECUTE JAVASCRIPT` is a quoted string, and a literal line break inside a quoted string is not allowed. Write the body on one line, or use `\n` for a line break (as the examples below do for multi-line JavaScript bodies).
+
 ====== Example: Audit Trail
 
 Create an audit log that tracks all user creations:
@@ -75,9 +77,7 @@ CREATE DOCUMENT TYPE AuditLog;
 
 -- Create trigger to log user creations
 CREATE TRIGGER user_audit AFTER CREATE ON TYPE User
-EXECUTE SQL 'INSERT INTO AuditLog SET action = "user_created",
-             userName = $record.name,
-             timestamp = sysdate()';
+EXECUTE SQL 'INSERT INTO AuditLog SET action = "user_created", userName = $record.name, timestamp = sysdate()';
 ----
 
 Now every time a User is created, an entry is automatically added to the AuditLog:
@@ -104,10 +104,7 @@ INSERT INTO Counter SET name = 'order_sequence', value = 1000;
 
 -- Create trigger to auto-increment order numbers
 CREATE TRIGGER order_number BEFORE CREATE ON TYPE Order
-EXECUTE SQL 'UPDATE Counter SET value = value + 1
-             WHERE name = "order_sequence";
-             UPDATE $record SET orderNumber =
-             (SELECT value FROM Counter WHERE name = "order_sequence")';
+EXECUTE SQL 'UPDATE Counter SET value = value + 1 WHERE name = "order_sequence"; UPDATE $record SET orderNumber = (SELECT value FROM Counter WHERE name = "order_sequence")';
 ----
 
 ====== Example: Cascade Updates
@@ -118,8 +115,7 @@ Update related records when the parent changes:
 ----
 -- Update all orders when customer email changes
 CREATE TRIGGER customer_email_update AFTER UPDATE ON TYPE Customer
-EXECUTE SQL 'UPDATE Order SET customerEmail = $record.email
-             WHERE customerId = $record.@rid';
+EXECUTE SQL 'UPDATE Order SET customerEmail = $record.email WHERE customerId = $record.@rid';
 ----
 
 ====== Example: Data Validation
@@ -163,9 +159,7 @@ Validate email format before creating users:
 [source,sql]
 ----
 CREATE TRIGGER validate_email BEFORE CREATE ON TYPE User
-EXECUTE JAVASCRIPT 'if (!record.email || !record.email.includes("@")) {
-  throw new Error("Invalid email address");
-}';
+EXECUTE JAVASCRIPT 'if (!record.email || !record.email.includes("@")) {\nthrow new Error("Invalid email address");\n}';
 ----
 
 ====== Example: Auto-populate Fields
@@ -175,20 +169,7 @@ Automatically set timestamps and computed fields:
 [source,sql]
 ----
 CREATE TRIGGER user_defaults BEFORE CREATE ON TYPE User
-EXECUTE JAVASCRIPT '
-  // Set creation timestamp
-  record.createdAt = new Date();
-
-  // Generate username from email if not provided
-  if (!record.username && record.email) {
-    record.username = record.email.split("@")[0];
-  }
-
-  // Set default role
-  if (!record.role) {
-    record.role = "user";
-  }
-';
+EXECUTE JAVASCRIPT '// Set creation timestamp\nrecord.createdAt = new Date();\n// Generate username from email if not provided\nif (!record.username && record.email) {\nrecord.username = record.email.split("@")[0];\n}\n// Set default role\nif (!record.role) {\nrecord.role = "user";\n}';
 ----
 
 ====== Example: Complex Business Logic
@@ -198,23 +179,7 @@ Implement discount rules based on order total:
 [source,sql]
 ----
 CREATE TRIGGER calculate_discount BEFORE CREATE ON TYPE Order
-EXECUTE JAVASCRIPT '
-  var total = record.total || 0;
-  var discount = 0;
-
-  // Apply discount based on order total
-  if (total > 1000) {
-    discount = 0.15;  // 15% discount
-  } else if (total > 500) {
-    discount = 0.10;  // 10% discount
-  } else if (total > 100) {
-    discount = 0.05;  // 5% discount
-  }
-
-  record.discountPercent = discount * 100;
-  record.discountAmount = total * discount;
-  record.finalTotal = total - (total * discount);
-';
+EXECUTE JAVASCRIPT 'var total = record.total || 0;\nvar discount = 0;\n// Apply discount based on order total\nif (total > 1000) {\ndiscount = 0.15;  // 15% discount\n} else if (total > 500) {\ndiscount = 0.10;  // 10% discount\n} else if (total > 100) {\ndiscount = 0.05;  // 5% discount\n}\nrecord.discountPercent = discount * 100;\nrecord.discountAmount = total * discount;\nrecord.finalTotal = total - (total * discount);';
 ----
 
 ====== Example: Conditional Abort
@@ -224,12 +189,7 @@ Prevent operations based on business rules:
 [source,sql]
 ----
 CREATE TRIGGER prevent_weekend_orders BEFORE CREATE ON TYPE Order
-EXECUTE JAVASCRIPT '
-  var day = new Date().getDay();
-  if (day === 0 || day === 6) {
-    throw new Error("Orders cannot be placed on weekends");
-  }
-';
+EXECUTE JAVASCRIPT 'var day = new Date().getDay();\nif (day === 0 || day === 6) {\nthrow new Error("Orders cannot be placed on weekends");\n}';
 ----
 
 ====== Example: Audit with Details
@@ -239,14 +199,7 @@ Create detailed audit logs with JavaScript:
 [source,sql]
 ----
 CREATE TRIGGER audit_update AFTER UPDATE ON TYPE Product
-EXECUTE JAVASCRIPT '
-  database.command("sql",
-    "INSERT INTO AuditLog SET action = ?, productId = ?, productName = ?, timestamp = sysdate()",
-    "product_updated",
-    record["@rid"],
-    record.name
-  );
-';
+EXECUTE JAVASCRIPT 'database.command("sql",\n"INSERT INTO AuditLog SET action = ?, productId = ?, productName = ?, timestamp = sysdate()",\n"product_updated",\nrecord["@rid"],\nrecord.name\n);';
 ----
 
 ===== Java Triggers
@@ -420,10 +373,7 @@ Track who changed what and when:
 [source,sql]
 ----
 CREATE TRIGGER audit_all AFTER UPDATE ON TYPE ImportantData
-EXECUTE SQL 'INSERT INTO AuditLog SET
-             tableName = "ImportantData",
-             recordId = $record.@rid,
-             modifiedAt = sysdate()';
+EXECUTE SQL 'INSERT INTO AuditLog SET tableName = "ImportantData", recordId = $record.@rid, modifiedAt = sysdate()';
 ----
 
 ====== 2. Data Integrity
@@ -433,19 +383,7 @@ Ensure referential integrity and business rules:
 [source,sql]
 ----
 CREATE TRIGGER check_inventory BEFORE CREATE ON TYPE OrderItem
-EXECUTE JAVASCRIPT '
-  var result = database.query("sql",
-    "SELECT stock FROM Product WHERE @rid = ?",
-    record.productId
-  );
-
-  if (result.hasNext()) {
-    var product = result.next();
-    if (product.stock < record.quantity) {
-      throw new Error("Insufficient stock");
-    }
-  }
-';
+EXECUTE JAVASCRIPT 'var result = database.query("sql",\n"SELECT stock FROM Product WHERE @rid = ?",\nrecord.productId\n);\nif (result.hasNext()) {\nvar product = result.next();\nif (product.stock < record.quantity) {\nthrow new Error("Insufficient stock");\n}\n}';
 ----
 
 ====== 3. Denormalization
@@ -455,10 +393,7 @@ Maintain computed or cached values:
 [source,sql]
 ----
 CREATE TRIGGER update_order_total AFTER CREATE ON TYPE OrderItem
-EXECUTE SQL 'UPDATE Order SET
-             totalAmount = (SELECT sum(price * quantity) FROM OrderItem
-                           WHERE orderId = $record.orderId)
-             WHERE @rid = $record.orderId';
+EXECUTE SQL 'UPDATE Order SET totalAmount = (SELECT sum(price * quantity) FROM OrderItem WHERE orderId = $record.orderId) WHERE @rid = $record.orderId';
 ----
 
 ====== 4. Notifications
@@ -468,16 +403,7 @@ Send alerts or trigger external processes:
 [source,sql]
 ----
 CREATE TRIGGER low_stock_alert AFTER UPDATE ON TYPE Product
-EXECUTE JAVASCRIPT '
-  if (record.stock < 10) {
-    database.command("sql",
-      "INSERT INTO Notification SET type = ?, productId = ?, message = ?",
-      "low_stock",
-      record["@rid"],
-      "Product stock low: " + record.stock
-    );
-  }
-';
+EXECUTE JAVASCRIPT 'if (record.stock < 10) {\ndatabase.command("sql",\n"INSERT INTO Notification SET type = ?, productId = ?, message = ?",\n"low_stock",\nrecord["@rid"],\n"Product stock low: " + record.stock\n);\n}';
 ----
 
 ====== 5. Workflow Automation
@@ -487,13 +413,7 @@ Automatically progress through workflow states:
 [source,sql]
 ----
 CREATE TRIGGER order_workflow AFTER UPDATE ON TYPE Order
-EXECUTE JAVASCRIPT '
-  // Auto-approve small orders
-  if (record.status === "pending" && record.total < 100) {
-    record.status = "approved";
-    record.approvedAt = new Date();
-  }
-';
+EXECUTE JAVASCRIPT '// Auto-approve small orders\nif (record.status === "pending" && record.total < 100) {\nrecord.status = "approved";\nrecord.approvedAt = new Date();\n}';
 ----
 
 ===== Performance Considerations
@@ -607,11 +527,7 @@ In JavaScript triggers, throw descriptive errors:
 [source,sql]
 ----
 CREATE TRIGGER validate_age BEFORE CREATE ON TYPE User
-EXECUTE JAVASCRIPT '
-  if (!record.age || record.age < 18) {
-    throw new Error("User must be at least 18 years old");
-  }
-';
+EXECUTE JAVASCRIPT 'if (!record.age || record.age < 18) {\nthrow new Error("User must be at least 18 years old");\n}';
 ----
 
 ====== 4. Avoid Infinite Loops
