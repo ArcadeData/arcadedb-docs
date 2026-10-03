@@ -156,8 +156,18 @@ db.doc.updateOne({ test: "missing" }, { $set: { counter: 999 } }, { upsert: true
 Notes:
 
 * `deleteOne()`, `updateOne()` and `replaceOne()` affect a single matching document; `deleteMany()` and `updateMany()` affect all matches.
-* A replacement document (no `$`-prefixed keys) fully replaces the matched document's fields. The supported update operators are `$set`, `$unset` and `$inc`.
+* A replacement document (no `$`-prefixed keys) fully replaces the matched document's fields, but keeps its `_id`. The `_id` is immutable: an update or replacement that changes or removes it is refused (error 66).
+* The supported update operators are `$set`, `$unset` and `$inc`. They accept dotted paths (`{ $set: { "addr.city": "Rome" } }`): the embedded document is updated and missing levels are created. Writing below a value that is not a document (for example a string) is refused.
 * With `upsert: true`, when no document matches a new one is inserted, seeded from the filter's equality conditions plus the update. If the filter includes an `_id`, that `_id` is used for the new document; otherwise one is generated. Either way, the resulting `_id` is returned.
+
+[[mongodb-protocol-semantics]]
+====== Null values, projections, regular expressions and duplicate keys
+
+* `$ne`, `$nin`, `$in` (with `null`) and `$not` also match documents whose field is `null` or missing, like MongoDB. For example `{ age: { $ne: 30 } }` returns documents with no `age`.
+* `find()` honors the projection (`{ name: 1 }`, `{ _id: 0 }`, `{ age: 0 }`, dotted paths). Inclusion and exclusion cannot be mixed, except for `_id`. Projection operators (`$slice`, `$elemMatch`, `$meta`) are not supported and return an error. Documents never contain ArcadeDB's `@rid`, `@type` or `@cat`.
+* Regular expressions work as literals (`/^a/i`) and with `$regex` and `$options` (`i`, `m`, `s`, `x`), also under `$not`. An invalid pattern returns an error.
+* `_id` is unique: inserting an existing `_id` fails with `E11000`. In a batch, `ordered: true` (the default) stops at the first duplicate, `ordered: false` inserts the others. The first insert creates the collection and a unique index on `_id`; on a big existing collection that first insert builds the index and other writes to it wait until it is done.
+* The `_id` index keys follow the `_id` type (integers, doubles, strings or ObjectIds), so range queries and sorts on numeric ids are numeric. If a collection mixes kinds of `_id`, the index uses string keys: `1` and `"1"` are then the same key, and ordering is textual.
 
 [NOTE]
 ====
