@@ -12,9 +12,11 @@ ArcadeDB uses both JVM heap and off-heap memory. Key settings:
 # JVM heap (set via JAVA_OPTS or bin/server.sh)
 JAVA_OPTS="-Xms2g -Xmx4g"
 
-# Page cache size (default: dynamic based on available RAM)
-arcadedb.pageCacheSize=1073741824
+# Page cache size in MB (default: 25% of the maximum heap, so 4096 MB under -Xmx16g)
+arcadedb.maxPageRAM=8192
 ----
+
+The page cache lives inside the JVM heap. When the database is larger than the cache, pages are evicted and read again from disk, so a dedicated embedded or server process with a database bigger than a quarter of its heap benefits from a larger share: 40-50% of `Xmx` is a good starting point, leaving the rest for transactions, query working sets and indexes. A value above 80% of the heap is reduced automatically. Grow `Xmx` first if the heap is the limit.
 
 TIP: Set `Xmx` to no more than 50% of available RAM, leaving room for OS file cache and off-heap structures.
 
@@ -106,25 +108,27 @@ ALTER TYPE LookupTable BUCKET -LookupTable_extra1
 
 ===== Page Size Tuning
 
-The default page size (64KB) works well for most workloads. Adjust for specific patterns:
+The default bucket page size (64KB) works well for most workloads. It applies to types created after the change, existing types keep theirs. Adjust for specific patterns:
 
 [source,properties]
 ----
 # Larger pages for sequential scan workloads (analytics)
-arcadedb.pageSize=131072
+arcadedb.bucketDefaultPageSize=131072
 
 # Smaller pages for random access workloads
-arcadedb.pageSize=32768
+arcadedb.bucketDefaultPageSize=32768
 ----
+
+LSM-Tree indexes have their own page size (default 256KB), set with `arcadedb.indexDefaultPageSize` (new indexes only). A transaction that changes a page works on a private copy of the whole page, so write-heavy workloads of small transactions pay less with smaller index pages (for example `arcadedb.indexDefaultPageSize=32768`), while lookups are slightly faster with larger ones.
 
 ===== Connection Pool Settings
 
-For remote applications, tune connection pool size based on concurrency:
+For remote applications, size the HTTP worker threads (there is no setting for a maximum number of connections) and the async queue based on concurrency:
 
 [source,properties]
 ----
-# Maximum concurrent connections
-arcadedb.serverHttpIncomingConnections=256
+# Threads executing HTTP requests
+arcadedb.server.httpWorkerThreads=256
 
 # Async queue size
 arcadedb.asyncOperationsQueueSize=1024
@@ -139,7 +143,7 @@ arcadedb.asyncOperationsQueueSize=1024
 
 ===== Read Optimization
 
-* **Page cache** -- Increase `arcadedb.pageCacheSize` if cache hit rate is low
+* **Page cache** -- Increase `arcadedb.maxPageRAM` if cache hit rate is low
 * **Index coverage** -- Ensure queries hit indexes (check with `EXPLAIN`)
 * **Projections** -- Select only the fields you need
 * **Materialized views** -- Pre-compute expensive aggregations
