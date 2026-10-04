@@ -140,7 +140,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("concepts/timeseries.adoc", "Time Series"),
                 ("concepts/vector-search.adoc", "Vector"),
                 ("how-to/data-modeling/geospatial.adoc", "Geospatial"),
-                ("how-to/data-modeling/full-text-index.adoc", "Full-Text Search"),
+                ("how-to/data-modeling/full-text-index.adoc", "Full-Text Search & BM25"),
                 ("concepts/key-value.adoc", "Key/Value"),
                 # 3. Storage primitives
                 ("concepts/basics.adoc", "Records, Documents, Vertices & Edges"),
