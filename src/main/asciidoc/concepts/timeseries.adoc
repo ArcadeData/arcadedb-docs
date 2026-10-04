@@ -55,9 +55,9 @@ CREATE TIMESERIES TYPE SensorReading
 | `PRECISION` | `NANOSECOND` | Timestamp resolution: `SECOND`, `MILLISECOND`, `MICROSECOND`, `NANOSECOND`
 | `TAGS (...)` | _(none)_ | Comma-separated `name TYPE` pairs for low-cardinality dimensions
 | `FIELDS (...)` | _(required)_ | Comma-separated `name TYPE` pairs for measurement values
-| `SHARDS` | CPU count | Number of shards for parallel writes
+| `SHARDS` | `arcadedb.asyncWorkerThreads` (available cores minus 1) | Number of shards for parallel writes
 | `RETENTION` | _(none)_ | Automatic deletion of data older than the specified duration (e.g., `90 DAYS`, `1 HOURS`)
-| `COMPACTION_INTERVAL` | _(none)_ | Splits sealed blocks at time-bucket boundaries for fast-path aggregation
+| `COMPACTION_INTERVAL` | _(none)_ | Cuts sealed blocks at boundaries of this interval. A block that lies inside one query bucket is answered from its statistics without decompressing it, so set it to the bucket width of your most frequent aggregation (see <<timeseries-choosing-layout,Choosing the layout>>). Without it blocks are cut by size only and a block spanning several buckets is decompressed
 | `IF NOT EXISTS` | _(none)_ | Skip creation if the type already exists, instead of failing. The statement returns one row either way, carrying a `created` flag: see <<sql-if-not-exists-result,the note on `IF NOT EXISTS` results>>
 |===
 
@@ -1233,6 +1233,34 @@ Findings appear in `warnings` with the offending type named in `corruptedTimeSer
 | No
 |===
 
+[[timeseries-choosing-layout]]
+==== Choosing the layout: `COMPACTION_INTERVAL` and `SHARDS`
+
+For a type that is bulk-loaded and then aggregated in fixed buckets (for example hourly averages), declare
+`COMPACTION_INTERVAL` with the bucket width of that aggregation and leave `SHARDS` at its default:
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE Point TIMESTAMP ts TAGS (host STRING)
+  FIELDS (uu DOUBLE, us DOUBLE, ui DOUBLE)
+  COMPACTION_INTERVAL 1 HOURS
+----
+
+* A sealed block answers an aggregate from its min/max/sum statistics only when it lies inside ONE query bucket. Without an interval
+  a block covers many hours and is decompressed (`PROFILE` reports it under `slow`); with `1 HOURS` the blocks are cut at the hour
+  and are counted under `fast`.
+* Other queries on the same type are not penalised. A last-point query (`ORDER BY ts DESC LIMIT 1`) walks the blocks newest-first and
+  stops at the first block that has the row, and a finer bucket (`timeBucket('1m', ts)`) over a short range reads only the blocks of
+  that range, so smaller blocks only mean less to decompress. Ingest is not slowed either: blocks are cut when the mutable data is
+  compacted, not while samples are appended.
+* The price is more, smaller blocks (each shard cuts at every interval boundary), so a very small interval on a long retention
+  multiplies the block count. Pick the bucket of the aggregation you run most, not the smallest one you might ever run.
+* `SHARDS` trades ingest parallelism for fragmentation: every shard cuts its own blocks, so doubling the shards roughly doubles the
+  blocks per interval, and queries merge one more stream. The default (available cores minus 1) suits concurrent writers; for a
+  type loaded by one writer and queried more than written, fewer shards are enough.
+* Run `COMPACT TIMESERIES TYPE <name>` after a bulk load: mutable samples are not in sealed blocks yet, and only sealed blocks
+  are answered from their statistics.
+
 ==== Architecture
 
 The TimeSeries engine uses a two-layer storage architecture:
@@ -1240,7 +1268,7 @@ The TimeSeries engine uses a two-layer storage architecture:
 * **Mutable bucket** -- An append-only in-memory buffer backed by ArcadeDB's `PaginatedComponent`. New samples land here first. This layer is ACID-transactional and replicated in HA mode.
 * **Sealed store** -- Immutable, compressed columnar blocks on disk. The maintenance scheduler periodically compacts mutable data into sealed blocks using Gorilla, Delta-of-Delta, Simple-8b, and Dictionary codecs. Block-level min/max/sum statistics enable zero-decompression aggregation when an entire block falls within a single time bucket.
 
-Data is distributed across N shards (default: one per CPU core) for parallel writes and reads.
+Data is distributed across N shards (default: `arcadedb.asyncWorkerThreads`, the available cores minus 1) for parallel writes and reads.
 Each shard maintains its own mutable bucket and sealed store.
 Queries merge results across shards using a min-heap priority queue sorted by timestamp.
 
