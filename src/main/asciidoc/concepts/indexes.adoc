@@ -117,7 +117,7 @@ ArcadeDB uses https://en.wikipedia.org/wiki/Extendible_hashing[extendable hashin
 
 1. Each key is hashed to a binary code; the index maintains a *global depth* — the number of leading bits used as a prefix.
 2. A *directory* maps every 2^globalDepth^ prefix to a *bucket page*. Multiple directory entries can point at the same bucket while the bucket's *local depth* is shallower than the global depth.
-3. A lookup hashes the key, reads the directory entry for the matching prefix, and binary-searches the target bucket page.
+3. A lookup hashes the key, reads the directory entry for the matching prefix, and scans the target bucket page: every entry has a 1-byte tag (the low byte of its key hash), so only the entries whose tag matches are compared in full.
 4. When a bucket overflows, *only that bucket splits* — the local depth bumps by one, entries are redistributed, and the directory doubles only when the local depth exceeds the global depth.
 
 [cols="2,1,1", options="header"]
@@ -130,7 +130,9 @@ ArcadeDB uses https://en.wikipedia.org/wiki/Extendible_hashing[extendable hashin
 | Steady-state insert throughput | Consistent — no compaction | May dip during compaction
 |===
 
-Two modes are available: `UNIQUE_HASH` (rejects duplicates) and `NOTUNIQUE_HASH` (allows duplicates). The same null strategies as LSM are supported (`SKIP`, `ERROR`, `INDEX`).
+Two modes are available: `UNIQUE_HASH` (rejects duplicates) and `NOTUNIQUE_HASH` (allows duplicates). The same null strategies as LSM are supported (`SKIP`, `ERROR`, `INDEX`): with `NULL_STRATEGY ERROR` a record whose indexed property is null or missing fails the commit, as it does on an LSM index.
+
+The entries of a bucket page are not kept in key order, so an insert appends the entry and one slot instead of shifting the slot directory. The page size defaults to 4 KB for fixed-width keys (numbers, dates, links) and 16 KB when a key column is a `STRING`, `BINARY` or `DECIMAL`; on the workloads measured this made hash inserts as fast as LSM or faster, and point lookups about three times faster. Hash indexes created before version 26.10.1 keep their sorted pages (and their page size) and keep working; `REBUILD INDEX` moves them to the current layout.
 
 [[index-vector]]
 ==== Dense Vector Index (LSM_VECTOR)
