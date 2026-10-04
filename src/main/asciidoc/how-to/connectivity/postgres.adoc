@@ -277,6 +277,18 @@ this holds for every type ArcadeDB maps onto a native PostgreSQL OID:
   ordinary column selection; a column reached through a table alias, a computed expression, or a multi-table
   `JOIN` can still fall back to the value-only answer in that one configuration.
 
+_Since v26.10.1_, a column is typed from all the rows of a result, not from the first one, and a list from all its
+elements: `[1, 2.5]` is announced as `float8[]`, `[1, 3000000000]` as `int8[]`, and a list that also holds a
+`DECIMAL` as `numeric[]`. A list or column that mixes values no common number type can hold is announced as text.
+
+_Since v26.10.1_, a prepared statement keeps ONE layout for all its rows, because a client may describe it once and
+reuse that description. A property the type does not declare (ArcadeDB is schemaless) can hold an integer in one record
+and a long, a double or a string in the next, so such a property is announced as `varchar` (a list as `text[]`) when
+the statement is described (`Describe` on the statement, or on a portal of a named statement, which is what the
+PostgreSQL JDBC driver does from its `prepareThreshold`-th execution). Declared properties keep their exact native
+type. To get a native type back for a property in a prepared statement, declare it, for example
+`CREATE PROPERTY Event.score INTEGER`.
+
 ===== Transactions
 
 In autocommit mode (the JDBC default) every statement is one transaction: a write statement that touches many
