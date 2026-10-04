@@ -79,6 +79,12 @@ key all count, and no update is lost. The guarantee is **per server**, though â€
 an <<ha-concepts,HA cluster>> two clients incrementing through different nodes each update their own node's copy. The
 same applies to `SET` with `NX`/`XX`: it is a genuine check-and-set on one server, not a cluster-wide lock.
 
+Over the Redis wire protocol the commands check their argument count and answer `wrong number of arguments for '<command>' command`
+when it is wrong, as Redis does. Amounts and stored values of `INCR`, `INCRBY`, `DECR` and `DECRBY` must be plain 64-bit integers
+(`+5`, `05` and `-0` are refused with `value is not an integer or out of range`). `INCRBYFLOAT` replies and stores the result as
+decimal text, as Redis does (`0.1` plus `0.2` is `0.3`, an integral result is `3`, not `3.0`), so `INCR` works on an integral result.
+In the `redis` query language `GET` therefore returns a string for a key written by `INCRBYFLOAT`.
+
 **Available transient commands (in alphabetic order)**:
 
 - https://redis.io/commands/decr[DECR], Decrement a value by 1
@@ -209,7 +215,7 @@ This is because JSON doesn't maintain the order of properties, but only of array
 
 **Available persistent commands (in alphabetic order)**:
 
-- https://redis.io/commands/hdel[HDEL], Delete one or more records by a key, a composite key or record's id
+- https://redis.io/commands/hdel[HDEL], Delete one or more records by a key, a composite key or record's id. `HDEL <database> <rid> [<rid> ...]` deletes those records and replies with how many it deleted
 - https://redis.io/commands/hexists[HEXISTS], Check if a key exists
 - https://redis.io/commands/hget[HGET], Retrieve a record by a key, a composite key or record's id
 - https://redis.io/commands/hmget[HMGET], Retrieve multiple records by a key, a composite key or record's id
