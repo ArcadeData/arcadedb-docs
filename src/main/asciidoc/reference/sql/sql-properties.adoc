@@ -62,9 +62,13 @@ IMPORTANT: The `hidden` attribute was *removed* and there is *no plan to reimple
 It is still accepted by the parser and stored in the schema so that existing scripts and databases keep working, but it no longer has any effect on queries: a property flagged as `hidden` is returned by `SELECT * FROM` exactly like any other property.
 Do not use it to conceal data: to keep a property out of a result set, list the properties you want explicitly (`SELECT name, email FROM ...`) instead of using `+*+`; to restrict who can read a property, use the <<security,security>> layer.
 
-NOTE: When you create a property, ArcadeDB checks the data for property and type.
-In the event that persistent data contains incompatible values for the specified type, the property creation fails.
-It applies no other constraints on the persistent data.
+NOTE: When you create a property, ArcadeDB reads the records already stored in the type (including its subtypes) and checks them against the declaration: the declared type (a value that cannot be read as that type, such as `'abc'` for an `INTEGER`, is refused), `mandatory`, `notnull`, `min`, `max` and `regexp`.
+If a record does not satisfy the declaration, the statement fails, names the first offending record, and the property is not created.
+`ALTER PROPERTY ... MIN`, `MAX` and `REGEXP`, and the openCypher `NOT NULL` and `NODE KEY` constraints, make the same check.
+On a type with many records this scan takes time proportional to the number of records.
+
+NOTE: A `LIST OF <type>` or `MAP OF <type>` property only accepts elements of that type.
+For a document type, a plain map becomes an embedded document of that type, and a value that is not a document of that type (a number, a string, a map typed as another type) is refused.
 
 NOTE: When constraints are set, such as `mandatory`, `read-only`, etc., it's not possible to use the Gremlin syntax to add vertices and edges without incurring in a Validation exception.
 The issue is that Gremlin API sets the properties after the creation of the vertex and edge.
