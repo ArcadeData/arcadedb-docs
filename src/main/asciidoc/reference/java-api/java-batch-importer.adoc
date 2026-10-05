@@ -147,6 +147,14 @@ You can always override with `withBatchSize()` if you know your workload charact
 | Flushes remaining edges, connects all deferred incoming edges in a single sorted pass, and batch-updates vertex head-chunk pointers.
 |===
 
+==== Transactions
+
+The batch manages its own transactions: every flush is several durable steps, committed by the batch itself. For this reason `createVertices()`, `flush()`, `close()` and any `newEdge()` call that fills the buffer refuse to run inside a transaction you opened with `begin()` or `transaction()`. They throw an `IllegalStateException` and leave your transaction untouched.
+
+Commit or roll back your own transaction first. If `close()` is refused, the batch stays open with its pending work, and calling `close()` again outside the transaction writes it.
+
+The batch's relaxed WAL settings apply only to the batch's own transactions, never to the ones you run between batch calls.
+
 ==== Performance
 
 Benchmark results on a single machine (500K edges, 50K vertices):
