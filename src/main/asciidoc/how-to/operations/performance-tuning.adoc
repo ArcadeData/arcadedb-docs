@@ -18,7 +18,38 @@ arcadedb.maxPageRAM=8192
 
 The page cache lives inside the JVM heap. When the database is larger than the cache, pages are evicted and read again from disk, so a dedicated embedded or server process with a database bigger than a quarter of its heap benefits from a larger share: 40-50% of `Xmx` is a good starting point, leaving the rest for transactions, query working sets and indexes. A value above 80% of the heap is reduced automatically. Grow `Xmx` first if the heap is the limit.
 
-TIP: Set `Xmx` to no more than 50% of available RAM, leaving room for OS file cache and off-heap structures.
+[[jvm-settings-fixed-memory]]
+====== JVM settings inside a fixed memory budget
+
+When a container, a pod or a VM caps the memory of the process, the heap is only a part of what counts against the cap: the
+JVM also needs metaspace, thread stacks, direct buffers, the code cache and the collector's own structures, and the OS needs
+file cache for the database files. Which share of the cap goes to the heap depends on who owns the process:
+
+[cols="1,2,2"]
+|===
+| Deployment | Intended setting | Why
+
+| *Server in the Docker image or in Kubernetes*
+| The image's defaults: `-XX:MaxRAMPercentage=75` and generational ZGC, no `-Xms`. Give the container the memory you want
+ArcadeDB to have and the heap follows.
+| The cap covers heap and non-heap memory, so 75% leaves a quarter of it for the rest. ZGC keeps pauses short on a large heap,
+and an unpinned heap grows with the working set instead of being filled before the first collection.
+
+| *Embedded, in your own JVM*
+| There is no default: ArcadeDB does not start the JVM. Start with a heap of 50% of the budget when the application or the OS file
+cache needs room, up to 75% for a process that only runs ArcadeDB, and leave the collector at the JVM default (G1).
+| The application's own memory, and the OS file cache that serves the database files, share the budget with the heap.
+|===
+
+NOTE: Pinning `-Xms` to `-Xmx` fills the heap with garbage before the first young collection on G1, so the process memory
+climbs towards the heap size whatever the live working set is. A "peak memory" measured under a pinned heap reports the setting,
+not what ArcadeDB needs. To compare memory across engines, either leave `-Xms` small and fix only `-Xmx`, or report the live
+heap (the `Heap used` gauge in Studio, or `jcmd <pid> GC.heap_info` after a full collection) beside the peak.
+
+The collector is chosen by `ARCADEDB_OPTS_GC`, not by `JAVA_OPTS` or `JAVA_TOOL_OPTIONS`: the image sets
+`ARCADEDB_OPTS_GC="-XX:+UseZGC -XX:+ZGenerational"`, and a second collector flag on the same command line makes the JVM refuse
+to start ("Multiple garbage collectors selected"). To run G1 in the image, replace the variable (`ARCADEDB_OPTS_GC="-XX:+UseG1GC"`),
+or set it to an empty value to take the JVM default.
 
 ===== Index Selection
 
