@@ -79,9 +79,8 @@ with conn.cursor() as cur:
 ----
 with conn.cursor() as cur:
     cur.execute("""
-        SELECT person.name, movie.title, acted.role
-        FROM MATCH {type: Person, as: person}
-             -Acted-> {type: Movie, as: movie}
+        MATCH {type: Person, as: person}.outE('Acted'){as: acted}.inV(){type: Movie, as: movie}
+        RETURN person.name AS name, movie.title AS title, acted.role AS role
     """)
     for row in cur.fetchall():
         print(f'{row[0]} acted in {row[1]} as {row[2]}')
@@ -110,8 +109,8 @@ ArcadeDB supports vector similarity search. Add embeddings to your data and quer
 with conn.cursor() as cur:
     # Create a type with a vector property
     cur.execute("CREATE VERTEX TYPE Product IF NOT EXISTS")
-    cur.execute("CREATE PROPERTY Product.embedding IF NOT EXISTS LIST")
-    cur.execute("CREATE INDEX ON Product (embedding) VECTOR (4, COSINE, LSM_VECTOR)")
+    cur.execute("CREATE PROPERTY Product.embedding IF NOT EXISTS LIST OF FLOAT")
+    cur.execute("CREATE INDEX IF NOT EXISTS ON Product (embedding) LSM_VECTOR METADATA {dimensions: 4, similarity: 'COSINE'}")
 
     # Insert products with embeddings
     cur.execute("CREATE VERTEX Product SET name = 'Laptop', embedding = [0.9, 0.1, 0.8, 0.2]")
@@ -164,9 +163,8 @@ def main():
 
         # Query with SQL MATCH
         cur.execute("""
-            SELECT person.name, movie.title, acted.role
-            FROM MATCH {type: Person, as: person}
-                 -Acted-> {type: Movie, as: movie}
+            MATCH {type: Person, as: person}.outE('Acted'){as: acted}.inV(){type: Movie, as: movie}
+            RETURN person.name AS name, movie.title AS title, acted.role AS role
         """)
         for row in cur.fetchall():
             print(f'{row[0]} acted in {row[1]} as {row[2]}')
