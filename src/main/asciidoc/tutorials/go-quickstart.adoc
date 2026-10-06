@@ -1,0 +1,297 @@
+[[go-quickstart]]
+=== Go
+
+[TIP]
+====
+*Connection options for Go*
+
+ArcadeDB exposes multiple wire protocols, so you can pick the one your stack already speaks:
+
+* xref:how-to/connectivity/drivers/go-http.adoc[*Native HTTP driver*] -- `go get github.com/ArcadeData/arcadedb-drivers/go/arcadedb`, generated from ArcadeDB's OpenAPI contract. Start here for most applications.
+* xref:how-to/connectivity/drivers/go-grpc.adoc[*Native gRPC driver*] -- `go get github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc`, for streaming and bulk inserts.
+* xref:how-to/connectivity/bolt.adoc#go-example[*Neo4j BOLT*] -- `go get github.com/neo4j/neo4j-go-driver/v5`, run Cypher queries.
+
+This tutorial uses the PostgreSQL wire protocol, which is the right choice when you already run a PostgreSQL stack.
+====
+
+This tutorial shows how to connect to ArcadeDB from Go using the PostgreSQL wire protocol and
+https://github.com/jackc/pgx[pgx]. You will create a graph, query it with SQL and Cypher, and run a
+vector search.
+
+==== Prerequisites
+
+* ArcadeDB running with the PostgreSQL protocol enabled (default port 5432)
+* Go 1.25+ (required by pgx v5)
+* The `pgx` driver
+
+[source,bash]
+----
+go get github.com/jackc/pgx/v5
+----
+
+==== Connect to ArcadeDB
+
+No ArcadeDB-specific SDK is needed. `pgx` connects with an ordinary PostgreSQL connection string:
+
+[source,go]
+----
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/jackc/pgx/v5"
+)
+
+func main() {
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx,
+		"postgres://root:arcadedb@localhost:5432/mydb?sslmode=disable&default_query_exec_mode=exec")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	fmt.Println("Connected to ArcadeDB")
+}
+----
+
+[NOTE]
+====
+*Why `default_query_exec_mode=exec`?*
+
+By default, pgx prepares each statement and asks the server for its parameter types. ArcadeDB reports
+every parameter as text, so pgx then refuses to send a Go `int` or `float64` for it:
+
+[source,text]
+----
+failed to encode args[0]: unable to encode 26 into text format for varchar (OID 1043): cannot find encode plan
+----
+
+In `exec` mode, pgx sends parameters as text without asking the server first, and ArcadeDB converts
+them. `simple_protocol` works too. You can also choose the mode for a single call by passing
+`pgx.QueryExecModeExec` as the first argument after the SQL.
+====
+
+==== Create a Schema
+
+Use SQL to create vertex and edge types, then insert some data:
+
+[source,go]
+----
+for _, stmt := range []string{
+	"CREATE VERTEX TYPE Person IF NOT EXISTS",
+	"CREATE VERTEX TYPE Movie IF NOT EXISTS",
+	"CREATE EDGE TYPE Acted IF NOT EXISTS",
+	"CREATE VERTEX Person SET name = 'Alice', age = 30",
+	"CREATE VERTEX Person SET name = 'Bob', age = 25",
+	"CREATE VERTEX Movie SET title = 'The Matrix', year = 1999",
+	`CREATE EDGE Acted FROM (SELECT FROM Person WHERE name = 'Alice')
+	                    TO (SELECT FROM Movie WHERE title = 'The Matrix')
+	                    SET role = 'Trinity'`,
+} {
+	if _, err := conn.Exec(ctx, stmt); err != nil {
+		log.Fatalf("%s: %v", stmt, err)
+	}
+}
+----
+
+Parameters use PostgreSQL's `$1`, `$2` placeholders:
+
+[source,go]
+----
+tag, err := conn.Exec(ctx, "CREATE VERTEX Person SET name = $1, age = $2", "Carol", 41)
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(tag)
+----
+
+[source,text]
+----
+INSERT 0 1
+----
+
+==== Query with SQL
+
+[source,go]
+----
+rows, err := conn.Query(ctx, `
+	MATCH {type: Person, as: person}.outE('Acted'){as: acted}.inV(){type: Movie, as: movie}
+	RETURN person.name AS name, movie.title AS title, acted.role AS role`)
+if err != nil {
+	log.Fatal(err)
+}
+defer rows.Close()
+
+for rows.Next() {
+	var name, title, role string
+	if err := rows.Scan(&name, &title, &role); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s acted in %s as %s\n", name, title, role)
+}
+if err := rows.Err(); err != nil {
+	log.Fatal(err)
+}
+----
+
+[source,text]
+----
+Alice acted in The Matrix as Trinity
+----
+
+Always check `rows.Err()` after the loop: `rows.Next()` returns `false` both at the end of the
+result and on an error, and only `rows.Err()` tells the two apart.
+
+==== Query with Cypher
+
+ArcadeDB supports Cypher queries through the same connection:
+
+[source,go]
+----
+rows, err := conn.Query(ctx,
+	"{cypher} MATCH (p:Person)-[a:Acted]->(m:Movie) RETURN p.name AS name, m.title AS title, a.role AS role")
+if err != nil {
+	log.Fatal(err)
+}
+defer rows.Close()
+
+for rows.Next() {
+	var name, title, role string
+	if err := rows.Scan(&name, &title, &role); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s acted in %s as %s\n", name, title, role)
+}
+----
+
+NOTE: Prefix Cypher queries with `\{cypher}` when using the PostgreSQL protocol.
+
+==== Vector Search
+
+Add embeddings to your data and query by similarity:
+
+[source,go]
+----
+for _, stmt := range []string{
+	// A type with a vector property and an index on it
+	"CREATE VERTEX TYPE Product IF NOT EXISTS",
+	"CREATE PROPERTY Product.embedding IF NOT EXISTS LIST OF FLOAT",
+	"CREATE INDEX IF NOT EXISTS ON Product (embedding) LSM_VECTOR METADATA {dimensions: 4, similarity: 'COSINE'}",
+
+	// Products with embeddings
+	"CREATE VERTEX Product SET name = 'Laptop', embedding = [0.9, 0.1, 0.8, 0.2]",
+	"CREATE VERTEX Product SET name = 'Tablet', embedding = [0.8, 0.2, 0.7, 0.3]",
+	"CREATE VERTEX Product SET name = 'Phone',  embedding = [0.7, 0.3, 0.6, 0.4]",
+	"CREATE VERTEX Product SET name = 'Book',   embedding = [0.1, 0.9, 0.2, 0.8]",
+} {
+	if _, err := conn.Exec(ctx, stmt); err != nil {
+		log.Fatalf("%s: %v", stmt, err)
+	}
+}
+
+// Find the 3 products most similar to a query vector
+rows, err := conn.Query(ctx, `
+	SELECT name, distance FROM (
+	  SELECT expand(vector.neighbors('Product[embedding]', [0.85, 0.15, 0.75, 0.25], 3))
+	)`)
+if err != nil {
+	log.Fatal(err)
+}
+defer rows.Close()
+
+fmt.Println("Similar products:")
+for rows.Next() {
+	var name string
+	var distance float64
+	if err := rows.Scan(&name, &distance); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("  %s (%.4f)\n", name, distance)
+}
+----
+
+[source,text]
+----
+Similar products:
+  Laptop (0.0025)
+  Tablet (0.0029)
+  Phone (0.0306)
+----
+
+See the <<vector-search-tutorial,vector search tutorial>> for the index options and similarity
+functions.
+
+==== Full Example
+
+[source,go]
+----
+// ArcadeDB Go quickstart: a small graph queried over the PostgreSQL protocol.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/jackc/pgx/v5"
+)
+
+func main() {
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx,
+		"postgres://root:arcadedb@localhost:5432/mydb?sslmode=disable&default_query_exec_mode=exec")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	// Create schema and data
+	for _, stmt := range []string{
+		"CREATE VERTEX TYPE Person IF NOT EXISTS",
+		"CREATE VERTEX TYPE Movie IF NOT EXISTS",
+		"CREATE EDGE TYPE Acted IF NOT EXISTS",
+		"CREATE VERTEX Person SET name = 'Alice', age = 30",
+		"CREATE VERTEX Movie SET title = 'The Matrix', year = 1999",
+		`CREATE EDGE Acted FROM (SELECT FROM Person WHERE name = 'Alice')
+		                    TO (SELECT FROM Movie WHERE title = 'The Matrix')
+		                    SET role = 'Trinity'`,
+	} {
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			log.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	// Query with SQL MATCH
+	rows, err := conn.Query(ctx, `
+		MATCH {type: Person, as: person}.outE('Acted'){as: acted}.inV(){type: Movie, as: movie}
+		RETURN person.name AS name, movie.title AS title, acted.role AS role`)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, title, role string
+		if err := rows.Scan(&name, &title, &role); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%s acted in %s as %s\n", name, title, role)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
+	}
+}
+----
+
+==== Next Steps
+
+* <<postgres-driver,PostgreSQL Protocol Reference>>
+* <<sql,SQL Reference>>
+* xref:how-to/connectivity/drivers/go-http.adoc[Go HTTP driver] -- the native driver, which adds
+  ArcadeDB's batch loading and vector search APIs

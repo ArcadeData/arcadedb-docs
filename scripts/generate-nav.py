@@ -110,6 +110,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("Go", [
                     ("how-to/connectivity/drivers/go-http.adoc", "Native driver — HTTP"),
                     ("how-to/connectivity/drivers/go-grpc.adoc", "Native driver — gRPC"),
+                    ("tutorials/go-quickstart.adoc", "PostgreSQL protocol"),
                     ("how-to/connectivity/bolt.adoc#go-example", "Neo4j BOLT"),
                 ]),
                 ("how-to/connectivity/http-csharp.adoc", "C#"),
