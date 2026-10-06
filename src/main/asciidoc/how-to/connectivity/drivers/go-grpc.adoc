@@ -1,0 +1,403 @@
+[[driver-go-grpc]]
+==== Go -- gRPC Driver
+
+`github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc` is ArcadeDB's Go gRPC client, generated
+from the server's Protobuf contract. A small facade on top handles authentication, the streaming
+RPCs and transactions. It shares no code and no dependency with the
+xref:how-to/connectivity/drivers/go-http.adoc[Go HTTP driver], so using one never downloads the
+other.
+
+===== Install
+
+[source,shell]
+----
+go get github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc@latest
+----
+
+Requires Go 1.26 or later. The module depends only on `google.golang.org/grpc` and
+`google.golang.org/protobuf`.
+
+[IMPORTANT]
+====
+*The gRPC server is a plugin, and it is not started by default.*
+
+Register it in the server's plugin list before connecting:
+
+[source,bash]
+----
+-Darcadedb.server.plugins=GRPC:com.arcadedb.server.grpc.GrpcServerPlugin
+----
+
+Once registered, it listens on port `50051`. See xref:reference/grpc-api.adoc[the gRPC API
+reference] for the full option list, including TLS and message-size settings.
+====
+
+===== Connect and query
+
+[source,go]
+----
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc"
+	"github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc/generated"
+)
+
+func main() {
+	ctx := context.Background()
+
+	c, err := arcadedbgrpc.NewClient("localhost:50051",
+		arcadedbgrpc.WithPasswordAuth("root", "playwithdata", "mydb"),
+		arcadedbgrpc.WithInsecure()) // plaintext, opted into explicitly
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+
+	resp, err := c.Raw().ExecuteQuery(ctx, &generated.ExecuteQueryRequest{
+		Database: "mydb",
+		Query:    "SELECT FROM Person WHERE age > 21",
+		Language: "sql",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, result := range resp.GetResults() {
+		for _, rec := range result.GetRecords() {
+			fmt.Println(rec.GetRid(), rec.GetProperties()["name"].GetStringValue())
+		}
+	}
+}
+----
+
+[source,text]
+----
+#1:0 Alice
+#1:1 Bob
+----
+
+The target is grpc-go's native form (`localhost:50051`, `[::1]:50051`, or a resolver name such as
+`dns:///db.example.com:50051`), not a URL. `NewClient` refuses a target that starts with `http://`
+or `https://`. Like `grpc.NewClient`, it performs no I/O: the connection opens on the first call.
+
+A `*Client` is safe for concurrent use. Every call takes a `context.Context` first, and there is
+no default timeout, so bound calls with a context deadline. Every facade method also accepts
+trailing `...grpc.CallOption` values and passes them to grpc-go unchanged.
+
+===== `Raw()` and the facade
+
+`c.Raw()` is the generated client for `ArcadeDbService`, the data plane, and every one of its 21
+RPCs is reachable through it, as `ExecuteQuery` is above. The facade adds wrappers for the RPCs
+that the generated client alone handles badly:
+
+* `StreamQuery` and `TimeSeriesQuery` turn server streams into Go iterators.
+* `InsertStream` and `TimeSeriesWriteStream` feed client streams from an iterator you supply.
+* `Transaction` pairs begin, commit and rollback around a callback.
+
+Everything else goes through `Raw()` directly: the CRUD calls, `VectorSearch`, `HybridSearch`,
+`FullTextSearch`, `TimeSeriesWrite`, `TimeSeriesLatest`, `BulkInsert`, `InsertBidirectional` and
+`GraphBatchLoad`.
+
+Values come back as the generated protobuf types. In a `GrpcRecord`, the record id from `GetRid()`
+is a plain string, but each entry in `GetProperties()` is a `*generated.GrpcValue`, a protobuf
+message whose `Kind` oneof holds the real value. Unwrap it with a type switch:
+
+[source,go]
+----
+func unwrap(v *generated.GrpcValue) any {
+	switch k := v.GetKind().(type) {
+	case *generated.GrpcValue_LinkValue:
+		return k.LinkValue.GetRid()
+	case *generated.GrpcValue_Int32Value:
+		return k.Int32Value
+	case *generated.GrpcValue_Int64Value:
+		return k.Int64Value
+	case *generated.GrpcValue_DoubleValue:
+		return k.DoubleValue
+	case *generated.GrpcValue_StringValue:
+		return k.StringValue
+	case *generated.GrpcValue_BoolValue:
+		return k.BoolValue
+	case nil:
+		return nil
+	default:
+		return k // lists, maps, embedded documents, decimals, timestamps, bytes
+	}
+}
+
+props := make(map[string]any, len(rec.GetProperties()))
+for k, v := range rec.GetProperties() {
+	props[k] = unwrap(v)
+}
+fmt.Println(rec.GetRid(), props)
+----
+
+[source,text]
+----
+#1:0 map[@cat:v @rid:#1:0 @type:Person age:30 name:Alice]
+#1:1 map[@cat:v @rid:#1:1 @type:Person age:25 name:Bob]
+----
+
+`LinkValue` is the one scalar-looking case that is itself a message (`GrpcLink`), so read its
+`GetRid()`. The driver has no helper that does this unwrapping for you.
+
+[NOTE]
+====
+*A capped `ExecuteQuery` fails instead of truncating.*
+
+`ExecuteQuery` builds its whole answer into one gRPC message, so the server caps it:
+`server.grpcQueryMaxResultRows` (100000 by default) is a hard ceiling, and a larger result fails
+the call with `ResourceExhausted`. Unlike the HTTP drivers, there is no `truncated` flag to check.
+Use `StreamQuery` for result sets that large. See
+xref:reference/settings.adoc#arcadedb-settings[Settings] for the streaming limits.
+====
+
+===== Authentication is attached to the connection
+
+`WithPasswordAuth(user, password, database)` and `WithBearerToken(token)` do not attach
+credentials to individual calls. `NewClient` installs them as connection interceptors that cover
+all four gRPC call shapes, so `c.Raw().ExecuteCommand(...)` carries the same metadata as
+`c.StreamQuery(...)`. Most RPCs are reachable only through `Raw()`; per-call credentials on the
+facade methods would leave all of those calls anonymous. The metadata is appended to whatever you
+already set on the outgoing context, so your own metadata (a request id, for example) still
+reaches the server.
+
+[WARNING]
+====
+*The insecure-channel guard.*
+
+`WithPasswordAuth` sends the password as plaintext call metadata. To keep that from happening by
+accident, `NewClient` refuses to pair it with a plaintext connection unless you pass TLS through
+`WithTransportCredentials` or opt in with `WithInsecure()`:
+
+[source,go]
+----
+_, err := arcadedbgrpc.NewClient("localhost:50051",
+	arcadedbgrpc.WithPasswordAuth("root", "playwithdata", "mydb"))
+fmt.Println(errors.Is(err, arcadedbgrpc.ErrInsecureChannel), err)
+----
+
+[source,text]
+----
+true arcadedbgrpc: refusing to send credentials over a connection without transport credentials: NewClient would send a plaintext password to "localhost:50051"; pass WithTransportCredentials(creds), switch to WithBearerToken, or pass WithInsecure() to opt in explicitly (ArcadeData/arcadedb#5048)
+----
+
+For TLS, pass `arcadedbgrpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))`. Do not
+pass TLS through `WithDialOptions`: it works, but the guard cannot see it there and still demands
+`WithTransportCredentials` or `WithInsecure`. A bearer token is not a password and never trips the
+guard.
+====
+
+===== Streaming queries
+
+[source,go]
+----
+for rec, err := range c.StreamQuery(ctx, &generated.StreamQueryRequest{
+	Database:      "mydb",
+	Query:         "SELECT FROM Person",
+	Language:      "sql",
+	RetrievalMode: generated.StreamQueryRequest_CURSOR,
+	BatchSize:     500,
+}) {
+	if err != nil {
+		log.Fatal(err) // a grpc-go status error; records already yielded stay yielded
+	}
+	fmt.Println(rec.GetRid(), rec.GetProperties()["name"].GetStringValue())
+}
+----
+
+[source,text]
+----
+#1:0 Alice
+#1:1 Bob
+----
+
+`StreamQuery` returns an `iter.Seq2[*generated.GrpcRecord, error]` that flattens the server's
+batches into one record at a time. It sends your request as given and picks no default for
+`RetrievalMode` or `BatchSize`, so set both. There are three retrieval modes:
+
+* `CURSOR`, the proto zero value: the server runs the query once and streams rows as you iterate.
+* `MATERIALIZE_ALL`: the server runs the query to completion first, then sends the result in
+  batches.
+* `PAGED`: the query is re-issued with `LIMIT`/`SKIP` for each batch.
+
+The iterator is lazy and each range issues a new RPC, so treat it as single-use. Leaving the loop
+early cancels the server stream. A failure, including one in the middle of the stream, arrives
+once as a final `(nil, err)` pair.
+
+===== Streaming inserts
+
+`InsertStream` takes your rows as an `iter.Seq[[]*generated.GrpcRecord]`. Each batch becomes one
+wire chunk, so you decide how rows are batched. The driver handles the envelope: one session id
+for the stream, an incrementing chunk sequence, `Database` on the first chunk and `last` on the
+final one.
+
+[source,go]
+----
+person := func(name string) *generated.GrpcRecord {
+	return &generated.GrpcRecord{Type: "Person", Properties: map[string]*generated.GrpcValue{
+		"name": {Kind: &generated.GrpcValue_StringValue{StringValue: name}},
+	}}
+}
+batches := func(yield func([]*generated.GrpcRecord) bool) {
+	if !yield([]*generated.GrpcRecord{person("Carol")}) {
+		return
+	}
+	yield([]*generated.GrpcRecord{person("Dave")})
+}
+
+sum, err := c.InsertStream(ctx, arcadedbgrpc.InsertStreamRequest{
+	Database: "mydb",
+	Options:  &generated.InsertOptions{TargetClass: "Person"},
+	Chunks:   batches,
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(sum.GetInserted(), sum.GetFailed())
+----
+
+[source,text]
+----
+2 0
+----
+
+Check the summary even when the error is `nil`. A server that ends the stream early with a
+summary makes the call return that summary and no error. Your sequence runs on the calling
+goroutine, so cancelling `ctx` does not interrupt a sequence that is blocked producing its next
+batch. If your sequence waits on a channel, a file or the network, have it watch `ctx` itself.
+
+`TimeSeriesWriteStream` works the same way for time-series points. Its `Precision` field is a
+required pointer, because the enum's zero value is milliseconds, while the HTTP line-protocol
+endpoint treats a missing precision as nanoseconds.
+
+===== Transactions
+
+[source,go]
+----
+var total int32
+err := c.Transaction(ctx, "mydb", func(tx *arcadedbgrpc.TxHandle) error {
+	if _, err := tx.ExecuteCommand(ctx, &generated.ExecuteCommandRequest{
+		Command:  "INSERT INTO Account SET balance = 100, owner = 'grpc-demo'",
+		Language: "sql",
+	}); err != nil {
+		return err // rolls back
+	}
+	resp, err := tx.ExecuteQuery(ctx, &generated.ExecuteQueryRequest{
+		Query:    "SELECT sum(balance) AS total FROM Account WHERE owner = 'grpc-demo'",
+		Language: "sql",
+	})
+	if err != nil {
+		return err
+	}
+	total = resp.GetResults()[0].GetRecords()[0].GetProperties()["total"].GetInt32Value()
+	return nil // commits
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println("total:", total)
+----
+
+[source,text]
+----
+total: 100
+----
+
+`Transaction` calls `BeginTransaction`, hands your function a `*TxHandle` bound to the new
+transaction, and then commits or rolls back with the same contract as the HTTP driver:
+
+* If the function returns `nil`, the transaction commits.
+* If it returns an error or panics, the transaction rolls back and the error is returned (or the
+  panic re-raised). If the rollback also fails, you get a `*arcadedbgrpc.TxError` whose `Unwrap`
+  returns only your error.
+* If the commit fails, a best-effort rollback runs first, and the commit's error is returned.
+* A commit that the server answers with `committed=false` (a transaction it has already reaped,
+  for example) returns `arcadedbgrpc.ErrNotCommitted` instead of reporting success.
+
+The handle has `ExecuteQuery`, `ExecuteCommand`, `CreateRecord`, `UpdateRecord`, `DeleteRecord`,
+`LookupByRid`, `VectorSearch`, `HybridSearch`, `FullTextSearch`, `TimeSeriesLatest`,
+`StreamQuery` and `TimeSeriesQuery`. Each sends a copy of your request with `Database` and the
+`Transaction` field set to this transaction, so you never set either yourself, and the request you
+passed in is left untouched for reuse. `InsertStream` and `TimeSeriesWriteStream` are not on the
+handle, and `BulkInsert`, `InsertBidirectional` and `GraphBatchLoad` are raw-only.
+
+As with the HTTP driver, calls made through `c` or `c.Raw()` while the function runs do not join
+the transaction. Do not keep the handle after `Transaction` returns: the server refuses its calls
+with `FailedPrecondition`.
+
+===== Errors
+
+A failed RPC returns grpc-go's status error unchanged, from `Raw()` and from every facade method.
+The driver adds no error type of its own for server failures. Match it with `status.Code(err)` or
+`status.FromError(err)`:
+
+[source,go]
+----
+_, err := c.Raw().ExecuteQuery(ctx, &generated.ExecuteQueryRequest{
+	Database: "mydb", Query: "SELECT FROM NoSuchType", Language: "sql",
+})
+if st, ok := status.FromError(err); ok && st.Code() != codes.OK {
+	fmt.Println(st.Code(), st.Message())
+}
+----
+
+[source,text]
+----
+NotFound Query execution failed: Type with name 'NoSuchType' was not found
+----
+
+The status you are most likely to meet first is `Unauthenticated`. A stock ArcadeDB gRPC server
+refuses anonymous calls, so a client built without an auth option connects fine and then fails on
+the first RPC with `Authentication required`.
+
+The facade's own refusals are sentinel errors, matched with `errors.Is`: `ErrInsecureChannel`,
+`ErrNoTransactionID` (the server returned a blank transaction id, so your function never ran) and
+`ErrNotCommitted`. Match `*TxError` with `errors.As`.
+
+===== Administration: `RawAdmin`
+
+Server administration lives on a second service, `ArcadeDbAdminService`: 44 RPCs covering
+databases, users, groups, API tokens, settings, backups, the profiler and cluster operations.
+`Raw()` does not reach it. `c.RawAdmin()` returns its generated client on the same connection:
+
+[source,go]
+----
+admin, err := c.RawAdmin()
+if err != nil {
+	log.Fatal(err) // ErrInsecureChannel: the client has neither TLS nor WithInsecure
+}
+resp, err := admin.ListDatabases(ctx, &generated.ListDatabasesRequest{
+	Credentials: &generated.DatabaseCredentials{Username: "root", Password: "playwithdata"},
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(resp.GetDatabases())
+----
+
+[source,text]
+----
+[mydb]
+----
+
+Admin RPCs take their credentials inside the request message, not from the connection, so
+`WithPasswordAuth` and `WithBearerToken` do not authenticate them. Because those credentials
+travel in the request body, `RawAdmin` has its own guard: it returns `ErrInsecureChannel` unless
+the client was built with `WithTransportCredentials` or `WithInsecure`, whatever auth option you
+chose. A plaintext client without `WithInsecure` still works for the data plane; only `RawAdmin`
+fails.
+
+===== Next steps
+
+* <<native-drivers,Native Drivers>> -- how this driver compares to the others, and when to reach
+  for gRPC instead of HTTP.
+* xref:how-to/connectivity/drivers/go-http.adoc[Go -- HTTP Driver] -- the HTTP counterpart for
+  general application traffic.
+* The https://github.com/ArcadeData/arcadedb-drivers/tree/main/go/arcadedbgrpc#readme[package README]
+  for the time-series streams, vector search and the full transaction contract.
+* The https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc[API reference on pkg.go.dev].
