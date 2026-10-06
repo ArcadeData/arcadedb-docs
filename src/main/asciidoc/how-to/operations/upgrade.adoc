@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - The Gremlin plugin fails the server start when its port is busy
+
+If the Gremlin port (`gremlin.port`, default `8182`) is already in use, the server now stops with an error. Before, it started without a Gremlin listener and still advertised the port in `GET /api/v1/server` (issue #9319). With `gremlin.port=0` a free port is chosen at startup and advertised.
+
+*Impact:* a server that used to start while another process held the Gremlin port no longer starts.
+
+*Action:* free the port or set `gremlin.port` to a free one.
+
+[discrete]
+====== 26.11.1 - Cypher `DURATION` arithmetic is exact, and `date * duration` is an error
+
+Durations stored in a property are read back as durations, including short ones such as `P1D`, so `ORDER BY` and comparisons on them now work (issue #9338). Duration arithmetic raises an arithmetic error when the result does not fit, instead of returning a wrong value. A date or time combined with a duration using `*`, `/` or `%` is now a type error, and `duration + date` is accepted.
+
+*Impact:* a query that relied on a stored duration being plain text, or on `date * duration` returning a date, changes.
+
+*Action:* none for normal use. A range index on a duration property still orders by its text form (issue #9348).
+
+[discrete]
 ====== 26.10.1 — Sparse-vector top-K scores a window of documents at a time
 
 `vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now scores documents in windows (setting `arcadedb.sparseVectorScoringWindow`, default `16384`). On wide queries this is about twice as fast, and queries no longer wait for a `COMPACT INDEX` or a memtable flush to finish (issues #9200, #9209, #9210).
