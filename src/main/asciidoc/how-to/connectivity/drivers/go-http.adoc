@@ -1,0 +1,281 @@
+[[driver-go-http]]
+==== Go -- HTTP Driver
+
+`github.com/ArcadeData/arcadedb-drivers/go/arcadedb` is ArcadeDB's Go HTTP client, generated from
+the server's OpenAPI contract. A hand-written facade on top covers queries, commands,
+transactions, streaming, batch loading, vector search and time series.
+
+===== Install
+
+[source,shell]
+----
+go get github.com/ArcadeData/arcadedb-drivers/go/arcadedb@latest
+----
+
+Requires Go 1.26 or later. Go has no package registry: the module is fetched through the Go module
+proxy like any other, and each release is the git tag `go/arcadedb/v<version>` in the
+https://github.com/ArcadeData/arcadedb-drivers[arcadedb-drivers] repository.
+
+===== Connect and query
+
+[source,go]
+----
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb"
+)
+
+func main() {
+	ctx := context.Background()
+
+	srv, err := arcadedb.NewServer("http://localhost:2480",
+		arcadedb.WithBasicAuth("root", "playwithdata"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer srv.Close()
+
+	db := srv.DB("mydb")
+
+	env, err := db.Query(ctx, arcadedb.SQL, "SELECT FROM Person WHERE age > ?", map[string]any{"0": 21})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(env.Result, env.Returned, env.Truncated)
+}
+----
+
+[source,text]
+----
+[map[@cat:v @rid:#1:0 @type:Person age:30 name:Alice] map[@cat:v @rid:#1:1 @type:Person age:25 name:Bob]] 2 false
+----
+
+`Query` returns a `QueryEnvelope`. The rows are in `Result`, a `[]map[string]any`, and the
+envelope also carries `Limit`, `Returned` and `Truncated`. Check `Truncated` before you treat `Result` as the whole
+answer; <<native-drivers,Native Drivers>> explains why. Pass `arcadedb.WithLimit(n)` to `Query` to
+set the row cap for one call (`-1` for none). `Command` takes no limit.
+
+Rows are decoded with `encoding/json`, so numbers arrive as `float64`. An integer larger than
+2^53^ loses precision.
+
+[WARNING]
+====
+*Positional parameters are zero-indexed, and `"1"` silently returns nothing.*
+
+Positional parameters are keyed by their zero-based index as a string. For the single placeholder
+above, the key is `"0"`, not `"1"`. Passing `map[string]any{"1": 21}` returns no error. The query
+runs with no value bound to `?` and comes back empty:
+
+[source,text]
+----
+[] 0 false
+----
+
+Named parameters sidestep the problem: `"SELECT FROM Person WHERE age > :min"` with
+`map[string]any{"min": 21}`.
+====
+
+`NewServer` takes functional options:
+
+* `WithBasicAuth(user, password)` or `WithBearerToken(token)`, for example a session token from
+  `/api/v1/login`.
+* `WithHeader(name, value)` adds a header to every request.
+* `WithHTTPClient(client)` replaces the default `http.Client`.
+
+A `*Server` is safe for concurrent use, and `srv.DB(name)` makes no request; it only returns a
+handle. Every call takes a `context.Context` as its first argument. There is no async variant of
+anything: run calls in goroutines when you want them concurrent.
+
+[NOTE]
+====
+*There is no timeout by default.*
+
+Without `WithHTTPClient`, the server handle uses a bare `http.Client`, and Go's default client has
+no timeout. A call against a stalled connection can block forever. Bound each call with a context
+deadline:
+
+[source,go]
+----
+ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+defer cancel()
+env, err := db.Query(ctx, arcadedb.SQL, "SELECT FROM Person", nil)
+----
+
+You can also pass `arcadedb.WithHTTPClient(&http.Client{Timeout: 30 * time.Second})`. A
+client-level `Timeout` also cuts off a long streaming response halfway through, though, so for
+the streaming methods below prefer a per-call context.
+====
+
+`Close` releases idle connections, including those of a client you passed in with
+`WithHTTPClient`. Call it when you are done with the server handle, usually with `defer`.
+
+===== Streaming queries
+
+`QueryStream` and `CommandStream` read the result as newline-delimited JSON and return an
+`iter.Seq2[StreamEvent, error]`, so you range over them instead of holding the whole result in
+memory:
+
+[source,go]
+----
+for ev, err := range db.QueryStream(ctx, arcadedb.SQL, "SELECT name FROM Person ORDER BY name", nil) {
+	if err != nil {
+		log.Fatal(err)
+	}
+	if ev.Stats != nil {
+		fmt.Println("returned", ev.Stats.Returned, "truncated", ev.Stats.Truncated)
+		continue
+	}
+	fmt.Println(ev.Record["name"])
+}
+----
+
+[source,text]
+----
+Alice
+Bob
+returned 2 truncated false
+----
+
+The iterator yields events. Each `StreamEvent` has either `Record` or `Stats` set, never both. The `Stats` event always comes last in a complete stream and carries the same `Limit`,
+`Returned` and `Truncated` values as the buffered envelope. If a stream ends without a `Stats`
+event, it was cut short (a server write timeout or a dropped connection, for example), and the
+rows you saw may be a partial answer.
+
+Some behavior to know about:
+
+* The request is sent on the first iteration and again on every later range over the same
+  iterator. Treat the iterator as single-use.
+* An error that happens after the server has sent its `200` status arrives in-band. The driver
+  yields it once as an `*ArcadeDBError` with `Status` 200, and the loop ends. Rows yielded before it
+  stay delivered.
+* Leaving the loop early with `break` or `return` closes the response body.
+* `CommandStream` only works for read-only statements. The server refuses a mutating statement
+  with `400`, because the streamed rows would reach you before the commit, and that commit could
+  still roll back. Use `Command` for writes.
+
+===== Transactions
+
+[source,go]
+----
+var total any
+err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
+	if _, err := tx.Command(ctx, arcadedb.SQL, "INSERT INTO Account SET balance = 100", nil); err != nil {
+		return err
+	}
+	env, err := tx.Query(ctx, arcadedb.SQL, "SELECT sum(balance) AS total FROM Account", nil)
+	if err != nil {
+		return err
+	}
+	total = env.Result[0]["total"]
+	return nil
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println("total:", total)
+----
+
+[source,text]
+----
+total: 100
+----
+
+`Transaction` begins a server-side transaction and calls your function with a second
+`*Database`, `tx` above, that carries the transaction's session id. It takes a callback instead of
+returning a handle because Go has no `with` statement: a handle would rely on every caller
+remembering `defer tx.Rollback()`, while a callback cannot leak a session. The contract:
+
+* If the function returns `nil`, the transaction commits.
+* If the function returns an error or panics, the transaction rolls back and the error is returned
+  (or the panic re-raised). If the rollback also fails, you get a `*arcadedb.TxError` whose
+  `Unwrap` returns only your error, so `errors.Is` and `errors.As` match what your code produced.
+  The rollback's error stays on the `RollbackErr` field.
+* If the commit itself fails, a best-effort rollback is issued first, so the server-side session
+  is not left open for `+arcadedb.server.httpSessionExpireTimeout+` to reap it.
+
+Rollbacks run on `context.WithoutCancel(ctx)`, so a callback that failed because `ctx` was
+cancelled still gets its transaction rolled back.
+
+Watch which handle you call. Calls made through the outer `db` while a transaction is open do not
+join it; each one auto-commits on its own. Only calls made through `tx` take part. Batch loads cannot join a
+transaction at all, so `tx.BatchLoad` returns `arcadedb.ErrBatchInTransaction` before sending
+anything.
+
+===== Two error models
+
+Facade methods return an `*arcadedb.ArcadeDBError` for any non-2xx response. `Ready` is the one
+exception: it answers a `503` with `false` and no error. Match the error with `errors.As`:
+
+[source,go]
+----
+_, err := db.Query(ctx, arcadedb.SQL, "SELECT FROM NoSuchType", nil)
+var aerr *arcadedb.ArcadeDBError
+if errors.As(err, &aerr) {
+	fmt.Println(aerr.Status, aerr.ErrorMessage, aerr.Detail, aerr.RequestID)
+}
+----
+
+[source,text]
+----
+500 Internal error Type with name 'NoSuchType' was not found 44613703d0741a4c-11
+----
+
+`RequestID` is the server's `X-Request-Id` for that call and differs on every request; use it to
+find the failure in the server log. The body's `error` string is in `ErrorMessage` rather than
+`Error`, because Go does not allow a field and a method with the same name.
+
+`srv.Raw()` takes the opposite approach. It returns the generated `*generated.ClientWithResponses`,
+which never turns a status code into an error: `err` reports transport failures only, and you
+check the status yourself.
+
+[source,go]
+----
+resp, err := srv.Raw().ListDatabasesWithResponse(ctx)
+if err != nil {
+	log.Fatal(err) // transport failure only
+}
+fmt.Println(resp.StatusCode(), resp.JSON200.Result)
+----
+
+[source,text]
+----
+200 [mydb]
+----
+
+Use `Raw()` for the endpoints the facade does not wrap: security, cluster, authentication, MCP and
+metrics, and `POST /api/v1/server` for server commands. Mixing up which of the two surfaces you
+are calling is the most common way to end up with an unhandled failure.
+
+[TIP]
+====
+`srv.Exists(ctx, name)` returns `false` both when a database does not exist and when it exists
+but the caller is not allowed to see it. The server answers both cases identically, so `false` is
+not proof that a database is absent.
+====
+
+===== Beyond queries
+
+The database handle also has:
+
+* `db.BatchLoad` and `db.BatchLoadStream` for bulk loading vertices and edges through
+  `/api/v1/batch`. A load commits every `commitEvery` records, so it is not atomic: a load that
+  fails partway leaves earlier chunks committed, and retrying the whole payload duplicates them.
+* `db.Vector()` for vector, hybrid and full-text search.
+* `db.TS()`, `db.Grafana()` and `db.PromQL()` for time-series ingestion and querying.
+
+The package README linked below covers each of them.
+
+===== Next steps
+
+* <<native-drivers,Native Drivers>> -- the result envelope and why `truncated` matters, and how
+  this driver compares to the others.
+* xref:how-to/connectivity/drivers/go-grpc.adoc[Go -- gRPC Driver] -- the gRPC counterpart for
+  throughput-sensitive server-to-server work.
+* The https://github.com/ArcadeData/arcadedb-drivers/tree/main/go/arcadedb#readme[package README]
+  for the full API, including batch loading, vector search and time series.
+* The https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb[API reference on pkg.go.dev].

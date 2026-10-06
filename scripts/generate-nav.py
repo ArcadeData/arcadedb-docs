@@ -71,7 +71,7 @@ NAV_STRUCTURE: list[dict] = [
                 # reader makes first: in-process (Embedded) or against a server
                 # (Remote). The tutorial covers both, so it sits above the two
                 # groups rather than inside either -- the same shape as Native
-                # Drivers above Python and JavaScript below.
+                # Drivers above Python, JavaScript and Go below.
                 ("tutorials/java-tutorial.adoc", "Java"),
                 ("Java — Embedded", [
                     ("reference/java-api/java-ref-database.adoc", "Database API"),
@@ -93,7 +93,7 @@ NAV_STRUCTURE: list[dict] = [
                 # Grouped per language, not per protocol: a reader arrives knowing
                 # their language and wants every way to connect from it in one place.
                 # The group labels carry no URL because there is no per-language
-                # landing page to point them at (Java has one; Python and JS do not).
+                # landing page to point them at (Java has one; Python, JS and Go do not).
                 ("Python", [
                     ("how-to/connectivity/drivers/python-http.adoc", "Native driver — HTTP"),
                     ("how-to/connectivity/drivers/python-grpc.adoc", "Native driver — gRPC"),
@@ -106,6 +106,12 @@ NAV_STRUCTURE: list[dict] = [
                     ("tutorials/javascript-quickstart.adoc", "PostgreSQL protocol"),
                     ("how-to/connectivity/bolt.adoc#javascript-example", "Neo4j BOLT"),
                     ("how-to/connectivity/http-nodejs.adoc", "HTTP / JSON (Node.js)"),
+                ]),
+                ("Go", [
+                    ("how-to/connectivity/drivers/go-http.adoc", "Native driver — HTTP"),
+                    ("how-to/connectivity/drivers/go-grpc.adoc", "Native driver — gRPC"),
+                    ("tutorials/go-quickstart.adoc", "PostgreSQL protocol"),
+                    ("how-to/connectivity/bolt.adoc#go-example", "Neo4j BOLT"),
                 ]),
                 ("how-to/connectivity/http-csharp.adoc", "C#"),
                 ("how-to/connectivity/c.adoc", "C"),
