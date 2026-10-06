@@ -20,6 +20,27 @@ The BOLT protocol implementation supports:
 * **Native BOLT structures** for graph (Node, Relationship, Path), temporal, `Duration`, and spatial `Point` values
 * **Multi-label vertices** following Neo4j's node labeling conventions
 
+===== Choosing a protocol for low latency
+
+For single-row reads and writes from Python on the same host, a community measurement (ArcadeDB 26.10.1, loopback, one connection) ranked the options as follows, relative to HTTP with a persistent connection (lower is faster):
+
+[%header,cols="2,1"]
+|===
+|Route |One-row Cypher read
+|<<postgres-driver,PostgreSQL wire>> with the `{cypher}` prefix (psycopg 3) |~0.5x
+|HTTP with a persistent connection (`http.client`) |1x
+|gRPC |~1.1x
+|BOLT (`neo4j` Python driver) |~1.6x
+|HTTP through `requests.Session` |~4x
+|===
+
+Most of the difference is client-side cost in the Python drivers, so treat the numbers as a guide and measure your own workload.
+The PostgreSQL wire uses positional parameters (`$1`, `$2`) for Cypher.
+Reuse connections and sessions on every route: opening one per request dominates the latency.
+
+BOLT sends the records of a `PULL` batched in a few large network writes, so a slow, long-running query shows its first rows when a batch fills or the `PULL` ends.
+Drivers fetch in batches (1000 records by default), which makes this invisible in normal use.
+
 ===== Setup
 
 If you're using ArcadeDB as <<embedded-server,embedded>>, add the dependency to the `arcadedb-bolt` library.
