@@ -312,6 +312,14 @@ with that isolation level, e.g. `BEGIN ISOLATION REPEATABLE_READ`) and `COMMIT R
 SQL script, which has no block to retry). A `COMMIT` that fails, for example on a duplicated unique key, reports the
 error and ends the transaction, as in PostgreSQL: the session is back in idle state and no `ROLLBACK` is needed.
 
+[[postgres-savepoints]]
+Savepoints are not supported. `SAVEPOINT <name>` and `RELEASE [SAVEPOINT] <name>` are accepted and do nothing, but
+`ROLLBACK TO [SAVEPOINT] <name>` is refused with SQLSTATE `0A000` (feature not supported) and the transaction is
+marked aborted, so the client must `ROLLBACK` it. _(Since v26.10.1; before, `ROLLBACK TO SAVEPOINT` reported success
+while every write made since the savepoint stayed pending and was persisted by the next `COMMIT`.)_ An ORM or driver
+that wraps statements in savepoints (for example a nested `transaction.atomic()` in Django, or psql's `ON_ERROR_ROLLBACK`)
+only works as long as it never rolls back to one.
+
 Setting auto commit to false is not 100% supported: it does not start a transaction on its own, so a write sent
 after `setAutoCommit(false)` without a `BEGIN` is refused with "Transaction not begun". With JDBC, leave the
 default settings or set:
