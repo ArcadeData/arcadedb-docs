@@ -230,6 +230,8 @@ The endpoint accepts the standard Prometheus `remote_write` Protobuf payload (sn
 Each time series is mapped to an ArcadeDB TimeSeries type named after the `__name__` label.
 Types are auto-created if they do not exist.
 
+_(Since v26.11.1)_ A label with an empty value is the same as an absent label, as in Prometheus: it is stored as absent and `{label=""}` selects it. A series carrying a label that the existing type does not declare as a tag is dropped and the request answers `400` naming the label (the other series of the request are stored); Prometheus does not retry a `400`. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` to discard the extra label instead.
+
 [NOTE]
 ====
 _(Since v26.10.1)_ if your collector or proxy sends an `X-Request-Id` header, the request body is taken into
@@ -269,6 +271,8 @@ INSERT INTO SensorReading
 INSERT INTO SensorReading
   CONTENT { "ts": 1771581600000, "sensor_id": "sensor-A", "temperature": 22.5 }
 ----
+
+NOTE: _(Since v26.11.1)_ `INSERT` fails if it sets a property that is not a declared tag or field of the type (for example a misspelled tag), because the sample would otherwise be filed under a different series. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` on the database to discard such properties instead. The same setting governs line protocol, gRPC and Prometheus writes.
 
 NOTE: The timestamp column of a TimeSeries type is stored as a number, so `INSERT` does not accept an ISO-8601 string for it (`Cannot convert type String to LONG`): write an epoch value (as in the `CONTENT` example, milliseconds for a type with `PRECISION MILLISECOND`) or build it with the `date()` function, which interprets the text in the server's time zone. ISO-8601 strings are accepted in `WHERE` conditions on the timestamp column.
 
