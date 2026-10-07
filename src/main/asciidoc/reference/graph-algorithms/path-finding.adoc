@@ -48,7 +48,7 @@ YIELD path, weight
 
 *Description*
 
-Finds the single shortest weighted path between two vertices using Dijkstra's algorithm. Non-negative edge weights are required. Internally delegates to the A* implementation with no heuristic.
+Finds the single shortest weighted path between two vertices using Dijkstra's algorithm. Internally delegates to the A* implementation with no heuristic. An edge without `weightProperty` (or whose value is not a number) weighs `1`, and an edge whose weight is negative, NaN or infinite is not walked: use <<algo-bellman-ford,algo.bellmanford>> for negative weights.
 
 *Use Cases*
 
@@ -125,9 +125,7 @@ Finds the shortest weighted path between two vertices. When a <<graph-olap,Graph
 
 When no hierarchy can answer - none is defined, it is still being prepared after a change, the graph was found unsuitable for it, or the calling transaction holds uncommitted changes the view cannot see - the procedure answers with a bidirectional Dijkstra, on the view's columns when a view materializes the weight and on the records otherwise. The answer is always exact and always reflects the calling transaction's own changes; only the speed varies.
 
-The weight of an edge is the numeric value of `weightProperty`; an edge without one weighs `1`, and an edge whose value is negative is not walked. Among parallel edges only the cheapest counts.
-
-NOTE: `algo.dijkstra`, `dijkstra()` and `astar()` currently count an edge without a weight as `0` and walk negative weights, so on a graph with such edges they can answer differently. Aligning them is tracked in https://github.com/ArcadeData/arcadedb/issues/9443[#9443].
+The weight of an edge is the numeric value of `weightProperty`; an edge without one weighs `1`, and an edge whose value is negative, NaN or infinite is not walked. Among parallel edges only the cheapest counts. Every weighted path finder (`algo.dijkstra`, `algo.astar`, `algo.dijkstra.singleSource`, `algo.kShortestPaths`, `algo.steinerTree` and the `dijkstra()`, `astar()`, `duanSSSP()` and `cchShortestPath()` SQL functions) reads the weight by this same rule, so they answer the same path.
 
 *Use Cases*
 
@@ -205,7 +203,7 @@ YIELD path, weight
 
 *Description*
 
-Finds the shortest weighted path using the A* algorithm. When `latProperty` and `lonProperty` are provided, a geographic (Euclidean) heuristic accelerates the search. Without the geographic properties it behaves identically to Dijkstra. Edges are followed in both directions, like `algo.dijkstra`'s default. The returned `path` includes the relationships between the vertices.
+Finds the shortest weighted path using the A* algorithm. When `latProperty` and `lonProperty` are provided, a geographic (Euclidean) heuristic accelerates the search. Without the geographic properties it behaves identically to Dijkstra. Edges are followed in both directions, like `algo.dijkstra`'s default. The returned `path` includes the relationships between the vertices. An edge without `weightProperty` (or whose value is not a number) weighs `1`, and an edge whose weight is negative, NaN or infinite is not walked: use <<algo-bellman-ford,algo.bellmanford>> for negative weights.
 
 *Use Cases*
 
@@ -419,7 +417,7 @@ YIELD path, weight, rank
 
 *Description*
 
-Finds the k shortest loopless paths between two vertices using Yen's algorithm. Internally uses Dijkstra on a V×V weight matrix, progressively building candidate paths by spur-node deviation from previous shortest paths. Memory usage scales as O(V²) for the weight matrix.
+Finds the k shortest loopless paths between two vertices using Yen's algorithm. Internally uses Dijkstra on a V×V weight matrix, progressively building candidate paths by spur-node deviation from previous shortest paths. Memory usage scales as O(V²) for the weight matrix. An edge without `weightProperty` weighs `1`, and an edge whose weight is negative, NaN or infinite is not walked.
 
 *Use Cases*
 
@@ -699,7 +697,7 @@ YIELD node, cost
 
 Computes the Single-Source Shortest Path (SSSP) from a given start node to every reachable vertex using Dijkstra's algorithm with a binary min-heap.
 This procedure extends `<<algo-dijkstra,algo.dijkstra>>` to return results for all reachable targets at once instead of just a single source-target pair.
-All edge weights must be non-negative; edges with negative weights are silently ignored.
+An edge without `weightProperty` (or whose value is not a number) weighs `1`; an edge whose weight is negative, NaN or infinite is not walked.
 
 *Use Cases*
 
@@ -924,7 +922,7 @@ Finds an approximate minimum-weight connected subgraph that spans all terminal v
 4. Expand each MST edge back to its actual shortest path in the original graph.
 5. Prune non-terminal leaves iteratively.
 
-Edges are traversed undirected. Returns an empty result if terminals are unreachable from each other.
+Edges are traversed undirected. Returns an empty result if terminals are unreachable from each other. An edge without `weightProperty` weighs `1`, an edge whose weight is negative, NaN or infinite is not walked, and among parallel edges the cheapest one is the one reported.
 
 *Use Cases*
 

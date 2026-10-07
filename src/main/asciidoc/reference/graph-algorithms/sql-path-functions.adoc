@@ -33,7 +33,7 @@ dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>,
 | `sourceVertex` | Vertex / RID | Yes | — | Source vertex
 | `destinationVertex` | Vertex / RID | Yes | — | Destination vertex
 | `weightEdgeFieldName` | String | Yes | — | Edge property name for weights
-| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
+| `direction` | String | No | `"OUT"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
 |===
 
 The 4th argument can also be an options map with keys `direction`, `edgeTypeNames`, `maxDepth`, `emptyIfMaxDepth`. Unknown keys are rejected with a descriptive error.
@@ -46,7 +46,7 @@ The 4th argument can also be an options map with keys `direction`, `edgeTypeName
 
 SQL function equivalent of `algo.dijkstra`. Internally delegates to the A* implementation with no heuristic. Returns a `LinkedList` of vertex RIDs.
 
-When several edges connect the same pair of vertices, the cheapest one is used.
+When several edges connect the same pair of vertices, the cheapest one is used. An edge without the weight property (or whose value is not a number) weighs 1, and an edge whose weight is negative, NaN or infinite is not walked: use `bellmanFord()` for negative weights. Every weighted path function reads the weight by this same rule.
 
 *Examples*
 
@@ -106,12 +106,69 @@ The 4th argument can also be an options map with keys `direction` and `edgeTypeN
 
 SQL function equivalent of <<algo-cch-shortest-path,algo.cch.shortestPath>>: answered by a <<gav-cch,Customizable Contraction Hierarchy>> when a Graph Analytical View keeps one for the weight and the exact edge types asked for, and by bidirectional Dijkstra otherwise. Exact either way, and inside a transaction it sees that transaction's own changes.
 
+An edge without the weight property (or whose value is not a number) weighs 1, and an edge whose weight is negative, NaN or infinite is not walked: use `bellmanFord()` for negative weights. Every weighted path function reads the weight by this same rule.
+
 *Examples*
 
 [source,sql]
 ----
 SELECT cchShortestPath(#12:0, #12:5, 'distance', 'OUT') AS path
 SELECT cchShortestPath(#12:0, #12:5, 'distance', { direction: 'OUT', edgeTypeNames: ['ROAD'] }) AS path
+----
+
+'''
+
+[[algo-duan-sssp-sql]]
+===== duanSSSP() SQL Function
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Function | `duanSSSP()`
+| Category | Path Finding
+| Complexity | CPU
+|===
+
+*Syntax*
+
+[source,sql]
+----
+duanSSSP(<sourceVertex>, <destinationVertex> [, <weightEdgeFieldName>] [, <direction>])
+duanSSSP(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>,
+         { direction: <string>, edgeTypeNames: [...] })
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `sourceVertex` | Vertex / RID | Yes | - | Source vertex
+| `destinationVertex` | Vertex / RID | Yes | - | Destination vertex
+| `weightEdgeFieldName` | String | No | `"weight"` | Edge property name for weights
+| `direction` | String | No | `"OUT"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`. Can also be passed as `direction` key in the trailing options map.
+|===
+
+The 4th argument can also be an options map with keys `direction` and `edgeTypeNames` (every edge type when absent). Unknown keys are rejected with a descriptive error.
+
+*Return Value*
+
+`List<RID>` - Ordered list of vertex identities on the shortest path (including source and destination), empty when there is none.
+
+*Description*
+
+Named after Duan et al., https://arxiv.org/abs/2504.17033[Breaking the Sorting Barrier for Directed Single-Source Shortest Paths] (2025). The paper's algorithm has constant factors too large to win at practical graph sizes, so the function answers through the same engine as <<algo-cch-shortest-path-sql,cchShortestPath()>>: a <<gav-cch,Customizable Contraction Hierarchy>> when a Graph Analytical View keeps one, bidirectional Dijkstra otherwise. The only difference is that the weight property is optional here.
+
+An edge without the weight property (or whose value is not a number) weighs 1, and an edge whose weight is negative, NaN or infinite is not walked: use `bellmanFord()` for negative weights. Every weighted path function reads the weight by this same rule.
+
+*Examples*
+
+[source,sql]
+----
+SELECT duanSSSP(#12:0, #12:5) AS path
+SELECT duanSSSP(#12:0, #12:5, 'distance', { direction: 'OUT', edgeTypeNames: ['ROAD'] }) AS path
 ----
 
 '''
