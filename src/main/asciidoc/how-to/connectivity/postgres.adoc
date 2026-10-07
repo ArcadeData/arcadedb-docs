@@ -373,7 +373,14 @@ are refused (`0A000`); `READ WRITE` and `[NOT] DEFERRABLE` are accepted;
 * `SET CONSTRAINTS ALL DEFERRED | IMMEDIATE` is accepted without effect, as in PostgreSQL for constraints that are not
 deferrable, which ArcadeDB's never are;
 * `SET NAMES '<encoding>'` and `SET SCHEMA '<schema>'` are accepted as synonyms of `SET client_encoding` and
-`SET search_path`;
+`SET search_path`. Since v26.11.1 `search_path` is accepted but not stored: a connection always resolves names in the
+database it is connected to, so `SHOW search_path` answers that database, as `current_schema()` does;
+* `statement_timeout` is enforced since v26.11.1: a statement that runs longer is cancelled with `57014`. It takes a
+number of milliseconds or a value with a unit (`30s`, `2min`), and `0` disables it. The shorter of it and
+`arcadedb.command.timeout` applies;
+* `DISCARD ALL` (what connection poolers such as pgbouncer send between two client sessions) resets every setting and drops
+the prepared statements and portals. It is refused inside a transaction block (`25001`). `DISCARD PLANS | SEQUENCES | TEMP`
+are accepted without effect, and `DEALLOCATE [ALL | <name>]` and `CLOSE [ALL | <name>]` are supported;
 * a parameter PostgreSQL does not know is refused by `SET`, `SHOW` and `RESET` alike with
 `42704 unrecognized configuration parameter`, as in PostgreSQL (for example `SET bogus_param = 1` or `SHOW databases`).
 Every parameter PostgreSQL 17 knows is accepted, as is any name the client sent when it connected. A name with a dot
