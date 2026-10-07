@@ -74,6 +74,87 @@ See also: <<algo-dijkstra-sql>> for the SQL function variant, and <<astar,astar(
 
 '''
 
+[[algo-cch-shortest-path]]
+===== algo.cch.shortestPath
+
+[cols="1,3", options="header"]
+|===
+| Property | Value
+
+| Procedure | `algo.cch.shortestPath`
+| Category | Path Finding
+| Complexity | CPU
+| Min Args | 4
+| Max Args | 5
+|===
+
+*Syntax*
+
+[source,cypher]
+----
+CALL algo.cch.shortestPath(startNode, endNode, relTypes, weightProperty [, direction])
+YIELD path, weight
+----
+
+*Parameters*
+
+[cols="2,1,1,1,3", options="header"]
+|===
+| Parameter | Type | Required | Default | Description
+
+| `startNode` | Vertex | Yes | - | Source vertex
+| `endNode` | Vertex | Yes | - | Destination vertex
+| `relTypes` | String or List | Yes | - | Relationship type(s): a name, a comma-separated list or a list; `null` for every type
+| `weightProperty` | String | Yes | - | Edge property name to use as weight
+| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+|===
+
+*Yield Fields*
+
+[cols="2,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| `path` | Map | The path: `nodes`, `relationships` (the cheapest usable edge between each pair of consecutive nodes) and `length`
+| `weight` | Double | Total path weight
+|===
+
+*Description*
+
+Finds the shortest weighted path between two vertices. When a <<graph-olap,Graph Analytical View>> keeps a <<gav-cch,Customizable Contraction Hierarchy>> for the same weight property and relationship types, the path is answered by the hierarchy in a time that depends on the depth of the hierarchy rather than on how far apart the two vertices are: on road-like graphs it is one to two orders of magnitude faster than Dijkstra, and the gap grows with the length of the route.
+
+When no hierarchy can answer - none is defined, it is still being prepared after a change, the graph was found unsuitable for it, or the calling transaction holds uncommitted changes the view cannot see - the procedure answers with a bidirectional Dijkstra, on the view's columns when a view materializes the weight and on the records otherwise. The answer is always exact and always reflects the calling transaction's own changes; only the speed varies.
+
+The weight of an edge is the numeric value of `weightProperty`; an edge without one weighs `1`, and an edge whose value is negative is not walked. Among parallel edges only the cheapest counts.
+
+*Use Cases*
+
+- Route planning on road, logistics and utility networks with many point-to-point queries
+- Navigation where weights change often (traffic, closures) but the network itself rarely does
+
+*Example*
+
+[source,sql]
+----
+CREATE GRAPH ANALYTICAL VIEW roads EDGE TYPES (ROAD) UPDATE MODE SYNCHRONOUS CCH (distance)
+----
+
+[source,cypher]
+----
+MATCH (src:City {name:'Rome'}), (dst:City {name:'Berlin'})
+CALL algo.cch.shortestPath(src, dst, 'ROAD', 'distance', 'OUT')
+YIELD path, weight
+RETURN path, weight
+----
+
+*References*
+
+- Dibbelt, Strasser, Wagner: _Customizable Contraction Hierarchies_, ACM Journal of Experimental Algorithmics 21 (2016)
+
+See also: <<cchShortestPath,cchShortestPath()>> for the SQL function, and <<gav-cch>> for defining and monitoring the hierarchy.
+
+'''
+
 [[algo-astar]]
 ===== algo.astar
 
