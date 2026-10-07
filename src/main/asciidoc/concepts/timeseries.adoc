@@ -169,12 +169,14 @@ A malformed line is not ingested; the rest of the payload is. When any line was 
 with a partial-write body: `written` and `dropped` counts (a malformed line counts as one dropped sample) and
 `malformedLines`, the 1-based numbers of the rejected lines in the payload (the first 100). A field with no value
 (`temp`, `temp=` or a line cut short after a field key, such as `weather temp=21.5,hum`) makes the whole line
-malformed.
+malformed. So does a `,` separator with nothing after it, in the tags or in the fields (`weather temp=21.5,` or
+`weather,city=rome, temp=1`).
 
 [NOTE]
 ====
 Since v26.10.1. Before, a malformed line was only logged and the request answered `204`, and a field missing its value
-at the end of a line was stored as `0.0` instead of rejecting the line.
+at the end of a line was stored as `0.0` instead of rejecting the line. A line cut right after a `,` separator was
+still stored without the entries after the comma until v26.11.1.
 ====
 
 Precision parameter: `ns` (nanoseconds, default), `us` (microseconds), `ms` (milliseconds), `s` (seconds).
@@ -1271,6 +1273,11 @@ The TimeSeries engine uses a two-layer storage architecture:
 
 * **Mutable bucket** -- An append-only in-memory buffer backed by ArcadeDB's `PaginatedComponent`. New samples land here first. This layer is ACID-transactional and replicated in HA mode.
 * **Sealed store** -- Immutable, compressed columnar blocks on disk. The maintenance scheduler periodically compacts mutable data into sealed blocks using Gorilla, Delta-of-Delta, Simple-8b, and Dictionary codecs. Block-level min/max/sum statistics enable zero-decompression aggregation when an entire block falls within a single time bucket.
+
+[NOTE]
+====
+Since v26.11.1. Integer columns (`LONG`, `DATETIME_NANOS` and the other integral types) hold the full 64-bit range. A block whose values do not all fit the compact Simple-8b packing (outside +/-2^59, such as epoch-nanosecond instants or snowflake ids) is stored as plain 64-bit values instead of making the compaction fail. Such a block is larger, and an older ArcadeDB version cannot read it, so keep this in mind before a downgrade. Before, compaction of such a type failed permanently.
+====
 
 Data is distributed across N shards (default: `arcadedb.asyncWorkerThreads`, the available cores minus 1) for parallel writes and reads.
 Each shard maintains its own mutable bucket and sealed store.
