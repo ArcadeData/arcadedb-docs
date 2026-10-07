@@ -101,7 +101,7 @@ def main() -> int:
 
     out: list[str] = [
         "= ArcadeDB Manual",
-        ":revnumber: 26.5.1",
+        ":revnumber: 26.10.1",
         ":doctype: book",
         ":imagesdir: ../modules/ROOT/images",
         ":source-highlighter: rouge",

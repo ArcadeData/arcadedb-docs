@@ -1,7 +1,7 @@
 [[grpc-api]]
 === gRPC API
 
-ArcadeDB exposes a gRPC interface for high-performance, strongly-typed access from any language with gRPC support (Java, Python, Go, C++, Node.js, Rust, C#, and more). The gRPC API provides two services with 22 RPCs covering queries, record operations, transactions, and administration.
+ArcadeDB exposes a gRPC interface for high-performance, strongly-typed access from any language with gRPC support (Java, Python, Go, C++, Node.js, Rust, C#, and more). The gRPC API provides two services with 65 RPCs covering queries, record operations, transactions, graph bulk loading, vector and full-text search, time series, and server administration.
 
 Proto definition: https://github.com/ArcadeData/arcadedb/blob/main/grpc/src/main/proto/arcadedb-server.proto[arcadedb-server.proto]
 
@@ -27,7 +27,7 @@ Host, port, TLS, message size and the other gRPC options are configured through 
 
 ===== ArcadeDbService
 
-The main service for database operations: querying, record CRUD, bulk inserts, and transactions.
+The main service for database operations: querying, record CRUD, bulk inserts, transactions, graph bulk loading, search, and time series.
 
 [cols="2,2,2,3", options="header"]
 |===
@@ -46,11 +46,108 @@ The main service for database operations: querying, record CRUD, bulk inserts, a
 | `BeginTransaction` | `BeginTransactionRequest` | `BeginTransactionResponse` | Begin an explicit transaction
 | `CommitTransaction` | `CommitTransactionRequest` | `CommitTransactionResponse` | Commit the current transaction
 | `RollbackTransaction` | `RollbackTransactionRequest` | `RollbackTransactionResponse` | Roll back the current transaction
+| `GraphBatchLoad` | stream `GraphBatchChunk` | `GraphBatchResult` | Client-streaming bulk load of vertices and edges (see below)
+| `VectorSearch` | `VectorSearchRequest` | `VectorSearchResponse` | _Since 26.10.1._ k-nearest-neighbor search over a dense or sparse vector index
+| `HybridSearch` | `HybridSearchRequest` | `HybridSearchResponse` | _Since 26.10.1._ Fused vector, full-text, and graph-expansion search
+| `FullTextSearch` | `FullTextSearchRequest` | `FullTextSearchResponse` | _Since 26.10.1._ Lucene-syntax search over a `FULL_TEXT` index
+| `TimeSeriesWrite` | `TimeSeriesWriteRequest` | `TimeSeriesWriteSummary` | _Since 26.10.1._ Write a batch of time-series points
+| `TimeSeriesWriteStream` | stream `TimeSeriesWriteChunk` | `TimeSeriesWriteSummary` | _Since 26.10.1._ Client-streaming time-series ingest
+| `TimeSeriesQuery` | `TimeSeriesQueryRequest` | stream `TimeSeriesQueryResult` | _Since 26.10.1._ Range query, raw or aggregated into buckets, streamed back
+| `TimeSeriesLatest` | `TimeSeriesLatestRequest` | `TimeSeriesLatestResponse` | _Since 26.10.1._ Latest sample of a time-series type, optionally filtered by tags
 |===
+
+[[grpc-graph-batch-load]]
+====== Graph batch load
+
+`GraphBatchLoad` streams `GraphBatchChunk` messages, each carrying `GraphBatchRecord` entries of kind `VERTEX` or
+`EDGE`. The first chunk must name the `database` and carry the `GraphBatchOptions` (batch size, light edges, WAL,
+commit frequency, `vertex_batch_size`, commit retries, and `return_id_mapping`); options on later chunks are ignored.
+Vertices declare a `temp_id`, and edges reference their endpoints by `temp_id` or by an existing RID (`#bucket:pos`)
+in `from_ref` / `to_ref`. All `VERTEX` records must precede every `EDGE` record across the whole stream: interleaving
+is an error. On a replicated cluster the load must run on the leader; a follower refuses it.
+
+`GraphBatchResult` reports `vertices_created`, `edges_created`, `elapsed_ms` and, depending on `return_id_mapping`,
+the `temp_id` to RID map in `id_mapping` (when the map is not returned, `id_mapping_omitted` is set and
+`id_mapping_size` still reports its size). The load commits incrementally, so a failure is not a rollback: the counts
+already durable at the point of failure travel in the `arcadedb-graph-batch-result-bin` trailer of the failed call,
+with `partial_commit` set.
+
+[[grpc-search]]
+====== Vector, hybrid, and full-text search
+
+_Since 26.10.1._ These three unary RPCs run the same server-side implementation as the HTTP `/api/v1/vector/*`
+routes and the MCP search tools, so a request that is legal on one protocol is legal on all of them and is rejected
+with the same message. Every hit is a `SearchHit` with `rid`, `record`, and either `distance` (dense index, lower is
+better) or `score` (sparse, full-text, or fused, higher is better); the response's `scoring` field says which.
+
+[cols="2,4", options="header"]
+|===
+| RPC | Key request fields
+
+| `VectorSearch`
+| `index_name` (an `LSM_VECTOR` index, or an `LSM_SPARSE_VECTOR` index when `sparse` is set), `query_vector`,
+`query_indices` (sparse dimension ids), `k` (1 to 1000, default 10), `ef_search` (dense only), `filter` (read-only
+SQL `WHERE` predicate applied to a bounded candidate window). ArcadeDB does not generate embeddings.
+
+| `HybridSearch`
+| The vector fields above (`vector_index_name` instead of `index_name`), plus an optional full-text leg
+(`fulltext_query` and `fulltext_index_name`, which must be given together), `fusion_strategy` (`RRF` by default,
+`DBSF`, or `LINEAR`), per-leg `weights` (keys `vector`, `fulltext`, `expand`), and an optional `expand`
+graph leg (`edge_types`, `direction` `out`/`in`/`both`, `max_depth` 1 to 3). The `expand` leg requires `RRF`.
+
+| `FullTextSearch`
+| `query_text` (Lucene syntax, not blank), the index addressed by `index_name` or by `type_name` plus optional
+`properties` (`index_name` wins when both are set), and `limit` (1 to 1000, default 10).
+|===
+
+All three accept an optional `transaction`: when it names a live transaction the search reads exactly what that
+transaction reads, including its uncommitted changes. A transaction id the server no longer knows is refused with
+`FAILED_PRECONDITION`. See also <<full-text-index,Full-text index>>.
+
+[[grpc-timeseries]]
+====== Time series
+
+_Since 26.10.1._ The time-series RPCs read and write `TIMESERIES` types (see <<timeseries,Time series>>).
+
+* *`TimeSeriesWrite` / `TimeSeriesWriteStream`*: each `TimeSeriesPoint` carries `type` (the measurement, defaulting to
+the request or chunk `type`), `timestamp`, and `tags` / `fields` maps of `GrpcValue`. `precision` defaults to
+`TS_PRECISION_MILLISECONDS` (unlike the HTTP line-protocol endpoint, which defaults to nanoseconds). The streaming
+variant needs `database` on the first chunk only and applies back-pressure, pulling one chunk at a time. A write is
+not atomic: each measurement's batch commits as it is appended. `TimeSeriesWriteSummary` reports `received`,
+`written`, and `dropped` (`written + dropped == received`), and lists dropped points' types under `unknown_types`,
+`non_time_series_types`, or `unavailable_types`.
+* *`TimeSeriesQuery`*: `type`, inclusive `from_timestamp` / `to_timestamp` (unset means unbounded), `fields`
+projection (an unknown name is refused with `INVALID_ARGUMENT`), `tags` (`TimeSeriesTagFilter`, a conjunction of
+equality predicates on TAG columns; a non-TAG name is refused with `INVALID_ARGUMENT`), `limit`, `batch_size`
+(rows per streamed message, default 1000), and optional `aggregation` (`bucket_interval_ms` > 0, at least one
+`TimeSeriesAggregationRequest` of `TS_AGG_SUM`, `AVG`, `MIN`, `MAX` or `COUNT`, and an optional `bucket_origin_ms`).
+The answer streams as `TimeSeriesQueryResult` messages carrying `rows` (raw) or `buckets` (aggregated); the last
+message has `last` set, and `truncated` when the limit cut the answer short. The server-side ceiling
+`arcadedb.server.grpcTimeSeriesMaxResultRows` (default 1000000) cannot be raised by the client: a `limit` above it is
+refused with `RESOURCE_EXHAUSTED` before the first message.
+* *`TimeSeriesLatest`*: `type` and optional `tags`. `TimeSeriesLatestResponse` returns `columns`, `found`, and the
+`latest` row (unset when `found` is `false`).
+
+`TimeSeriesQuery` and `TimeSeriesLatest` accept an optional `transaction`; when set, the read sees that
+transaction's uncommitted points. An unresolvable transaction id is refused with `FAILED_PRECONDITION` (the HTTP
+time-series read routes instead fall back to reading outside the transaction).
 
 ===== ArcadeDbAdminService
 
-Administration service for server and database management.
+Administration service for server and database management. Every admin RPC runs the same implementation as the HTTP
+control plane, so the two protocols behave the same way.
+
+*Authentication and authorization.* Every request is authenticated from its `credentials` field, except `Health`
+and `Ready`, which are unauthenticated like `GET /api/v1/health` and `GET /api/v1/ready`. `Ping`, `GetServerInfo`,
+`ListDatabases`, `ExistsDatabase`, and `GetDatabaseInfo` need any valid account; `GetProgress` needs an account
+granted the named database; every other RPC requires the `root` user and otherwise fails with `PERMISSION_DENIED`.
+
+*Leader routing.* On a replicated cluster, `CreateDatabase`, `DropDatabase`, `CreateUser`, `UpdateUser`,
+`DeleteUser`, `SaveGroup`, `DeleteGroup`, `CreateApiToken`, `DeleteApiToken`, `RestoreBackup`, `RestoreDatabase`,
+and `ImportDatabase` are refused on a follower with `FAILED_PRECONDITION` and the leader's address in the
+`arcadedb-leader-*` trailers. gRPC has no request proxy, so the client redirects itself.
+
+*Server info and databases*
 
 [cols="2,2,2,3", options="header"]
 |===
@@ -62,9 +159,11 @@ Administration service for server and database management.
 | `ExistsDatabase` | `ExistsDatabaseRequest` | `ExistsDatabaseResponse` | Check if a database exists
 | `CreateDatabase` | `CreateDatabaseRequest` | `CreateDatabaseResponse` | Create a new database (see below)
 | `DropDatabase` | `DropDatabaseRequest` | `DropDatabaseResponse` | Drop an existing database (see below)
+| `OpenDatabase` | `OpenDatabaseRequest` | `OpenDatabaseResponse` | _Since 26.10.1._ Open the named database
+| `CloseDatabase` | `CloseDatabaseRequest` | `CloseDatabaseResponse` | _Since 26.10.1._ Close the named database's open instance; the files stay, and a later request reopens it
+| `AlignDatabase` | `AlignDatabaseRequest` | `AlignDatabaseResponse` | _Since 26.10.1._ Run `ALIGN DATABASE` on the named database
 | `GetDatabaseInfo` | `GetDatabaseInfoRequest` | `GetDatabaseInfoResponse` | Schema, types, and database statistics
-| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user
-| `DeleteUser` | `DeleteUserRequest` | `DeleteUserResponse` | Delete a user
+| `GetProgress` | `GetProgressRequest` | `GetProgressResponse` | _Since 26.10.1._ Long-running operations (CHECK DATABASE, REBUILD INDEX, backup, import, ...) running on the database, as `GET /api/v1/progress/{database}`. Empty when nothing runs
 |===
 
 `CreateDatabase` and `DropDatabase` answer the no-op case the way the HTTP `create database` and `drop database`
@@ -75,6 +174,93 @@ created the database, and `DropDatabaseResponse.dropped` only when it dropped on
 "created for me" from "already there" rather than reading an empty OK as ownership. Database names are exact and
 never case-folded. The Java client exposes the two forms as `createDatabase` / `createDatabaseIfMissing` and
 `dropDatabase` / `dropDatabaseIfExists`; the `IfMissing` / `IfExists` variants return the boolean.
+
+*Users, groups, and API tokens*
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user
+| `UpdateUser` | `UpdateUserRequest` | `UpdateUserResponse` | _Since 26.10.1._ Update a user's `password` and/or `databases` grants. Each field is optional and an absent one is left untouched; a present but empty `databases` clears the grants
+| `DeleteUser` | `DeleteUserRequest` | `DeleteUserResponse` | Delete a user
+| `ListUsers` | `ListUsersRequest` | `ListUsersResponse` | _Since 26.10.1._ List users with their per-database groups. Password hashes are never included
+| `ListGroups` | `ListGroupsRequest` | `ListGroupsResponse` | _Since 26.10.1._ The whole group document, as JSON in `groups_json`
+| `SaveGroup` | `SaveGroupRequest` | `SaveGroupResponse` | _Since 26.10.1._ Create or replace one group of a database (`*` for all) from `group_json`
+| `DeleteGroup` | `DeleteGroupRequest` | `DeleteGroupResponse` | _Since 26.10.1._ Delete one group of a database
+| `ListApiTokens` | `ListApiTokensRequest` | `ListApiTokensResponse` | _Since 26.10.1._ List API tokens as `ApiTokenInfo` (hash, last four characters, expiry, `expired` flag), never the token itself
+| `CreateApiToken` | `CreateApiTokenRequest` | `CreateApiTokenResponse` | _Since 26.10.1._ Mint an API token. The plaintext `token` is returned once only. Refused with `FAILED_PRECONDITION` unless the channel uses TLS or the client is on loopback; a duplicate name is `ALREADY_EXISTS`
+| `DeleteApiToken` | `DeleteApiTokenRequest` | `DeleteApiTokenResponse` | _Since 26.10.1._ Revoke a token by its `token_hash` (the plaintext token is not accepted)
+|===
+
+*Settings*
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `SetServerSetting` | `SetServerSettingRequest` | `SetServerSettingResponse` | _Since 26.10.1._ Set a server setting. `key` and `value` are separate fields, so a value with spaces needs no quoting
+| `SetDatabaseSetting` | `SetDatabaseSettingRequest` | `SetDatabaseSettingResponse` | _Since 26.10.1._ Set a setting of one database
+|===
+
+*Backup, restore, and import*
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `GetBackupConfig` | `GetBackupConfigRequest` | `GetBackupConfigResponse` | _Since 26.10.1._ Auto-backup configuration as JSON, and whether the auto-backup plugin is running
+| `SetBackupConfig` | `SetBackupConfigRequest` | `SetBackupConfigResponse` | _Since 26.10.1._ Save the auto-backup configuration from `config_json`
+| `ListBackups` | `ListBackupsRequest` | `ListBackupsResponse` | _Since 26.10.1._ Backup archives of a database, with retention totals
+| `TriggerBackup` | `TriggerBackupRequest` | `TriggerBackupResponse` | _Since 26.10.1._ Back up a database now; returns the archive path
+| `DeleteBackup` | `DeleteBackupRequest` | `DeleteBackupResponse` | _Since 26.10.1._ Delete one archive by plain file name (path separators and traversal are refused)
+| `RestoreBackup` | `RestoreBackupRequest` | stream `RestoreProgress` | _Since 26.10.1._ Restore a database's backup archive into `target_database`; `overwrite` replaces an existing target only after the restore succeeded
+| `RestoreDatabase` | `RestoreDatabaseRequest` | stream `RestoreProgress` | _Since 26.10.1._ Create a new database from an archive at a `url`
+| `ImportDatabase` | `ImportDatabaseRequest` | stream `ImportProgress` | _Since 26.10.1._ Create a new database and import the source at a `url` into it; progress carries importer lines and `parsed` / `vertices` / `edges` counters
+|===
+
+The three restore and import RPCs are server-streaming: they send progress messages while the operation runs, then
+one final message with `completed = true` (`ImportProgress.result_json` carries the importer's final report). A
+failure ends the stream with an error status instead. Cancelling the call stops the progress messages, not the
+operation. Unless `arcadedb.server.restoreImportAllowLocalUrls` is enabled, only `http`/`https` URLs to non-private
+hosts are accepted. See also <<backup,Backup>>.
+
+*Query profiler*
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `ProfilerStart` | `ProfilerStartRequest` | `ProfilerStateResponse` | _Since 26.10.1._ Start recording. `timeout_seconds` of 0 or less applies the server default; the effective timeout is returned
+| `ProfilerStop` | `ProfilerStopRequest` | `ProfilerDocumentResponse` | _Since 26.10.1._ Stop recording and return the run as JSON
+| `ProfilerReset` | `ProfilerResetRequest` | `ProfilerStateResponse` | _Since 26.10.1._ Reset the profiler
+| `ProfilerResults` | `ProfilerResultsRequest` | `ProfilerDocumentResponse` | _Since 26.10.1._ Current profiler results as JSON, without stopping
+| `ProfilerList` | `ProfilerListRequest` | `ProfilerListResponse` | _Since 26.10.1._ Saved profiler runs on disk, newest first
+| `ProfilerLoad` | `ProfilerLoadRequest` | `ProfilerDocumentResponse` | _Since 26.10.1._ Load a saved run by file name
+|===
+
+*Server lifecycle and cluster*
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `GetServerEvents` | `GetServerEventsRequest` | `GetServerEventsResponse` | _Since 26.10.1._ Server events as a JSON array, from the current event file or a named one, plus the list of event files
+| `Shutdown` | `ShutdownRequest` | `ShutdownResponse` | _Since 26.10.1._ Shut down this server (empty `server_name`) or the named HA peer. The local shutdown is scheduled asynchronously, so the response arrives first
+| `DisconnectCluster` | `DisconnectClusterRequest` | `DisconnectClusterResponse` | _Since 26.10.1._ Disconnect this server from the cluster
+| `ConnectCluster` | `ConnectClusterRequest` | `ConnectClusterResponse` | _Since 26.10.1._ Join the server at `server_address` (an `arcadedb.ha.serverList` entry) to the cluster. `FAILED_PRECONDITION` when HA is not running or cannot change membership at runtime; empty address is `INVALID_ARGUMENT`
+| `ListSessions` | `ListSessionsRequest` | `ListSessionsResponse` | _Since 26.10.1._ Open HTTP authentication sessions, including their bearer tokens. Enable TLS before calling it across an untrusted network
+|===
+
+*Health probes*
+
+[cols="2,2,2,3", options="header"]
+|===
+| RPC | Request | Response | Description
+
+| `Health` | `HealthRequest` | `HealthResponse` | _Since 26.10.1._ Unauthenticated liveness probe; `ok` is `false` only when the HA layer escalated a crash loop
+| `Ready` | `ReadyRequest` | `ReadyResponse` | _Since 26.10.1._ Unauthenticated readiness probe; a not-ready node answers `ready = false` with a `reason` rather than an error status
+|===
 
 [[grpc-messages]]
 ==== Message Types
@@ -157,7 +343,7 @@ re-runs the query; add a unique tie-break such as `ORDER BY createdAt DESC, @rid
 | `stats` | A `QueryUpdateStats` message, *present only for write commands that mutated data*
 |===
 
-`QueryUpdateStats` carries the same write counters the HTTP `stats` object and the Bolt result summary expose — including counts aggregated across OpenCypher `UNION` branches and `CALL { ... }` subqueries:
+`QueryUpdateStats` carries the same write counters the HTTP `stats` object and the Bolt result summary expose, including counts aggregated across OpenCypher `UNION` branches and `CALL { ... }` subqueries:
 
 [cols="2,3"]
 |===
