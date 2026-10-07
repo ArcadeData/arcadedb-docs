@@ -19,6 +19,15 @@ If the Gremlin port (`gremlin.port`, default `8182`) is already in use, the serv
 *Action:* free the port or set `gremlin.port` to a free one.
 
 [discrete]
+====== 26.11.1 - A plain `=` / `IN` on a `COLLATE CI` index is case sensitive
+
+The planner used to return every case variant for `WHERE Name = 'JOHN'` when a `COLLATE CI` index served the query, while the same predicate evaluated by a scan was case sensitive (issue #9403). The index no longer changes the answer: a plain `=` or `IN` is case sensitive with or without it.
+
+*Impact:* a query that relied on `Name = 'john'` finding `"John"` through a `COLLATE CI` index now returns fewer rows.
+
+*Action:* write the lookup on `Name.toLowerCase()`, for example `WHERE Name.toLowerCase() = 'john'`, which the index serves. See <<case-insensitive-indexes,Case-insensitive indexes>>.
+
+[discrete]
 ====== 26.11.1 - Cypher `DURATION` arithmetic is exact, and `date * duration` is an error
 
 Durations stored in a property are read back as durations, including short ones such as `P1D`, so `ORDER BY` and comparisons on them now work (issue #9338). Duration arithmetic raises an arithmetic error when the result does not fit, instead of returning a wrong value. A date or time combined with a duration using `*`, `/` or `%` is now a type error, and `duration + date` is accepted.
