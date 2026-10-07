@@ -1014,7 +1014,7 @@ The `CALL` clause invokes procedures and functions. This includes built-in datab
 
 [source,cypher]
 ----
-CALL procedureName([arguments])
+[OPTIONAL] CALL procedureName([arguments])
 [YIELD field [AS alias] [, field [AS alias] ...]]
 [WHERE condition]
 ----
@@ -1191,6 +1191,20 @@ CALL db.propertyKeys() YIELD *
 ----
 
 NOTE: When calling a custom `DEFINE FUNCTION` (SQL, JavaScript, OpenCypher, or Java), the result is wrapped in a `value` property, regardless of the language it was defined in. Built-in procedures like `db.labels()` return results with specific property names like `label`, `relationshipType`, or `propertyKey`.
+
+*OPTIONAL CALL:*
+
+`OPTIONAL CALL` is to `CALL` what `OPTIONAL MATCH` is to `MATCH`: when the procedure yields no row for an incoming row - none at all, or none that passes the `YIELD ... WHERE` filter - the incoming row is kept and every yielded name is bound to `null`, instead of the row being dropped.
+
+[source,cypher]
+----
+// Isolated nodes are returned too, with reached = null
+MATCH (s:Person)
+OPTIONAL CALL algo.bfs(s) YIELD node
+RETURN s.name, node.name AS reached
+----
+
+NOTE: Before v26.11.1 an `OPTIONAL CALL` whose procedure ran but yielded no rows dropped the incoming row, like a plain `CALL`; only a procedure that failed produced the `null` row. Queries such as `MATCH (s) OPTIONAL CALL algo.bfs(s) YIELD node RETURN count(*)` now also count the nodes that reach nothing.
 
 *Subqueries (CALL { ... }):*
 
