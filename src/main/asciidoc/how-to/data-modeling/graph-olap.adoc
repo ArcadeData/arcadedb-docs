@@ -354,12 +354,16 @@ On grids, the hardest case for this technique, a query on 360,000 vertices takes
 
 *Keeping up with changes*
 
-The hierarchy follows the view: every change the view absorbs is followed by a background preparation, on the view's build executor.
+The hierarchy follows the view: every change the view absorbs is followed by a background preparation, on the view's build executor. In `SYNCHRONOUS` mode most changes are caught up in milliseconds:
 
-* A weight change, a deleted edge (an infinite weight), or a new edge between two vertices the hierarchy already joins only *re-customizes*. That takes a fraction of the time the order takes, and is skipped when no weight the hierarchy reads has changed.
-* A new edge between two vertices the hierarchy does not join, or a new vertex with edges, needs a new order and contraction.
+* A weight change, a closed road (an infinite weight) or a deleted edge re-customizes only the part of the hierarchy above the edges that changed. The view keeps its CSR: the new weight of an edge that is the only one of its type between its two vertices is served from the view's change overlay, without rebuilding anything.
+* A new edge between two vertices the hierarchy already joins is handled the same way.
+* A new edge between two vertices it does not join, or a new vertex with edges, needs a new contraction. The existing vertex order is kept, with new vertices ranked first, so this costs a contraction and a customization rather than a full build.
+* A weight change on an edge that has a parallel twin of the same type between the same two vertices makes the view rebuild its CSR in the background, because the view cannot tell which of the two changed. The hierarchy then catches up from the rebuilt view.
 * While a preparation is running, queries are answered by bidirectional Dijkstra, so an answer never reflects an older state than the view itself.
 * Directed (`OUT`/`IN`) queries are prepared from the start. Undirected (`BOTH`) ones need a second metric, customized the first time a `BOTH` query asks for it, so that first query and any during its customization are answered by Dijkstra.
+
+Measured on the California road network (DIMACS `USA-road-d.CAL`: 1.9M vertices, 4.7M arcs) through a database: a query takes 0.04 to 0.1 ms at any distance, against 18 to 230 ms for Dijkstra; updating 1, 10 and 100 weights takes about 0.7, 8 and 65 ms from commit until the hierarchy answers for it; closing a road about 4 ms; adding a road the hierarchy does not join about 0.9 s; the first build about 13 s. Each query needs a few tens of KB of scratch, sized to the depth of the hierarchy rather than to the graph.
 
 The order is persisted next to the view's CSR at a clean close (see <<gav-csr-persistence,CSR Persistence>>) and reused when the database is reopened with nothing committed in between, so a reopen only contracts and customizes.
 
