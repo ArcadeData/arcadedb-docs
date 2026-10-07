@@ -55,6 +55,46 @@ alter database `arcadedb.dateImplementation` `java.util.Date`
 ```
 
 [discrete]
+#### Time of Day, Zoned Datetime and Duration Types
+
+_(Available since v26.11.1)_ Four more types hold what the openCypher `time()`, `localtime()`, `datetime()` and `duration()` functions return, without losing the offset, the zone or the months/days parts:
+
+- `OFFSET_TIME`, a time of day with a UTC offset (`java.time.OffsetTime`). Example: `09:00:00-05:00`
+- `LOCAL_TIME`, a time of day without an offset (`java.time.LocalTime`). Example: `10:15:30`
+- `ZONED_DATETIME`, a datetime with the zone or offset it was written with (`java.time.ZonedDateTime`). Example: `2024-01-01T10:00:00+01:00[Europe/Rome]`
+- `DURATION`, an openCypher duration with months, days, seconds and nanoseconds (`DURATION` values read back as `com.arcadedb.query.opencypher.temporal.CypherDuration`). Example: `P1M2DT3S`
+
+openCypher stores these four natively, so a value always reads back as what it was written as, with no guessing from its text. A String that merely looks temporal, such as the opening hours `09:00-17:00` or a code like `P100D`, is a String and stays a String. Before 26.11.1 these four types were stored as Strings and openCypher guessed their type when reading an undeclared property, so `09:00-17:00` came back as a time and `WHERE l.hours = '09:00-17:00'` matched nothing.
+
+All four can be indexed, with both `LSM_TREE` and `HASH`. A `ZONED_DATETIME` and an `OFFSET_TIME` index by the instant, so `12:00:00+01:00` and `11:00:00Z` are the same key, and a unique index refuses the second one.
+
+If a property is declared with one of these types and a record holds a String for it, the String is converted when the record is read and saved in the native type the next time the record is written. A String that cannot be converted is read as it is.
+
+NOTE: a zoned `datetime()` written to a property declared `DATETIME` is stored as an instant and reads back as the UTC wall clock, like any other `java.time` value. Before 26.11.1 it kept the local wall clock of its zone.
+
+##### Migrating Cypher Temporals Stored as Strings
+
+A database written by an earlier version holds these values as Strings in undeclared properties, and they are now read as Strings. To get native values back, declare the property with its type and copy the String into it. `UPDATE Place SET hours = hours` does not do it: with the property declared the read has already converted the String, so the value looks unchanged and ArcadeDB skips the write.
+
+The script parks the String in a scratch property, declares the property, and copies the String back. Run it with `sqlscript`, once per property, replacing `Place`, `hours` and `OFFSET_TIME` (use `LOCAL_TIME`, `ZONED_DATETIME` or `DURATION` for the other types):
+
+```sql
+BEGIN;
+UPDATE Place SET hours_old = hours;
+UPDATE Place REMOVE hours;
+COMMIT;
+
+CREATE PROPERTY Place.hours OFFSET_TIME;
+
+BEGIN;
+UPDATE Place SET hours = hours_old WHERE hours_old IS NOT NULL;
+UPDATE Place REMOVE hours_old;
+COMMIT;
+```
+
+Only run it on a property that holds temporal Strings. A String that cannot be converted to the declared type is left as it is in the scratch property and is lost when `hours_old` is removed, so check `SELECT FROM Place WHERE hours_old IS NOT NULL AND hours IS NULL` before the last `UPDATE`. On a large type, run the `UPDATE` statements in batches with `LIMIT`.
+
+[discrete]
 #### Date and Datetime Formats
 
 In order to make the internal count from the Unix Epoch into something human readable, ArcadeDB formats the count into date and datetime formats.  By default, these formats are https://en.wikipedia.org/wiki/ISO_8601[ISO 8601]:
