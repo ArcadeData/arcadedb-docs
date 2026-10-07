@@ -840,6 +840,13 @@ Return:
 {"result": "ok"}
 ----
 
+[[http-cluster-auth-session]]
+===== Cluster authentication session lookup (POST, internal)
+
+_(Since v26.10.1)_ `POST /api/v1/cluster/auth-session` is a cluster-internal route that lets servers share authentication tokens (see _Tokens in a cluster_ under <<token-authentication,Token-Based Authentication>>). It is not meant for clients and is listed here only so it is not mistaken for a public API. The request must arrive through the cluster-token channel (`X-ArcadeDB-Cluster-Token` header) on behalf of the root user: a request without that header is refused with `403`, even with root credentials, and an invalid cluster token gets `401`.
+
+The body is `{"token": "<AU-... token>", "action": "validate" | "revoke"}` (`action` defaults to `validate`). `validate` answers `200` with `{"user": ..., "createdAt": ...}` when this server issued the session, and `404` otherwise (including for a copy held on behalf of another server); `revoke` drops the session and answers `204`. A missing token or an unknown action answers `400`.
+
 [[http-listdatabases]]
 ===== List Databases (GET)
 
@@ -1392,6 +1399,196 @@ curl -X POST http://localhost:2480/api/v1/query/mydb \
 ----
 
 Malformed markers (invalid base64, non-numeric `$int8` element, value out of `[-128, 127]`, `null` payload) return `400 Bad Request` with a message naming the marker and the offending value.
+
+[[http-vector-search]]
+===== Vector search (POST)
+
+_(Since v26.10.1)_ Returns the nearest neighbors of a query vector in a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index, without writing the `vector.neighbors` SQL by hand. ArcadeDB does not compute embeddings: the caller supplies the vector. The same request body and limits apply to the MCP `vector_search` tool and the gRPC `VectorSearch` RPC.
+
+URL Syntax: `/api/v1/vector/{database}/search`
+
+The JSON body accepts:
+
+- `indexName` (required) name of the vector index, for example `Doc[embedding]`
+- `queryVector` (required) array of numbers, not empty, finite values only. On a dense index its length must match the index dimensions and at least one value must be non-zero. With `sparse: true` it holds the weights matching `queryIndices`, or the full vector when `queryIndices` is omitted (zero entries are dropped)
+- `k` (optional, default `10`) maximum number of results, between `1` and `1000`
+- `sparse` (optional, default `false`) search an `LSM_SPARSE_VECTOR` index instead of a dense one. The index type must match the flag
+- `queryIndices` (optional, sparse only) dimension ids matching the `queryVector` weights: non-negative integers, no duplicates, same length as `queryVector`. Refused without `sparse: true`
+- `efSearch` (optional, dense only) HNSW search beam width, between `1` and `10000`. Refused with `sparse: true`
+- `filter` (optional) read-only SQL `WHERE` predicate, at most 4096 characters, applied to each neighbor row (record properties are flattened, and `@rid`, `@type`, `record` plus `distance` or `score` are available). With a filter the search inspects a candidate window of `k * 8` rows, at most 8000, reported as `candidateLimit`
+
+The response carries:
+
+- `indexName`, `sparse`
+- `scoring`: the ranking direction, for example `distance_lower_is_better:COSINE` for a dense index, or `score_higher_is_better:dot_product` (`score_higher_is_better:idf_weighted_dot_product` with the IDF modifier) for a sparse one
+- `candidateLimit`: the candidate window inspected
+- `truncated`: `true` when `k` results were returned, so more matches may exist
+- `count`, `results`: each hit has `rid`, `properties` and either `distance` (dense, lower is better) or `score` (sparse, higher is better). Records deleted between the index scan and the load are skipped, so a search can return fewer than `k` hits
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] missing body, missing or out-of-range argument, unknown index or wrong index type (the message lists the available indexes), invalid filter expression
+* https://httpstatuses.io/401[`401`] missing or invalid credentials
+* https://httpstatuses.io/403[`403`] the user has no access to the database
+
+The route runs without a transaction. A `400` caused by a bad argument does not roll back a transaction the client opened with <<http-begin,`/begin`>>.
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/vector/mydb/search \
+       -d '{"indexName": "Doc[embedding]", "queryVector": [0.12, 0.85, 0.33], "k": 2, "filter": "lang = '\''en'\''"}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{
+  "indexName": "Doc[embedding]",
+  "sparse": false,
+  "scoring": "distance_lower_is_better:COSINE",
+  "candidateLimit": 16,
+  "truncated": true,
+  "count": 2,
+  "results": [
+    { "rid": "#12:4", "distance": 0.018, "properties": { "@rid": "#12:4", "@type": "Doc", "title": "Graphs 101", "lang": "en" } },
+    { "rid": "#12:9", "distance": 0.041, "properties": { "@rid": "#12:9", "@type": "Doc", "title": "Vector search", "lang": "en" } }
+  ]
+}
+----
+
+[[http-vector-hybrid]]
+===== Hybrid search (POST)
+
+_(Since v26.10.1)_ Fuses a vector leg, an optional full-text leg and an optional graph expansion leg into one ranked list, using the engine's `vector.fuse` function. The same request body and limits apply to the MCP `hybrid_search` tool and the gRPC `HybridSearch` RPC.
+
+URL Syntax: `/api/v1/vector/{database}/hybrid`
+
+The JSON body accepts:
+
+- `vectorIndexName` (required) name of the vector index
+- `queryVector`, `queryIndices`, `sparse`, `efSearch`, `filter` (vector leg): same meaning and limits as in <<http-vector-search,Vector search>>. The `filter` applies to the vector leg only
+- `k` (optional, default `10`) maximum number of fused results, between `1` and `1000`. Each retrieval leg fetches `k * 4` rows, at most 1000, before fusion
+- `fulltextIndexName` and `fulltextQuery` (optional) add the full-text leg: a `FULL_TEXT` index and a Lucene-syntax query. They must be given together, otherwise the request is refused. Note the field is `fulltextQuery`, not `queryText` as in <<http-vector-fulltext,Full-text search>>
+- `fusionStrategy` (optional, default `RRF`) one of `RRF`, `DBSF`, `LINEAR`, case-insensitive
+- `weights` (optional) object with per-leg weights: `vector` (default `1.0`), `fulltext` (default `1.0`), `expand` (default `0.5`). Each must be a finite number, not negative. Any other key, or a weight for a leg the request does not run, is refused
+- `expand` (optional) object that adds the graph expansion leg, seeded from the results of the retrieval legs (at most 256 seeds) and ranked by breadth-first discovery order:
+** `edgeTypes` (optional) edge type names to walk; each must exist. Empty or omitted walks every edge type
+** `direction` (optional, default `out`) one of `out`, `in`, `both`
+** `maxDepth` (optional, default `1`) between `1` and `3`
++
+The expansion returns at most 2000 records. Both the vector index and the full-text index must be declared on vertex types. Since the expansion leg has no score, it can only be used with `RRF`.
+
+The response carries `vectorIndexName`, `sparse`, `scoring`, `fused`, `truncated`, `count`, `results`, plus:
+
+- `fulltextIndexName` when the full-text leg ran
+- `fusionStrategy` (upper-cased) when `fused` is `true`
+- `legs`: per-leg accounting. `vector.count` always; `fulltext` with `indexName`, `similarity` (`BM25` or `CLASSIC`) and `count` when that leg ran; `expand` with `direction`, `edgeTypes`, `maxDepth`, `truncated` (fan-out cap reached), `seedCount`, `seedsTruncated` and `count` when `expand` was given
+
+Fusion needs at least two legs that returned rows. When only the vector leg did, `fused` is `false` and each hit carries the native `distance` (dense) or `score` (sparse) instead of a fused score. Otherwise each hit has `rid`, `fusedScore` (higher is better), `sources` (the legs that produced it: `vector`, `fulltext`, `expand`) and `properties`, plus `depth` and `path` (RIDs from the seed, seed included) for a hit found by the expansion.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] missing body, missing or out-of-range argument, unknown index, edge type or strategy, half a full-text leg, `expand` with a strategy other than `RRF` or on a non-vertex type, invalid filter or full-text query
+* https://httpstatuses.io/401[`401`] missing or invalid credentials
+* https://httpstatuses.io/403[`403`] the user has no access to the database
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/vector/mydb/hybrid \
+       -d '{
+             "vectorIndexName": "Doc[embedding]",
+             "queryVector": [0.12, 0.85, 0.33],
+             "fulltextIndexName": "Doc[content]",
+             "fulltextQuery": "+graph database",
+             "k": 5,
+             "expand": { "edgeTypes": ["Cites"], "direction": "out", "maxDepth": 1 }
+           }' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return (abridged):
+
+[source,json]
+----
+{
+  "vectorIndexName": "Doc[embedding]",
+  "sparse": false,
+  "scoring": "distance_lower_is_better:COSINE",
+  "legs": {
+    "vector": { "count": 20 },
+    "fulltext": { "indexName": "Doc[content]", "similarity": "BM25", "count": 7 },
+    "expand": { "direction": "out", "edgeTypes": ["Cites"], "maxDepth": 1, "truncated": false,
+                "seedCount": 24, "seedsTruncated": false, "count": 11 }
+  },
+  "fused": true,
+  "fusionStrategy": "RRF",
+  "fulltextIndexName": "Doc[content]",
+  "truncated": true,
+  "count": 5,
+  "results": [
+    { "rid": "#12:4", "fusedScore": 0.0325, "sources": ["vector", "fulltext"], "properties": { "@rid": "#12:4", "@type": "Doc", "title": "Graphs 101" } },
+    { "rid": "#12:17", "fusedScore": 0.0081, "sources": ["expand"], "depth": 1, "path": ["#12:4", "#12:17"], "properties": { "@rid": "#12:17", "@type": "Doc", "title": "Property graphs" } }
+  ]
+}
+----
+
+[[http-vector-fulltext]]
+===== Full-text search (POST)
+
+_(Since v26.10.1)_ Runs a Lucene-syntax query against a `FULL_TEXT` index and returns the matching documents, highest score first (ties ordered by RID). The same request body and limits apply to the MCP `full_text_search` tool and the gRPC `FullTextSearch` RPC.
+
+URL Syntax: `/api/v1/vector/{database}/fulltext`
+
+The JSON body accepts:
+
+- `queryText` (required) Lucene-syntax query, for example `java` or `+java -python`. Must not be blank
+- `indexName` (optional) the full-text index to search. Wins over `typeName` when both are given
+- `typeName` (optional) the type whose full-text index to search. Alone, it works only when the type has exactly one full-text index. An index declared on a supertype is named after the supertype
+- `properties` (optional) array of indexed property names, to pick one of several full-text indexes on `typeName`
+- `limit` (optional, default `10`) maximum number of results, between `1` and `1000`
+
+One of `indexName` or `typeName` is required. The response carries `indexName`, `similarity` (`BM25` or `CLASSIC`), `count` and `results`, where each hit has `rid`, `score` and `properties`. The limit is applied per bucket, so a record deleted between the index scan and the load is skipped rather than replaced, and a search can return fewer than `limit` hits.
+
+Responses:
+
+* https://httpstatuses.io/200[`200`] OK
+* https://httpstatuses.io/400[`400`] missing body, blank `queryText`, `limit` out of range, no index addressed, unknown or ambiguous index (the message lists the available full-text indexes), invalid Lucene syntax
+* https://httpstatuses.io/401[`401`] missing or invalid credentials
+* https://httpstatuses.io/403[`403`] the user has no access to the database
+
+Example:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/vector/mydb/fulltext \
+       -d '{"typeName": "Doc", "queryText": "+graph -relational", "limit": 3}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Return:
+
+[source,json]
+----
+{
+  "indexName": "Doc[content]",
+  "similarity": "BM25",
+  "count": 1,
+  "results": [
+    { "rid": "#12:4", "score": 2.71, "properties": { "@rid": "#12:4", "@type": "Doc", "title": "Graphs 101" } }
+  ]
+}
+----
 
 [[http-begin]]
 ===== Begin a transaction (POST)

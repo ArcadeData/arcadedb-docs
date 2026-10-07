@@ -95,6 +95,69 @@ REBUILD INDEX `Product[name]`
 This rewrites the index with the keys folded correctly. See <<case-insensitive-indexes,Case-insensitive indexes>>.
 
 [discrete]
+====== 26.10.1 - Writes that used to store NULL or a coerced value now fail
+
+A value that the declared property type cannot take is refused with an error naming the property, instead of being stored silently as `NULL` or coerced (issues #8090, #9110). This covers:
+
+* an unparsable datetime string written to a `DATETIME`/`DATE` property (the SQL timestamp form `2024-02-29 13:45:10.123456`, which PostgreSQL clients send, is now parsed instead of being stored as `NULL`);
+* a number that overflows a `LONG`, `FLOAT` or `DOUBLE` property, an empty string written to a number, a fraction written to a `BOOLEAN`, and wrong-typed values written to `DECIMAL`, `DATETIME`, `BINARY` or `LINK` properties;
+* a typed property set from a bare sub-query, for example `UPDATE Order SET id = (SELECT max(id) FROM Order)`, which used to store `NULL` and now fails with `Cannot convert type ArrayList to INTEGER`.
+
+Schemaless properties are unaffected.
+
+*Action:* fix the statements that now fail. For a sub-query, extract the scalar, for example `SET id = (SELECT max(id) AS m FROM Order)[0].m`.
+
+[discrete]
+====== 26.10.1 - A write computed from a stale read is refused
+
+A property write on a record that another transaction changed after the current transaction read it is refused with a retryable `ConcurrentModificationException`, instead of silently overwriting the concurrent change (issue #8610). SQL `UPDATE` and Cypher `SET`/`MERGE`/`REMOVE` are not affected, since they compute their values from the latest data. See <<isolation,Isolation>>.
+
+*Action:* retry the transaction on `ConcurrentModificationException` (the `database.transaction(..., retries)` API does). Set `arcadedb.txStaleReadCheck=false` to restore the previous last-writer-wins behavior.
+
+[discrete]
+====== 26.10.1 - `TRUNCATE TYPE` refuses a vertex or edge type that holds records
+
+The refusal was documented but never fired, so `TRUNCATE TYPE` silently emptied live vertex and edge types (issue #8042).
+
+*Action:* add `UNSAFE` where the truncation is intended. See <<sql-truncate-type,TRUNCATE TYPE>>.
+
+[discrete]
+====== 26.10.1 - Postgres wire: `ROLLBACK TO SAVEPOINT` is refused
+
+It used to answer success while keeping every write made since the savepoint, so the next `COMMIT` persisted them. It now fails with SQLSTATE `0A000` and the transaction must be rolled back. See <<postgres-savepoints,Savepoints>>.
+
+[discrete]
+====== 26.10.1 - Stricter authorization for schema DDL and Gremlin scripting
+
+* `ALTER TYPE` (including the edge-type `lightweight` and `unique` settings) and `REBUILD TYPE` require the `updateSchema` permission (security advisory GHSA-9c7g-grf7-j2r5).
+* Gremlin capabilities that run code or touch files on the host are reserved to `root`: the `groovy` engine (and the `auto` fallback to it) over HTTP, Gremlin Server scripts in a language other than `gremlin-lang`, bytecode that carries a lambda, and the `io()` step on every engine (security advisory GHSA-h2j4-28h8-cj5v). Plain `gremlin-lang` traversals are unchanged. Embedded use without a bound user is unaffected.
+
+*Action:* grant `updateSchema` to the users that manage types, and run Groovy scripts, lambdas and `io()` as `root` or rewrite them as `gremlin-lang` traversals. See <<gremlin-security,Gremlin security>>.
+
+[discrete]
+====== 26.10.1 - API tokens minted over plain HTTP are logged
+
+`POST /api/v1/server/api-tokens` over plain HTTP from a non-loopback peer still works, but logs a WARNING. The new gRPC `CreateApiToken` RPC always requires TLS or a loopback peer. With `arcadedb.server.apiTokenRequireSecureTransport=true` it is refused with `412`, and *the default of that setting is scheduled to change to `true` in 27.1.1*.
+
+*Action:* mint tokens over HTTPS, from localhost, or through a reverse proxy listed in `arcadedb.server.apiTokenTrustedProxies`. See <<http-api-tokens,Create an API token>> and, for the Docker first-run flow on `http://localhost:2480`, <<docker-api-token,Docker>>.
+
+[discrete]
+====== 26.10.1 - HA defaults that changed
+
+[cols="1,1,2",options="header"]
+|===
+|Setting|Before 26.10.1|From 26.10.1
+|`ha.securityConvergenceReadinessTimeout`|no gate|With `server.readinessRequiresHA` on, a node that joined at runtime or installed a snapshot reports NOT READY for up to 30 s until its users, groups and API tokens match the leader's (issues #7819, #8414). `0` disables it.
+|`ha.securityEntryCapabilityGate`|n/a|`true`: creating or changing a group or API token is refused with `409` while any peer is down or still runs an older version, so a rolling upgrade never halts an old node. It succeeds once every node is up on 26.10.1.
+|`ha.txSchemaCheck`|n/a|`true`: a replica transaction prepared before a schema change the leader already applied is refused with a retryable `ConcurrentModificationException`. Expect retries on replicas during DDL.
+|`ha.divergedFollowerRecoveryDurationMs`|shared `ha.staleFollowerRecoveryDurationMs` (60000)|separate window, default 20000. A deployment that raised the old setting to delay the reformat of a diverged follower must raise this one.
+|`ha.grpcMaxConnectionIdleMs`|unbounded|300000: an idle inbound Raft gRPC connection is closed with a GOAWAY and reopened on the next call. `0` restores the old behavior.
+|`ha.jvmPauseCloseThresholdMs`|Ratis closed the Raft division after a 60 s JVM pause|`0`: the division is not closed; a long pause still steps a leader down and the health monitor decides on recovery. Set `60000` to restore the old behavior.
+|===
+
+See <<upgrade-ha-cluster,HA cluster upgrade>> for the rolling-upgrade procedure.
+
+[discrete]
 ====== 26.9.1 — Sparse-vector indexes need one `REBUILD INDEX` after upgrading
 
 A partial compaction of an `LSM_SPARSE_VECTOR` index could give the merged segment a position ahead of a segment it had not merged. When that skipped segment held the tombstone for a document an older merged segment still had a live posting for, the delete was overruled and the document reappeared in `vector.sparseNeighbors` results — permanently, because the next full compaction then discarded the tombstone as the loser. The same inversion could restore a stale weight after an update. Fixed in 26.9.1 (issue #6379).
