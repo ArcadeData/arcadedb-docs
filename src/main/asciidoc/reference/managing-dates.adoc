@@ -36,10 +36,14 @@ If you're working with the Java API, by default ArcadeDB uses the new Java Time 
 
 The supported implementations are:
 
-- for `DATE`: `java.time.LocalDate` (default), `java.util.Date`, `java.util.Calendar`
+- for `DATE`: `java.time.LocalDate` (default), `java.util.Date`, `java.util.Calendar`, `java.time.LocalDateTime` (midnight of the day)
 - for `DATETIME`: `java.time.LocalDateTime` (default), `java.util.Date`, `java.util.Calendar`, `java.time.ZonedDateTime`, `java.time.Instant`
 
 NOTE: `java.util.Date` and `java.util.Calendar` can only handle precision down to the millisecond. When `arcadedb.dateTimeImplementation` is set to one of them, `DATETIME_MICROS` and `DATETIME_NANOS` values are returned as `java.time.LocalDateTime`, so no precision is lost; `DATETIME` and `DATETIME_SECOND` values are returned as the configured class. Before 26.10.1 such `DATETIME_MICROS`/`DATETIME_NANOS` values were read back as `NULL` (the data on disk was intact and reads correctly after the upgrade).
+
+NOTE: before 26.11.1, `arcadedb.dateImplementation=java.time.LocalDateTime` read every `DATE` as a timestamp in January 1970 and the value read could not be written back. A `DATE` now reads as midnight of its day, and writing a `LocalDateTime` to a `DATE` property keeps only the day. The data on disk was never affected.
+
+NOTE: stored `DATETIME` values keep no time zone. In an openCypher comparison a stored value takes the zone of the datetime it is compared with, so `e.ts = datetime('2026-01-01T11:00:00Z')` and `e.ts = datetime('2026-01-01T12:00:00+01:00')` both match the same instant, whatever `arcadedb.dateTimeImplementation` is set to. Before 26.11.1, with `java.time.ZonedDateTime` a stored value did not equal the `Z` literal for its own instant, and with `java.util.Date` or `java.time.Instant` it matched `Z` but not the same instant in another zone.
 
 NOTE: before 26.10.1, setting `arcadedb.dateImplementation` to `java.util.Date` or `java.util.Calendar` was not applied to `DATE` properties: values were stored as a full timestamp and read back as a `java.time.LocalDateTime`. If you used that setting, `DATE` properties written by an earlier version hold a timestamp rather than a day, and the extra time of day is still there when you read them.
 
