@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - Client requests wait in a queue when the server is busy
+
+Every request of a remote client (HTTP, Postgres, BOLT, Redis, gRPC, Gremlin Server, MCP, MongoDB) now goes through a query admission gate: at most twice the number of cores run at once, and a request that arrives when they are all taken, or when the running queries hold more than 80% of the query heap budget, waits in a queue and starts in arrival order (issue #9518). Before, every request started at once, and under a burst of heavy queries the last ones were refused by the heap budget or exhausted the heap.
+
+*Impact:* under load a request can wait before it starts, up to `arcadedb.queryQueueTimeout` (30 seconds by default), and is refused as retryable once that runs out or when `arcadedb.queryQueueMaxSize` requests already wait (HTTP `503`). A MongoDB request is refused at once instead of waiting. A BOLT result stream that is not read to the end keeps its slot until it is.
+
+*Action:* none for most installations. Size the gate with `arcadedb.queryMaxConcurrent`, `arcadedb.queryAdmissionHeapWatermark`, `arcadedb.queryQueueTimeout` and `arcadedb.queryQueueMaxSize` (see <<setting-table,Settings>>), or set `arcadedb.queryMaxConcurrent=0` for the previous behavior.
+
+[discrete]
 ====== 26.11.1 - The Gremlin plugin fails the server start when its port is busy
 
 If the Gremlin port (`gremlin.port`, default `8182`) is already in use, the server now stops with an error. Before, it started without a Gremlin listener and still advertised the port in `GET /api/v1/server` (issue #9319). With `gremlin.port=0` a free port is chosen at startup and advertised.
