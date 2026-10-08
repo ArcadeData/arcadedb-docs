@@ -37,6 +37,15 @@ Durations stored in a property are read back as durations, including short ones 
 *Action:* none for normal use. A range index on a duration property still orders by its text form (issue #9348).
 
 [discrete]
+====== 26.11.1 - Sparse-vector top-K is split across workers from 50,000 postings
+
+`vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now splits a query across the scoring workers once its terms hold 50,000 postings in total (setting `arcadedb.sparseVectorScoringMinPostingsForPartitioning`, default `50000`, was `200000`). Queries between 50,000 and 200,000 postings used to run on one thread and set the slowest latencies. A query just past the threshold uses two ranges and leaves the other workers free; wider queries use more (issue #9482).
+
+*Impact:* results are the same. Queries in that size range are faster, and use more CPU when the server is otherwise idle.
+
+*Action:* none. On a small or shared server where CPU matters more than latency, raise `arcadedb.sparseVectorScoringMinPostingsForPartitioning` (for example back to `200000`).
+
+[discrete]
 ====== 26.10.1 — Sparse-vector top-K scores a window of documents at a time
 
 `vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now scores documents in windows (setting `arcadedb.sparseVectorScoringWindow`, default `16384`). On wide queries this is about twice as fast, and queries no longer wait for a `COMPACT INDEX` or a memtable flush to finish (issues #9200, #9209, #9210).
