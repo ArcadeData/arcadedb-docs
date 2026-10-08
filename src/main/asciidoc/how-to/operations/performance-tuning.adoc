@@ -167,6 +167,60 @@ arcadedb.server.httpWorkerThreads=256
 arcadedb.asyncOperationsQueueSize=1024
 ----
 
+[[query-admission-gate]]
+===== Concurrent Requests (Query Admission Gate)
+
+_(since v26.11.1)_ Every request of a remote client passes through a queue before it runs. When the server is busy, requests wait and start in arrival order (FIFO). Without the queue they would all start at once, and under a burst of heavy queries the last ones would be refused by the query heap budget or exhaust the heap.
+
+*How it works*
+
+* A request starts at once when fewer than `arcadedb.queryMaxConcurrent` requests are running and the running queries hold less than `arcadedb.queryAdmissionHeapWatermark` percent of the query heap budget (`arcadedb.queryMaxHeapRAM`). Otherwise it waits in the queue.
+* The wait happens before anything of the request runs. A query started from inside a running request, such as a function or a script, does not queue again.
+* A request that waits longer than `arcadedb.queryQueueTimeout`, or finds `arcadedb.queryQueueMaxSize` requests already waiting, is refused with a retryable error. Nothing of it ran, so the client can send it again as it is.
+* When no admitted request is running, the next one starts whatever the heap, so memory held by work outside the queue cannot block it.
+
+*What goes through the queue*
+
+[%header,cols="25%,40%,35%"]
+|===
+|Protocol |Gated |Refused with
+|HTTP |Every database request: query, command, batch load, vector and full-text search, time series, PromQL and Grafana. Begin, rollback and the health probe are exempt |`503`
+|Postgres |Every statement |SQLSTATE `40001`
+|BOLT |Every query. A result stream keeps its slot until it is read to the end or discarded |transient error
+|Redis |Every command but `PING` and `SELECT` |`TRYAGAIN`
+|gRPC |Queries, commands, record operations, searches and time series. Begin and rollback, the admin service and the streaming loads are exempt |`ABORTED`
+|Gremlin Server |Scripts and traversals (sessions are not gated) |error response
+|MCP |The tools that read or write data |tool error
+|MongoDB |Every command, but it never waits: one that cannot start at once is refused |`ExceededTimeLimit` (262)
+|===
+
+The embedded Java API does not go through the queue.
+
+*Sizing*
+
+* `arcadedb.queryMaxConcurrent` defaults to twice the number of cores, at least 4. Each running request holds one slot for as long as it runs, so long analytical queries next to short ones need room for both: a handful of long queries holding every slot makes the short ones wait and, past the timeout, be refused.
+* Lower it to protect memory when most queries are heavy. Raise it when many requests spend their time waiting on disk or on clients rather than on CPU.
+* Keep `arcadedb.queryQueueMaxSize` (default 256) below `arcadedb.server.httpWorkerThreads` (default 500): each waiting HTTP request parks a worker thread.
+* Keep `arcadedb.queryQueueTimeout` (default 30 seconds) below your clients' own timeouts, so they receive the retryable refusal rather than a timeout of their own.
+* A transaction that took explicit locks (`LOCK TYPE`, `LOCK BUCKET`) keeps them while one of its requests waits in the queue.
+
+[source,properties]
+----
+# At most 16 requests at once, the next ones wait up to 10 seconds
+arcadedb.queryMaxConcurrent=16
+arcadedb.queryQueueTimeout=10000
+
+# Disable the queue: every request starts at once (the behavior before v26.11.1)
+# arcadedb.queryMaxConcurrent=0
+----
+
+*Monitoring*
+
+Studio shows the queue in the Server tab, under Executor Pools, as "Query Admission Gate": the running requests against the limit, the waiting ones, and the refused ones. The same numbers are exported as metrics (`pool=query_admission`) and reported by the profiler (`queryAdmission*`).
+
+* Refusals that keep growing mean the server is undersized for the load, or the limit is too tight for it.
+* `queryAdmissionHeapDeferrals` growing while requests wait means the heap budget, not the number of slots, holds them back: give the server more heap, raise `arcadedb.queryMaxHeapRAM`, or reduce the size of the queries.
+
 ===== Write Optimization
 
 * **Batch transactions** -- Group related writes in a single transaction to amortize commit overhead
