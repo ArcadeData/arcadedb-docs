@@ -402,10 +402,13 @@ of several hops also counted each self-loop once per adjacency list it sits in, 
 the edges that leave them are missing from its adjacency. Edge types do not declare which vertex types they connect, so
 the planner cannot know that a traversal stays inside the view: since v26.11.1 a view is used for SQL `out()`, `in()`,
 `both()`, `MATCH`, `TRAVERSE`, shortest path, the count push-downs and the `algo.*` procedures only when it covers
-every vertex type of the database, and these statements otherwise read the records. Before that they answered with
-the covered part of the graph, for example 0 rows for `MATCH (b:B)-[:E]->(c:C)` on a view over `(A, B)` (issue #9301).
-A view over a subset of the types still serves a one-hop Cypher scan whose labels it holds. To accelerate the other
-statements, list every vertex type.
+every vertex type of the database that holds a vertex, and these statements otherwise read the records. Before that they
+answered with the covered part of the graph, for example 0 rows for `MATCH (b:B)-[:E]->(c:C)` on a view over `(A, B)`
+(issue #9301). A type with no vertex of its own does not count, because no traversal can reach it: a parent type whose
+records all live in the sub-types the view lists (`Message` over `Post` and `Comment`), or a type not used yet. The
+first vertex created in such a type makes the view partial again, without any schema change. A view over a subset of
+the types still serves a one-hop Cypher scan whose labels it holds. To accelerate the other statements, list every
+vertex type that holds vertices.
 
 *Stale views.* A view that is STALE (in `OFF` mode after a commit, or after a failed rebuild) is not used by the
 planner unless `arcadedb.gavUseWhenStale` is `true`, in which case queries read the snapshot as of its last build.
