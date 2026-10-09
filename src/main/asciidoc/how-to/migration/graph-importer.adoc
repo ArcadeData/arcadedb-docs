@@ -12,11 +12,35 @@ WARNING: Never run the importer against a database directory that an ArcadeDB Se
 
 The import runs in two passes:
 
-1. **Pass 1** -- Process each data source once: create vertices with full properties, collect graph topology as compressed int arrays
-2. **Pass 2** -- Create all edges from the in-memory topology using <<java-batch-importer,GraphBatch>>, one batch per edge type with bidirectional edges for full IN+OUT traversal
+1. **Pass 1** -- Process each vertex source once: create vertices with full properties, and collect the edges a vertex source declares (foreign keys, split fields) as compressed int arrays
+2. **Pass 2** -- Create all edges using <<java-batch-importer,GraphBatch>>, one batch per edge type with bidirectional edges for full IN+OUT traversal: first the collected ones, then each edge-only source, streamed from its file straight into its batch _(since v26.11.1; before, edge-only sources were collected in memory first)_
 3. **Vector graphs** -- Build the graph of every `LSM_VECTOR` index on a type the import wrote to, so the index answers at index speed the moment `run()` returns (see <<graph-importer-vector-index-build,Loading into a type with a vector index>>)
 
 The speculative background maintenance of the database's indexes (the vector index's inactivity rebuild) is held off for the whole run, not only while one of the batches is open: a stall between the two passes must not be read as "the load is over".
+
+[[graph-importer-memory]]
+===== Memory and Progress
+
+What the importer keeps in memory grows with the number of vertices, not with the number of edges _(since v26.11.1)_. Per vertex it holds:
+
+- its RID (8 bytes);
+- its identity in a hash map (11 to 17 bytes, or 17 to 26 when the key does not fit in an `int`);
+- while the edges are written, the head of its two edge lists in the edge batch (32 to 48 bytes).
+
+That is roughly 12 to 17 GB of heap for 200 million vertices. The page cache (`arcadedb.maxPageRAM`, a quarter of the heap by default) comes on top of it. Size `-Xmx` for both, or lower `arcadedb.maxPageRAM` to leave the importer more of the heap.
+
+Edge segments are created at the size their edges need. No empty segment is pre-allocated for each vertex: before v26.11.1 the vertex pass wrote 2 KB per vertex, about 400 GB for 200 million vertices.
+
+Each pass logs how far it has got every 30 seconds, with the rate, the heap in use and the share of the time spent in garbage collection pauses:
+
+----
+  WORK         48,350,000 vertices so far (152,331/s, heap 9.12GB of 16.00GB, 3% of the time in GC)
+  CITE         412,876,800 edge rows so far (391,004/s, heap 13.71GB of 16.00GB, 4% of the time in GC)
+----
+
+When more than half of an interval goes to garbage collection, a warning says the heap is too small for the load. A JVM short of heap rarely fails with an `OutOfMemoryError`: it collects back to back and the load slows to a crawl, which from the outside looks like a hang. Restart the import with a larger `-Xmx` or a smaller `arcadedb.maxPageRAM`.
+
+A row of an edge-only source that cannot be read aborts the import. The edges of the rows before it are already written and connected, and a `PARTIAL` warning says how many, the same way a failing vertex source reports the vertices its earlier commits made durable.
 
 ===== Command-Line Usage
 
@@ -285,7 +309,7 @@ Each entry in a vertex's `edges` array defines how to create edges from foreign 
 
 ====== Edge-Only Sources
 
-The `edgeSources` array defines edges where both endpoints already exist as vertices. No vertices are created from these sources:
+The `edgeSources` array defines edges where both endpoints already exist as vertices. No vertices are created from these sources, and their rows are streamed into the database rather than held in memory, so an edge file of billions of rows needs no more heap than a small one (see <<graph-importer-memory,Memory and Progress>>):
 
 [cols="2,1,5"]
 |===
