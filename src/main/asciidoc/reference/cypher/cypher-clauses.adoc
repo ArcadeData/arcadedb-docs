@@ -214,6 +214,22 @@ RETURN p.name, friend.name
 
 NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
 
+*Testing for absence.* An `OPTIONAL MATCH` whose new variable is then tested for `IS NULL` keeps exactly the rows for which the pattern does not exist, which is what `WHERE NOT pattern` says. Since v26.11.1 it is planned that way: when the variables the `OPTIONAL MATCH` introduces are read by nothing but that test (a conjunct of the `WHERE` of the `WITH`, or `FILTER`, right after it), the nodes it shares with the earlier `MATCH` clauses are never null, and that `WITH` neither aggregates nor orders nor pages, the two spellings below run the same plan, including the anti-join count push-down (issue #9598):
+
+[source,cypher]
+----
+MATCH (t1:Tag)<-[:HAS_TAG]-(m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_TAG]->(t2:Tag)
+OPTIONAL MATCH (c)-[h:HAS_TAG]->(t1)
+WITH t1, t2, h WHERE t1 <> t2 AND h IS NULL
+RETURN count(*)
+
+MATCH (t1:Tag)<-[:HAS_TAG]-(m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_TAG]->(t2:Tag)
+WHERE NOT (c)-[:HAS_TAG]->(t1) AND t1 <> t2
+RETURN count(*)
+----
+
+A variable read anywhere else (returned, counted, renamed, carried to a `RETURN *`), an `OPTIONAL MATCH` with its own `WHERE` or starting from a node an earlier `OPTIONAL MATCH` may have left null, and a statement that writes keep the `OPTIONAL MATCH` as written.
+
 ---
 
 [[cypher-where]]

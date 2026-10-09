@@ -463,6 +463,19 @@ error (issue #9596).
 * a `WITH` that only passes variables on, `*` and aliases included (`WITH message, creator`, `WITH m AS x`), with no
 aggregation, `DISTINCT`, `WHERE`, `ORDER BY`, `SKIP` or `LIMIT`: it leaves the number of rows alone, so the statement
 is counted as if the clauses on both sides were one query part (issue #9597).
+* `count(x)` of a node or relationship variable a non-optional `MATCH` binds, which counts the same rows as `count(*)`;
+a single relationship between two unconstrained nodes, `MATCH ()-[e:KNOWS]->() RETURN count(e)` (untyped, with several
+types or undirected too), read from the view's per-type totals, or without a view in one walk of the edge lists that
+loads no edge; and `MATCH (n) RETURN count(n)`, the sum of the vertex types' counters (issue #9600). Unlike the SQL
+`SELECT count(*) FROM KNOWS`, which counts edge records, the relationship count includes lightweight edges, which keep no
+record.
+* the same pattern however it is written: the comma-separated parts of a `MATCH` are read as the graph they describe, so a
+chain cut into parts is counted as the chain, and a cycle such as LSQB Q2 (a `KNOWS` hop closed by a three-hop chain, or
+the same cycle written as four one-hop patterns starting from the post) is split into the probe hop and the chain by the
+statistics - the fan-out of each hop sampled on the label it leaves - rather than by the order of the text (issue #9599).
+* an `OPTIONAL MATCH` only tested for absence (`OPTIONAL MATCH (c)-[h:HAS_TAG]->(t) WITH ... WHERE h IS NULL`), which is
+planned as `WHERE NOT (c)-[:HAS_TAG]->(t)` and so reaches the anti-join push-down (issue #9598, see
+<<cypher-optional-match,OPTIONAL MATCH>>).
 
 A transaction that holds uncommitted changes - any change, even to types the view does not cover - does not use the
 view: the view serves the committed graph only, and a query inside the transaction must see the transaction's own
