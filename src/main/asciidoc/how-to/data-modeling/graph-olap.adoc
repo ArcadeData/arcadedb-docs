@@ -446,6 +446,24 @@ is not stale and covers every vertex type the two labels can match. A count per 
 (`RETURN p.city, count(*)`) keeps its own, even cheaper, edge-count plan, and an order-sensitive aggregate such as
 `collect()`, or a grouped `LIMIT`/`SKIP` without `ORDER BY`, keeps the regular plan.
 
+*Counts that build no row.* A statement whose only output is `count(*)` - and a `COUNT { }` subquery - is answered by a
+count push-down when its pattern is a chain, a star around one node, or one of the LSQB shapes; `EXPLAIN` shows it under
+`Using Count Push-Down`. Since v26.11.1 the push-downs also take:
+
+* a property predicate on a node of a chain or a star, written inline (`(:Message {kind: 'Post'})`) or as a `WHERE`
+conjunct that reads that node alone (`WHERE m.kind = 'Post'`, `WHERE m.created > $since`). It is checked once per
+distinct vertex the position reaches, on the vertex itself, so it costs one record read per such vertex instead of
+the rows of the whole pattern (issue #9595). A conjunct that compares two nodes (`WHERE a.x < b.x`), a property value
+read off another node (`{kind: a.kind}`), `rand()` and pattern predicates still leave the count to the regular plan.
+* a `MATCH` made of parts that share no variable, such as `MATCH (a:Person), (b:Person), (c:Person)`: each part is
+counted on its own, by its own push-down or plan, and the counts are multiplied. An `OPTIONAL MATCH` part counts at
+least one row. Two parts of one `MATCH` clause are multiplied only when the schema proves their relationships cannot
+be the same edge, since a clause binds every relationship once. A product that does not fit a 64-bit integer is an
+error (issue #9596).
+* a `WITH` that only passes variables on, `*` and aliases included (`WITH message, creator`, `WITH m AS x`), with no
+aggregation, `DISTINCT`, `WHERE`, `ORDER BY`, `SKIP` or `LIMIT`: it leaves the number of rows alone, so the statement
+is counted as if the clauses on both sides were one query part (issue #9597).
+
 A transaction that holds uncommitted changes - any change, even to types the view does not cover - does not use the
 view: the view serves the committed graph only, and a query inside the transaction must see the transaction's own
 writes. Such a query, Cypher, Gremlin or a graph algorithm, runs on the records until the transaction commits, which
