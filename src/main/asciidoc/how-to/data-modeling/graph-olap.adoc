@@ -218,6 +218,8 @@ A persisted CSR that plausibly applies is not read from disk during `open()`. Re
 
 Either trigger re-verifies the freshness certificate from scratch at that point (not the one implied at `open()` time), so a commit that lands after `open()` but before the first query is still caught correctly and falls back to a rebuild rather than serving stale data. A session that opens and closes a database without ever touching the view now costs what the no-view baseline costs, not what a restore costs - `close()` does not wait for a restore that was never triggered either.
 
+Since v26.11.1 a query that looks a view up while its restore is in flight (for example the first count push-down, `MATCH` or `shortestPath()` after a reopen) waits for the restore instead of taking the slower record path. The wait is bounded by the `arcadedb.gavQueryRestoreAwaitTimeout` <<arcadedb-settings,database-level setting>> (default `5000` ms, `0` disables the wait).
+
 The `arcadedb.gavRestoreAwaitTimeout` <<arcadedb-settings,database-level setting>> (default `0`) forces the wait at `open()` time instead, for either the deferred restore or a full rebuild: set it to a positive number of milliseconds to trade a slower `open()` for the view being immediately usable by the query that triggered the reopen, rather than the first query racing (and possibly missing) it.
 
 ==== How CSR Works
