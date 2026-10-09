@@ -75,6 +75,12 @@ The SQL standard transaction isolation levels are described in the table below:
 
 The SQL `SERIALIZABLE` level is not supported by ArcadeDB.
 
+Under `REPEATABLE_READ` the pages a transaction reads are kept and read again from there, so a record read twice returns
+the same content. A record larger than a page spans several pages, and the transaction may already hold its first page
+from reading another record stored there. If another transaction rewrites the large record before it is read, the version
+that page belongs to can no longer be read whole, and the read fails with a retryable `ConcurrentModificationException`
+rather than returning parts of two versions. Retrying the transaction reads the new version _(since v26.11.1)_.
+
 *Lost updates.* Under `READ_COMMITTED`, reading a record and then writing a value computed from it is protected against a
 concurrent change: if another transaction committed a change to the record after you read it, saving a property on it
 fails with a retryable `ConcurrentModificationException`, instead of silently overwriting that change. Retrying the
