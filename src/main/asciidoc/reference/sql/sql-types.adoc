@@ -34,11 +34,27 @@ scanning the edges of the type once per query. That scan is held in heap and cou
 a workload that looks up the incoming side often (many small queries by target, or a loop that commits between a write
 and a read) pays that scan every time, and is better served by a bidirectional type.
 +
+Graph algorithms and path procedures ask about the graph rather than about what a vertex stores, so they always answer
+the incoming side of a unidirectional edge type, the same as with a <<graph-olap,Graph Analytical View>>: the Cypher
+`algo.*` procedures, the `path.*` procedures (`path.expand`, `path.expandConfig`, `path.spanningTree`,
+`path.subgraphNodes`, `path.subgraphAll`), the SQL functions `dijkstra()`, `astar()`, `bellmanFord()`,
+`cchShortestPath()` and `duanSSSP()`, and the functions `node.degree`, `node.degree.in`, `node.relationship.exists` and
+`node.relationship.types`. An `algo.*` procedure that loads the whole graph derives the incoming side from the outgoing
+lists of the vertices it loaded, with no scan. A walk that goes vertex by vertex (the `path.*` procedures, the SQL
+path-finding functions, the `node.*` functions) builds one in-heap index per unidirectional type the first time it needs
+it, the scan described above, bounded by `arcadedb.queryMaxHeapElementsAllowedPerOp`. `refactor.mergeNodes`,
+`refactor.cloneNodesWithRelationships` and adding or removing a node's labels in Cypher (which moves the vertex to
+another type) carry the incoming unidirectional edges of the node over too, instead of dropping them. The SQL functions
+`in()`, `inE()`, `both()`, `bothE()` and `shortestPath()` called on their own keep reading what the vertex stores, as
+before.
++
 [NOTE]
 ====
 Up to 26.10.1 a query walking a unidirectional edge type from its target returned no rows and raised no error, and the
 planners could pick that direction on their own for a pattern written from the source. Since 26.10.1 those patterns
-return every matching edge.
+return every matching edge. Up to 26.10.1 the graph algorithms, path procedures and path-finding functions listed above
+saw a unidirectional edge from its source only, and `refactor.mergeNodes`, `refactor.cloneNodesWithRelationships` and a
+Cypher label change dropped the incoming unidirectional edges of the node; since 26.11.1 they answer and keep both sides.
 ====
 * *LIGHTWEIGHT* Defines an edge type (only) whose edges are stored inside the two vertices they connect, with no edge record and therefore no properties. Orthogonal to `UNIDIRECTIONAL`. See <<lightweight-edges,Lightweight Edges>>.
 * *UNIQUE* Defines an edge type (only) that allows at most one edge per ordered `(out, in)` pair of vertices. On a regular edge type this creates a unique index on `(@out, @in)`; on a `LIGHTWEIGHT` type there are no records to index and the check scans the source vertex's edge list instead. See <<lightweight-edges,Lightweight Edges>>.

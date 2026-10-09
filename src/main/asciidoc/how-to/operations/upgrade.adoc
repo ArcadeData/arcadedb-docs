@@ -55,6 +55,24 @@ Durations stored in a property are read back as durations, including short ones 
 *Action:* none. On a small or shared server where CPU matters more than latency, raise `arcadedb.sparseVectorScoringMinPostingsForPartitioning` (for example back to `200000`).
 
 [discrete]
+====== 26.11.1 - Production mode conceals error text on Bolt, Redis, `/ws` and MCP
+
+In `production` server mode the `/ws` insert session, `/ws` change-event subscriptions, Bolt, Redis and MCP now answer an engine failure with "The request failed. Check the server log for the details" and write the detail to the server log, as HTTP, gRPC, PostgreSQL, MongoDB and Gremlin Server already did (issue #8749). Before, they returned the engine's message as is, including the stored values of a duplicated key.
+
+*Impact:* a client of these protocols that reads the error text in production gets the generic message. Error codes, Neo4j status codes, RESP prefixes and exception class names are unchanged, and so is text the protocol writes about the request itself.
+
+*Action:* branch on the code rather than on the message, and read the detail from the server log. See <<production-mode-errors,Error details in production mode>>.
+
+[discrete]
+====== 26.11.1 - Graph algorithms answer the incoming side of unidirectional edge types
+
+The `algo.*` and `path.*` procedures, the path-finding SQL functions (`dijkstra()`, `astar()`, `bellmanFord()`, `cchShortestPath()`, `duanSSSP()`) and the `node.degree*` / `node.relationship.*` functions now follow the edges of a `UNIDIRECTIONAL` type from their target too, as a Graph Analytical View already did (issue #8629). Before, they saw such an edge from its source only, so for example a walk with direction `IN` or `BOTH` missed it. `refactor.mergeNodes`, `refactor.cloneNodesWithRelationships` and changing a node's labels in Cypher no longer drop the incoming unidirectional edges of the node.
+
+*Impact:* results over unidirectional edge types can change (more paths, higher in-degrees, different scores), and now match the results with a Graph Analytical View.
+
+*Action:* none. See <<sql-create-type,`CREATE TYPE`>> for the heap a walk from the target takes.
+
+[discrete]
 ====== 26.10.1 — Sparse-vector top-K scores a window of documents at a time
 
 `vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now scores documents in windows (setting `arcadedb.sparseVectorScoringWindow`, default `16384`). On wide queries this is about twice as fast, and queries no longer wait for a `COMPACT INDEX` or a memtable flush to finish (issues #9200, #9209, #9210).

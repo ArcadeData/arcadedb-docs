@@ -245,6 +245,10 @@ them accumulates unsent frames in the server's memory. Once more than `server.ev
 default) is outstanding towards one connection, that subscription is dropped and the connection closed. Set it to
 `0` to disable the limit.
 
+In `production` server mode an `error` frame answering a failed action carries "The request failed. Check the server
+log for the details" instead of the engine's message, which is written to the server log (since v26.11.1). See
+<<production-mode-errors,Error details in production mode>>.
+
 [[websocket-insert-session]]
 ==== Streaming Inserts over WebSocket
 
@@ -279,6 +283,12 @@ The `batchAck` frame carries `chunkSeq`, the counters `received`, `inserted`, `u
 chunk still goes in. A session the client walks away from - the connection drops, or no frame arrives for
 `server.wsInsertSessionExpireTimeout` milliseconds - is rolled back, and the idle case is reported with an unsolicited
 `error` frame.
+
+NOTE: In `production` server mode the engine's text in an `error` frame and in the `message` of an `errors` entry (for a
+conflict, the key values the row carried) is replaced by "The request failed. Check the server log for the details",
+and the detail is written to the server log. The `code` and the exception class are kept. Text the protocol writes about
+the request itself, such as a missing `keyColumns`, an invalid option or an expired session, stays visible. Before
+v26.11.1 the message was sent as is in every mode. See <<production-mode-errors,Error details in production mode>>.
 
 A `/ws` connection is allowed `server.wsMaxControlFrameSize` (64 KB by default) per text frame until it has an
 insert session, and `server.wsMaxInsertFrameSize` (16 MB) while it has one, so a `chunk` can carry a whole batch

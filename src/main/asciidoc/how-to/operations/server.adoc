@@ -164,11 +164,24 @@ INFO  - Studio web tool: disabled [OK]
 [[production-mode-errors]]
 ====== Error details in production mode
 
-In `production` mode the server does not send internal error text to clients: the HTTP `detail` field is left out, and the gRPC status description and the PostgreSQL error message (the `M` field) are replaced by a generic message. The PostgreSQL SQLSTATE code is kept, so drivers still tell a duplicated key (`23505`) or a syntax error (`42601`) apart. The full error is written to the server log.
+In `production` mode no wire surface sends the engine's own error text to clients. That text can carry stored data (the values of a duplicated key) or details of the server (file paths, URLs), so it is replaced by one generic message, the same on every surface and for every failure: "The request failed. Check the server log for the details". The full error is written to the server log instead. This applies to:
 
-The values of a duplicated key are stored data, so they are hidden too. When a unique index refuses a write, a remote client still receives the exception type, the index name and the existing record's RID, but `DuplicatedKeyException.getKeys()` returns `[concealed]` instead of the key values. HTTP (`exceptionArgs`), gRPC (the `arcadedb-dup-keys` trailer) and PostgreSQL behave the same way. In `development` and `test` mode the key values are returned as before.
+* *HTTP*: the `detail` field is left out of the error response.
+* *gRPC*: the status description carries the generic message.
+* *PostgreSQL*: the error message (the `M` field) carries the generic message. The SQLSTATE code is kept, so drivers still tell a duplicated key (`23505`) or a syntax error (`42601`) apart.
+* *MongoDB*: the protocol words its own error messages and keeps the engine message in the server log.
+* *Gremlin Server*: the default WebSocket channelizer answers with the generic message, see <<gremlin-security,Gremlin security>>.
+* *Bolt*: the `FAILURE` message carries the generic message. The Neo4j status code is kept, so drivers still classify and retry the failure. A Cypher syntax error is concealed too, and keeps its `Neo.ClientError.Statement.*` code.
+* *Redis*: the text of an error reply after its `ERR`, `TRYAGAIN` or `NOPERM` prefix is the generic message. Errors of the RESP protocol itself, such as `wrong number of arguments` or `value is not an integer or out of range`, and the refusal of a credential or a permission stay visible.
+* *`/ws` insert session*: the `error` frames and the `message` of each entry of a `batchAck` `errors` array carry the generic message. The `code` and the exception class are kept. Text the protocol writes about the request itself, such as a missing `keyColumns`, an invalid option or an expired session, stays visible, as it is what the client needs to fix the request.
+* *`/ws` change-event subscriptions*: the `error` frames of a failed action carry the generic message.
+* *MCP*: a tool error, and the `Internal error` of a JSON-RPC error, carry the generic message. The validation of the tool arguments (a missing `database`, an unknown tool, a limit out of range) stays visible.
 
-NOTE: The `/ws` insert session, Bolt and Redis do not yet apply this rule and still return the error message as is.
+The structured part a client branches on (an error code, a Neo4j status, a RESP prefix, an exception class name) is never concealed, and neither is text the protocol layer writes itself about the request, which carries no stored data. In the server log, a failure the client did not cause is logged at `SEVERE` with its stack trace, and a failure the client caused (a duplicated key, a syntax error, a validation refusal) is logged with its message only: at `INFO`, or at `FINE` for the per-row errors of a `/ws` insert session, where a bulk load can refuse thousands of rows by design.
+
+The values of a duplicated key are stored data, so they never reach the client in production mode. When a unique index refuses a write, a remote client still receives the exception type, the index name and the existing record's RID, but `DuplicatedKeyException.getKeys()` returns `[concealed]` instead of the key values. HTTP (`exceptionArgs`), gRPC (the `arcadedb-dup-keys` trailer), PostgreSQL and MongoDB behave the same way; on Bolt, Redis, the `/ws` insert session and MCP the whole message is concealed. In `development` and `test` mode the key values and the full error messages are returned as before.
+
+NOTE: Before v26.11.1 the `/ws` insert session, `/ws` subscriptions, Bolt, Redis and MCP returned the engine's error message as is in every mode, duplicated key values included. A client of these protocols that parses the error text receives the generic message in production mode now: branch on the error code, the Neo4j status or the RESP prefix instead, and read the detail from the server log.
 
 [[server-default-databases]]
 ===== Create default database(s)
