@@ -262,6 +262,23 @@ hosts are accepted. See also <<backup,Backup>>.
 | `Ready` | `ReadyRequest` | `ReadyResponse` | _Since 26.10.1._ Unauthenticated readiness probe; a not-ready node answers `ready = false` with a `reason` rather than an error status
 |===
 
+[[grpc-cancellation]]
+==== Cancellation and running statements
+
+_Since 26.11.1._ The `ArcadeDbService` RPCs whose client sends a single request (such as `ExecuteQuery`,
+`ExecuteCommand`, `StreamQuery`, the search RPCs and `TimeSeriesQuery`; not the client-streaming inserts and loads,
+nor `BeginTransaction` and `RollbackTransaction`) are listed, while they run, by the HTTP <<http-running-queries,`list queries`>>
+server command and by Cypher <<cypher-show-transactions,`SHOW TRANSACTIONS`>>, with `protocol` `grpc`, and can be
+stopped by `terminate query`, `TERMINATE TRANSACTIONS` or Studio.
+
+A client that cancels a call, or whose deadline expires, or whose connection drops, terminates the server-side work
+too: the server stops it at its next check instead of running it to the end for an answer nobody reads.
+
+A terminated call ends with status `CANCELLED` and the trailer `arcadedb-exception-class` set to
+`com.arcadedb.exception.QueryTerminatedException`; the gRPC Java client raises that exception, which it does not retry.
+A statement terminated inside a client-managed transaction (`BeginTransaction`) ends that transaction: it is rolled
+back, and a later `CommitTransaction` answers `committed = false`.
+
 [[grpc-messages]]
 ==== Message Types
 

@@ -388,6 +388,47 @@ Every parameter PostgreSQL 17 knows is accepted, as is any name the client sent 
 * a parameter PostgreSQL lets only the server configuration change, such as `shared_buffers` or `wal_level`, is refused
 with `55P02`.
 
+[[postgres-cancel]]
+===== Cancelling a statement
+
+Since v26.11.1 a cancel request works as in PostgreSQL. The `CancelRequest` that JDBC's `Statement.cancel()`, pgjdbc's
+`setQueryTimeout()` and libpq's `PQcancel` send stops the statement the connection is running: it fails with SQLSTATE
+`57014` (`query_canceled`), what it wrote is rolled back as after any other failed statement, and the connection stays
+open for the next one. A connection that is not running a statement is not affected.
+
+Each connection gets its own backend process id and a random 32-bit secret key, which the client receives at connect
+time (`BackendKeyData`) and must quote in its cancel request. The statements a connection runs are listed by the HTTP
+<<http-running-queries,`list queries`>> command and by Cypher <<cypher-show-transactions,`SHOW TRANSACTIONS`>> with
+`protocol` `postgres` and the process id as `connectionId`, and stopped by `terminate query` or
+`TERMINATE TRANSACTIONS` with the same `57014`.
+
+Three SQL functions work on connections by process id, as their PostgreSQL namesakes:
+
+[%header,cols="1,3"]
+|===
+| Function | Returns
+| `pg_backend_pid()` | The process id of the calling connection, `null` when the statement does not run on a PostgreSQL
+connection.
+| `pg_cancel_backend(pid)` | Stops the statement that connection is running and leaves the connection open. `true` when
+the connection was signalled.
+| `pg_terminate_backend(pid)` | Stops the statement that connection is running and closes the connection, rolling back
+its open transaction. `true` when the connection was signalled.
+|===
+
+*root* may signal every connection, any other user only their own. Both signal functions answer `false` for a process
+id that names no connection the caller may signal.
+
+[source,sql]
+----
+SELECT pg_backend_pid();          -- this connection's process id, e.g. 1042
+SELECT pg_cancel_backend(1042);   -- stop what connection 1042 is running
+SELECT pg_terminate_backend(1042);-- stop it and close the connection
+----
+
+NOTE: Before v26.11.1 a cancel request closed the whole connection, and since every connection had the backend process
+id `0`, a cancel could reach a different connection than the one it was meant for. A client that relied on a cancel
+request closing the connection must now call `pg_terminate_backend()` instead.
+
 ===== Postgres Tools Known to Work
 
 NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.

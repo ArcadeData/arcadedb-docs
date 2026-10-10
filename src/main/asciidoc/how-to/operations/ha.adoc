@@ -536,6 +536,27 @@ When a write is forwarded from a replica to the leader (or issued directly to th
 
 This case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
 
+[[ha-running-queries]]
+===== Running statements on a cluster
+
+Each server keeps its own list of running statements: the HTTP <<http-running-queries,`list queries`>> and
+`terminate query` server commands and Cypher <<cypher-show-transactions,`SHOW TRANSACTIONS`>> and
+`TERMINATE TRANSACTIONS` run on the server that receives them, a replica included, and are never forwarded to the
+leader. A statement id names a statement on the server that issued it.
+
+Since v26.11.1 a write that a replica forwards to the leader can be followed and stopped from either side:
+
+* On the replica it is listed with `forwardedTo`, the name of the leader running it.
+* On the leader it is listed with `forwardedFrom`, the id it has on the replica, and with the tag the client sent
+(`X-ArcadeDB-Query-Tag`), so `list queries tag <label>` finds it on the leader too.
+* `terminate query <replica id>` sent to the replica stops the work on the leader as well, and the client receives the
+termination error of its protocol.
+* `terminate query <replica id>` sent to the leader finds the statement by the replica's id too.
+
+The forward carries the statement's id under the cluster token, which an HA cluster always has configured (see
+<<ha-security,Security>>). The usual visibility rule applies on both servers: *root* sees and stops every statement,
+any other user only their own.
+
 [[ha-offline-bootstrap]]
 ===== Offline Cluster Bootstrap
 

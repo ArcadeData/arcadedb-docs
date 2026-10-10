@@ -1782,6 +1782,113 @@ NOTE: The user must already exist. If the user does not exist, an error is retur
 
 ---
 
+[[cypher-show-transactions]]
+===== SHOW TRANSACTIONS and TERMINATE TRANSACTIONS
+
+`SHOW TRANSACTIONS` lists the statements the server is running and `TERMINATE TRANSACTIONS` stops them, with Neo4j's
+syntax, so the tools and scripts written for Neo4j work unchanged. Available since 26.11.1.
+
+Both commands read the same registry as the HTTP <<http-running-queries,`list queries` and `terminate query`>> server
+commands: a "transaction" here is one running statement, whatever protocol it came from (HTTP, PostgreSQL, Bolt,
+gRPC, MongoDB, Redis, Gremlin), and its `transactionId` is the id `list queries` shows (`q<n>-<hex>`). The same rule
+decides what you see: *root* sees and stops every statement, any other user only their own.
+
+These commands require ArcadeDB to be running in **server mode**. They work over Bolt and every other protocol that
+runs Cypher; in embedded mode they fail with "SHOW TRANSACTIONS and TERMINATE TRANSACTIONS require a server". On an HA
+cluster each server answers for its own statements: the commands run on the server that receives them, a replica
+included, and are not forwarded to the leader.
+
+*Syntax:*
+
+[source,cypher]
+----
+SHOW TRANSACTIONS [ 'id' [, 'id' ...] | $ids ]
+  [ WHERE ... | YIELD ... [ORDER BY ...] [SKIP ...] [LIMIT ...] [WHERE ...] [RETURN ...] ]
+  [ TERMINATE TRANSACTIONS ... ]
+
+TERMINATE TRANSACTIONS 'id' [, 'id' ...] | $ids
+  [ WHERE ... | YIELD ... [WHERE ...] [RETURN ...] ]
+----
+
+`$ids` is a parameter holding one id or a list of ids. The `WHERE` and `YIELD` tail works as for every other `SHOW`
+command, see <<cypher-show-filtering,Filtering the output of a SHOW command>>. A `SHOW TRANSACTIONS` can be followed by
+a `TERMINATE TRANSACTIONS` that names the ids by a column the `SHOW` yields, which stops the statements the `SHOW` rows
+select (see the last example).
+
+*Result columns of `SHOW TRANSACTIONS`:*
+
+A bare `SHOW TRANSACTIONS` returns Neo4j's default columns:
+
+[%header,cols=2]
+|===
+| Column | Description
+| `database` | The database the statement runs on
+| `transactionId` | The statement's id, as `list queries` shows it
+| `currentQueryId` | The same id
+| `connectionId` | The client connection, when the protocol has one (a PostgreSQL backend process id, `bolt-<n>`, ...), otherwise an empty string
+| `clientAddress` | The client's address, when known, otherwise an empty string
+| `username` | The user running the statement
+| `currentQuery` | The statement text, truncated and with credentials masked as in `list queries`
+| `startTime` | When the statement started, as an ISO-8601 string
+| `status` | `Running`, or `Terminating` once it was asked to stop
+| `elapsedTime` | How long it has been running, as a `Duration`
+|===
+
+`YIELD` also reaches these columns:
+
+[%header,cols=2]
+|===
+| Column | Description
+| `protocol` | How the statement reached the server: `http`, `postgres`, `bolt`, `grpc`, `mongodb`, `redis` or `gremlin`
+| `language` | The query language of the statement
+| `metaData` | A map; its `tag` is the label the client sent with the `X-ArcadeDB-Query-Tag` HTTP header
+| `sessionId` | The HTTP transaction session the statement runs in, if any
+| `statusDetails` | Who asked the statement to stop, once it is terminating
+|===
+
+*Result columns of `TERMINATE TRANSACTIONS`:*
+
+[%header,cols=2]
+|===
+| Column | Description
+| `transactionId` | The id that was asked for
+| `username` | The user running the statement
+| `message` | `Transaction terminated.`, or `Transaction not found.` when no such statement is running or it is another user's
+|===
+
+Like Neo4j, `TERMINATE TRANSACTIONS` does not wait for the statement to stop: it asks it to stop and answers. The
+statement stops at its next check and its client receives the error of its protocol (for example
+`Neo.ClientError.Transaction.Terminated` over Bolt, SQLSTATE `57014` over PostgreSQL). Use `SHOW TRANSACTIONS`, or
+`terminate query` with its `wait`, to know when it is gone.
+
+*Examples:*
+
+[source,cypher]
+----
+// Every statement you may see, with Neo4j's default columns
+SHOW TRANSACTIONS
+
+// Some statements by id
+SHOW TRANSACTIONS 'q118-5e1f0a9c', 'q121-5e1f0a9c'
+SHOW TRANSACTIONS $ids
+
+// The statements labelled by a benchmark run, with where they came from
+SHOW TRANSACTIONS YIELD transactionId, username, protocol, language, metaData, elapsedTime
+WHERE metaData.tag = 'bench-run-42'
+
+// Stop statements by id
+TERMINATE TRANSACTIONS 'q118-5e1f0a9c', 'q121-5e1f0a9c'
+TERMINATE TRANSACTIONS $ids YIELD transactionId, message
+
+// Find and stop in one command every statement carrying a label
+SHOW TRANSACTIONS YIELD transactionId AS txId, metaData WHERE metaData.tag = 'bench-run-42'
+TERMINATE TRANSACTIONS txId
+YIELD transactionId, message
+RETURN transactionId, message
+----
+
+---
+
 [[cypher-transaction-control]]
 ===== Transaction Control (START TRANSACTION, COMMIT, ROLLBACK)
 

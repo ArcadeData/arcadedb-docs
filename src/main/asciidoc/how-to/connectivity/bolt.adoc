@@ -449,6 +449,29 @@ try (Transaction tx = session.beginTransaction()) {
 Each open result holds server-side resources until you read it to the end or discard it, so a single connection may
 keep at most `arcadedb.bolt.maxOpenStreams` of them open at once (1024 by default, far more than any driver uses).
 
+[[bolt-terminate]]
+===== Listing and terminating running statements
+
+Since v26.11.1 the statements a Bolt client runs are listed and can be stopped like the ones of every other protocol:
+by Neo4j's own <<cypher-show-transactions,`SHOW TRANSACTIONS` and `TERMINATE TRANSACTIONS`>>, sent over Bolt as any
+other Cypher statement, or by the HTTP <<http-running-queries,`list queries` and `terminate query`>> server commands.
+A statement appears with `protocol` `bolt` and `connectionId` `bolt-<n>` from its `RUN` until its result has been
+read to the end or discarded, so a result the client leaves open keeps it listed.
+
+[source,java]
+----
+try (Session admin = driver.session(SessionConfig.forDatabase("mydatabase"))) {
+    for (Record row : admin.run("SHOW TRANSACTIONS YIELD transactionId, username, currentQuery, elapsedTime").list())
+        System.out.println(row);
+
+    admin.run("TERMINATE TRANSACTIONS $ids", Values.parameters("ids", List.of("q118-5e1f0a9c"))).consume();
+}
+----
+
+The terminated statement fails with `Neo.ClientError.Transaction.Terminated`, which drivers do not retry, not even in a
+managed transaction. A statement terminated inside an explicit transaction fails the transaction: it is rolled back,
+as after any other failure in it.
+
 ===== Causal Consistency (Bookmarks)
 
 Bookmarks let a client guarantee it reads its own (or another session's) writes. Capture the bookmarks from one session and pass them to the next; the server will not serve the follow-up read until it has caught up to that bookmark. This works across sessions and is exercised by the certification suite.
@@ -505,6 +528,7 @@ Server errors are mapped to Neo4j-style structured status codes so driver-side e
 | `Neo.ClientError.Transaction.TransactionNotFound` | a transaction reference is unknown
 | `Neo.ClientError.Schema.ConstraintValidationFailed` | a unique-index (constraint) violation — this is permanent, so drivers should not retry
 | `Neo.ClientError.Transaction.TransactionTimedOut` | a query or transaction ran out of time
+| `Neo.ClientError.Transaction.Terminated` | the statement was stopped by `TERMINATE TRANSACTIONS`, `terminate query` or a terminate from Studio; drivers do not retry it (see <<bolt-terminate,Listing and terminating running statements>>). Since v26.11.1
 | `Neo.ClientError.Request.Invalid` | a malformed or out-of-sequence protocol message
 | `Neo.TransientError.Transaction.DeadlockDetected` | a concurrent-modification / lock-timeout conflict — drivers retry managed transactions on this code
 | `Neo.DatabaseError.General.UnknownError` | an unexpected server-side failure

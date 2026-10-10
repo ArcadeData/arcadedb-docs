@@ -93,6 +93,33 @@ A `count(*)` over a star pattern no longer counts an `OPTIONAL MATCH` that reach
 *Action:* none.
 
 [discrete]
+====== 26.11.1 - A Postgres cancel request stops the statement and keeps the connection
+
+A `CancelRequest` (what JDBC `Statement.cancel()`, pgjdbc's `setQueryTimeout()` and libpq's `PQcancel` send) now stops
+the statement the connection is running with SQLSTATE `57014` and leaves the connection open, as PostgreSQL does
+(issue #9689). Before, it closed the whole connection, and since every connection had the backend process id `0`, a
+cancel could reach a different connection than the one it named.
+
+*Impact:* after a cancel or a query timeout the connection stays usable instead of being closed.
+
+*Action:* a client that relied on a cancel request closing the connection must call `pg_terminate_backend(pid)`
+instead. See <<postgres-cancel,Cancelling a statement>>.
+
+[discrete]
+====== 26.11.1 - An HTTP client that disconnects terminates its statement
+
+A client that closes its connection while its statement runs (its own timeout, a killed process, `curl --max-time`)
+now terminates the statement, and what it wrote is rolled back unless it had already committed, instead of leaving the server working on it until it completes or
+reaches `arcadedb.command.timeout` (issue #9689). This applies to plain HTTP/1.x connections, not to TLS or HTTP/2.
+Likewise a gRPC client that cancels a call, or whose deadline expires, terminates the server-side work.
+
+*Impact:* a client that sends a write and closes the connection without waiting for the answer can find the write rolled
+back.
+
+*Action:* wait for the response of a write before closing the connection. See
+<<http-running-queries,List and terminate running queries>>.
+
+[discrete]
 ====== 26.10.1 — Sparse-vector top-K scores a window of documents at a time
 
 `vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now scores documents in windows (setting `arcadedb.sparseVectorScoringWindow`, default `16384`). On wide queries this is about twice as fast, and queries no longer wait for a `COMPACT INDEX` or a memtable flush to finish (issues #9200, #9209, #9210).

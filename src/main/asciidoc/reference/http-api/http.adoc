@@ -858,8 +858,12 @@ Return:
 
 Since 26.11.1 a client can see what the server is running, stop one statement, and verify afterwards that the server
 really stopped working on it. A benchmark harness or a coordinator that gives up on a query (its own deadline, a killed
-client process) uses this to free the server before it runs the next one: dropping the HTTP connection does not stop
-the statement.
+client process) uses this to free the server before it runs the next one.
+
+The list covers every protocol, not only HTTP: statements received over PostgreSQL, Bolt, gRPC, MongoDB, Redis and the
+Gremlin Server are listed and stopped the same way, and the same registry answers the Cypher
+<<cypher-show-transactions,`SHOW TRANSACTIONS` and `TERMINATE TRANSACTIONS`>> commands and the Studio
+<<studio-server-running-queries,Running Queries>> tab.
 
 *Label your work.* Send the `X-ArcadeDB-Query-Tag` header with a query, a command, a GET query or a batch load. The
 value is an opaque label of at most 256 printable characters; the statement is listed under it. Sent to
@@ -892,9 +896,22 @@ $ curl -X POST http://localhost:2480/api/v1/server \
 ----
 
 An id is `q<n>-<instance>`: the instance part belongs to the server that issued it, so a `terminate query` that a load
-balancer sends to another server answers `not found` there rather than stopping a different statement. Each entry
-carries `sessionId` too when the statement runs in a transaction session. The text is truncated to 1024
-characters, and the parameters are never listed.
+balancer sends to another server answers `not found` there rather than stopping a different statement. The text is
+truncated to 1024 characters, and the parameters are never listed. `protocol` names how the statement reached the
+server: `http`, `postgres`, `bolt`, `grpc`, `mongodb`, `redis` or `gremlin` (the Gremlin Server). Some entries carry
+more fields:
+
+[%header,cols="1,3"]
+|===
+| Field | Present when
+| `sessionId` | The statement runs in an HTTP transaction session.
+| `connectionId` | The protocol keeps connections of its own: the backend process id of a PostgreSQL connection (what
+`pg_backend_pid()` answers, see <<postgres-cancel,Cancelling a statement>>), `bolt-<n>` for a Bolt connection, the
+channel id of a MongoDB connection, the connection name of a Redis connection.
+| `clientAddress` | The address of the client the statement came from, for the protocols that keep a connection.
+| `forwardedFrom` | On an HA leader, for a statement a replica forwarded to it: the id the statement has on that replica.
+| `forwardedTo` | On an HA replica, for a statement it forwarded to the leader: the name of the leader running it.
+|===
 
 *Terminate.* `terminate query <id>` stops a statement, and `terminate queries tag <label>` stops every statement
 carrying the label that you may see - for *root*, every user's statement carrying it. The command waits for the work to end before it answers, up to `wait` milliseconds in the request
@@ -922,13 +939,37 @@ $ curl -X POST http://localhost:2480/api/v1/server \
 |===
 
 The terminated request fails with HTTP `409` and `"error": "Query terminated"`. It is not a transient error: do not
-retry it. Once a statement is gone from `list queries`, its rollback and its cleanup are over: its absence is the
-evidence that the server no longer works on it.
+retry it. The Java `RemoteDatabase` raises it as `com.arcadedb.exception.QueryTerminatedException`, which its
+`transaction()` does not retry. Once a statement is gone from `list queries`, its rollback and its cleanup are over:
+its absence is the evidence that the server no longer works on it.
+
+Each protocol reports the termination to its client in its own terms, never as a transient error:
+
+[%header,cols="1,3"]
+|===
+| Protocol | The terminated statement fails with
+| HTTP | Status `409`, `"error": "Query terminated"`.
+| PostgreSQL | SQLSTATE `57014` (`query_canceled`). The connection stays open.
+| Bolt | `Neo.ClientError.Transaction.Terminated`, which drivers do not retry.
+| gRPC | Status `CANCELLED` with the trailer `arcadedb-exception-class` set to
+`com.arcadedb.exception.QueryTerminatedException`. The gRPC Java client raises that exception.
+| MongoDB | Error code `11601` (`Interrupted`), what MongoDB answers for an operation `killOp` interrupted.
+| Redis | An `ERR` error whose message says the statement was terminated.
+|===
 
 Termination is cooperative: the statement stops at its next check, made by the SQL and openCypher operators that loop
 over data (scans, expansions, UNWIND, aggregations, sorts, FOREACH, script lines), and its commit is refused if it
-reaches one. A statement in a language with no such checks (Gremlin,
-JavaScript) is reported `terminating` until it ends.
+reaches one. A Gremlin traversal checks inside its adjacency steps (`out()`, `bothE()`, ...) and while its results
+are iterated. A JavaScript script (`command("js", ...)`), a JavaScript function called from SQL
+(`DEFINE FUNCTION ... LANGUAGE js`) and a JavaScript trigger are interrupted through GraalVM, so even an endless loop
+in user code stops; the SQL such a script runs is stopped as any other.
+
+*Clients that go away.* A client that disconnects while its statement runs (a closed socket, a killed process,
+`curl --max-time`) terminates the statement, instead of leaving the server busy with it until it completes or
+reaches `arcadedb.command.timeout`. This applies to plain HTTP/1.x connections once the request body has been read,
+not to TLS connections, to HTTP/2, or to a request whose client has already pipelined the next one. A statement that
+runs in a transaction session and is terminated this way ends the session, as any terminate does. Keep-alive and
+pipelined requests are not affected.
 
 *Transaction sessions.* Terminating a statement that runs in a transaction session also ends the session and rolls
 back everything the session wrote. `list transactions` lists the open sessions (id, user, database, tag, idle time,
@@ -941,9 +982,11 @@ session; any other user only their own, and someone else's is answered `not foun
 away. The commands are never held back by the query admission gate (`arcadedb.queryMaxConcurrent`), so a saturated
 server can still be relieved, and they are never forwarded to the leader: each server lists and stops its own work.
 
-NOTE: On an HA cluster a write that a follower forwards to the leader runs on the leader, so it is listed there, not on
-the follower that received it, and terminating the follower's request does not stop the leader's work yet. Send
-`list queries` and `terminate query` to the leader for such statements.
+NOTE: On an HA cluster a write that a replica forwards to the leader runs on the leader. It is listed on both: on the
+replica with `forwardedTo` (the leader's name), on the leader with `forwardedFrom` (the id it has on the replica) and
+the client's tag. `terminate query <replica id>` sent to the replica stops the work on the leader too, and the same
+command sent to the leader finds the statement by the replica's id. See <<ha-running-queries,Running statements on a
+cluster>>.
 
 *Credentials.* The listed text masks the value after `IDENTIFIED BY`, `PASSWORD` (`PASSWD`, `PWD`), `TOKEN`, `SECRET`, `API_KEY` and `AUTHORIZATION` (also after a `Bearer` or `Basic` scheme) with `***` (best effort).
 
