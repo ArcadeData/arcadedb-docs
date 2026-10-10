@@ -188,6 +188,19 @@ with the view still reporting itself READY and not stale (issue #8378). Rebuild 
 while writes were running if its answers must match the graph exactly.
 When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
 
+*Lightweight edges and bulk loads.* A <<lightweight-edges,lightweight edge>> is tracked like any other edge in every
+mode: its creation and its deletion reach the overlay in *SYNCHRONOUS* mode, mark an *OFF* view STALE and rebuild an
+*ASYNCHRONOUS* one. Each copy of a <<lightweight-edges,duplicated lightweight edge>> counts as an edge of its own, and a
+delete removes one copy. Edges loaded with <<java-batch-importer,GraphBatch>> (and so by the graph importer, the HTTP
+batch endpoint and the gRPC batch load) are written in bulk, without an event per edge, so the view learns of them when
+the batch closes: *OFF* goes STALE, *ASYNCHRONOUS* rebuilds, and *SYNCHRONOUS* rebuilds too rather than absorbing millions
+of edges into the overlay. While that rebuild runs the view is not READY, so queries take the ordinary path and never
+answer without the load. During the batch itself the view still serves what it held before the batch started.
+
+NOTE: Before 26.11.1 a view never learned about a lightweight edge created after its build, nor about any edge written
+by `GraphBatch`: a *SYNCHRONOUS* view answered as if those edges did not exist, and a transaction or batch that touched
+nothing else left an *OFF* view READY (issue #9572). Rebuild a view on such a graph after upgrading.
+
 [[gav-csr-persistence]]
 ==== CSR Persistence
 
