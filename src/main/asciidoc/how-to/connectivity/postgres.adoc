@@ -402,6 +402,12 @@ time (`BackendKeyData`) and must quote in its cancel request. The statements a c
 `protocol` `postgres` and the process id as `connectionId`, and stopped by `terminate query` or
 `TERMINATE TRANSACTIONS` with the same `57014`.
 
+As on PostgreSQL, a cancel request is not authenticated: the secret key is its only credential, and process ids are
+sequential. A cancel request that quotes a live connection with the wrong secret stops nothing and gets no answer; the
+server logs it, at `WARNING` at most once a minute with the number refused since, so guessing is visible in the log.
+A cancel is best effort, as on PostgreSQL: one that arrives between two statements stops nothing, and one that crosses
+the start of the next statement may stop that one.
+
 Three SQL functions work on connections by process id, as their PostgreSQL namesakes:
 
 [%header,cols="1,3"]
@@ -416,7 +422,9 @@ its open transaction. `true` when the connection was signalled.
 |===
 
 *root* may signal every connection, any other user only their own. Both signal functions answer `false` for a process
-id that names no connection the caller may signal.
+id that names no connection the caller may signal. They answer `NULL` for a `NULL` process id, as on PostgreSQL. They signal only
+connections of the server that runs them, and are registered with the SQL functions of the JVM once the PostgreSQL
+plugin starts, so SQL sent over any protocol can call them.
 
 [source,sql]
 ----
