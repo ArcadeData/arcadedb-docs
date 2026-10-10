@@ -127,6 +127,20 @@ The derived port is used for the capability check only - never for a snapshot do
 
 A peer that still did not answer carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port. _(Since v26.10.1)_
 
+Every node also *learns* the HTTP address of a peer it cannot reach where it resolves it, the same way on every node. _(Since v26.11.1)_
+Each node states its own HTTP port and address in the capability check it sends to the others, and each answer carries the addresses the answering node holds for the other members.
+Neither is trusted on its own: an address is used only after the peer it names answers there under its own id.
+From then on that address serves every peer-to-peer call (snapshot downloads, verifies, forwarded writes) and is passed on to the other nodes.
+In practice, a peer admitted without an `http` port (`connect cluster host:raftPort`, `POST /api/v1/cluster/peer`), or declared on one node only, becomes reachable from every node within a capability round or two, whatever the port layout.
+An address this node's own `arcadedb.ha.serverList` declares is never replaced.
+
+[NOTE]
+====
+Before v26.11.1, the node that served an admission without an `http` port wrote a `raftPort + offset` guess for the new peer.
+Every other node derived the peer's Raft host plus its *own* HTTP port, so two nodes could dial the same member on two different addresses.
+A declared address reached only the node it was typed on and the leader.
+====
+
 TIP: Ask *any* node when you want to compare what the nodes understand: every node asks the others, so every node can report each peer's `capabilities`. This is what lets you check "is the rolling upgrade finished" through a Kubernetes Service or a load balancer, neither of which routes you to the leader. _(Since v26.10.1: only the leader asked, so a follower omitted the field for every peer but itself and you had to find the leader first.)_
 
 NOTE: Because every node asks, the probe traffic grows with the square of the cluster size. At normal Raft cluster sizes that is a few small HTTP calls every five seconds; it is worth knowing only if you run an unusually large voter set.
@@ -386,6 +400,11 @@ When a read runs on a replica, ArcadeDB offers three consistency levels, configu
 | `linearizable`
 | The replica issues a Raft `ReadIndex` request to the leader and waits until its local applied index reaches the leader's committed index for that request. Strongest guarantee, highest latency.
 |===
+
+A node that is no longer a member of the Raft configuration (it left with `leaveCluster` or was removed with `DELETE /api/v1/cluster/peer/{id}`) receives no more entries.
+On such a node, `linearizable` reads and `read_your_writes` reads whose bookmark it has not applied are refused with a retryable error naming the reason, so the client can retry on a member.
+This includes reads that were already waiting when the node was removed: they are refused within a second instead of after the quorum timeout.
+`eventual` reads, and `read_your_writes` reads whose bookmark the node already applied, are still served. _(Since v26.11.1: such reads waited the whole quorum timeout, and a `read_your_writes` read then served data missing the write its bookmark named.)_
 
 Clients communicate the consistency contract through three HTTP headers:
 
