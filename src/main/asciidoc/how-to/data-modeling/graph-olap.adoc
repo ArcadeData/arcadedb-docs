@@ -450,11 +450,15 @@ is not stale and covers every vertex type the two labels can match. A count per 
 count push-down when its pattern is a chain, a star around one node, or one of the LSQB shapes; `EXPLAIN` shows it under
 `Using Count Push-Down`. Since v26.11.1 the push-downs also take:
 
-* a property predicate on a node of a chain or a star, written inline (`(:Message {kind: 'Post'})`) or as a `WHERE`
-conjunct that reads that node alone (`WHERE m.kind = 'Post'`, `WHERE m.created > $since`). It is checked once per
-distinct vertex the position reaches, on the vertex itself, so it costs one record read per such vertex instead of
-the rows of the whole pattern (issue #9595). A conjunct that compares two nodes (`WHERE a.x < b.x`), a property value
-read off another node (`{kind: a.kind}`), `rand()` and pattern predicates still leave the count to the regular plan.
+* a property predicate on a node of a chain, a star, the anti-join of LSQB Q8/Q9 or the pair join of LSQB Q2, written
+inline (`(:Message {kind: 'Post'})`) or as a `WHERE` conjunct that reads that node alone (`WHERE m.kind = 'Post'`,
+`WHERE m.created > $since`). It is checked once per distinct vertex the position reaches, on the vertex itself, so it
+costs one record read per such vertex instead of the rows of the whole pattern (issues #9595, #9608). A conjunct that
+compares two nodes (`WHERE a.x < b.x`), a property value read off another node (`{kind: a.kind}`), `rand()` and pattern
+predicates still leave the count to the regular plan. A predicate written at one position of a variable holds at every
+position the variable is written at, and two nodes whose inline maps give one property two different string, boolean or
+integer values (`(c:Message {kind: 'Comment'})`, `(p:Message {kind: 'Post'})`) are known to be different vertices, which
+proves their relationships different edges the way two unrelated labels do.
 * a `MATCH` made of parts that share no variable, such as `MATCH (a:Person), (b:Person), (c:Person)`: each part is
 counted on its own, by its own push-down or plan, and the counts are multiplied. An `OPTIONAL MATCH` part counts at
 least one row. Two parts of one `MATCH` clause are multiplied only when the schema proves their relationships cannot
