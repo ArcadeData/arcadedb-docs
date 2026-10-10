@@ -538,12 +538,15 @@ The following commands are available:
 * `align database <dbname>` aligns database `<dbname>`, see the associated <<sql-align-database,SQL command>>
 * `restore database <dbname> <url>` restores a database from a backup file. The URL can be a local path (`file://`), HTTP/HTTPS URL, or classpath resource. The database must not already exist. See <<restore>>.
 * `import database <dbname> <url>` creates a new database and imports data from the given URL (OrientDB export, GraphML, GraphSON, CSV, JSON). Combines `create database` and `IMPORT DATABASE` in a single command. See <<importer>>.
+* `list queries [database <dbname>] [tag <label>]` lists the statements the server is running. See <<http-running-queries>>.
+* `terminate query <id>` and `terminate queries tag <label>` stop running statements and say whether they stopped. See <<http-running-queries>>.
+* `list transactions` lists the open transaction sessions, and `terminate transaction <sessionId>` rolls one back and ends it. See <<http-running-queries>>.
 
 Both `restore database` and `import database` support **SSE progress streaming**: send `Accept: text/event-stream` in the request headers to receive real-time progress events instead of waiting for the response.
 With an `X-Request-Id`, a retry of a restore or import that completed is replayed rather than run again, in either
 encoding (see <<http-request-replay>>).
 
-NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed.
+NOTE: Only *root* users can run these command, except the `list databases` command, which every user can run, and this user's accessible databases are listed, and the commands on running work (`list queries`, `terminate query`, `terminate queries`, `list transactions`, `terminate transaction`), which every user can run on their own work.
 
 Responses:
 
@@ -849,6 +852,92 @@ Return:
 ----
 {"result": "ok"}
 ----
+
+[[http-running-queries]]
+====== List and terminate running queries
+
+Since 26.11.1 a client can see what the server is running, stop one statement, and verify afterwards that the server
+really stopped working on it. A benchmark harness or a coordinator that gives up on a query (its own deadline, a killed
+client process) uses this to free the server before it runs the next one: dropping the HTTP connection does not stop
+the statement.
+
+*Label your work.* Send the `X-ArcadeDB-Query-Tag` header with a query, a command, a GET query or a batch load. The
+value is an opaque label of at most 256 printable characters; the statement is listed under it. Sent to
+<<http-begin,`/api/v1/begin`>>, it labels every statement of that transaction session that carries no label of its
+own.
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/command/mydb \
+       -H "X-ArcadeDB-Query-Tag: bench-run-42" \
+       -d '{"language": "opencypher", "command": "UNWIND range(1, 10000) AS i UNWIND range(1, 10000) AS j RETURN sum(sin(toFloat(i * j))) AS total"}' \
+       --user root:arcadedb-password
+----
+
+*List.* `list queries` returns the statements this server is running. `database <dbname>` and `tag <label>` narrow
+the list (the label runs to the end of the command):
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "list queries tag bench-run-42"}' \
+       --user root:arcadedb-password
+----
+
+[source,json]
+----
+{"result": [{"id": "q118", "server": "ArcadeDB_0", "database": "mydb", "user": "root", "protocol": "http",
+  "language": "opencypher", "text": "UNWIND range(1, 10000) AS i UNWIND ...", "tag": "bench-run-42",
+  "startedAt": 1791620000000, "elapsedMs": 2311, "terminating": false}]}
+----
+
+Each entry carries `sessionId` too when the statement runs in a transaction session. The text is truncated to 1024
+characters, and the parameters are never listed.
+
+*Terminate.* `terminate query <id>` stops a statement, and `terminate queries tag <label>` stops every statement
+carrying the label. The command waits for the work to end before it answers, up to `wait` milliseconds in the request
+(5000 when absent, 60000 at most), and says what happened:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/server \
+       -d '{"command": "terminate query q118", "wait": 2000}' \
+       --user root:arcadedb-password
+----
+
+[source,json]
+----
+{"result": {"id": "q118", "status": "terminated"}}
+----
+
+[%header,cols="1,3"]
+|===
+| Status | Meaning
+| `terminated` | The statement stopped, and what it wrote was rolled back.
+| `completed` | The statement ended on its own before it noticed the request: what it did stands, a write it committed included.
+| `terminating` | The statement was asked to stop and has not reached a check yet. Poll `list queries` until it is gone.
+| `not found` | No such statement is running: it already ended, or it is not one you may see.
+|===
+
+The terminated request fails with HTTP `409` and `"error": "Query terminated"`. It is not a transient error: do not
+retry it. Once a statement is gone from `list queries`, its rollback and its cleanup are over: its absence is the
+evidence that the server no longer works on it.
+
+Termination is cooperative: the statement stops at its next check, made by the SQL and openCypher operators that loop
+over data (scans, expansions, UNWIND, aggregations, sorts, FOREACH, script lines), and its commit is refused if it
+reaches one. A statement in a language with no such checks (Gremlin,
+JavaScript) is reported `terminating` until it ends.
+
+*Transaction sessions.* Terminating a statement that runs in a transaction session also ends the session and rolls
+back everything the session wrote. `list transactions` lists the open sessions (id, user, database, tag, idle time,
+whether a request is running in it, and the ids of its running statements), and `terminate transaction <sessionId>`
+terminates what runs in it, rolls it back and ends it. A later `/api/v1/commit` on that session publishes nothing and
+answers `204` with the `arcadedb-session-expired` header, as for any session that no longer exists.
+
+*Who can do what.* Every authenticated user can run these commands. *root* sees and stops every statement and
+session; any other user only their own, and someone else's is answered `not found`, so its existence is not given
+away. The commands are never held back by the query admission gate (`arcadedb.queryMaxConcurrent`), so a saturated
+server can still be relieved, and they are never forwarded to the leader: each server lists and stops its own work.
 
 [[http-cluster-auth-session]]
 ===== Cluster authentication session lookup (POST, internal)
