@@ -276,6 +276,8 @@ INSERT INTO SensorReading
 
 NOTE: _(Since v26.11.1)_ `INSERT` fails if it sets a property that is not a declared tag or field of the type (for example a misspelled tag), because the sample would otherwise be filed under a different series. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` on the database to discard such properties instead. The same setting governs line protocol, gRPC and Prometheus writes.
 
+NOTE: _(Since v26.11.1)_ A `DATE`, `DATETIME`, `DATETIME_SECOND`, `DATETIME_MICROS` or `DATETIME_NANOS` tag or field behaves in SQL exactly like a document property of the same type. `INSERT` reads a value as such a property does: text and date/time objects as the instant they name, and a number as epoch milliseconds (epoch days for a `DATE`), whatever the column's precision. `SELECT` returns the value as the date/time object the property would return (a `java.time.LocalDateTime` for the `DATETIME` family by default), so a value read from a row can be written back as it is, and a `WHERE` condition on the column matches the same literal `INSERT` accepted, on a tag (pushed down to the storage engine) and on a field alike. An instant the column's precision cannot represent - for example a nanosecond count written to a `DATETIME_NANOS` column, which `INSERT` reads as milliseconds 53 million years from now - is refused with an error. Before, `SELECT` returned the raw epoch count in the column's own unit, which neither `INSERT` nor a filter read the same way, and such an instant was stored as `2262-04-11T23:47:16.854775807`. The engine API, line protocol, gRPC and HTTP surfaces keep exchanging these columns as epoch counts in the column's unit.
+
 NOTE: The timestamp column of a TimeSeries type is stored as a number, so `INSERT` does not accept an ISO-8601 string for it (`Cannot convert type String to LONG`): write an epoch value (as in the `CONTENT` example, milliseconds for a type with `PRECISION MILLISECOND`) or build it with the `date()` function, which interprets the text in the server's time zone. ISO-8601 strings are accepted in `WHERE` conditions on the timestamp column.
 
 ===== Java Embedded API
@@ -378,7 +380,7 @@ The comparisons pushed down are those SQL makes as plain numbers: a `DOUBLE` fie
 
 [NOTE]
 ====
-*When upgrading to 26.11.1*: an aggregation answered by the storage engine returns the same Java types as the generic plan. `min` and `max` return a value of the column's declared type, and `sum` over a `LONG`, `INTEGER`, `SHORT` or `BYTE` field returns an integer (`sum` over a `FLOAT` field a float) instead of the `Double` earlier versions returned for a query grouped by the time bucket or by tags. `avg` is still a `Double`, and so is an integral result larger than 2^53 in magnitude, since the engine accumulates in doubles and such a value may have been rounded.
+*When upgrading to 26.11.1*: an aggregation answered by the storage engine returns the same values and Java types as the generic plan. `min` and `max` return a value of the column's declared type (a date/time object for a `DATE` or `DATETIME` column), `sum` over a `LONG`, `INTEGER`, `SHORT` or `BYTE` field returns an integer that widens to a `BigDecimal` past the `long` range (`sum` over a `FLOAT` field a float), and `avg` is a `Double`, instead of the `Double` earlier versions returned for a query grouped by the time bucket or by tags. An integral column is aggregated exactly, as 64-bit integers with a 128-bit running total, so a value past 2^53 - an epoch-nanosecond instant, a 64-bit id - is no longer rounded.
 ====
 
 ===== TimeSeries SQL Functions
@@ -586,9 +588,13 @@ is an undefined total rather than an absence, and is returned as `NaN`.
 
 [NOTE]
 ====
-Only a `DOUBLE` or a `FLOAT` column can record absence, because `NaN` is a value those types have and integer types
-do not. A `null` written to a `LONG`, `INTEGER`, `SHORT`, `BYTE` or `BOOLEAN` column is stored as 0 (or `false`) and
-counts as a real measurement. Declare a column that needs to record gaps as `DOUBLE` or `FLOAT`.
+_(Since v26.11.1)_ A `LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN`, `DATE` or `DATETIME` column records absence too: a
+`null` written to it, or a column a `TimeSeriesBatch` row leaves unset, reads back as `null`, and `MIN`, `MAX`, `SUM`,
+`AVG` and `count(field)` skip it as they skip `NaN`. These types have no value to spare for absence, so a row of the
+mutable buffer carries a small null bitmap and a sealed block a null bitmap per column. The row layout is fixed when the
+type is created, so a TimeSeries type created by an earlier version keeps storing such a `null` as 0 (or `false`),
+which counts as a real measurement: recreate the type (for example `EXPORT` and `IMPORT`) to record gaps in its integer
+columns.
 ====
 
 [NOTE]
@@ -1311,6 +1317,8 @@ The TimeSeries engine uses a two-layer storage architecture:
 
 [NOTE]
 ====
+Since v26.11.1. A sealed block keeps the statistics of an integer column (`LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN` and the date/time types) exactly: the minimum and the maximum as 64-bit integers and the sum as a 128-bit integer, so `min`, `max` and `sum` of such a column past 2^53 are answered from the block headers, exactly, without decompressing anything. A block written by an earlier version is answered from its headers whenever its statistics are provably exact, and decompressed otherwise until the next compaction rewrites it. The sealed file format version is 3: an older ArcadeDB version refuses to open such a file, so keep this in mind before a downgrade.
+
 Since v26.11.1. Integer columns (`LONG`, `DATETIME_NANOS` and the other integral types) hold the full 64-bit range. A block whose values do not all fit the compact Simple-8b packing (outside +/-2^59, such as epoch-nanosecond instants or snowflake ids) is stored as plain 64-bit values instead of making the compaction fail. Such a block is larger, and an older ArcadeDB version cannot read it, so keep this in mind before a downgrade. Before, compaction of such a type failed permanently.
 ====
 
