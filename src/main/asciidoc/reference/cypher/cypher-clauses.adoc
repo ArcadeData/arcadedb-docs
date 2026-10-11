@@ -1495,6 +1495,8 @@ FOR (variable:Label)
 REQUIRE variable.property IS TYPED <type>
 ----
 
+`IS :: <type>` is a synonym of `IS TYPED <type>`.
+
 *Examples:*
 
 [source,cypher]
@@ -1521,11 +1523,33 @@ CREATE CONSTRAINT FOR ()-[r:KNOWS]-() REQUIRE r.since IS NOT NULL
 // Typed constraint: declare the property's data type
 CREATE CONSTRAINT FOR (m:Measure) REQUIRE m.temperature IS TYPED FLOAT32
 CREATE CONSTRAINT FOR (p:Person) REQUIRE p.age IS TYPED INT16
+
+// Typed constraint on a list: declares the property as LIST OF STRING
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.tags IS :: LIST<STRING NOT NULL>
 ----
 
 NOTE: If the property does not already exist in the schema, ArcadeDB will automatically create it as a STRING type. For other types, define the property first using SQL (`ALTER TYPE Person CREATE PROPERTY email STRING`).
 
 NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple times will not cause an error if the constraint already exists.
+
+[[cypher-constraint-names]]
+*Constraint names:*
+
+_(Since v26.11.1)_ A constraint created without a name gets a generated one, `constraint_<Label>_<property>[_<property>...]_<kind>`, where the kind is `unique`, `key`, `existence` (for `IS NOT NULL`) or `type` (for `IS TYPED`):
+
+[%header,cols="3,2"]
+|===
+| Statement | Generated name
+| `CREATE CONSTRAINT FOR (p:Person) REQUIRE p.email IS UNIQUE` | `constraint_Person_email_unique`
+| `CREATE CONSTRAINT FOR (p:Person) REQUIRE (p.firstName, p.lastName) IS UNIQUE` | `constraint_Person_firstName_lastName_unique`
+| `CREATE CONSTRAINT FOR (p:Person) REQUIRE p.id IS NODE KEY` | `constraint_Person_id_key`
+| `CREATE CONSTRAINT FOR (p:Person) REQUIRE p.name IS NOT NULL` | `constraint_Person_name_existence`
+| `CREATE CONSTRAINT FOR (p:Person) REQUIRE p.age IS TYPED INT16` | `constraint_Person_age_type`
+|===
+
+The name is derived from the statement, so repeating the same unnamed statement does not create a second constraint. It is the name <<cypher-show-constraints,`SHOW CONSTRAINTS`>> lists and <<cypher-drop-constraint,`DROP CONSTRAINT`>> takes.
+
+NOTE: _(Since v26.11.1)_ A property carries one property type constraint at most: a second `IS TYPED` constraint that requires a different type of the same property is refused, as in Neo4j. Drop the first one before creating the other.
 
 [[cypher-constraint-when-checked]]
 *When existence constraints are checked:*
@@ -1565,20 +1589,42 @@ A record left behind that way is not lost track of: it is, by definition, a reco
 | `FLOAT32`                                      | `FLOAT`    | 32-bit IEEE 754 floating point
 | `FLOAT`, `FLOAT64`                             | `DOUBLE`   | 64-bit IEEE 754 floating point
 | `DATE`                                         | `DATE`     |
-| `LOCAL DATETIME`, `ZONED DATETIME`             | `DATETIME` |
-| `DURATION`                                     | `LONG`     |
-| `LIST`                                         | `LIST`     |
+| `LOCAL DATETIME`, `TIMESTAMP WITHOUT TIME ZONE` | `DATETIME_NANOS` | Nanosecond precision. A property already declared `DATETIME`, `DATETIME_SECOND` or `DATETIME_MICROS` is left at its precision
+| `ZONED DATETIME`, `TIMESTAMP WITH TIME ZONE`   | `ZONED_DATETIME` | Keeps the zone
+| `LOCAL TIME`, `TIME WITHOUT TIME ZONE`         | `LOCAL_TIME` |
+| `ZONED TIME`, `TIME WITH TIME ZONE`            | `OFFSET_TIME` | Keeps the offset
+| `DURATION`                                     | `DURATION` |
+| `POINT`                                        | `MAP`      | The map `point()` returns
+| `LIST<T>`, `T LIST`, `ARRAY<T>`, `LIST<T NOT NULL>` | `LIST OF` the type `T` maps to | For example `LIST<INTEGER>` is `LIST OF LONG`, `LIST<FLOAT>` is `LIST OF DOUBLE`, `LIST<INT32>` is `LIST OF INTEGER`, `LIST<DATE>` is `LIST OF DATE`
+| `LIST`, `LIST<ANY>`                            | `LIST`     | A list with no element type
 | `MAP`                                          | `MAP`      |
 |===
 
+The `LOCAL DATETIME`, `ZONED DATETIME`, `LOCAL TIME`, `ZONED TIME` and `DURATION` types map onto the native ArcadeDB types that hold the value without loss (see <<managing-dates,Managing Dates>>). A list of lists (`LIST<LIST<STRING>>`) and a union type (`STRING | INTEGER`) cannot be declared and are refused.
+
+A `NOT NULL` on the type itself, as in `REQUIRE n.p IS :: STRING NOT NULL`, is refused, as in Neo4j: existence is a constraint of its own. Declare the type and add an existence constraint:
+
+[source,cypher]
+----
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.name IS :: STRING
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.name IS NOT NULL
+----
+
+A `NOT NULL` on the element type of a list (`LIST<STRING NOT NULL>`) is accepted.
+
 NOTE: Following Cypher 25 / GQL, `INTEGER` is the 64-bit generic integer type while `INT` is the alias for the 32-bit `INT32`. A property declared `IS TYPED INT` therefore holds 32-bit values; use `IS TYPED INTEGER` (or `INT64`) for 64-bit values.
+
+[NOTE]
+====
+*When upgrading to 26.11.1*: before, a property type constraint refused a list with an element type (`LIST<STRING>`), `LOCAL DATETIME` and `ZONED DATETIME` declared a `DATETIME` (millisecond precision, which truncated the sub-millisecond digits and dropped the zone), `LOCAL TIME` and `ZONED TIME` declared a `STRING`, `DURATION` declared a `LONG` (which refused every duration value) and `POINT` declared a `STRING`. A constraint created before 26.11.1 keeps the declaration it made then.
+====
 
 ---
 
 [[cypher-drop-constraint]]
 ===== DROP CONSTRAINT
 
-The `DROP CONSTRAINT` clause removes a previously created constraint by its index name.
+The `DROP CONSTRAINT` clause removes a previously created constraint by its name: the name given in `CREATE CONSTRAINT`, the <<cypher-constraint-names,generated name>> of a constraint created without one, or any name <<cypher-show-constraints,`SHOW CONSTRAINTS`>> lists.
 
 *Syntax:*
 
@@ -1592,15 +1638,144 @@ DROP CONSTRAINT constraintName [IF EXISTS]
 [source,cypher]
 ----
 // Drop a constraint by name
+DROP CONSTRAINT constraint_Person_email_unique
+
+// Drop the constraint that created the unique index Person[email]
 DROP CONSTRAINT `Person[email]`
 
 // Drop only if it exists (no error if missing)
 DROP CONSTRAINT `Person[email]` IF EXISTS
 ----
 
-NOTE: In ArcadeDB, constraint names correspond to index names. Use backtick escaping for names containing special characters like brackets.
+NOTE: The name of the unique index a `UNIQUE` or `NODE KEY` constraint created is accepted too, and drops the constraint that created it: an unnamed `NODE KEY` dropped by its index name is dropped whole, index and existence requirement. Use backtick escaping for names containing special characters like brackets.
 
 NOTE: `IF EXISTS` makes the operation safe to run even when the constraint does not exist.
+
+[[cypher-drop-constraint-undo]]
+*What dropping a constraint undoes:*
+
+_(Since v26.11.1)_ `DROP CONSTRAINT` undoes what the constraint created:
+
+* A `UNIQUE` constraint drops its unique index, a `NOT NULL` constraint clears the mandatory flag it set, and a `NODE KEY` / `KEY` constraint does both.
+* A property type constraint (`IS TYPED`) lifts the type restriction. If the constraint declared the property, the declaration is removed. If it replaced an earlier declaration, for example one made with SQL `CREATE PROPERTY`, that declaration is put back; when records written since cannot be read as the old type, the drop is refused and the constraint stays in place.
+* While another constraint still needs the declaration, the type stays until that one is dropped too: a `NOT NULL` constraint needs a declared property to carry its mandatory flag, and a `UNIQUE` index is built over the declared type.
+* A requirement the schema enforces without a Cypher constraint, which `SHOW CONSTRAINTS` lists under a generated name, is dropped the same way: `constraint_<Type>_<property>_existence` clears the property's `MANDATORY` and `NOT NULL` flags, `constraint_<Type>_<property>_type` removes the property declaration (refused while the declaration also carries an index or other attributes, such as a default or a min/max, that would go with it), and the name of a unique index drops the index.
+
+[NOTE]
+====
+*When upgrading to 26.11.1*: before, dropping a property type constraint left the property declared with the constraint's type, so the type restriction stayed in force after the constraint was gone.
+====
+
+---
+
+[[cypher-show-constraints]]
+===== SHOW CONSTRAINTS
+
+`SHOW CONSTRAINTS` lists the constraints of the database with Neo4j's syntax and columns, so the tools and drivers written for Neo4j read it unchanged. _(Since v26.11.1)_ It is answered by the openCypher engine, so it works the same over every protocol that runs Cypher: HTTP, Studio, Bolt and the embedded Java API.
+
+*Syntax:*
+
+[source,cypher]
+----
+SHOW [ALL] CONSTRAINTS
+SHOW [NODE | RELATIONSHIP] {UNIQUE | UNIQUENESS | EXIST | EXISTENCE | KEY | PROPERTY TYPE} CONSTRAINTS
+----
+
+The keyword before `CONSTRAINTS` restricts the list to one kind of constraint, and a preceding `NODE` or `RELATIONSHIP` to the constraints of vertex types or of edge types. The command accepts `YIELD`, `WHERE`, `ORDER BY`, `SKIP`, `LIMIT` and `RETURN` like every `SHOW` command, see <<cypher-show-filtering,Filtering the output of a SHOW command>>.
+
+*Result columns:*
+
+[%header,cols="1,3"]
+|===
+| Column | Description
+| `id` | A sequence number of the row
+| `name` | The constraint name, the one `DROP CONSTRAINT` takes
+| `type` | `UNIQUENESS`, `RELATIONSHIP_UNIQUENESS`, `NODE_KEY`, `RELATIONSHIP_KEY`, `NODE_PROPERTY_EXISTENCE`, `RELATIONSHIP_PROPERTY_EXISTENCE`, `NODE_PROPERTY_TYPE` or `RELATIONSHIP_PROPERTY_TYPE`
+| `entityType` | `NODE` or `RELATIONSHIP`
+| `labelsOrTypes` | The label or relationship type, as a list
+| `properties` | The constrained properties, as a list
+| `ownedIndex` | The unique index that enforces a uniqueness or key constraint, otherwise `null`
+| `propertyType` | The Cypher type a property type constraint requires, otherwise `null`
+|===
+
+`YIELD *` adds the columns `enforcedLabel`, `options` and `createStatement`, the `CREATE CONSTRAINT` statement that recreates the constraint.
+
+The list shows what the schema enforces, whether it was created with Cypher, SQL or the Java API. A requirement that no Cypher constraint created is listed as follows:
+
+* a unique index, as a uniqueness constraint named after the index;
+* a property declared `MANDATORY` or `NOT NULL`, as an existence constraint named `constraint_<Type>_<property>_existence`;
+* a declared property type, as a property type constraint named `constraint_<Type>_<property>_type`.
+
+Every name the list shows can be dropped with <<cypher-drop-constraint,`DROP CONSTRAINT`>>. The types the user is not allowed to read are left out.
+
+*Examples:*
+
+[source,cypher]
+----
+// Every constraint
+SHOW CONSTRAINTS
+
+// The uniqueness constraints of vertex types
+SHOW NODE UNIQUENESS CONSTRAINTS
+
+// The property type constraints of one label
+SHOW PROPERTY TYPE CONSTRAINTS YIELD name, labelsOrTypes, properties, propertyType
+WHERE 'Person' IN labelsOrTypes
+
+// The statements that recreate them
+SHOW CONSTRAINTS YIELD name, createStatement ORDER BY name
+----
+
+---
+
+[[cypher-show-indexes]]
+===== SHOW INDEXES
+
+`SHOW INDEXES` lists the indexes of the database with Neo4j's syntax and columns. _(Since v26.11.1)_ Like `SHOW CONSTRAINTS`, it is answered by the openCypher engine over every protocol (HTTP, Studio, Bolt, embedded).
+
+*Syntax:*
+
+[source,cypher]
+----
+SHOW [ALL | RANGE | TEXT | POINT | VECTOR | FULLTEXT | LOOKUP] INDEXES
+----
+
+The keyword after `SHOW` restricts the list to one type of index, matched against the `type` column. ArcadeDB has no `TEXT` or `LOOKUP` index, so those two list nothing. `YIELD`, `WHERE`, `ORDER BY`, `SKIP`, `LIMIT` and `RETURN` work as on every `SHOW` command.
+
+*Result columns:*
+
+[%header,cols="1,3"]
+|===
+| Column | Description
+| `id` | A sequence number of the row
+| `name` | The index name
+| `state` | `ONLINE`, or `POPULATING` while the index is being built
+| `populationPercent` | `100.0` when the index is online, otherwise `0.0`
+| `type` | `RANGE` (an `LSM_TREE` index), `HASH`, `FULLTEXT`, `VECTOR`, `SPARSE_VECTOR` or `POINT` (a geospatial index)
+| `entityType` | `NODE` or `RELATIONSHIP`
+| `labelsOrTypes` | The label or relationship type, as a list
+| `properties` | The indexed properties, as a list
+| `indexProvider` | The index implementation, for example `range-1.0`
+| `owningConstraint` | The name of the constraint that created the index (for a unique index created without a constraint, the index name, which is the name `SHOW CONSTRAINTS` lists it under), otherwise `null`
+| `lastRead`, `readCount` | Always `null`: ArcadeDB does not track index reads
+|===
+
+`YIELD *` adds the columns `trackedSince`, `options`, `failureMessage` and `createStatement`.
+
+*Examples:*
+
+[source,cypher]
+----
+// Every index
+SHOW INDEXES
+
+// The indexes no constraint owns
+SHOW INDEXES YIELD name, type, labelsOrTypes, properties, owningConstraint
+WHERE owningConstraint IS NULL
+
+// Count the vector indexes
+SHOW VECTOR INDEXES YIELD name RETURN count(name) AS total
+----
 
 ---
 
