@@ -413,6 +413,26 @@ try( Database db = databaseFactory.open(); ){
 }
 ----
 
+The iterators returned by `getEdges()` and `getVertices()` support `Iterator.remove()`: it deletes the edge of the element the
+last `next()` returned, exactly like `edge.delete()` (the edge is disconnected from both vertices, and a record-backed edge's
+record is deleted with it). For `getVertices()` that is the edge leading to the vertex just returned; the vertex itself is not
+deleted.
+
+[NOTE]
+====
+Since 26.11.1, `remove()` behaves the same on every edge-list iterator, with or without an edge type filter, and reports a
+failure to the caller:
+
+* a delete the current user is not allowed to perform throws `SecurityException` and leaves the edge in place. Earlier versions
+  logged a WARNING and unlinked the edge from the vertex being iterated anyway;
+* on a filtered iterator, such as `getEdges(DIRECTION.OUT, "IsFriendOf")`, earlier versions only unlinked the entry from the
+  iterated vertex, leaving the edge record and the other vertex's link behind;
+* calling `remove()` twice without a `next()` in between throws `IllegalStateException`, as the `Iterator` contract requires.
+
+The iterators over a super-node's striped edge list do not support `remove()` and throw `UnsupportedOperationException`: delete
+the edge with `edge.delete()` instead.
+====
+
 [[remote-graph-traversal]]
 ====== Traverse via API (Remote)
 
