@@ -1728,6 +1728,32 @@ SHOW CONSTRAINTS YIELD name, createStatement ORDER BY name
 
 ---
 
+[[cypher-create-index]]
+===== CREATE INDEX / DROP INDEX
+
+`CREATE INDEX` creates a (non-unique) `LSM_TREE` index on one or more properties of a label or relationship type, with Neo4j's syntax. `RANGE` is accepted as a synonym of the plain form.
+
+[source,cypher]
+----
+CREATE INDEX person_name FOR (p:Person) ON (p.name)
+CREATE INDEX IF NOT EXISTS FOR (p:Person) ON (p.firstName, p.lastName)
+CREATE INDEX follows_since FOR ()-[r:FOLLOWS]-() ON (r.since)
+
+DROP INDEX person_name
+DROP INDEX person_name IF EXISTS
+----
+
+_(Since v26.11.1)_ The index is created under the name the statement gives it, which is the name <<cypher-show-indexes,`SHOW INDEXES`>> lists, `DROP INDEX` takes, and SQL sees. An index created without a name is named `<Type>[<property>,...]`, for example `Person[name]`: use backtick escaping to drop it, `+DROP INDEX `Person[name]`+`. Before 26.11.1 the name was ignored, so `DROP INDEX person_name` dropped nothing.
+
+Index and constraint names share one namespace, as in Neo4j:
+
+* a name already taken by an index or a constraint is refused, and with `IF NOT EXISTS` the statement does nothing;
+* an index already defined on the same properties is refused under another name, and with `IF NOT EXISTS` the statement does nothing;
+* `DROP INDEX` of a name no index has raises an error unless `IF EXISTS` is given;
+* the index a `UNIQUE` or `NODE KEY` constraint created is dropped with <<cypher-drop-constraint,`DROP CONSTRAINT`>>: `DROP INDEX` refuses it, since the constraint would stay listed with nothing enforcing it.
+
+---
+
 [[cypher-show-indexes]]
 ===== SHOW INDEXES
 
