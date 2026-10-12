@@ -975,16 +975,22 @@ in user code stops; the SQL such a script runs is stopped as any other.
 `curl --max-time`) terminates the statement, instead of leaving the server busy with it until it completes or
 reaches `arcadedb.command.timeout`. This applies to plain HTTP/1.x connections once the request body has been read,
 not to TLS connections, to HTTP/2, or to a request whose client has already pipelined the next one. A statement that
-runs in a transaction session and is terminated this way ends the session, as any terminate does. Keep-alive and
+runs in a transaction session and is terminated this way follows the transaction session rule below. Keep-alive and
 pipelined requests are not affected. A client that half-closes its side of the connection after sending the request
 and still waits for the response cannot be told from one that left: for such clients, set
 `arcadedb.server.httpTerminateOnClientDisconnect` to `false`.
 
-*Transaction sessions.* Terminating a statement that runs in a transaction session also ends the session and rolls
-back everything the session wrote. `list transactions` lists the open sessions (id, user, database, tag, idle time,
-whether a request is running in it, and the ids of its running statements), and `terminate transaction <sessionId>`
-terminates what runs in it, rolls it back and ends it. A later `/api/v1/commit` on that session publishes nothing and
-answers `204` with the `arcadedb-session-expired` header, as for any session that no longer exists.
+*Transaction sessions.* Terminating a command that writes in a transaction session (`/api/v1/command`,
+`/api/v1/batch`) also ends the session and rolls back everything the session wrote, exactly as a failure of that
+command does. Terminating a read (`GET` or `POST /api/v1/query`) or a time-series, vector, PromQL or Grafana request
+stops only that request and leaves the session and its transaction as they were, so a client whose read timed out can
+retry it and still commit its writes _(since v26.11.1)_. `list transactions` lists the open sessions (id, user, database,
+tag, idle time, whether a request is running in it, and the ids of its running statements), and
+`terminate transaction <sessionId>` terminates what runs in it, rolls it back and ends it. That includes a `/ws` insert
+session writing into it, whose current chunk is listed under the session. The command never waits longer than its
+time limit (at most 10 seconds): when the session is still busy at that point it answers `terminating`, and the
+transaction is rolled back as soon as the running work ends. A later `/api/v1/commit` on that session publishes nothing
+and answers `204` with the `arcadedb-session-expired` header, as for any session that no longer exists.
 
 *Who can do what.* Every authenticated user can run these commands. *root* sees and stops every statement and
 session; any other user only their own, and someone else's is answered `not found`, so its existence is not given
