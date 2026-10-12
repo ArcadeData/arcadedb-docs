@@ -26,7 +26,7 @@ Every type requires a `TIMESTAMP` column, zero or more `TAGS` (low-cardinality i
 [source,sql]
 ----
 CREATE TIMESERIES TYPE SensorReading
-  TIMESTAMP ts PRECISION NANOSECOND
+  TIMESTAMP ts PRECISION MILLISECOND
   TAGS (sensor_id STRING, location STRING)
   FIELDS (
     temperature DOUBLE,
@@ -52,7 +52,7 @@ CREATE TIMESERIES TYPE SensorReading
 |===
 | Option | Default | Description
 | `TIMESTAMP <name>` | _(required)_ | Name of the timestamp column
-| `PRECISION` | `NANOSECOND` | Timestamp resolution: `SECOND`, `MILLISECOND`, `MICROSECOND`, `NANOSECOND`
+| `PRECISION` | `MILLISECOND` | Timestamp unit. Only `MILLISECOND` is accepted: timestamps are stored, ingested, retained and queried in milliseconds (see the note below)
 | `TAGS (...)` | _(none)_ | Comma-separated `name TYPE` pairs for low-cardinality dimensions
 | `FIELDS (...)` | _(required)_ | Comma-separated `name TYPE` pairs for measurement values
 | `SHARDS` | `arcadedb.asyncWorkerThreads` (available cores minus 1) | Number of shards for parallel writes
@@ -60,6 +60,30 @@ CREATE TIMESERIES TYPE SensorReading
 | `COMPACTION_INTERVAL` | _(none)_ | Cuts sealed blocks at boundaries of this interval. A block that lies inside one query bucket is answered from its statistics without decompressing it, so set it to the bucket width of your most frequent aggregation (see <<timeseries-choosing-layout,Choosing the layout>>). Without it blocks are cut by size only and a block spanning several buckets is decompressed
 | `IF NOT EXISTS` | _(none)_ | Skip creation if the type already exists, instead of failing. The statement returns one row either way, carrying a `created` flag: see <<sql-if-not-exists-result,the note on `IF NOT EXISTS` results>>
 |===
+
+[NOTE]
+====
+Since v26.11.1 `PRECISION` accepts only `MILLISECOND`, and `SECOND`, `MICROSECOND` and `NANOSECOND` are refused.
+Earlier versions accepted all four and honoured none of them: every ingestion endpoint (line protocol, Prometheus
+remote write, gRPC) converts its timestamps to milliseconds, and retention, downsampling and PromQL all count in
+milliseconds. On a `PRECISION SECOND` type fed with seconds, the first retention pass deleted every sample; on a
+`NANOSECOND` or `MICROSECOND` type fed with values in that unit, nothing ever expired and PromQL answered nothing.
+
+A type declared with another precision by an earlier version keeps loading and keeps its data, but its retention and
+downsampling are *suspended*, because its stored timestamps may be in either unit. A warning names each such type
+when the maintenance scheduler first meets it. If the type's timestamps are milliseconds (always the case for data
+written through the ingestion endpoints), confirm it to resume them:
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading PRECISION MILLISECOND
+----
+
+The statement changes only the declaration: no stored timestamp is rewritten, so `MILLISECOND` is the only unit it
+accepts. A type whose timestamps really are in another unit must have them converted to milliseconds first, by
+copying the samples into a new type, before retention is resumed. A JSONL export of such a type restores with its
+declaration and its suspension unchanged, into an embedded database.
+====
 
 A type stores its columns in the order they are declared, and that order matters: a sample is a positional row, so
 the column order is what an export records and what a restore reads back.
@@ -107,6 +131,14 @@ Remove all downsampling policies:
 [source,sql]
 ----
 ALTER TIMESERIES TYPE SensorReading DROP DOWNSAMPLING POLICY
+----
+
+Confirm that the timestamps of a type declared with another precision by an earlier version are milliseconds, which
+resumes its retention and downsampling (see the precision note above):
+
+[source,sql]
+----
+ALTER TIMESERIES TYPE SensorReading PRECISION MILLISECOND
 ----
 
 NOTE: A TIMESERIES type stores only its declared `TIMESTAMP`, `TAGS`, and `FIELDS` columns.
@@ -772,6 +804,15 @@ number, is infinite (`NaN`, `Infinity`) or falls outside a sensible date range i
 
 Earlier versions accepted such values and could take a very long time to answer, or not answer at all, on an
 extremely wide range.
+====
+
+[NOTE]
+====
+Since v26.11.1 selector windows are left-open, as in Prometheus: an instant selector evaluated at `t` reads the samples
+in `(t - lookback, t]` and a range selector `[5m]` reads `(t - 5m, t]`. A series whose last sample is exactly one
+lookback old is therefore stale, and `count_over_time(m[5m])` over a feed whose scrape interval divides five minutes
+no longer counts the sample sitting on the lower boundary. Earlier versions included that boundary sample (the
+Prometheus 2.x behaviour for range selectors, never Prometheus's behaviour for the lookback).
 ====
 
 [NOTE]
