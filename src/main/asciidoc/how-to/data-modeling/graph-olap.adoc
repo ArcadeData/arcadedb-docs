@@ -496,6 +496,14 @@ statistics - the fan-out of each hop sampled on the label it leaves - rather tha
 planned as `WHERE NOT (c)-[:HAS_TAG]->(t)` and so reaches the anti-join push-down (issue #9598, see
 <<cypher-optional-match,OPTIONAL MATCH>>).
 
+*Multi-hop chains on the view.* A chain of labeled hops such as `MATCH (a:P)-[:K]->(b:P)-[:K]->(c:P)` is walked on the
+view (`EXPLAIN` shows `GAVFusedChain`). Since v26.11.1 a `count(*)`, or `count(x)` of a variable of the chain, is counted
+during the walk with up to two grouping keys that are chain variables, in a `RETURN` or a `WITH`
+(`RETURN a, count(*) AS n`); `EXPLAIN` shows it on the chain as `fused count(*) AS n`. When the statement returns the
+paths' rows instead, they are produced in bounded batches, so memory no longer grows with the number of paths and a
+`LIMIT` stops the walk early (issue #9738). If the view is rebuilt while such a result is still being read, the query
+fails with a retryable error rather than mixing rows from two builds: run it again.
+
 A transaction that holds uncommitted changes - any change, even to types the view does not cover - does not use the
 view: the view serves the committed graph only, and a query inside the transaction must see the transaction's own
 writes. Such a query, Cypher, Gremlin or a graph algorithm, runs on the records until the transaction commits, which
