@@ -173,6 +173,13 @@ reported success and the work was silently gone. The endpoints this covers:
 The two errors easiest to hit on the observability routes are a malformed `start`/`end` timestamp and a read whose
 answer exceeds `arcadedb.server.maxResultRows`; neither touches your transaction any more.
 
+Since v26.11.1 the same holds for `GET /api/v1/query` and `POST /api/v1/query`. They still run inside the session's
+transaction, so they see what you wrote in it, but they only read, so an error on them leaves your open transaction
+as it was: a `413` for an answer over `arcadedb.server.maxResultRows`, or a `400` for a request refused before the query
+ran (for example `Accept: application/x-ndjson` on a statement that cannot be streamed). `POST /api/v1/command`
+also leaves the transaction alone for a `400` of this kind. An error raised by the statement itself on
+`/api/v1/command` still rolls the transaction back, as described under <<http-commit,Commit a transaction>>.
+
 ==== Transaction Scripts
 
 In case <<sql,SQL>> (`sql`) is supposed to be used as language for a transactions, the language variant <<sql-script,SQL Script>> (`sqlscript`) is also available.

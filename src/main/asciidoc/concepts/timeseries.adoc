@@ -134,6 +134,12 @@ ones, so the number of blocks follows the data volume and not the time. A read t
 very moment they are merged is refused with a retryable error (HTTP `503`) instead of returning a partial answer:
 run it again. A merge rewrites the sealed file, so it needs free disk space of about the size of that file.
 
+Since v26.11.1. Compaction, merge, retention and downsampling all rewrite a shard's sealed file, so on one shard they
+run one at a time. A `COMPACT TIMESERIES TYPE` issued while a retention or downsampling pass is running waits for it
+(and the other way round), instead of the two overwriting each other's work. Before, a retention pass that overlapped a
+compaction could be silently undone the next time the database was opened. Likewise, a rewrite that failed half-way
+no longer leaves a file behind that the next retention pass could resurrect deleted blocks from.
+
 Reads do not need a compaction to be fast. A query for one tag, such as the newest reading of one host, skips every
 mutable page that holds no row of that tag without reading its rows, whether or not the tail has been sealed yet.
 
