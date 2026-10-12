@@ -30,16 +30,20 @@ RETURN p.name, p.age, p.address.city
 A property can also be read with the subscript form `p['name']`, through `properties(p)` (`properties(p).name`, `properties(p)['name']`), and across a `LINK` property (`a.link.name`, `a.link['name']`). _(Since v26.11.1)_ `a.link['name']` on a `LINK` property reads through the link like `a.link.name`; before, it returned `null`.
 
 [[cypher-declared-string-comparison]]
-*Comparing a property declared STRING:*
+*Comparing a property declared in the schema:*
 
-_(Since v26.11.1)_ A value written into a property declared `STRING` in the schema is stored as its text, so writing `1` stores `'1'`. To find it again, a pattern (`MATCH (n:Product {code: 1})`, `MERGE`) or a comparison against such a property compares by the text the other operand would be stored as: `n.code = 1` finds the `'1'` that writing `1` stored. A property that is not declared keeps Cypher's strict typing, so `'1' = 1` is `false`.
+_(Since v26.11.1)_ A value written into a declared property is converted to the declared type, and the declaration also decides how a text is read. A property declared `STRING` stores the text of what is written into it (writing `1` stores `'1'`), and a property declared with any other scalar type (`INTEGER`, `LONG`, `FLOAT`, `DOUBLE`, `DECIMAL`, `BOOLEAN`, `DATE`, `DATETIME`, ...) stores a text written into it as that type (writing `'5'` into an `INTEGER` stores `5`). To find it again, a pattern (`MATCH (n:Product {code: 1})`, `MERGE`) or a comparison against such a property compares by what the other operand would be stored as: `n.code = 1` finds the `'1'` that writing `1` stored, and `n.qty = '5'` finds the `5` that writing `'5'` stored, so a repeated `MERGE` does not create a duplicate. A property that is not declared keeps Cypher's strict typing, so `'1' = 1` is `false`.
+
+Only the text form is converted: two values of the same kind keep Cypher's comparison, so `n.qty = 1.5` stays `false` for a stored `1`. A text the declared type cannot read (`'abc'` or `'5.7'` for an `INTEGER`) matches nothing.
 
 The comparison applies to every spelling of the same property read: `n.code`, `n['code']`, `properties(n).code`, `properties(n)['code']`, a chained read across a link (`a.link.code`, `a.link['code']`), `IN` (`n.code IN [1, 2]`) and the simple `CASE n.code WHEN 1 THEN ... END`. A value projected first is a plain value and keeps Cypher's strict typing:
 
 [source,cypher]
 ----
-// Product.code is declared STRING
-CREATE (:Product {code: 1})                                        // stores '1'
+// Product.code is declared STRING, Product.qty is declared INTEGER
+CREATE (:Product {code: 1, qty: '5'})                              // stores '1' and 5
+
+MATCH (n:Product {qty: '5'}) RETURN n                              // found
 
 MATCH (n:Product) WHERE n['code'] = 1 RETURN n                     // found
 MATCH (n:Product) WHERE n.code IN [1, 2] RETURN n                  // found
