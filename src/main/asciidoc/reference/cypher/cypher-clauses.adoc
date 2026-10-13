@@ -134,6 +134,30 @@ RETURN p, length(p)
 `WALK` mode without an explicit maximum hop bound will throw an error. Always specify an upper bound, e.g., `+[*1..10]+`.
 ====
 
+The path mode applies to a variable-length pattern predicate too: `WHERE (a)-[*]->(a)` is true when a cycle leads back to `a`, as `MATCH (a)-[*]->(a)` finds it, and `WHERE (a)-[*0..]->(a)` is true through the zero-length path.
+
+---
+
+[[cypher-bound-relationship-list]]
+===== Matching a Bound Relationship List
+
+When the relationship variable of a variable-length pattern is already bound to a list of relationships by an earlier clause, the pattern matches exactly that list: it does not expand the graph, it checks that the relationships, in list order, form a path leaving the left-hand node in the pattern's direction.
+
+[source,cypher]
+----
+MATCH (:A)-[r1]->(:B)-[r2]->(:C)
+WITH [r1, r2] AS rs
+MATCH (first)-[rs*]->(second)
+RETURN first, second   // one row: (:A), (:C)
+----
+
+* The list is read in written order: its first relationship touches the left-hand node of the pattern. With the list above, `(second)<-[rs*]-(first)` matches nothing, while `[r2, r1]` would match it.
+* Every other constraint of the pattern still applies: the hop range (`-[rs*1..1]->` refuses a two-element list), the relationship types, the inline property map, the inline `WHERE` and the path mode (under the default `TRAIL`, a list naming the same relationship twice matches nothing).
+* A `null` list, or a list containing `null`, matches nothing. A value that is not a list of relationships raises a `TypeError`.
+* The same rule applies to a pattern predicate (`WHERE (a)-[rs*]->(b)`), a pattern comprehension and an `EXISTS { }` or `COUNT { }` subquery.
+
+Inside a pattern comprehension, the relationship variable of a variable-length hop is the list of relationships walked, as in `MATCH`: `[(a)-[r*]->(x) | size(r)]` returns the length of each path, and a zero-length hop binds the empty list.
+
 ---
 
 [[cypher-named-paths]]
