@@ -279,6 +279,15 @@ would return an empty result set rather than a slow one. If no slot frees within
 (ten minutes by default), the query builds anyway and logs a warning, because by then the slot is being held by a
 rebuild that is stuck rather than slow.
 
+Since v26.11.1 that wait no longer outlives the query. A vector search -- `vector.neighbors()` in SQL,
+`db.index.vector.queryNodes` in Cypher, `select().nearestTo()` in the Java API -- stops within a fraction of a second
+when its statement is cancelled (a client that disconnects, a gRPC deadline, a query terminated from the running
+queries list) or reaches its timeout (`arcadedb.command.timeout`, a SQL `TIMEOUT` clause, `Select.timeout()`), whether
+it is waiting for a slot, waiting for a build another query started, or walking the graph. It fails with the usual
+timeout or termination error. The build itself is not abandoned: it runs in the background, keeps its slot until it
+finishes, and the next search uses the graph it publishes. A command timeout shorter than the build therefore delays
+the first successful search on that index until the build completes, but never prevents it.
+
 The counters `searchRebuildsQueuedForPermit` and `searchRebuildsWithoutPermit` in the index statistics report how
 often each happened. Persisting the graph before a restart -- a clean `close()`, or `REBUILD INDEX` -- avoids the
 whole situation: there is then nothing to rebuild on the first query.
@@ -387,6 +396,22 @@ and reused instead. Indexes with deletions or vectors added since the graph was 
 
 To pay the load at startup instead of on the first query, call `warmUp()` on the `LSMVectorIndex` (embedded API),
 or run one throwaway search. The `graphLoadsFromOrdinalMap` index stat counts how many loads took the fast path.
+====
+
+[[incomplete-location-load]]
+[NOTE]
+====
+The location map is also where a vector index learns which vector ids are already taken, so a load that does not read
+every entry cannot safely give out new ones. Before v26.11.1 such a load was kept for the life of the process anyway,
+and the inserts that followed could take ids that unread entries already held: two records then shared one vector id,
+and one of them dropped out of search results (`CHECK DATABASE` reports it as a vector id that a load gives to another
+record).
+
+Since v26.11.1 a load stopped from outside -- an `OutOfMemoryError`, an interrupted thread, a database closing under
+it -- is discarded and done again on the next access. A load that finds a page it cannot read keeps serving searches
+from what it read, logs a `SEVERE` message, and refuses new vectors (an insert, or an update that changes a vector)
+until the index is rebuilt; deleting stays possible. `CHECK DATABASE` lists such an index among the corrupted ones,
+so `CHECK DATABASE FIX` (or `REBUILD INDEX <name>`) rebuilds it and lifts the refusal.
 ====
 
 [[adaptive-efsearch]]
