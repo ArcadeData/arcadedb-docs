@@ -218,6 +218,20 @@ at the end of a line was stored as `0.0` instead of rejecting the line. A line c
 still stored without the entries after the comma until v26.11.1.
 ====
 
+A value its column cannot store drops only the sample that carries it, which the `400` partial-write body names in
+`unreadableValues` as `<measurement>.<column> (tag|field): <reason>` (the reason names the column and its type, never the
+value; `dropped` is the count of samples, the list holds one entry per distinct reason and the first 100). The gRPC
+`TimeSeriesWriteSummary` carries the same list as `unreadable_values`. _(Since v26.11.1)_ the line protocol and gRPC read a
+value as `INSERT` does, instead of failing the whole request with a server error:
+
+* a `DATE` or `DATETIME` column takes a number as a count in the column's own unit, digits in quotes as the same count, and any
+other quoted date or datetime as the instant it names (`seen="2023-11-14 22:15:23"`);
+* a numeric column takes a number its type can hold and numeric text; a number out of range (`300` in a `BYTE` column, a finite
+`1e300` in a `FLOAT`) is refused rather than truncated, while `NaN` and the infinities stay values of a floating point column;
+* a `BOOLEAN` column takes a boolean and the text `true` or `false` in any case; anything else is refused, where before any text
+was stored as `false`;
+* a `STRING` column takes a string of at most 256 UTF-8 bytes.
+
 Precision parameter: `ns` (nanoseconds, default), `us` (microseconds), `ms` (milliseconds), `s` (seconds).
 
 Example with `curl`:
