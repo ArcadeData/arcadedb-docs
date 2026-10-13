@@ -295,6 +295,7 @@ NAV_STRUCTURE: list[dict] = [
             (("reference/mongodb-ql/mongo.adoc", "MongoDB QL"), []),
             (("reference/redis-ql/redis.adoc", "Redis"), []),
             (("reference/graph-algorithms/chapter.adoc", "Graph Algorithms"), [
+                ("reference/graph-algorithms/shortest-path.adoc", "Shortest Path"),
                 ("reference/graph-algorithms/path-finding.adoc", "Path Finding"),
                 ("reference/graph-algorithms/centrality.adoc", "Centrality"),
                 ("reference/graph-algorithms/community-detection.adoc", "Community Detection"),
