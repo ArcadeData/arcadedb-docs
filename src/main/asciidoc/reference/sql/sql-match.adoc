@@ -177,6 +177,8 @@ ArcadeDB> MATCH {type: Person, where: (name = 'John' AND
 MATCH
   {
     [type: <type>],
+    [bucket: <bucket>],
+    [rid: <rid>],
     [as: <alias>],
     [where: (<whereCondition>)]
   }
@@ -217,6 +219,8 @@ RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
 ----
 
 * *`&lt;type&gt;`* Defines a valid target type.
+* *`bucket: &lt;bucket&gt;`* Restricts the node to the records of one bucket.
+* *`rid: &lt;rid&gt;`* Binds the node to the record with that RID, written as a literal (`#12:0`) or a parameter (`:rid`, `?`). A node bound by RID is the preferred starting point of the pattern. When the same node also declares a `type:` or a `bucket:`, the record must satisfy them as well: `{type: Person, rid: #12:0}` matches only if `#12:0` is a `Person` or a subtype of it, and matches nothing otherwise.
 * *`as: &lt;alias&gt;`* Defines an alias for a node in the pattern.
 * *`&lt;whereCondition&gt;`* Defines a filter condition to match a node in the pattern. It supports the normal SQL <<filtering,`WHERE`>> clause. You can also use the `$currentMatch` and `$matched` <<match-context-variables,context variables>>.
 * *`&lt;functionName&gt;`* Defines a graph function to represent the connection between two nodes. For instance, `out()`, `in()`, `outE()`, `inE()`, etc.
@@ -352,6 +356,28 @@ ArcadeDB> MATCH {type: Person, as:p} RETURN DISTINCT p.name as name
  Jenny
 --------
 ----
+
+*ORDER BY on the rows of a `RETURN`*
+
+When `RETURN` lists projections (or returns `$paths` or `$patterns`), every row is a new object built from the matched aliases: it is not a record and has no `@rid`, `@type` or other record attribute of its own. Order by the attribute of an alias, or by a projected column:
+
+[source,sql]
+----
+MATCH {type: Note, as: n}-HasPatient->{as: p}
+RETURN n.@rid AS noteRid, p.name AS patient
+ORDER BY noteRid           -- or ORDER BY n.@rid
+----
+
+A bare record attribute such as `ORDER BY @rid` is refused on these rows with an error that suggests the two forms above. With `RETURN $elements` or `$pathElements` the rows are the records themselves, so `ORDER BY @rid` sorts them as expected.
+
+[NOTE]
+====
+Up to version 26.10.x a bare `ORDER BY @rid` on a `RETURN` projection was accepted and silently ignored: every sort key was null, so the rows came back in pattern order. Queries that relied on it (for example keyset pagination) must switch to `ORDER BY <alias>.@rid` or to a projected column.
+====
+
+*Starting point and indexed functions*
+
+The engine starts the pattern from the node it expects to produce the fewest records. A node bound by `rid:` is the strongest candidate, followed by nodes whose `type:` and `where:` are estimated to be small. Small sets (under 100 records) are loaded upfront. A node filtered by an indexed function that cannot estimate its result, such as `SEARCH_INDEX()` on a full-text index or a geospatial predicate, is still preferred over a scan of a large type, but its records are streamed, never loaded upfront, so a `LIMIT` stops the pattern early instead of waiting for the whole index result.
 
 [[match-context-variables]]
 *Context Variables*
