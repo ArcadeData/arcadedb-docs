@@ -463,6 +463,23 @@ With BM25, documents matching rarer, more discriminative terms (and shorter docu
 `$score` is always a floating-point number, including for `CLASSIC` indexes (where it is the match count widened to a float, e.g. `3.0`). Application code that previously read `$score` as an integer must read it as a `Number`/float.
 ====
 
+[[full-text-index-limit]]
+====== Result Order, LIMIT and Cancellation
+
+When `SEARCH_INDEX(...)` drives the query, matches come back best first: by descending `$score`, and by ascending RID among equal scores, so the order is stable from one run to the next.
+Records are loaded only as rows are pulled, so a `LIMIT`, or a filter that stops early, also stops the record loading.
+
+When nothing between the search and the `LIMIT` can drop, add or reorder a row (a single `SEARCH_INDEX` condition with no other filter, no `ORDER BY` or exactly `ORDER BY $score DESC`, and no `GROUP BY`, `DISTINCT`, aggregation, `UNWIND` or `expand()`), the search keeps only the best `SKIP + LIMIT` matches and the sort is skipped. `EXPLAIN` shows it on the fetch step as `(best N first)`:
+
+[source,sql]
+----
+EXPLAIN SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java database') = true
+ORDER BY $score DESC LIMIT 20
+----
+
+A cancelled full-text query, or one past `arcadedb.command.timeout` or its SQL `TIMEOUT`, stops inside the search: during the posting walk, the scoring and the record loading, rather than after the whole search is over.
+
 [[full-text-index-explain]]
 ====== Inspecting Scores with EXPLAIN / PROFILE
 
