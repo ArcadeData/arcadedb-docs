@@ -1,7 +1,7 @@
 [[shortest-path-guide]]
 ==== Shortest Path
 
-ArcadeDB answers "what is the shortest way from A to B?" in several ways, from SQL, Cypher and Java. This page helps you pick one, walks through all of them on a small road network of Italy you can load in a few seconds, and explains when a *Customizable Contraction Hierarchy* (CCH) turns a weighted shortest path from milliseconds into microseconds.
+ArcadeDB answers "what is the shortest way from A to B?" in several ways, from SQL, Cypher and Java. This page helps you pick one, walks through all of them on the real road network of Florida (1.07 million junctions) from Tallahassee to Coral Gables, and explains when a *Customizable Contraction Hierarchy* (CCH) turns a weighted shortest path from milliseconds into microseconds.
 
 NOTE: Customizable Contraction Hierarchies (`CCH (...)` on a Graph Analytical View, `cchShortestPath()`, `algo.cch.shortestPath`) are available starting with ArcadeDB 26.10.2.
 
@@ -46,217 +46,213 @@ All weighted path finders read the weight the same way: the numeric value of the
 [[shortest-path-dijkstra-astar-cch]]
 ===== Dijkstra, A* and CCH
 
-image::../../images/cch-italy-dijkstra-astar-cch.svg[Dijkstra, A* and CCH searching the fastest route from Roma to Palermo on a map of Italy]
+image::../../images/cch-florida-dijkstra-astar-cch.svg[Dijkstra, A* and CCH searching the fastest route from Tallahassee to Coral Gables on the Florida road network: 1,029,617, 840,138 and 346 junctions settled]
 
-*Dijkstra* settles vertices in order of distance from the source, so its search is a growing circle: the farther the destination, the more of the graph it reads. *A** adds an estimate of the remaining distance (for example the straight line between two coordinates) and leans the circle toward the destination. Both need nothing prepared in advance, and both slow down as routes get longer.
+*Dijkstra* settles vertices in order of distance from the source, so its search is a growing circle: the farther the destination, the more of the graph it reads. From Tallahassee to Coral Gables it settles 1,029,617 of Florida's 1,070,376 junctions. *A** adds an estimate of the remaining distance (for example the straight line between two coordinates) and leans the circle toward the destination: 840,138 junctions. Both need nothing prepared in advance, and both slow down as routes get longer.
 
-A *Customizable Contraction Hierarchy* moves the work ahead of the queries. Once, it ranks the vertices so that the small sets of vertices that split the network (on a road map: the few junctions where long routes must pass) sit at the top, and adds shortcut edges so that every route can go up the ranking and then down. A query then only climbs from both endpoints to the top and unpacks the shortcuts on the way: its cost depends on the height of the hierarchy, not on the distance between the two vertices. On the Florida road network that is about 0.01 to 0.04 ms for any route, against 8 to 104 ms for Dijkstra and 3 to 132 ms for A* (see <<shortest-path-performance>>).
+A *Customizable Contraction Hierarchy* moves the work ahead of the queries. Once, it ranks the vertices so that the small sets of vertices that split the network (on a road map: the few junctions where long routes must pass; in Florida, 17 junctions cut the state in two) sit at the top, and adds shortcut edges so that every route can go up the ranking and then down. A query then only climbs from both endpoints to the top and unpacks the shortcuts on the way: 346 junctions for the same route. Its cost depends on the height of the hierarchy, not on the distance between the two vertices: on the Florida road network that is about 0.01 to 0.04 ms for any route, against 8 to 104 ms for Dijkstra and 3 to 132 ms for A* (see <<shortest-path-performance>>).
 
-image::../../images/cch-italy-hierarchy.svg[The contraction hierarchy of the Italy sample: cities by rank on the map and the elimination tree, with the two climbs of a query from Roma to Palermo]
+image::../../images/cch-florida-hierarchy.svg[The contraction hierarchy of the Florida road network: the pieces of the nested dissection with the junctions of the first three cuts, and the two climbs of a query from Tallahassee to Coral Gables meeting near Vero Beach]
 
 The *customizable* part matters for real networks: the ranking and the shortcuts depend only on which roads exist, not on what they cost. When a weight changes (traffic, a closure) only the costs of the shortcuts above that road are recomputed, typically in a millisecond. See <<gav-cch>> for the details of each phase.
 
-[[shortest-path-italy]]
-===== Try It: the Italy Road Network
+[[shortest-path-florida]]
+===== Try It: the Florida Road Network
 
-The sample is a small, approximate road network: 121 Italian cities with their coordinates and 212 two-way roads, each with a length in kilometers (`km`) and a travel time in minutes (`minutes`, at 90 km/h). Four ferries are included: short in kilometers, slow in minutes. It is meant to show the algorithms, not to plan a trip.
+The examples use the Florida road network of the http://www.diag.uniroma1.it/challenge9/download.shtml[9th DIMACS Implementation Challenge], derived from the US Census TIGER/Line data: 1,070,376 junctions with their coordinates and 2,712,798 directed road segments, each with a length in kilometers (`km`) and a travel time in minutes (`minutes`). A two-way road is two segments, one per direction.
 
 [source,sql]
 ----
-CREATE VERTEX TYPE City;
-CREATE PROPERTY City.name STRING;
-CREATE PROPERTY City.lat DOUBLE;
-CREATE PROPERTY City.lon DOUBLE;
-CREATE INDEX ON City (name) UNIQUE;
+CREATE VERTEX TYPE Junction;
+CREATE PROPERTY Junction.id INTEGER;
+CREATE PROPERTY Junction.lat DOUBLE;
+CREATE PROPERTY Junction.lon DOUBLE;
+CREATE PROPERTY Junction.name STRING;
 
 CREATE EDGE TYPE ROAD;
-CREATE PROPERTY ROAD.km INTEGER;
-CREATE PROPERTY ROAD.minutes INTEGER;
-CREATE PROPERTY ROAD.ferry BOOLEAN;
-
-INSERT INTO City SET name = "Roma", lat = 41.903, lon = 12.496;
-...
-CREATE EDGE ROAD FROM (SELECT FROM City WHERE name = "Roma") TO (SELECT FROM City WHERE name = "Rieti")
-  SET km = 76, minutes = 51, ferry = false;
-...
+CREATE PROPERTY ROAD.km DOUBLE;
+CREATE PROPERTY ROAD.minutes DOUBLE;
 ----
 
-The data set lives in the https://github.com/ArcadeData/arcadedb-usecases/tree/main/route-planning[route-planning use case]: `sql/01-schema.sql` (the types above), `sql/02-data.sql` (the cities and the roads) and `sql/03-view.sql` (the view of <<shortest-path-italy-cch>>). Clone the repository, enter `route-planning`, then pick one:
+The https://github.com/ArcadeData/arcadedb-usecases/tree/main/route-planning[route-planning use case] downloads the three DIMACS files (`USA-road-d.FLA.gr.gz` for the lengths, `USA-road-t.FLA.gr.gz` for the travel times, `USA-road-d.FLA.co.gz` for the coordinates), converts them and loads them with <<java-batch-importer,GraphBatch>>. `km` is the DIMACS length, in tenths of a meter, divided by 10,000. `minutes` reads the DIMACS travel time as millionths of an hour: the files do not state the unit, but with that reading the four road classes drive at 40, 60, 80 and 100 km/h. Clone the repository, enter `route-planning`, then pick one:
 
-* *Docker*: `docker compose up -d` and `./setup.sh` start ArcadeDB, create the `RoutePlanning` database, load the files and create the view. `./queries/queries.sh` then runs the queries of this page with curl, and the `java` folder runs them from a Java client.
-* *Your own server*: `ARCADEDB_URL=http://localhost:2480 ARCADEDB_PASS=<root password> ./setup.sh`.
-* *Console*: `create database RoutePlanning`, then `load sql/01-schema.sql` and `load sql/02-data.sql`.
+* *Docker*: `docker compose up -d` and `./setup.sh` start ArcadeDB, create the `RoutePlanning` database, load the network with one request to the <<http-batch,batch endpoint>> (about 11 seconds), name a few junctions after their cities (`sql/02-places.sql`: Tallahassee, Coral Gables, Orlando, Tampa, Jacksonville, Miami, Gainesville, Pensacola) and create the view of <<shortest-path-florida-cch>>. `./queries/queries.sh` then runs the queries of this page with curl, and the `java` folder runs them from a Java client.
+* *Your own server*: `ARCADEDB_URL=http://localhost:2480 ARCADEDB_PASS=<root password> ./setup.sh`. The load is a 150 MB request: raise `arcadedb.server.httpBodyContentMaxSize` above its 100 MB default, as the use case's `docker-compose.yml` does.
+* *Embedded*: see <<shortest-path-florida-java>>.
 
-The roads are stored in one direction, as they were listed, and every query below walks them in both (`BOTH`). To model one-way streets, store each direction as its own edge and query with `OUT`.
+The segments are directed, so every query below walks them with `OUT`. On a graph that stores each road once and walks it both ways, use `BOTH`.
 
-[[shortest-path-italy-sql]]
+[[shortest-path-florida-sql]]
 ====== Dijkstra, A* and the Fewest Hops in SQL
 
 The path functions return the vertices of the path in order. `expand()` turns them into rows:
 
 [source,sql]
 ----
-SELECT name FROM (
-  SELECT expand(dijkstra($from, $to, 'minutes', { direction: 'BOTH', edgeTypeNames: ['ROAD'] }))
-  LET $from = (SELECT FROM City WHERE name = 'Roma'),
-      $to   = (SELECT FROM City WHERE name = 'Palermo')
+SELECT lat, lon FROM (
+  SELECT expand(dijkstra($from, $to, 'minutes', { direction: 'OUT', edgeTypeNames: ['ROAD'] }))
+  LET $from = (SELECT FROM Junction WHERE name = 'Tallahassee'),
+      $to   = (SELECT FROM Junction WHERE name = 'Coral Gables')
 )
 ----
 
-Roma, Latina, Gaeta, Caserta, Avellino, Salerno, Sapri, Castrovillari, Cosenza, Lamezia Terme, Vibo Valentia, Villa San Giovanni, Messina, Cefalù, Palermo: 681 minutes, with the ferry across the Strait of Messina.
+1,501 junctions and 498 minutes (8 h 18 min): I-10 east, I-75 south, the Florida Turnpike and I-95 into Miami. On this graph the SQL function takes about 3 seconds: it walks the stored records, and a route across the state reads nearly all of them.
 
-A* needs the vertex properties that hold the coordinates and an estimate that never exceeds the real remaining cost. With `lat`/`lon` in degrees, a degree is at least 75 km anywhere in Italy, which is 50 minutes at 90 km/h: `dFactor: 50` for a weight in minutes (`dFactor: 75` for one in kilometers) keeps the estimate below the real cost:
+A* needs the vertex properties that hold the coordinates and an estimate that never exceeds the real remaining cost. With `lat`/`lon` in degrees, `dFactor` is the cost per degree of straight line. To keep A* exact it must not exceed the cheapest cost per degree of any road segment in the data: 57 for `minutes` and 70 for `km` on this network:
 
 [source,sql]
 ----
-SELECT astar($from, $to, 'minutes', { direction: 'BOTH', edgeTypeNames: ['ROAD'],
+SELECT astar($from, $to, 'minutes', { direction: 'OUT', edgeTypeNames: ['ROAD'],
                                       vertexAxisNames: ['lat', 'lon'], heuristicFormula: 'EUCLIDEAN',
-                                      dFactor: 50, tieBreaker: false }) AS path
-LET $from = (SELECT FROM City WHERE name = 'Roma'),
-    $to   = (SELECT FROM City WHERE name = 'Palermo')
+                                      dFactor: 57, tieBreaker: false }).size() AS junctions
+LET $from = (SELECT FROM Junction WHERE name = 'Tallahassee'),
+    $to   = (SELECT FROM Junction WHERE name = 'Coral Gables')
 ----
 
-An estimate that overshoots makes A* faster but no longer guarantees the shortest path.
+The same 1,501 junctions. An estimate that overshoots makes A* faster but no longer guarantees the shortest path. A* is not faster than Dijkstra here: a few segments of the data are much faster than the straight line between their ends suggests, and the estimate has to stay below those too (see <<shortest-path-performance>>).
 
-`shortestPath()` ignores weights and minimizes the number of roads: 5 here, through Napoli and the overnight ferry:
+`shortestPath()` ignores weights and minimizes the number of road segments: 1,064 here.
 
 [source,sql]
 ----
-SELECT shortestPath($from, $to, 'BOTH') AS path
-LET $from = (SELECT FROM City WHERE name = 'Roma'),
-    $to   = (SELECT FROM City WHERE name = 'Palermo')
+SELECT shortestPath($from, $to, 'OUT', 'ROAD').size() - 1 AS roads
+LET $from = (SELECT FROM Junction WHERE name = 'Tallahassee'),
+    $to   = (SELECT FROM Junction WHERE name = 'Coral Gables')
 ----
 
 In Cypher, the fewest hops is a pattern:
 
 [source,cypher]
 ----
-MATCH p = shortestPath((a:City {name: 'Roma'})-[:ROAD*]-(b:City {name: 'Palermo'}))
-RETURN length(p) AS hops
+MATCH p = shortestPath((a:Junction {name: 'Tallahassee'})-[:ROAD*]->(b:Junction {name: 'Coral Gables'}))
+RETURN size(relationships(p)) AS roads
 ----
 
-[[shortest-path-italy-cch]]
+[[shortest-path-florida-cch]]
 ====== Adding a Contraction Hierarchy
 
 A contraction hierarchy lives on a <<graph-olap,Graph Analytical View>>, one per weight property. One view can keep several, here one for distance and one for travel time:
 
 [source,sql]
 ----
-CREATE GRAPH ANALYTICAL VIEW Italy
+CREATE GRAPH ANALYTICAL VIEW Florida
   EDGE TYPES (ROAD)
   UPDATE MODE SYNCHRONOUS
   CCH (km, minutes)
 ----
 
-`./setup.sh` has already created it (`sql/03-view.sql`); from the console, run the statement above or `load sql/03-view.sql`.
+`./setup.sh` has already created it (`sql/03-view.sql`) and waited for it.
 
-The view and its hierarchies are built in the background, in milliseconds for this graph and seconds for a country-sized one. Queries never wait for them: until a hierarchy is ready they are answered by bidirectional Dijkstra, with the same result.
+The view and its hierarchies are built in the background: for Florida, the view in about 2 seconds and both hierarchies in about 7. Queries never wait for them: until a hierarchy is ready they are answered by bidirectional Dijkstra, with the same result.
 
 [source,sql]
 ----
-SELECT name FROM (
-  SELECT expand(cchShortestPath($from, $to, 'minutes', { direction: 'BOTH', edgeTypeNames: ['ROAD'] }))
-  LET $from = (SELECT FROM City WHERE name = 'Roma'),
-      $to   = (SELECT FROM City WHERE name = 'Palermo')
+SELECT lat, lon FROM (
+  SELECT expand(cchShortestPath($from, $to, 'minutes', { direction: 'OUT', edgeTypeNames: ['ROAD'] }))
+  LET $from = (SELECT FROM Junction WHERE name = 'Tallahassee'),
+      $to   = (SELECT FROM Junction WHERE name = 'Coral Gables')
 )
 ----
 
 [source,cypher]
 ----
-MATCH (a:City {name: 'Roma'}), (b:City {name: 'Palermo'})
-CALL algo.cch.shortestPath(a, b, 'ROAD', 'minutes', 'BOTH') YIELD path, weight
-RETURN [c IN path.nodes | c.name] AS route, weight
+MATCH (a:Junction {name: 'Tallahassee'}), (b:Junction {name: 'Coral Gables'})
+CALL algo.cch.shortestPath(a, b, 'ROAD', 'minutes', 'OUT') YIELD path, weight
+RETURN weight AS minutes, size(path.nodes) AS junctions
 ----
 
-Same route, same 681 minutes. `path` is a map with `nodes`, `relationships` (the cheapest edge between each pair of consecutive nodes) and `length`.
+Same route, same 498 minutes, in about 2 ms through the HTTP API instead of 3 seconds. `path` is a map with `nodes`, `relationships` (the cheapest edge between each pair of consecutive nodes) and `length`.
 
 TIP: Name the edge types the view covers (`edgeTypeNames` in SQL, the relationship types in Cypher). A query without them walks *every* edge type of the database, and as soon as the schema has an edge type the view does not cover, that is a different graph from the one the hierarchy was built for: the query is answered by Dijkstra.
 
-[[shortest-path-italy-metrics]]
+[[shortest-path-florida-metrics]]
 ====== Two Metrics, Two Routes
 
-The shortest route is not always the fastest one. From Roma to Palermo:
+The shortest route is not always the fastest one. From Tallahassee to Coral Gables, each route with the other cost summed over its own road segments:
 
 [source,cypher]
 ----
-MATCH (a:City {name: 'Roma'}), (b:City {name: 'Palermo'})
-CALL algo.cch.shortestPath(a, b, 'ROAD', $metric, 'BOTH') YIELD path, weight
-RETURN [c IN path.nodes | c.name] AS route, weight
+MATCH (a:Junction {name: 'Tallahassee'}), (b:Junction {name: 'Coral Gables'})
+CALL algo.cch.shortestPath(a, b, 'ROAD', 'km', 'OUT') YIELD path, weight
+RETURN weight AS km, reduce(m = 0.0, r IN path.relationships | m + r.minutes) AS minutes
 ----
 
-[cols="1,1,4", options="header"]
+[cols="1,1,1,3", options="header"]
 |===
-| `$metric` | weight | route
+| Minimize | km | minutes | route
 
-| `km` | 600 | Roma, Latina, Gaeta, Caserta, Napoli, Palermo (the overnight ferry)
-| `minutes` | 681 | Roma, Latina, Gaeta, Caserta, Avellino, Salerno, Sapri, Castrovillari, Cosenza, Lamezia Terme, Vibo Valentia, Villa San Giovanni, Messina, Cefalù, Palermo
+| `km` | 742.2 | 679.1 (11 h 19 min) | highways through the interior, past Lake Okeechobee
+| `minutes` | 788.6 | 498.0 (8 h 18 min) | I-10, I-75, the Florida Turnpike
 |===
 
 Both hierarchies share the same view and are kept up to date together.
 
-[[shortest-path-italy-traffic]]
+[[shortest-path-florida-traffic]]
 ====== Live Traffic
 
-image::../../images/cch-italy-live-traffic.svg[A traffic jam between Bologna and Prato re-routes Bologna to Roma through Arezzo and Perugia]
+image::../../images/cch-florida-live-traffic.svg[A four-hour jam on the Florida Turnpike south of Orlando re-routes Tallahassee to Coral Gables along I-10 and I-95]
 
-A weight is an ordinary edge property: change it with a normal `UPDATE` and the hierarchy follows. The fastest route from Bologna to Roma, 287 minutes, runs over the A1 through Prato and Firenze. Four hours of queue between Bologna and Prato:
+A weight is an ordinary edge property: change it with a normal `UPDATE` or Cypher `SET` and the hierarchy follows. Four hours of queue on the Turnpike south of Orlando, on the segment between junctions 702459 and 702911 (normally 6.3 minutes):
 
-[source,sql]
+[source,cypher]
 ----
-UPDATE ROAD SET minutes = 240 WHERE @out.name = 'Bologna' AND @in.name = 'Prato'
-----
-
-Right after the commit the hierarchy re-prices the arcs above that road (about a millisecond on this graph; 0.19 ms after the commit for a single road on the 1.07-million-junction Florida network), and the fastest route becomes Bologna, Forlì, Arezzo, Perugia, Foligno, Terni, Rieti, Roma: 295 minutes. A query that arrives in between is answered by bidirectional Dijkstra, so no answer is ever older than the data.
-
-A closed road is a road that cannot be walked. Since a negative weight is never walked, closing it is an update too, and the hierarchy treats it the same way. The Strait of Messina ferry stops:
-
-[source,sql]
-----
-UPDATE ROAD SET minutes = -1 WHERE @out.name = 'Villa San Giovanni' AND @in.name = 'Messina'
+MATCH (:Junction {id: 702459})-[r:ROAD]->(:Junction {id: 702911})
+SET r.minutes = 240
 ----
 
-Roma to Palermo by travel time now takes the overnight ferry from Napoli: 830 minutes. Setting `minutes` back to 40 reopens it.
+Right after the commit the hierarchy re-prices the arcs above that road (0.9 ms here), and the fastest route leaves I-75 at Lake City for I-10 east and I-95 down the Atlantic coast, rejoining the old route near Vero Beach: 500.1 minutes (8 h 20 min) and 825.7 km. A query that arrives in between is answered by bidirectional Dijkstra, so no answer is ever older than the data. Setting `minutes` back to 6.3009 restores the original route.
 
-[[shortest-path-italy-java]]
+Find the road through the indexed `Junction.id` as above. The SQL form `UPDATE ROAD SET minutes = 240 WHERE @out.id = 702459 AND @in.id = 702911` gives the same result, but scans every `ROAD` edge to evaluate the condition.
+
+A closed road is a road that cannot be walked. Since a negative weight is never walked, closing it is an update too (`SET r.minutes = -1`), and the hierarchy treats it the same way.
+
+[[shortest-path-florida-java]]
 ====== From Java
 
 The same steps from an embedded database: no server, no build step. From the `route-planning` directory of the use case, with Java 21 or later and the `lib` directory of an ArcadeDB distribution:
 
 [source,shell]
 ----
-java -cp "$ARCADEDB_HOME/lib/*" embedded/ItalyRoutes.java
+java -Xmx4g -cp "$ARCADEDB_HOME/lib/*" embedded/FloridaRoutes.java
 ----
 
-The core of it:
+It downloads the DIMACS files into `data/` the first time and loads them with the <<java-batch-importer,GraphBatch>> Java API, in about 7 seconds: the junctions first, in DIMACS order so that the DIMACS id `n` is the RID at index `n - 1`, then the road segments with both costs. The core of it:
 
 [source,java]
 ----
-try (Database db = new DatabaseFactory("./target/databases/italy-routes").create()) {
-  db.command("sqlscript", Files.readString(Path.of("sql/01-schema.sql")));
-  String data = Files.readString(Path.of("sql/02-data.sql"));
-  db.transaction(() -> db.command("sqlscript", data));
+try (Database db = new DatabaseFactory("./target/databases/florida-routes").create()) {
+  // ... the schema of sql/01-schema.sql
 
-  db.command("sql", "CREATE GRAPH ANALYTICAL VIEW Italy EDGE TYPES (ROAD) UPDATE MODE SYNCHRONOUS CCH (km, minutes)");
+  RID[] junctions;
+  try (GraphBatch batch = db.batch().build()) {
+    junctions = batch.createVertices("Junction", properties); // Object[][]: { "id", 1, "lat", 30.43, "lon", -84.28 }, ...
+  }
+  try (GraphBatch batch = db.batch().withBatchSize(500_000).withExpectedEdgeCount(2_712_798).build()) {
+    // for each DIMACS arc "a from to length" and its travel time:
+    batch.newEdge(junctions[from - 1], "ROAD", junctions[to - 1], "km", length / 10_000.0, "minutes", time * 0.00006);
+  }
+
+  db.command("sql", "CREATE GRAPH ANALYTICAL VIEW Florida EDGE TYPES (ROAD) UPDATE MODE SYNCHRONOUS CCH (km, minutes)");
 
   // optional: wait for the view and its hierarchies, so the first queries already use them
-  GraphAnalyticalView view = GraphAnalyticalViewRegistry.get(db, "Italy");
-  view.awaitReady(60, TimeUnit.SECONDS);
+  GraphAnalyticalView view = GraphAnalyticalViewRegistry.get(db, "Florida");
+  view.awaitReady(5, TimeUnit.MINUTES);
   for (ContractionHierarchy cch : view.getContractionHierarchies())
-    cch.awaitReady(true, 60, TimeUnit.SECONDS); // true: also prepare undirected ('BOTH') queries
+    cch.awaitReady(false, 5, TimeUnit.MINUTES); // directed ('OUT') queries only
 
   try (ResultSet rs = db.query("opencypher", """
-      MATCH (a:City {name: $from}), (b:City {name: $to})
-      CALL algo.cch.shortestPath(a, b, 'ROAD', 'minutes', 'BOTH') YIELD path, weight
-      RETURN [c IN path.nodes | c.name] AS route, weight""", Map.of("from", "Bologna", "to", "Roma"))) {
+      MATCH (a:Junction {id: $from}), (b:Junction {id: $to})
+      CALL algo.cch.shortestPath(a, b, 'ROAD', 'minutes', 'OUT') YIELD path, weight
+      RETURN weight, size(path.nodes) AS junctions""", Map.of("from", 472033, "to", 624638))) {
     Result row = rs.next();
-    System.out.println(row.getProperty("route") + " " + row.getProperty("weight") + " min");
+    System.out.println(row.getProperty("junctions") + " junctions, " + row.getProperty("weight") + " min");
   }
 }
 ----
 
-The view can also be defined with the builder, `GraphAnalyticalView.builder(db).withName("Italy").withEdgeTypes("ROAD").withUpdateMode(UpdateMode.SYNCHRONOUS).withContractionHierarchy("km").withContractionHierarchy("minutes").build()`.
+The view can also be defined with the builder, `GraphAnalyticalView.builder(db).withName("Florida").withEdgeTypes("ROAD").withUpdateMode(UpdateMode.SYNCHRONOUS).withContractionHierarchy("km").withContractionHierarchy("minutes").build()`.
 
-The full example also compares `dijkstra()`, `astar()` and `cchShortestPath()` on the same route, shows the two metrics, and applies the traffic update. On a laptop, Roma to Palermo takes about 200 µs with `dijkstra()`, 130 µs with `astar()` and 40 µs with `cchShortestPath()`, SQL parsing included: on 121 cities there is little for a hierarchy to save. The gap grows with the network.
+The full example also compares `dijkstra()`, `astar()` and `cchShortestPath()` on the same route, shows the two metrics, and applies the traffic update. Embedded, Tallahassee to Coral Gables takes about 3.5 seconds with `dijkstra()`, 7 seconds with `astar()` and 0.4 ms with `cchShortestPath()`, SQL parsing included. The SQL path functions walk the stored records; the benchmark below compares the algorithms themselves on the same in-memory arrays.
 
 [[shortest-path-engine]]
 ===== Which Engine Answered?
@@ -305,7 +301,7 @@ Measured with `CCHRoadNetworkBenchmark` (engine test sources) on the DIMACS Flor
 
 Dijkstra and A* are the benchmark's reference implementations on primitive arrays, the fairest baselines for the algorithms themselves. A* estimates the remaining cost with the straight line to the destination, scaled so that it never exceeds the cost of any road segment, which is what keeps it exact. In this data 112 of the 2.7 million segments are shorter than the straight line between their ends, so the estimate is capped at 67% of the true distance: A* is 2.5 times faster than Dijkstra for nearby destinations and slower across the state.
 
-To reproduce it, download `USA-road-d.FLA.gr.gz` and `USA-road-d.FLA.co.gz` (the coordinates, for A*) from the http://www.diag.uniroma1.it/challenge9/download.shtml[9th DIMACS Implementation Challenge] and run, from the ArcadeDB source tree (472033 and 624638 are the DIMACS ids of the junctions nearest to Tallahassee and Coral Gables):
+To reproduce it, download `USA-road-d.FLA.gr.gz` and `USA-road-d.FLA.co.gz` (the coordinates, for A*) from the http://www.diag.uniroma1.it/challenge9/download.shtml[9th DIMACS Implementation Challenge] and run, from the ArcadeDB source tree (472033 and 624638 are the DIMACS ids of the junctions the use case names Tallahassee and Coral Gables):
 
 [source,shell]
 ----
