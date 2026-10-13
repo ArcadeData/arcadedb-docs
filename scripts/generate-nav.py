@@ -288,6 +288,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("reference/cypher/cypher-clauses.adoc", "Clauses"),
                 ("reference/cypher/cypher-expressions.adoc", "Expressions"),
                 ("reference/cypher/cypher-compatibility.adoc", "Compatibility"),
+                ("reference/cypher/cypher-gql-conformance.adoc", "ISO GQL Coverage"),
             ]),
             # Single-page languages — collapsed from "<Lang> > <single child>"
             # to a single clickable entry that lands directly on the page.

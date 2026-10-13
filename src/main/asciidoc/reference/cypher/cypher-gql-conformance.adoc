@@ -1,0 +1,162 @@
+[[cypher-gql-conformance]]
+==== ISO GQL Coverage Statement
+
+This page states which features of https://www.iso.org/standard/76120.html[ISO/IEC 39075:2024 (GQL)] ArcadeDB supports, supports in part, or does not support.
+It describes ArcadeDB 26.10.1 and later, unless a row says otherwise.
+
+ArcadeDB has no separate GQL engine.
+GQL-aligned syntax runs in the native OpenCypher engine (query language `opencypher`), which implements the Cypher 25 grammar, the GQL-aligned revision of Cypher.
+GQL and Cypher 25 statements can be mixed freely in the same query, and no setting is needed to enable them.
+
+Status values used below:
+
+* *Supported*: the feature runs with GQL semantics; any deviation is listed in the Notes column.
+* *Partial*: part of the feature runs; the Notes column says which part.
+* *Not supported*: the feature is not available.
+
+[[cypher-gql-conformance-testing]]
+===== Conformance testing
+
+No public conformance test suite exists for ISO GQL yet, so ArcadeDB publishes no GQL suite results.
+The OpenCypher engine is validated against the official openCypher Technology Compatibility Kit on every build: 3,897 scenarios, 97.8% passing, 0 failing, 84 skipped.
+See <<cypher-compatibility,Cypher Compatibility Matrix>> for the breakdown.
+
+[[cypher-gql-conformance-patterns]]
+===== Graph pattern matching
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| Node and edge patterns, directed and undirected (`+-->+`, `+<--+`, `+--+`) | Supported | The GQL tilde forms for undirected edges (`~[ ]~`) are not supported; use `-[ ]-`.
+| Label expressions: `&`, `\|`, `!`, `%`, parentheses, `IS Label` | Supported | For example `(n:(Person&!Admin)\|Admin)`, `(n IS Person & Employee)`, `+-[r:!KNOWS]->+`. On variable-length relationships since 26.11.1.
+| Element pattern `WHERE` (inline predicates in node and edge patterns) | Supported | `(n:Person WHERE n.age > 35)`, `+-[r WHERE r.weight > 1]->+`.
+| Quantified edges: `+{m,n}+`, `+{n}+`, `+{,n}+`, `+`, `*` | Supported | `+-[:KNOWS]->{1,3}+`. The quantifier `+{0}+` is refused.
+| Quantified path patterns: `+( ... ){m,n}+` | Partial | Groups with fixed-length inner patterns and an inner `WHERE` are supported; inner variables bind as lists. Not supported inside a group: variable-length relationships, path variables, nested groups, parameterized property maps and dynamic labels.
+| Parenthesized path pattern with `WHERE` and no quantifier | Not supported | Use an element pattern `WHERE` or a `WHERE` clause. Tracked in https://github.com/ArcadeData/arcadedb/issues/9940[#9940].
+| Path variables (`p = ...`) | Supported | Over a quantified path pattern without outer hops the path is not bound correctly: tracked in #9940.
+| Multiple path patterns and multiple `MATCH` statements | Supported |
+| `OPTIONAL MATCH` | Supported |
+|===
+
+[[cypher-gql-conformance-path-modes]]
+===== Path modes, path search prefixes and match modes
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| Path mode `TRAIL` | Supported | The default, as in GQL. See <<cypher-path-mode,Path Mode>>.
+| Path mode `WALK` | Supported | The pattern needs an upper bound.
+| Path mode `ACYCLIC` | Supported |
+| Path mode `SIMPLE` | Not supported |
+| Path search prefix `ALL` / `ALL PATHS` | Supported | The default behavior.
+| Path search prefixes `ANY`, `ANY k`, `ANY SHORTEST`, `ALL SHORTEST`, `SHORTEST k`, `SHORTEST k GROUPS` | Not supported | Use the `shortestPath()` and `allShortestPaths()` functions. In 26.10.x these prefixes are accepted by the parser but not applied, so the query returns every matching path; do not use them. Tracked in #9940.
+| Match mode `DIFFERENT EDGES` | Supported | The default, as in GQL (written `DIFFERENT RELATIONSHIPS` in Cypher 25). The GQL keyword `DIFFERENT EDGES` is not accepted.
+| Match mode `REPEATABLE ELEMENTS` | Not supported | In 26.10.x accepted by the parser but not applied. Tracked in #9940.
+|===
+
+[[cypher-gql-conformance-statements]]
+===== Query composition
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| `RETURN`, `RETURN DISTINCT` | Supported | Grouping is implicit (Cypher style); the GQL `GROUP BY` clause and `SELECT` statement are not supported.
+| `FILTER [WHERE]` | Supported |
+| `FOR x IN list` | Supported | Equivalent to `UNWIND`. `WITH ORDINALITY` / `WITH OFFSET` are not supported.
+| `LET` | Not supported | Use `WITH *, expr AS x`. Tracked in #9940.
+| `ORDER BY`, `OFFSET` / `SKIP`, `LIMIT` | Supported | `NULLS FIRST` / `NULLS LAST` are not supported.
+| `FINISH` | Supported |
+| `NEXT` (statement chaining) | Not supported | Refused with an error. Use `WITH`.
+| `UNION`, `UNION ALL`, `UNION DISTINCT` | Supported | See <<cypher-union,UNION>>.
+| `EXCEPT`, `INTERSECT`, `OTHERWISE` | Not supported |
+| `USE graph` | Not supported | One ArcadeDB database is one graph: queries always run against the current database. Tracked in #9940.
+|===
+
+[[cypher-gql-conformance-modification]]
+===== Data modification
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| `INSERT` | Supported | Nodes and edges, with `&` and `IS` labels, also after `MATCH`. Variable-length edges are refused.
+| `SET` (properties, `+=`, labels, `SET n IS Label`) | Supported |
+| `REMOVE` | Supported |
+| `DELETE`, `DETACH DELETE`, `NODETACH DELETE` | Supported | `DELETE` and `NODETACH DELETE` refuse a node that still has edges.
+| `CREATE`, `MERGE` | Supported | Cypher extensions, not part of GQL.
+|===
+
+[[cypher-gql-conformance-expressions]]
+===== Predicates and expressions
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| `IS [NOT] TYPED <type>`, `IS ::`, `::` | Partial | Supported for the types marked Supported under <<cypher-gql-conformance-types,Value types>>. Union types, `RECORD`, `DECIMAL` and unsigned types are not supported. See <<cypher-is-typed,IS TYPED data types>>.
+| `IS [NOT] NULL` | Supported |
+| `IS [NOT] LABELED` | Not supported | Use `n:Label` or `n IS Label`.
+| `IS [NOT] DIRECTED`, `IS SOURCE OF`, `IS DESTINATION OF` | Not supported | Tracked in #9940.
+| `IS [NOT] [NFC\|NFD\|NFKC\|NFKD] NORMALIZED` | Not supported | Use the `normalize()` function. Tracked in #9940.
+| `ALL_DIFFERENT()`, `SAME()`, `PROPERTY_EXISTS()` | Not supported |
+| `+EXISTS { ... }+`, `+COUNT { ... }+`, `+COLLECT { ... }+` subqueries | Supported |
+| `CASE` (simple and searched), `NULLIF`, `COALESCE` | Supported |
+| Comparison, `STARTS WITH`, `ENDS WITH`, `CONTAINS`, string concatenation `\|\|` | Supported |
+| Three-valued logic | Supported | `UNKNOWN` is represented as `null`. See <<cypher-three-valued-logic,Three-valued logic>>.
+| `CAST(x AS type)` | Not supported | Use `toInteger()`, `toFloat()`, `toString()`, `toBoolean()` and their `...OrNull()` variants.
+|===
+
+[[cypher-gql-conformance-types]]
+===== Value types
+
+[%header,cols="3,1,5"]
+|===
+| GQL type | Status | Notes
+| `STRING`, `BOOLEAN` | Supported |
+| Signed integers: `INT8`, `INT16`, `INT32`, `INT64`, `INTEGER` | Supported | Stored at the declared width. An integer literal is `INT64`.
+| Unsigned integers (`UINT8` ... `UINT64`) | Not supported |
+| `FLOAT32`, `FLOAT64`, `FLOAT` | Supported |
+| `DECIMAL` | Not supported |
+| `DATE`, `LOCAL TIME`, `ZONED TIME`, `LOCAL DATETIME`, `ZONED DATETIME`, `DURATION` | Supported | Including the `TIMESTAMP` / `TIME WITH[OUT] TIME ZONE` spellings. Typed literals such as `DATE '2026-01-01'` are not supported; use `date('2026-01-01')`.
+| `LIST<T>`, `NODE`, `EDGE` / `RELATIONSHIP`, `ANY`, `NOTHING`, `NULL` | Supported |
+| `PATH` | Partial | Path values are supported; `IS TYPED PATH` is not. Tracked in #9940.
+| `RECORD` | Not supported | Use maps.
+| `BYTES` | Not supported |
+|===
+
+[[cypher-gql-conformance-functions]]
+===== Functions
+
+[%header,cols="3,1,5"]
+|===
+| GQL functions | Status | Notes
+| String: `UPPER`, `LOWER`, `TRIM` (with `LEADING` / `TRAILING` / `BOTH`), `BTRIM`, `LTRIM`, `RTRIM`, `SUBSTRING`, `LEFT`, `RIGHT`, `NORMALIZE`, `CHAR_LENGTH`, `CHARACTER_LENGTH` | Supported |
+| String: `OCTET_LENGTH`, `BYTE_LENGTH` | Not supported |
+| Numeric: `ABS`, `FLOOR`, `CEIL` / `CEILING`, `SQRT`, `EXP`, `LN`, `LOG`, `LOG10`, trigonometric and hyperbolic functions | Supported |
+| Numeric: `MOD`, `POWER` | Not supported | Use the `%` and `^` operators.
+| Aggregates: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` (with `DISTINCT` / `ALL`), `COLLECT_LIST`, `PERCENTILE_CONT`, `PERCENTILE_DISC` | Supported |
+| Aggregates: `STDDEV_SAMP`, `STDDEV_POP` | Not supported | Use `stDev()` and `stDevP()`.
+| Graph: `ELEMENT_ID`, `PATH_LENGTH` | Partial | `elementId()` and `path_length()` are supported; the `element_id()` spelling is not.
+| List: `CARDINALITY`, `TRIM_ARRAY`, `ELEMENTS` | Not supported | Use `size()` and list slicing.
+| Temporal constructors: `date()`, `local_time()`, `zoned_time()`, `local_datetime()`, `zoned_datetime()`, `duration()`, `duration_between()` | Supported |
+| `CURRENT_DATE`, `CURRENT_TIME`, `CURRENT_TIMESTAMP` | Not supported | Use `date()`, `time()` and `datetime()` without arguments.
+|===
+
+[[cypher-gql-conformance-session]]
+===== Transactions and sessions
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| `START TRANSACTION`, `COMMIT`, `ROLLBACK` | Supported | The access modes `READ ONLY` / `READ WRITE` are not supported. The optional `ISOLATION` clause is an ArcadeDB extension. See <<cypher-transaction-control,Transaction control>>.
+| `SESSION SET $param = value`, `SESSION RESET`, `SESSION CLOSE` | Partial | Available with a server session (HTTP session or Bolt), not in embedded mode. `SESSION SET SCHEMA`, `SESSION SET GRAPH` and `SESSION SET TIME ZONE` are not supported. See <<cypher-session-management,Session management>>.
+|===
+
+[[cypher-gql-conformance-catalog]]
+===== Catalog, graph types and diagnostics
+
+[%header,cols="3,1,5"]
+|===
+| GQL feature | Status | Notes
+| `CREATE GRAPH`, `DROP GRAPH` | Not supported | One ArcadeDB database is one graph. Databases are created through the server API, the console or Studio.
+| `CREATE GRAPH TYPE`, open and closed graph types, GQL node and edge type definitions | Not supported | ArcadeDB has a native schema, defined with SQL DDL (`CREATE VERTEX TYPE`, `CREATE EDGE TYPE`, `CREATE PROPERTY`). In Cypher, `CREATE CONSTRAINT ... IS TYPED / IS NOT NULL / IS UNIQUE / IS KEY` declares property types and constraints.
+| GQLSTATUS codes | Not supported | Errors carry Neo4j-style classifications; over Bolt they are reported as `Neo.ClientError.*` codes.
+|===
