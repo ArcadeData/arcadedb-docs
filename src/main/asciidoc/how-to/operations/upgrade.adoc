@@ -37,6 +37,25 @@ The planner used to return every case variant for `WHERE Name = 'JOHN'` when a `
 *Action:* write the lookup on `Name.toLowerCase()`, for example `WHERE Name.toLowerCase() = 'john'`, which the index serves. See <<case-insensitive-indexes,Case-insensitive indexes>>.
 
 [discrete]
+====== 26.11.1 - Cypher: a path variable over a quantified group is one path, and ignored GQL constructs are refused
+
+`MATCH p = ((m)-[r]->(n)){2}` used to bind `p` to a list with one path per repetition. It now binds one path running through every repetition, as any other path variable does and as Neo4j Cypher 25 does: `valueType(p)` is `PATH NOT NULL` and `length(p)` is 2 (issue #9940). Variables declared inside the group (`m`, `r`, `n`) are still lists.
+
+GQL constructs that the parser accepted and the engine ignored now fail with a `FeatureNotImplemented` error that names the construct:
+
+* the path search prefixes `ANY SHORTEST`, `ALL SHORTEST`, `SHORTEST k`, `SHORTEST k GROUPS`, `ANY` and `ANY k`
+* the match mode `REPEATABLE ELEMENTS`
+* `x IS DIRECTED`
+* `USE` of a graph other than the current database
+* a quantified group nested inside another one
+
+An `ORDER BY`, `SKIP`, `OFFSET` or `LIMIT` written after `RETURN` (`RETURN ... LIMIT 2 OFFSET 1`) is now applied after the RETURN's sort, as one page: sort, then skip, then limit.
+
+*Impact:* a query that read such a `p` as a list (`size(p)`, `p[0]`) gets a path instead. A query that used one of the refused constructs fails instead of returning rows the construct did not select.
+
+*Action:* use `length(p)`, `nodes(p)` and `relationships(p)` on the path. Replace a shortest-path prefix with `shortestPath()` or `allShortestPaths()`, and drop `REPEATABLE ELEMENTS`, `IS DIRECTED` and `USE`. See <<cypher-gql-conformance,ISO GQL Coverage Statement>>.
+
+[discrete]
 ====== 26.11.1 - Cypher `DURATION` arithmetic is exact, and `date * duration` is an error
 
 Durations stored in a property are read back as durations, including short ones such as `P1D`, so `ORDER BY` and comparisons on them now work (issue #9338). Duration arithmetic raises an arithmetic error when the result does not fit, instead of returning a wrong value. A date or time combined with a duration using `*`, `/` or `%` is now a type error, and `duration + date` is accepted.
