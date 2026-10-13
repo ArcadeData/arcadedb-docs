@@ -1446,8 +1446,8 @@ When the arguments are the result objects of `vectorQuantizeInt8()`/`vectorQuant
 inferred and the third argument can be omitted; raw byte arrays still need the explicit mode.
 Two modes are supported:
 
-* `'INT8'` faster than floats; preserves the top-k ordering of the true distances (the approximate scalar distances rank in the same order). Accepts a `vectorQuantizeInt8()` result or a raw int8 byte array.
-* `'BINARY'` very fast (count differing bits), reduces operations eight-fold, returns normalized https://en.wikipedia.org/wiki/Hamming_distance[Hamming distance]. Requires the `vectorQuantizeBinary()` result object (raw packed bits are not enough)
+* `'INT8'` L2 distance computed on the int8 codes without materialising the dequantized vectors. Each `vectorQuantizeInt8()` result carries its own `min`/`max` band, and every code is mapped back through its own band, so the answer approximates the true L2 distance (within the quantization step) whatever the scale and offset of the two vectors. Two raw int8 byte arrays carry no band: they must have been quantized on one shared scale, and their distance is measured in code units. A result object and a raw array cannot be compared and are rejected.
+* `'BINARY'` very fast (count differing bits), reduces operations eight-fold, returns normalized https://en.wikipedia.org/wiki/Hamming_distance[Hamming distance]. Requires the `vectorQuantizeBinary()` result object (raw packed bits are not enough). Each bit is drawn against that vector's own median, so the distance compares the shape of the two vectors and ignores their scale and offset: a cosine-like proxy, not an L2 one
 
 Syntax: `vectorApproxDistance(&lt;quantized&gt;, &lt;quantized&gt; [, &lt;string&gt;])`
 

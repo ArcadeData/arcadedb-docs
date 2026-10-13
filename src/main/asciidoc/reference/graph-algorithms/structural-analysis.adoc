@@ -242,7 +242,7 @@ YIELD source, target
 
 *Description*
 
-Finds all bridge edges — edges whose removal would disconnect the graph — using Tarjan's iterative DFS. A bridge is detected when the low-link value of the child strictly exceeds the discovery time of the parent: `low[v] > disc[parent]`. Uses OUT-direction adjacency for DFS traversal.
+Finds all bridge edges — edges whose removal would disconnect the graph — using Tarjan's iterative DFS. A bridge is detected when the low-link value of the child strictly exceeds the discovery time of the parent: `low[v] > disc[parent]`. Bridges are a property of the undirected graph: the DFS walks every edge from both of its endpoints, so the stored direction of an edge plays no part in whether it is a bridge, and two parallel edges between the same pair of vertices are never bridges. Each bridge is returned oriented as the edge is stored (`source` -> `target`). `algo.articulationPoints` and `algo.biconnectedComponents` share the same DFS.
 
 *Use Cases*
 
@@ -283,7 +283,7 @@ RETURN source, target
 
 [source,cypher]
 ----
-CALL algo.mst([weightProperty, relTypes])
+CALL algo.mst([relTypes, weightProperty])
 YIELD source, target, weight, totalWeight
 ----
 
@@ -293,9 +293,11 @@ YIELD source, target, weight, totalWeight
 |===
 | Parameter | Type | Required | Default | Description
 
+| `relTypes` | String | No | all types | Comma-separated relationship types (pass `null` for all types when only the weight is needed)
 | `weightProperty` | String | No | uniform weight | Edge property name for weights
-| `relTypes` | String | No | all types | Comma-separated relationship types
 |===
+
+NOTE: Since 26.11.1 the relationship types come first, as in every other weighted `algo.*` procedure. Before that, `algo.mst` took `(weightProperty, relTypes)`. A call still written in the old order, such as `algo.mst('cost')`, is now rejected with "relationship type 'cost' does not exist": rewrite it as `algo.mst(null, 'cost')`.
 
 *Yield Fields*
 
@@ -323,7 +325,7 @@ Computes the minimum spanning tree of the graph using Kruskal's algorithm with a
 
 [source,cypher]
 ----
-CALL algo.mst('cost', 'CABLE')
+CALL algo.mst('CABLE', 'cost')
 YIELD source, target, weight, totalWeight
 RETURN source, target, weight, totalWeight ORDER BY weight ASC
 ----
