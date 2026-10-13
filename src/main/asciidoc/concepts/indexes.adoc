@@ -81,6 +81,13 @@ The decision is taken on every execution with the actual parameter values. `PROF
 the records, or `served by full scan`). OpenCypher does the same for a
 `MATCH` anchored on an index range whose `RETURN` aggregates or has an `ORDER BY`: `PROFILE` then shows
 `NodeIndexRangeScan` as `served in physical order` or `served by label scan`.
+
+An SQL lookup of a key with many entries (an `=` or an `IN` on a non-unique index) that runs while other transactions
+commit stays consistent without slowing them down: every row loaded after a commit is checked against the key it was
+found under, and the key is read again only when one of its records was deleted or moved to another key, to pick up
+the record that replaced it. No row is returned twice or for a key it no longer holds, and no lock is held, so commits
+are never stalled by the query. `PROFILE` shows the work under `EXTRACT VALUE FROM INDEX ENTRY`
+(`rows checked against their key after a commit`, `key read again N times`).
 An OpenCypher `ORDER BY` on the indexed property itself, under a `LIMIT`, is answered from the index order instead, so
 the scan stops at the first rows rather than reading the whole range (see <<cypher-keyset-pagination,keyset pagination>>).
 Over a whole label this holds in both directions when the property is declared `MANDATORY` and `NOTNULL` (the constraint is
