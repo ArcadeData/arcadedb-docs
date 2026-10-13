@@ -187,6 +187,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/observability.adoc", "Cloud Observability"),
                 ("how-to/operations/logging.adoc", "Logging"),
                 ("how-to/operations/upgrade.adoc", "Upgrade ArcadeDB"),
+                ("how-to/operations/versioning-policy.adoc", "Versioning & Compatibility Policy"),
             ]),
             ("Security", [
                 "how-to/operations/users.adoc",

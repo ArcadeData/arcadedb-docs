@@ -1,0 +1,71 @@
+[[versioning-policy]]
+==== Versioning, Compatibility and Deprecation Policy
+
+This page states how ArcadeDB releases are numbered, what stays compatible from one release to the next, and how a public interface is deprecated before it is removed.
+For the list of changes that need action when you move to a given release, see <<upgrade-breaking-changes,Breaking changes>>.
+
+[[versioning-policy-format]]
+===== Version numbers
+
+ArcadeDB uses calendar versioning in the format `YY.M.S`:
+
+[%header,cols="1,3"]
+|===
+| Part | Meaning
+| `YY` | Two-digit year of the release (`26` = 2026).
+| `M` | Month of the release (`10` = October).
+| `S` | Serial number within that month. `1` is the monthly feature release; `2`, `3`, ... are fix releases on the same line.
+|===
+
+For example, `26.10.1` is the feature release of October 2026 and `26.10.2` is the first fix release on top of it.
+A new feature release ships every month.
+
+[[versioning-policy-storage]]
+===== On-disk compatibility
+
+* *Upgrade*: a newer release opens a database created by any older release and migrates it to the newer on-disk format automatically, the first time it opens it. No export or import is needed. See <<upgrade,Upgrade ArcadeDB>>.
+* *Serial releases*: databases move up *and* down freely between serial releases of the same year and month (for example between `26.10.1` and `26.10.3`), with 100% on-disk compatibility.
+* *Downgrade across months*: moving a database to an older monthly line is not guaranteed. Export the database with the newer release and import it with the older one. See <<downgrade,Downgrade ArcadeDB>>.
+* *HA clusters*: a cluster is upgraded node by node without a service outage. Any release-specific constraint on mixing versions or rolling back a node is listed in the upgrade guide (see <<upgrade-ha-cluster,HA cluster upgrade>> and <<downgrade-ha,Downgrading a node of an HA cluster>>).
+
+[[versioning-policy-interfaces]]
+===== Public interfaces covered
+
+The compatibility and deprecation rules below apply to these public interfaces:
+
+* The HTTP API under `/api/v1`. Within `v1`, changes are additive: new endpoints, new optional parameters and new response fields. Removing or renaming an endpoint, a parameter or a response field follows the deprecation process. An incompatible redesign would ship under a new version prefix, alongside `v1`.
+* The public Java API (`com.arcadedb.database`, `com.arcadedb.graph`, `com.arcadedb.schema`, `com.arcadedb.query`, `com.arcadedb.remote` and the server plugin API).
+* The query languages: SQL, openCypher, Gremlin, GraphQL, the MongoDB query language and the Redis commands, including their built-in functions and procedures.
+* The wire protocols (PostgreSQL, Neo4j Bolt, MongoDB, Redis, gRPC). These follow the external protocol specification they implement; support for a protocol version is not removed without deprecation.
+* Configuration settings (`arcadedb.*`) and their documented defaults.
+
+Internal classes, undocumented behavior, log message text and the on-disk file layout are not public interfaces.
+
+[[versioning-policy-deprecation]]
+===== Deprecation process
+
+When a public interface is going to be removed or changed incompatibly:
+
+. The deprecation is announced in the release notes of the release that introduces it, together with the replacement to use.
+. The interface is marked deprecated in this documentation and, for the Java API, with `@Deprecated` and a pointer to the replacement in its Javadoc. A deprecated setting keeps being accepted.
+. The deprecated interface keeps working for *at least 6 months*, that is at least six monthly feature releases after the one that announced the deprecation.
+. The removal is listed under <<upgrade-breaking-changes,Breaking changes>> for the release that performs it.
+
+[[versioning-policy-exceptions]]
+===== Exceptions: security and correctness fixes
+
+A fix for a security vulnerability, a data-integrity problem, or a result that does not conform to the specification of a query language (for example a Cypher query returning a different answer than the openCypher specification requires) can change behavior without a deprecation period.
+Every such change that can require action is listed under <<upgrade-breaking-changes,Breaking changes>> for the release that ships it, with what changed and what to do.
+Security fixes are also published as GitHub security advisories.
+
+[[versioning-policy-fixes]]
+===== Which releases receive fixes
+
+Fixes ship as serial releases (`YY.M.2`, `YY.M.3`, ...) on the current monthly line and are included in the next monthly feature release.
+Customers with an ArcadeDB commercial support subscription can request backports to an older monthly line, according to the terms of their subscription.
+
+[[versioning-policy-license]]
+===== License commitment
+
+ArcadeDB is and will always be licensed under the Apache License 2.0, as stated in the project's https://github.com/ArcadeData/arcadedb/blob/main/GOVERNANCE.md[governance and license guarantee].
+Every release made under Apache 2.0 stays available under Apache 2.0.
