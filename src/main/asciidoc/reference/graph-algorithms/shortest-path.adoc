@@ -158,10 +158,10 @@ SELECT lat, lon FROM (
 ----
 MATCH (a:Junction {name: 'Tallahassee'}), (b:Junction {name: 'Coral Gables'})
 CALL algo.cch.shortestPath(a, b, 'ROAD', 'minutes', 'OUT') YIELD path, weight
-RETURN weight AS minutes, size(path.nodes) AS junctions
+RETURN weight AS minutes, size(nodes(path)) AS junctions
 ----
 
-Same route, same 498 minutes, in about 2 ms through the HTTP API instead of 3 seconds. `path` is a map with `nodes`, `relationships` (the cheapest edge between each pair of consecutive nodes) and `length`.
+Same route, same 498 minutes, in about 2 ms through the HTTP API instead of 3 seconds. `path` is a Cypher path, read with `nodes(path)`, `relationships(path)` (the cheapest edge between each pair of consecutive nodes) and `length(path)`: see <<graph-algo-path-value>>.
 
 TIP: Name the edge types the view covers (`edgeTypeNames` in SQL, the relationship types in Cypher). A query without them walks *every* edge type of the database, and as soon as the schema has an edge type the view does not cover, that is a different graph from the one the hierarchy was built for: the query is answered by Dijkstra.
 
@@ -174,7 +174,7 @@ The shortest route is not always the fastest one. From Tallahassee to Coral Gabl
 ----
 MATCH (a:Junction {name: 'Tallahassee'}), (b:Junction {name: 'Coral Gables'})
 CALL algo.cch.shortestPath(a, b, 'ROAD', 'km', 'OUT') YIELD path, weight
-RETURN weight AS km, reduce(m = 0.0, r IN path.relationships | m + r.minutes) AS minutes
+RETURN weight AS km, reduce(m = 0.0, r IN relationships(path) | m + r.minutes) AS minutes
 ----
 
 [cols="1,1,1,3", options="header"]
@@ -243,7 +243,7 @@ try (Database db = new DatabaseFactory("./target/databases/florida-routes").crea
   try (ResultSet rs = db.query("opencypher", """
       MATCH (a:Junction {id: $from}), (b:Junction {id: $to})
       CALL algo.cch.shortestPath(a, b, 'ROAD', 'minutes', 'OUT') YIELD path, weight
-      RETURN weight, size(path.nodes) AS junctions""", Map.of("from", 472033, "to", 624638))) {
+      RETURN weight, size(nodes(path)) AS junctions""", Map.of("from", 472033, "to", 624638))) {
     Result row = rs.next();
     System.out.println(row.getProperty("junctions") + " junctions, " + row.getProperty("weight") + " min");
   }

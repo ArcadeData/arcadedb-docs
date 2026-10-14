@@ -1,6 +1,30 @@
 [[graph-algo-path-finding]]
 ==== Path Finding
 
+[[graph-algo-path-value]]
+*The `path` a procedure yields*
+
+`algo.dijkstra`, `algo.cch.shortestPath`, `algo.astar`, `algo.bellmanford`, `algo.allsimplepaths`, `algo.kShortestPaths`,
+`algo.randomWalk` and the `path.expand`, `path.expandConfig` and `path.spanningTree` procedures yield their `path` as a
+Cypher path, the same value a `MATCH p = ...` pattern binds: the nodes from the start to the end node and, between each
+pair of consecutive nodes, the relationship that joins them. Read it with the path functions, return it as it is, or pass
+it to the `path.*` functions:
+
+[source,cypher]
+----
+MATCH (a:City {name: 'A'}), (b:City {name: 'C'})
+CALL algo.dijkstra(a, b, 'ROAD', 'km') YIELD path, weight
+RETURN [n IN nodes(path) | n.name] AS route, length(path) AS hops, weight
+----
+
+A Bolt driver receives it as a `Path`. Over HTTP, gRPC and the PostgreSQL protocol, which have no path type, it is the
+object `{"_type": "path", "nodes": [...], "relationships": [...], "length": n}`.
+
+NOTE: _Since v26.11.1_. Earlier versions yielded that object itself, as a map, so `nodes(path)`, `relationships(path)`
+and `length(path)` answered `[]`, `[]` and `0` on it, and `algo.kShortestPaths` and `algo.randomWalk` left its
+relationships out. Queries written against the map keep working: `path.nodes`, `path.relationships` and `path.length`
+still read the path a procedure yields.
+
 [[algo-dijkstra]]
 ===== algo.dijkstra
 
@@ -42,7 +66,7 @@ YIELD path, weight
 |===
 | Field | Type | Description
 
-| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `path` | Path | The path from the start to the end node, read with `nodes(path)`, `relationships(path)` and `length(path)` (see <<graph-algo-path-value>>)
 | `weight` | Double | Total path weight
 |===
 
@@ -115,7 +139,7 @@ YIELD path, weight
 |===
 | Field | Type | Description
 
-| `path` | Map | The path: `nodes`, `relationships` (the cheapest usable edge between each pair of consecutive nodes) and `length`
+| `path` | Path | The path, with the cheapest usable relationship between each pair of consecutive nodes (see <<graph-algo-path-value>>)
 | `weight` | Double | Total path weight
 |===
 
@@ -197,7 +221,7 @@ YIELD path, weight
 |===
 | Field | Type | Description
 
-| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `path` | Path | The path from the start to the end node, read with `nodes(path)`, `relationships(path)` and `length(path)` (see <<graph-algo-path-value>>)
 | `weight` | Double | Total path weight
 |===
 
@@ -267,7 +291,7 @@ YIELD path, weight, negativeCycle
 |===
 | Field | Type | Description
 
-| `path` | List<RID> | Ordered list of vertex identities on the shortest path
+| `path` | Path | The path from the start to the end node, read with `nodes(path)`, `relationships(path)` and `length(path)` (see <<graph-algo-path-value>>)
 | `weight` | Double | Total path weight
 | `negativeCycle` | Boolean | `true` if a negative-weight cycle is reachable from `startNode`
 |===
@@ -340,7 +364,7 @@ YIELD path
 |===
 | Field | Type | Description
 
-| `path` | List<RID> | Ordered list of vertex identities for one simple path
+| `path` | Path | One simple path from the start to the end node (see <<graph-algo-path-value>>)
 |===
 
 *Description*
@@ -410,7 +434,7 @@ YIELD path, weight, rank
 |===
 | Field | Type | Description
 
-| `path` | List<RID> | Ordered list of vertex identities
+| `path` | Path | The path, with the cheapest relationship between each pair of consecutive nodes (see <<graph-algo-path-value>>)
 | `weight` | Double | Total path weight
 | `rank` | Integer | 1-based rank (1 = shortest)
 |===
