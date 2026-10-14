@@ -952,6 +952,18 @@ $ curl -X POST http://localhost:2480/api/v1/server \
 | `not found` | No such statement is running: it already ended, or it is not one you may see.
 |===
 
+A statement that ran in a transaction session (`/api/v1/begin`) answers two more fields, in the answer of
+`terminate query` and in each entry of the answer of `terminate queries tag` _(since v26.11.1)_: `sessionId`, the
+session it ran in, and `sessionOpen`, whether that session is still open now that the statement has ended. A
+terminated command ends its session (`false`). A terminated read leaves the session to its client (`true`), as
+described under _Transaction sessions_ below: a caller that wants the session gone, not only the statement, ends it with
+`terminate transaction <sessionId>`.
+
+[source,json]
+----
+{"result": {"id": "q121-5e1f0a9c", "status": "terminated", "sessionId": "AS-ee056170-dc9b-4956-8d71-d7cfa01900d4", "sessionOpen": true}}
+----
+
 The terminated request fails with HTTP `409` and `"error": "Query terminated"`. It is not a transient error: do not
 retry it. The Java `RemoteDatabase` raises it as `com.arcadedb.exception.QueryTerminatedException`, which its
 `transaction()` does not retry. Once a statement is gone from `list queries`, its rollback and its cleanup are over:
@@ -983,7 +995,10 @@ in user code stops; the SQL such a script runs is stopped as any other.
 reaches `arcadedb.command.timeout`. This applies to plain HTTP/1.x connections once the request body has been read,
 not to TLS connections, to HTTP/2, or to a request whose client has already pipelined the next one. A statement that
 runs in a transaction session and is terminated this way follows the transaction session rule below. Keep-alive and
-pipelined requests are not affected. A client that half-closes its side of the connection after sending the request
+pipelined requests are not affected. While the statement runs, the connection's read timeout
+(`arcadedb.network.socketTimeout`, 30 seconds by default) is suspended, so a client waiting for a statement that runs
+longer than that still receives its answer; the timeout is restored when the statement ends, and it still closes idle
+keep-alive connections. A client that half-closes its side of the connection after sending the request
 and still waits for the response cannot be told from one that left: for such clients, set
 `arcadedb.server.httpTerminateOnClientDisconnect` to `false`.
 
@@ -991,7 +1006,8 @@ and still waits for the response cannot be told from one that left: for such cli
 `/api/v1/batch`) also ends the session and rolls back everything the session wrote, exactly as a failure of that
 command does. Terminating a read (`GET` or `POST /api/v1/query`) or a time-series, vector, PromQL or Grafana request
 stops only that request and leaves the session and its transaction as they were, so a client whose read timed out can
-retry it and still commit its writes _(since v26.11.1)_. `list transactions` lists the open sessions (id, user, database,
+retry it and still commit its writes _(since v26.11.1)_. The answer of `terminate query` says which case
+applied through `sessionOpen`. `list transactions` lists the open sessions (id, user, database,
 tag, idle time, whether a request is running in it, and the ids of its running statements), and
 `terminate transaction <sessionId>` terminates what runs in it, rolls it back and ends it. That includes a `/ws` insert
 session writing into it, whose current chunk is listed under the session. The command never waits longer than its

@@ -137,6 +137,15 @@ $ bin/server.sh -Darcadedb.server.mode=production -Darcadedb.studio.enabled=true
 
 When enabling Studio in production, restrict network access to the HTTP port (for example with a firewall, a reverse proxy, or by enabling SSL), since it exposes a web UI on the public-facing server.
 
+NOTE: Since v26.11.1 Studio's static files carry an `ETag` (a digest of their bytes) and answer `304 Not Modified` to a
+matching `If-None-Match`. Studio pages and the API docs page reference their local scripts and stylesheets as
+`<path>?v=<digest>`, and only those versioned URLs are sent `Cache-Control: public, max-age=31536000, immutable`;
+pages and unversioned asset URLs are sent `no-cache`, so the browser revalidates them. Before, assets were cached for
+one day (`max-age=86400`) and stylesheets not at all, so after an upgrade a browser could run a fresh page with stale
+scripts. Now a new version is picked up at once, and a library that did not change stays cached across upgrades. A
+reverse proxy or CDN in front of the server should honor these headers and keep the query string in its cache key.
+`.png` files are now served as `image/png`.
+
 [[production-mode-defaults]]
 ====== Production mode defaults
 
