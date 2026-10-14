@@ -83,6 +83,15 @@ In `production` server mode the `/ws` insert session, `/ws` change-event subscri
 *Action:* branch on the code rather than on the message, and read the detail from the server log. See <<production-mode-errors,Error details in production mode>>.
 
 [discrete]
+====== 26.11.1 - `list queries` names the client on every protocol
+
+Every entry of `list queries` and `SHOW TRANSACTIONS` now carries the client that asked for the work: `clientAddress` for MCP tool calls (`stdio` for the stdio transport), `/ws` insert sessions, the Gremlin Server and gRPC, which listed none before, plus a `connectionId` for the Gremlin Server and `/ws` (issue #9962). A client whose address the transport cannot report has no `clientAddress` field, where it used to be listed as `"null"`.
+
+*Impact:* tools that read the listing see the new fields. Plugins that open entries through `RunningQueryRegistry.register(...)` or `open(...)` now pass a `RunningQuery.Client` (`RunningQuery.Client.NONE` when there is no client).
+
+*Action:* none for clients. Plugin code: add the client argument. See <<http-running-queries,`list queries`>>.
+
+[discrete]
 ====== 26.11.1 - Graph algorithms answer the incoming side of unidirectional edge types
 
 The `algo.*` and `path.*` procedures, the path-finding SQL functions (`dijkstra()`, `astar()`, `bellmanFord()`, `cchShortestPath()`, `duanSSSP()`) and the `node.degree*` / `node.relationship.*` functions now follow the edges of a `UNIDIRECTIONAL` type from their target too, as a Graph Analytical View already did (issue #8629). Before, they saw such an edge from its source only, so for example a walk with direction `IN` or `BOTH` missed it. `refactor.mergeNodes`, `refactor.cloneNodesWithRelationships` and changing a node's labels in Cypher no longer drop the incoming unidirectional edges of the node.

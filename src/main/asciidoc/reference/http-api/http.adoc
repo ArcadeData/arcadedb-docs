@@ -909,8 +909,8 @@ $ curl -X POST http://localhost:2480/api/v1/server \
 An id is `q<n>-<instance>`: the instance part belongs to the server that issued it, so a `terminate query` that a load
 balancer sends to another server answers `not found` there rather than stopping a different statement. The text is
 truncated to 1024 characters, and the parameters are never listed. `protocol` names how the statement reached the
-server: `http`, `postgres`, `bolt`, `grpc`, `mongodb`, `redis` or `gremlin` (the Gremlin Server). Some entries carry
-more fields:
+server: `http`, `postgres`, `bolt`, `grpc`, `mongodb`, `redis`, `gremlin` (the Gremlin Server), `mcp` (a tool call of the
+MCP server) or `ws` (a chunk of a WebSocket insert session). Some entries carry more fields:
 
 [%header,cols="1,3"]
 |===
@@ -918,8 +918,11 @@ more fields:
 | `sessionId` | The statement runs in an HTTP transaction session.
 | `connectionId` | The protocol keeps connections of its own: the backend process id of a PostgreSQL connection (what
 `pg_backend_pid()` answers, see <<postgres-cancel,Cancelling a statement>>), `bolt-<n>` for a Bolt connection, the
-channel id of a MongoDB connection, the connection name of a Redis connection.
-| `clientAddress` | The address of the client the statement came from, for the protocols that keep a connection.
+channel id of a MongoDB or Gremlin Server connection, the connection name of a Redis connection, the session id of a
+WebSocket insert session.
+| `clientAddress` | The address of the client the statement came from, on every protocol that has one: `/host:port`. An MCP tool
+call made over the stdio transport lists `stdio`. Absent when the transport cannot report the client, for example a
+Gremlin Server session or a custom Gremlin channelizer.
 | `forwardedFrom` | On an HA leader, for a statement a replica forwarded to it: the id the statement has on that replica.
 | `forwardedTo` | On an HA replica, for a statement it forwarded to the leader: the name of the leader running it.
 |===
