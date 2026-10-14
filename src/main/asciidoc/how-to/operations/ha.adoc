@@ -1109,6 +1109,25 @@ While the leader runs a schema change (for example `CREATE INDEX` on a large typ
 
 A write on a replica is also refused with a retryable error when its transaction began before the replica had applied a schema change the leader has already applied (for example a new index), so that it cannot leave a record out of that index. The retry waits for the schema change to be applied locally and then succeeds. Callers that do not retry see a `ConcurrentModificationException` during DDL bursts; set transaction retries accordingly. One peer that is older, not yet probed or offline turns this protection off for every writer, and it is best-effort across a leader restart. Set `arcadedb.ha.txSchemaCheck=false` on the writing nodes to switch it off. _(Since v26.10.1.)_
 
+[[ha-troubleshooting-misdirected-raft-request]]
+====== A node logs that it sent a Raft request "to itself", or refused one "addressed to" another peer
+
+A node answers a Raft request only when it is the peer the request was addressed to, and refuses it otherwise. The refusal is logged once a minute per peer, in one of two forms:
+
+----
+This node sent a Raft appendEntriesAsync meant for peer 'arcade2_2434' to itself and refused it (issue #10016):
+the address of 'arcade2_2434' resolves to arcade2=[127.0.0.1], which leads back to this node. ...
+
+Refused a Raft requestVote from peer 'arcade1_2434' addressed to peer 'arcade2_2434' (issue #10016):
+the address 'arcade1_2434' holds for 'arcade2_2434' leads to this node instead. ...
+----
+
+Both mean the same thing: the host name of a peer in `arcadedb.ha.serverList` resolves to the wrong node. The usual cause is a container that was stopped or disconnected: on some container platforms its name stops resolving to its old address and resolves to the loopback address or to another container instead. The first form names the node that holds the wrong address (the one logging it). The second names it in the message, and that node is the one to inspect.
+
+Nothing needs to be done for the cluster to keep working. The surviving majority keeps its leader, and a node that dialled itself rebuilds its connection to that peer every few seconds, so the peer is reached again as soon as its name resolves correctly. If the message persists while the peer is running, check what its name resolves to from inside the node that logs it (for example `getent hosts <name>` in the container), and the DNS configuration or the server list.
+
+_(Since v26.11.1.)_ Earlier versions answered such a request in the name of the peer it was meant for. A leader that received its own heartbeat stepped down, and a candidate that received its own vote request failed every election with `java.lang.IllegalStateException` at `RaftConfigurationImpl.hasMajority`. The cluster then had no leader until the surviving nodes were restarted.
+
 ====== Verbose HA logging
 
 Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
