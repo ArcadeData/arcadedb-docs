@@ -473,7 +473,7 @@ With BM25, documents matching rarer, more discriminative terms (and shorter docu
 When `SEARCH_INDEX(...)` drives the query, matches come back best first: by descending `$score`, and by ascending RID among equal scores, so the order is stable from one run to the next.
 Records are loaded only as rows are pulled, so a `LIMIT`, or a filter that stops early, also stops the record loading.
 
-When nothing between the search and the `LIMIT` can drop, add or reorder a row (a single `SEARCH_INDEX` condition with no other filter, no `ORDER BY` or exactly `ORDER BY $score DESC`, and no `GROUP BY`, `DISTINCT`, aggregation, `UNWIND` or `expand()`, on the type the index belongs to or one of its supertypes), the search keeps only the best `SKIP + LIMIT` matches and the sort is skipped. `EXPLAIN` shows the rows the plan needs on the fetch step as `(best N needed)`:
+When nothing between the search and the `LIMIT` can drop, add or reorder a row (a single `SEARCH_INDEX` condition with no other filter, no `ORDER BY` or exactly `ORDER BY $score DESC` - also through an alias of the score, as in `SELECT $score AS s ... ORDER BY s DESC` - and no `GROUP BY`, `DISTINCT`, aggregation, `UNWIND` or `expand()`, on the type the index belongs to or one of its supertypes), the search keeps only the best `SKIP + LIMIT` matches and the sort is skipped. `EXPLAIN` shows the rows the plan needs on the fetch step as `(best N needed)`:
 
 [source,sql]
 ----
@@ -492,6 +492,17 @@ ORDER BY @rid LIMIT 500
 ----
 
 The same `@rid` conditions are decided before loading for the `geo.*` predicates driven by a geospatial index, and for the root node of a `MATCH` (`{type: Article, where: (@rid > :cursor AND SEARCH_INDEX(...) = true)}`).
+
+_(since v26.11.1)_: an `OR` of searches (`SEARCH_INDEX(...) = true OR SEARCH_INDEX(...) = true`, `SEARCH_FIELDS` included) with no `ORDER BY` or exactly `ORDER BY $score DESC` is answered best first across all of them: the searches are merged by `$score` as their rows are read, instead of being run one after the other, deduplicated and sorted. A `LIMIT` therefore loads about the rows it returns rather than every match of every index, and without an `ORDER BY` the second index contributes to the first rows too, instead of only once the first one has none left. A record matched by several searches comes back once, with the best of its scores (the scores of different indexes are compared as they are, as `ORDER BY $score DESC` always compared them). A filter ANDed with the `OR` (`(... OR ...) AND lang = 'en'`) keeps the merge, but then the searches are not cut to the best `SKIP + LIMIT` matches. `EXPLAIN` shows `MERGE BY $score DESC` with one branch per search, each with `(best N needed)` when the `LIMIT` is pushed down:
+
+[source,sql]
+----
+SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[title]', 'java') = true OR SEARCH_INDEX('Article[content]', 'java') = true
+ORDER BY $score DESC LIMIT 10
+----
+
+The merge does not apply when a branch of the `OR` is not a search, holds a second search or a call to a non-deterministic function, or reads a per-record `LET`: those branches still run one after the other, and an `ORDER BY $score DESC` sorts every row.
 
 A cancelled full-text query, or one past `arcadedb.command.timeout` or its SQL `TIMEOUT`, stops inside the search: during the posting walk, the scoring and the record loading, rather than after the whole search is over.
 
