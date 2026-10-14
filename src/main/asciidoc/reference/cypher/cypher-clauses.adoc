@@ -719,6 +719,22 @@ RETURN p.name
 
 ---
 
+[[cypher-let]]
+===== LET
+
+`LET` (ISO GQL) adds new variables to every row without grouping or dropping the others. It is the same as `WITH *, expression AS variable`. Since v26.11.1.
+
+[source,cypher]
+----
+MATCH (p:Person)
+LET age = 2026 - p.birthYear, adult = age >= 18
+RETURN p.name, age, adult
+----
+
+* A later item can read an earlier one (`adult` reads `age` above).
+* `LET` declares a new variable: naming a variable already in scope is refused (`Variable 'p' already declared`). To replace a value, use `WITH`.
+* `LET` cannot aggregate: use `WITH` for `count()`, `collect()` and the other aggregations.
+
 [[cypher-unwind]]
 ===== UNWIND
 
@@ -1044,6 +1060,24 @@ MATCH (c:Company) WHERE c.employees > 100 RETURN c.name AS name, 'company' AS ty
 * Results are returned in the order they are produced by each query
 
 ---
+
+[[cypher-when]]
+===== Conditional query: WHEN ... THEN ... ELSE
+
+A conditional query (Cypher 25) runs the first branch whose condition is true, the `ELSE` branch when none is, and returns no rows when none is true and there is no `ELSE`. Since v26.11.1.
+
+[source,cypher]
+----
+WHEN $mode = 'all' THEN MATCH (p:Person) RETURN p.name AS name
+WHEN $mode = 'adults' THEN MATCH (p:Person) WHERE p.age >= 18 RETURN p.name AS name
+ELSE RETURN null AS name
+----
+
+* A conditional query is a whole statement: it cannot be nested in a subquery.
+* Conditions read parameters only, not variables. A null condition is not taken; a condition that is not a boolean is an error.
+* Every branch must return the same columns in the same order.
+* Only the branch taken runs, so the writes of the other branches never happen. A query with any writing branch is still a write statement: run it as a command, not as a read-only query.
+* Every parameter the query names must be bound, also the parameters of branches that are not taken.
 
 [[cypher-call]]
 ===== CALL
