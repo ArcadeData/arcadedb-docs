@@ -302,7 +302,7 @@ YIELD node, communityId
 | config map | Map | No | see defaults | Configuration properties (all optional)
 | `maxIterations` | Integer | No | `10` | Maximum number of propagation passes
 | `direction` | String | No | `"BOTH"` | Edge direction to follow: `"IN"`, `"OUT"`, or `"BOTH"`
-| `tieBreakProperty` | String | No | none | Vertex property used to break ties between equally frequent labels: the smallest value wins (for example the vertex id, as LDBC Graphalytics CDLP requires). Without it, ties follow the internal load order. Values must be mutually comparable, and a vertex without the property loses every tie
+| `tieBreakProperty` | String | No | none | Vertex property used to break ties between equally frequent labels: the smallest value wins (for example the vertex id, as LDBC Graphalytics CDLP requires). Without it, ties follow the internal load order, which a Graph Analytical View does not necessarily share: set it when the communities must not depend on whether a view serves the call. Values must be mutually comparable, and a vertex without the property loses every tie
 |===
 
 *Yield Fields*
@@ -317,7 +317,10 @@ YIELD node, communityId
 
 *Description*
 
-Detects communities by iteratively propagating labels. Each vertex adopts the most frequent label among its neighbors; ties are broken by choosing the smallest label. Vertex processing order is randomly shuffled each iteration. Converges quickly in practice but may produce non-deterministic results.
+Detects communities by iteratively propagating labels. In each pass every vertex adopts, at once, the most frequent label among the neighbors its edges in `direction` reach: `OUT` its successors, `IN` its predecessors, `BOTH` all of them. Ties are broken by choosing the smallest label (see `tieBreakProperty`). The passes are synchronous, so a run is deterministic for a given graph; it ends when no label moves or after `maxIterations` passes, since a graph can oscillate between two labellings forever.
+
+[NOTE]
+Before v26.11.1 a run served by a Graph Analytical View ignored `direction` and always propagated over `BOTH`, so `OUT` and `IN` answered different communities once a view covered the graph.
 
 *Use Cases*
 
