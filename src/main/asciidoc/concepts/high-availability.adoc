@@ -22,6 +22,8 @@ Clients can connect to any server in the cluster.
 If a client sends a write request to a replica, the replica transparently forwards it to the leader over HTTP.
 Applications do not need to distinguish between leader and replica servers -- the cluster handles routing internally.
 
+Inside a transaction the client opened itself (a PostgreSQL `BEGIN`, an HTTP `/begin` session, a Bolt `BEGIN`, a gRPC `BeginTransaction`), a replica runs the writes in that transaction instead of forwarding them one by one: `ROLLBACK` undoes them and `COMMIT` replicates the whole block atomically through the Raft log. If the replica was behind the leader, the commit fails with a retryable conflict. Schema changes are always executed by the leader, since they are not transactional, and a `sqlscript` that mixes schema changes and writes is refused inside a transaction on a replica.
+
 ==== Server Roles and Election
 
 Every server in the cluster operates in one of two roles:
