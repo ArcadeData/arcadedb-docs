@@ -227,6 +227,30 @@ carries a label when its type is, or extends, that vertex type, so a node with s
 The filters do not apply to the start node unless `filterStartNode: true` is set. When the label filter names
 termination or end nodes, the zero-length path at the start node is not returned unless it qualifies.
 
+*Node lists:* `endNodes`, `terminatorNodes`, `allowlistNodes` and `denylistNodes` are the operators `>`, `/`, `+` and `-` of
+the label filter, naming nodes instead of labels. Each takes a list of nodes (a single node is a list of one; `whitelistNodes`
+and `blacklistNodes` are the older names of the last two):
+
+[%header,cols="1,3"]
+|===
+| Option | Meaning
+| `denylistNodes` | No node of the path can be one of them
+| `terminatorNodes` | Only paths ending at one of them are returned, and the expansion stops there
+| `endNodes` | Only paths ending at one of them are returned, and the expansion continues past it
+| `allowlistNodes` | Every node of the path must be one of them; the end and terminator nodes are allowed too
+|===
+
+The lists combine with the label filter and with each other: a node is an answer, and the expansion goes on past it, only
+if every filter says so. A terminator node closer to the start than `minLevel` does not stop the expansion. The start node is
+left out of the denylist and the allowlist, and cannot be an end or terminator node, unless `filterStartNode: true` is set.
+
+[source,cypher]
+----
+MATCH (a:City {name: 'A'}), (c:City {name: 'C'}), (p:City {name: 'P'})
+CALL path.expandconfig(a, {relationshipFilter: 'ROAD>', endNodes: [c, p]}) YIELD path
+RETURN path
+----
+
 *Additional configuration options* (`path.expandconfig`, `path.spanningtree`, `path.subgraphall`, `path.subgraphnodes`):
 
 [%header,cols="2,1,4"]
@@ -234,10 +258,48 @@ termination or end nodes, the zero-length path at the start node is not returned
 | Option | Default | Description
 | sequence | | Label and relationship filters alternating, one pair per step of a repeating sequence, for example
 `'Post, NEXT>, Reply, <FROM'`. It takes precedence over `relationshipFilter` and `labelFilter`
-| filterStartNode | `false` | Whether the label filter applies to the start node too
+| filterStartNode | `false` | Whether the label filter and the node lists apply to the start node too
 | beginSequenceAtStart | `true` | Whether the first label filter of a sequence applies to the start node. When `false`,
 the sequence starts one hop away, and a `sequence` starts with a relationship filter
+| endNodes, terminatorNodes, allowlistNodes, denylistNodes | | Node lists, see above
+| uniqueness | `RELATIONSHIP_PATH` | What the walk may visit more than once, see <<path-uniqueness,uniqueness>>.
+Only `path.expandconfig` honours it
+| optional | `false` | When the walk finds nothing, answer one row with a null `path` (or `node`) instead of none. Not read
+by `path.subgraphall`, whose answer is two lists
+| limit | no limit | The most paths (nodes, for `path.subgraphnodes` and `path.subgraphall`) to return. A negative
+value is no limit
+| maxLevel | no limit | The longest path. A negative value is no limit
 |===
+
+[[path-uniqueness]]
+*Uniqueness.* The `uniqueness` option of `path.expandconfig` takes APOC's nine values, case-insensitively:
+
+[%header,cols="2,4"]
+|===
+| Value | A walk may visit
+| `RELATIONSHIP_PATH` (default) | a node many times, but a relationship once per path: every trail is a path
+| `NODE_PATH` | a node once per path: every simple path is a path
+| `NODE_GLOBAL` | a node once in the whole walk: each node is reached once, along the first route to it (the shortest one when
+`bfs` is `true`)
+| `NODE_LEVEL` | a node once at each distance from the start
+| `NODE_RECENT` | a node again only after 10000 other nodes were visited
+| `RELATIONSHIP_GLOBAL` | a relationship once in the whole walk
+| `RELATIONSHIP_LEVEL` | a relationship once at each distance from the start
+| `RELATIONSHIP_RECENT` | a relationship again only after 10000 others were walked
+| `NONE` | anything
+|===
+
+Whatever the value, the expansion never leaves a node by the relationship it arrived by. A value that is none of these is
+refused (`uniqueness 'X' is not one of NODE_GLOBAL, ...`); APOC quietly uses its default instead. The values scoped to a
+level or to the walk keep the first route that reaches a node or a relationship, so which of several equal routes they
+report depends on the order the expansion meets them in. `path.spanningtree`, `path.subgraphnodes` and `path.subgraphall` are
+always `NODE_GLOBAL`, as in APOC: the option is read and checked there, and does not change the answer.
+
+WARNING: The trails of a graph with cycles or with several routes to a node are exponential in the depth, and the default
+`uniqueness` returns all of them. Bound the walk with `maxLevel` and `limit`, or choose `NODE_GLOBAL` or `NODE_PATH`. The walk
+produces its paths as the query reads them, so a `limit` (or a `LIMIT` after the call) ends it early; the command timeout ends
+it too, and the branches it holds are charged to the query's heap (`arcadedb.queryMaxHeapElementsAllowedPerOp`,
+`arcadedb.queryMaxHeapRAM`), so a walk too wide for them fails the query instead of the server.
 
 Every relationship type and label named in a filter must exist in the schema, and a name of the wrong kind is refused:
 `relationshipFilter: 'ROADS'` raises `relationship type 'ROADS' does not exist` rather than returning nothing. Neo4j
@@ -248,6 +310,14 @@ NOTE: Before 26.11.1 the direction markers and the label operators were read as 
 rather than the hops of a sequence. Since 26.11.1 `path.spanningtree`, `path.subgraphall` and `path.subgraphnodes` also
 honour `minLevel` (0 includes the start node, 1 leaves it out, any other value is refused, as in APOC), and a `config`
 argument that is not a map is refused instead of being ignored.
+
+NOTE: Before 26.11.1 the node lists, `uniqueness`, `optional` and the negative `maxLevel` and `limit` were ignored. In
+`path.expandconfig` the breadth-first walk always reached each node once (what is now `NODE_GLOBAL`) and the depth-first
+walk, and `path.expand`, always walked each node once per path (`NODE_PATH`). The default is now APOC's, so a call on a graph
+with a cycle or with several routes to a node returns more paths than before. To keep the old answer, add
+`uniqueness: 'NODE_GLOBAL'` to a call, and `uniqueness: 'NODE_PATH'` to a call with `bfs: false`. A `path.expand(n, rels,
+labels, min, max)` is `path.expandconfig(n, {relationshipFilter: rels, labelFilter: labels, minLevel: min, maxLevel: max,
+bfs: false, uniqueness: 'NODE_PATH'})` as it used to answer.
 
 
 [[path-expand]]
@@ -264,11 +334,14 @@ Expand paths from a starting node following relationship types and node labels.
 | startNode | Node | Starting node
 | relationshipFilter | String | Relationship types and directions, see <<path-filters,filters>> (e.g., "KNOWS>\|<WORKS_WITH")
 | labelFilter | String | Node label filter, see <<path-filters,filters>> (e.g., "+Person")
-| minDepth | Integer | Minimum path length (non-negative)
-| maxDepth | Integer | Maximum path length
+| minDepth | Integer | Minimum path length (a negative value is 0)
+| maxDepth | Integer | Maximum path length (a negative value is no limit)
 |===
 
 *Returns:* `path` - Each expanded path
+
+The walk is APOC's for this form: breadth-first, over the trails of the graph (`RELATIONSHIP_PATH` uniqueness, see
+<<path-uniqueness,uniqueness>>), so a path may pass through a node more than once. Use `path.expandconfig` to choose another.
 
 *APOC Compatible:* `apoc.path.expand`
 
@@ -294,10 +367,15 @@ Expand paths using a configuration map for more control.
 | Option | Type | Description
 | relationshipFilter | String/List | Relationship types and directions, see <<path-filters,filters>>
 | labelFilter | String/List | Node label filter, see <<path-filters,filters>>
+| sequence, filterStartNode, beginSequenceAtStart | | See <<path-filters,filters>>
+| endNodes, terminatorNodes, allowlistNodes, denylistNodes | List | Node lists, see <<path-filters,filters>>
+| uniqueness | String | What the walk may visit more than once, see <<path-uniqueness,uniqueness>> (default:
+`RELATIONSHIP_PATH`)
 | minLevel | Integer | Minimum depth (default: 0)
-| maxLevel | Integer | Maximum depth (default: unlimited)
+| maxLevel | Integer | Maximum depth (default: unlimited; a negative value is unlimited)
 | bfs | Boolean | Use BFS (true) or DFS (false) (default: true)
-| limit | Integer | Maximum number of paths to return
+| limit | Integer | Maximum number of paths to return (default: unlimited; a negative value is unlimited)
+| optional | Boolean | When no path is found, return one row with a null `path` (default: false)
 |===
 
 *Returns:* `path` - Each expanded path
@@ -348,7 +426,7 @@ Get all nodes and relationships reachable from a starting node.
 *Returns:*
 
 * `nodes` - List of all reachable nodes
-* `relationships` - List of all traversed relationships
+* `relationships` - List of every relationship between those nodes
 
 *APOC Compatible:* `apoc.path.subgraphAll`
 
@@ -366,7 +444,14 @@ difference between a walk whose cost follows the number of nodes and one that fo
 `nodes` and `relationships` are returned in breadth-first order from the starting node. Before 26.10.1 the order was
 unspecified and effectively arbitrary.
 
-`relationships` only ever includes edges whose two endpoints are both in `nodes`, matching `apoc.path.subgraphAll`.
+`relationships` is every relationship, of any type, whose two endpoints are both in `nodes`, whatever the
+`relationshipFilter` that found the nodes, matching `apoc.path.subgraphAll`: with `relationshipFilter: 'R>'` a relationship
+of type `S` between two of the nodes is in the answer, though the walk did not follow it. A relationship that leads out of the
+subgraph is not, and neither is one that touches the start node when `minLevel: 1` leaves it out of `nodes`. Before 26.11.1 the
+answer was the relationships the walk followed. Finding them reads the outgoing adjacency of each returned node (an entry per
+relationship, by the identity of its far end: the record of a relationship that leads out of the subgraph is never read), so a
+node with a very large number of relationships of filtered-out types pays for scanning them.
+
 Before 26.10.1, a `labelFilter` that excluded a neighbour could still leave the edge reaching it in `relationships`,
 even though that neighbour was missing from `nodes`.
 
