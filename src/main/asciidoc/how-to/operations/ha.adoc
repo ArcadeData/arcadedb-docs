@@ -338,6 +338,45 @@ On the follower, since v26.10.1, a DDL entry is applied incrementally: only the 
 are instantiated, instead of every component in the database being rebuilt (`arcadedb.ha.schemaIncrementalApply`, on by
 default). Building a large schema used to cost time quadratic in the number of types.
 
+[[ha-schema-full-load]]
+===== When a follower falls back to a full schema load (from v26.11.1)
+
+An entry the incremental path cannot express makes the follower rebuild every component of the database on its apply thread:
+an entry that retires a file, adds a dictionary, a compacted index or a bloom filter, writes pages into a compacted index
+or a bloom filter, or renames component files, and any entry while `arcadedb.ha.schemaIncrementalApply` is `false`. On a
+large schema that is what shows up as an apply-lag spike after a DDL statement, and it re-creates every index instance
+cold (see the note on vector indexes below).
+
+It is no longer silent. Each fallback is logged at `INFO` with the database, the entry's Raft index, the reason, what
+triggered it and how long the full load took:
+
+[source]
+----
+Applied schema entry 42 of database 'mydb' with a FULL schema load instead of the incremental refresh, which was declined
+because the entry renames component files [file_renamed (4 file(s) renamed)] (filesToAdd=0, filesToRemove=0,
+filesToRename=4): every component of the database was re-instantiated on the apply thread in 1830 ms
+----
+
+and published as two metrics, tagged by `reason`, that are present from the first scrape and restart from 0 with the
+process:
+
+[%header,cols="1,2"]
+|===
+|Metric |Meaning
+|`arcadedb.ha.schema.full_load.fallbacks`
+|Full loads started, so one that threw is counted too. Alert on `increase()`.
+|`arcadedb.ha.schema.full_load`
+|A timer of the full loads that finished: its count and its total time give the average cost of a fallback.
+|===
+
+The `reason` tag is one of `incremental_disabled`, `file_renamed`, `not_loaded`, `file_retired`, `non_incremental_new_file`,
+`non_incremental_touched_file` and `touched_file_missing`.
+
+NOTE: A full load also re-creates every vector index with nothing resident, so the first search of each used to read all of
+its pages and load or rebuild the graph on the query thread. Since v26.11.1 the vector indexes that had a graph resident are
+warmed in the background, one after the other, after `arcadedb.vectorIndex.warmUpAfterSchemaReloadDelayMs` (1 s by default;
+`-1` disables it). Indexes nobody searched are not warmed.
+
 [[ha-schema-delta]]
 ===== Schema Delta Replication (from v26.10.1)
 
