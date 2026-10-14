@@ -185,21 +185,83 @@ and the nodes they join.
 
 ===== Path Expansion Procedures
 
+[[path-filters]]
+===== Relationship and label filters
+
+All the path expansion procedures read `relationshipFilter` and `labelFilter` in APOC's syntax.
+
+*Relationship filter:* `[<]TYPE1[>]|[<]TYPE2[>]|...`
+
+[%header,cols="1,3"]
+|===
+| Entry | Follows
+| `TYPE` | `TYPE` in both directions
+| `TYPE>` | `TYPE` outgoing only
+| `<TYPE` | `TYPE` incoming only
+| `>` | every relationship type, outgoing only
+| `<` | every relationship type, incoming only
+|===
+
+`|` separates the alternatives of one hop, each with its own direction (`'ROAD>|<RAIL'`). A comma separates the hops of
+a repeating sequence: `'NEXT>,<FOLLOWS'` follows `NEXT` outgoing on the first hop, `FOLLOWS` incoming on the second,
+`NEXT` outgoing on the third, and so on. A null or empty filter follows every relationship in both directions.
+
+*Label filter:* `[+-/>]LABEL1|[+-/>]LABEL2|...`
+
+[%header,cols="1,3"]
+|===
+| Entry | Meaning
+| `-Label` | Denylist: no node of the path can carry the label
+| `/Label` | Termination: only paths ending at a node with the label are returned, and the expansion stops there
+| `>Label` | End node: only paths ending at a node with the label are returned, and the expansion continues past it if the
+allowlist lets it
+| `+Label` or `Label` | Allowlist: every node of the path must carry one of the labels
+| `*` | Any label
+| `A:B` | A node carrying both labels
+|===
+
+Each entry carries its own operator, and the operators apply in the order denylist, termination, end node, allowlist,
+whatever order they are written in. A comma separates the filters of a repeating sequence, one per depth. A node
+carries a label when its type is, or extends, that vertex type, so a node with several labels matches each of them.
+
+The filters do not apply to the start node unless `filterStartNode: true` is set. When the label filter names
+termination or end nodes, the zero-length path at the start node is not returned unless it qualifies.
+
+*Additional configuration options* (`path.expandconfig`, `path.spanningtree`, `path.subgraphall`, `path.subgraphnodes`):
+
+[%header,cols="2,1,4"]
+|===
+| Option | Default | Description
+| sequence | | Label and relationship filters alternating, one pair per step of a repeating sequence, for example
+`'Post, NEXT>, Reply, <FROM'`. It takes precedence over `relationshipFilter` and `labelFilter`
+| filterStartNode | `false` | Whether the label filter applies to the start node too
+| beginSequenceAtStart | `true` | Whether the first label filter of a sequence applies to the start node. When `false`,
+the sequence starts one hop away, and a `sequence` starts with a relationship filter
+|===
+
+Every relationship type and label named in a filter must exist in the schema, and a name of the wrong kind is refused:
+`relationshipFilter: 'ROADS'` raises `relationship type 'ROADS' does not exist` rather than returning nothing. Neo4j
+answers such a filter with an empty result instead.
+
+NOTE: Before 26.11.1 the direction markers and the label operators were read as part of the name, so `'ROAD>'` or
+`'+Person'` matched nothing and the procedures answered an empty result, and a comma in a filter separated alternatives
+rather than the hops of a sequence.
+
 
 [[path-expand]]
 ===== path.expand()
 
 Expand paths from a starting node following relationship types and node labels.
 
-*Syntax:* `CALL path.expand(startNode, relTypes, labelFilter, minDepth, maxDepth) YIELD path`
+*Syntax:* `CALL path.expand(startNode, relationshipFilter, labelFilter, minDepth, maxDepth) YIELD path`
 
 *Parameters:*
 [%header,cols="2,2,4"]
 |===
 | Parameter | Type | Description
 | startNode | Node | Starting node
-| relTypes | String | Relationship types (pipe-separated, e.g., "KNOWS\|WORKS_WITH")
-| labelFilter | String | Node labels to include (pipe-separated)
+| relationshipFilter | String | Relationship types and directions, see <<path-filters,filters>> (e.g., "KNOWS>\|<WORKS_WITH")
+| labelFilter | String | Node label filter, see <<path-filters,filters>> (e.g., "+Person")
 | minDepth | Integer | Minimum path length (non-negative)
 | maxDepth | Integer | Maximum path length
 |===
@@ -228,8 +290,8 @@ Expand paths using a configuration map for more control.
 [%header,cols="2,2,4"]
 |===
 | Option | Type | Description
-| relationshipFilter | String/List | Relationship types
-| labelFilter | String/List | Node labels
+| relationshipFilter | String/List | Relationship types and directions, see <<path-filters,filters>>
+| labelFilter | String/List | Node label filter, see <<path-filters,filters>>
 | minLevel | Integer | Minimum depth (default: 0)
 | maxLevel | Integer | Maximum depth (default: unlimited)
 | bfs | Boolean | Use BFS (true) or DFS (false) (default: true)
