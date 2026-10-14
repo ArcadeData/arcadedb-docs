@@ -404,14 +404,14 @@ RETURN path
 | Category | Path Finding
 | Complexity | CPU+RAM
 | Min Args | 3
-| Max Args | 5
+| Max Args | 6
 |===
 
 *Syntax*
 
 [source,cypher]
 ----
-CALL algo.kShortestPaths(startNode, endNode, k [, relTypes, weightProperty])
+CALL algo.kShortestPaths(startNode, endNode, k [, relTypes, weightProperty, direction])
 YIELD path, weight, rank
 ----
 
@@ -426,6 +426,7 @@ YIELD path, weight, rank
 | `k` | Integer | Yes | — | Number of shortest paths to find
 | `relTypes` | String | No | all types | Comma-separated relationship types
 | `weightProperty` | String | No | uniform weight | Edge property name for weights
+| `direction` | String | No | `BOTH` | `OUT`, `IN` or `BOTH`, as for `algo.dijkstra`
 |===
 
 *Yield Fields*
@@ -441,7 +442,9 @@ YIELD path, weight, rank
 
 *Description*
 
-Finds the k shortest loopless paths between two vertices using Yen's algorithm. Internally uses Dijkstra on a V×V weight matrix, progressively building candidate paths by spur-node deviation from previous shortest paths. Memory usage scales as O(V²) for the weight matrix. An edge without `weightProperty` weighs `1`, and an edge whose weight is negative, NaN or infinite is not walked.
+Finds the k shortest loopless paths between two vertices using Yen's algorithm: Dijkstra on the adjacency lists, progressively building candidate paths by spur-node deviation from previous shortest paths. Memory is the graph plus a few values per node. An edge without `weightProperty` weighs `1`, and an edge whose weight is negative, NaN or infinite is not walked. With the same arguments, rank 1 is the path `algo.dijkstra` returns.
+
+IMPORTANT: _Since v26.11.1_ the default direction is `BOTH`, as for the other weighted path procedures. Earlier versions followed outgoing edges only, and gave a different (or no) path on graphs whose edges are stored in one direction but walked in both, such as roads. Pass `'OUT'` as the 6th argument to keep the old behaviour. The yielded `path` now also carries its relationships.
 
 *Use Cases*
 
