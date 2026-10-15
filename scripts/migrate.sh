@@ -63,6 +63,9 @@ python3 scripts/rewrite-xrefs.py
 echo "==> Enriching chapter landing pages"
 python3 scripts/enrich-chapters.py
 
+echo "==> Adding meta descriptions"
+python3 scripts/add-descriptions.py
+
 echo "==> Generating nav.adoc"
 python3 scripts/generate-nav.py
 

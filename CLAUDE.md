@@ -123,6 +123,10 @@ This pattern works in every modern browser and degrades gracefully (the diagram 
 5. Run `bash scripts/migrate.sh && npm run build` and inspect `build/site/<page>.html` to confirm the SVG and CSS arrived.
 6. Push — CI deploys to `docs.arcadedb.com`.
 
+### Meta descriptions (SEO)
+
+Every page gets `<meta name="description">` from its `:description:` header attribute. `scripts/add-descriptions.py` (a `migrate.sh` step) generates one for every page that lacks it, from the page's intro paragraph, else its chapter cards or section titles. To override, put a hand-written `:description:` right under the page title in `src/main/asciidoc/`; explicit ones are never touched. The site root `/` is a real 301 to `/arcadedb/` via `scripts/templates/_redirects` (copied into `build/site/` by `npm run build`) instead of Antora's meta-refresh stub.
+
 ### Full-text search (Pagefind)
 
 Search is powered by [Pagefind](https://pagefind.app) — a fully static, self-hosted search index. There is **no external service and no API key**: the index is built from the generated HTML as a post-build step and shipped as static files under `build/site/pagefind/`, deployed to Cloudflare Pages alongside the rest of the site.
