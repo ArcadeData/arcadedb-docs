@@ -39,6 +39,13 @@ insert, where a vetoed row is counted as `ignored`. A Java caller that counts it
 whatever happened. The lower-level `DatabaseInternal.createRecordReportingVeto()`, `updateRecordReportingVeto()` and
 `deleteRecordReportingVeto()` answer the same for each operation _(since v26.10.2)_.
 
+NOTE: An edge is the one write that has to return what it created, so `Vertex.newEdge()` cannot answer "skipped": when a
+`BeforeRecordCreateListener` refuses the edge it raises `RecordVetoedException`, a `ValidationException` that every protocol reports as
+the request being refused and not as a server fault, and nothing is stored or linked. The same refusal fails an openCypher `CREATE`
+and a Gremlin `addEdge()`, while SQL `CREATE EDGE`, like SQL `INSERT`, skips the refused edge and returns no row for it. A Java caller
+that counts its own writes uses `GraphEngine.newEdgeReportingVeto()` (through `DatabaseInternal.getGraphEngine()`), which returns
+`null` for a refused edge _(since v26.11.1)_. A lightweight edge owns no record, so no record listener is ever consulted for it.
+
 NOTE: A full scan of a type or bucket (`iterateType()`, `iterateBucket()`, or a query that scans a type) fires the read listeners when it reads each record, once per record, even for records your code then never reads. A record a before-read or after-read listener filters out is not returned by the scan _(since v26.10.1)_.
 
 NOTE: A read listener runs while the database holds its shared lock, and a schema change (creating or altering a type, a property
