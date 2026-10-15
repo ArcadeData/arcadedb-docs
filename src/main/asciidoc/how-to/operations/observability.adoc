@@ -133,8 +133,10 @@ Two always-on timers record request/query latency with a percentile histogram (s
 |===
 | Timer | Tags | Prometheus series
 | `arcadedb.http.requests` | `method`, `path` (route template, e.g. `/query/{database}` -- never the raw URI), `status`, `db` (the database name, or `unknown` when the request names a database that does not exist) | `arcadedb_http_requests_seconds_*`
-| `arcadedb.query.duration` | `protocol` (`http`, `bolt`, `postgres`, `mongo`, `grpc`, `redis`, `internal`), `db`, `language` (`sql`, `opencypher`, `gremlin`, `graphql`, `mongo`), `type` (`query` or `command`) | `arcadedb_query_duration_seconds_*`
+| `arcadedb.query.duration` | `protocol` (`http`, `ws`, `bolt`, `postgres`, `mongo`, `grpc`, `redis`, `gremlin`, `mcp`, `internal`), `db`, `language` (`sql`, `opencypher`, `gremlin`, `graphql`, `mongo`), `type` (`query` or `command`) | `arcadedb_query_duration_seconds_*`
 |===
+
+NOTE: Queries that an MCP tool runs are reported as `mcp` on both MCP transports. Before 26.11.1 they were reported as `http` (the HTTP transport) or `internal` (stdio), so an agent's traffic could not be told from a REST client's, and a `protocol!="internal"` filter dropped the stdio traffic. The same tag is what tells a client request from the engine's own work under HA, where a database whose directory is being replaced from the leader's snapshot refuses client requests.
 
 NOTE: The `protocol` tag defaults to `internal` for embedded/in-process callers; dashboards typically filter `protocol!="internal"` to isolate client traffic. Redis commands and unfiltered Mongo scans do not pass through the query engine and are therefore not recorded by `arcadedb.query.duration`.
 
