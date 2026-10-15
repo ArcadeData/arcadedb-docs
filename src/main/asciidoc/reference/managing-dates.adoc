@@ -68,6 +68,8 @@ _(Available since v26.11.1)_ Four more types hold what the openCypher `time()`, 
 - `ZONED_DATETIME`, a datetime with the zone or offset it was written with (`java.time.ZonedDateTime`). Example: `2024-01-01T10:00:00+01:00[Europe/Rome]`
 - `DURATION`, an openCypher duration with months, days, seconds and nanoseconds (`DURATION` values read back as `com.arcadedb.query.opencypher.temporal.CypherDuration`). Example: `P1M2DT3S`
 
+A `DURATION` given as text, to `duration('...')` or to a `DURATION` property, is read with the ISO 8601 grammar Neo4j applies: `P[nY][nM][nW][nD][T[nH][nM][nS]]`, or the date-based `PYYYY-MM-DDThh:mm:ss`. Each component is a signed integer, only the last one present may carry a fraction (`P1.5Y`, `PT1,5S`), a sign before the `P` negates the whole duration (`-P1Y2D`), and the text must carry at least one component: `P`, `PT` and `P1YT` are refused _(since v26.11.1)_.
+
 openCypher stores these four natively, so a value always reads back as what it was written as, with no guessing from its text. A String that merely looks temporal, such as the opening hours `09:00-17:00` or a code like `P100D`, is a String and stays a String. Before 26.11.1 these four types were stored as Strings and openCypher guessed their type when reading an undeclared property, so `09:00-17:00` came back as a time and `WHERE l.hours = '09:00-17:00'` matched nothing.
 
 All four can be indexed, with both `LSM_TREE` and `HASH`. A `ZONED_DATETIME` and an `OFFSET_TIME` compare as in openCypher and Neo4j: the same instant in two zones is two different values, so `12:00:00+01:00` does not equal `11:00:00Z`, with or without an index, and a unique index accepts both. Values are ordered by instant, then by UTC offset from west to east, then by zone name.
