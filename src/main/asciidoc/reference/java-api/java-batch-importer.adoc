@@ -146,6 +146,12 @@ You can always override with `withBatchSize()` if you know your workload charact
 | `newEdge(srcRID, edgeType, dstRID, properties...)`
 | Buffers an edge for batch processing. Automatically triggers a flush when the batch size is reached.
 
+| `newEdgeWithHints(srcRID, edgeType, dstRID, hints, properties...)`
+| Same as `newEdge()`, for a caller that knows an endpoint has no edges yet in that direction: `GraphBatch.SOURCE_HAS_NO_OUT_EDGES` and/or `GraphBatch.DESTINATION_HAS_NO_IN_EDGES`, or 0. The batch then starts the vertex's edge list without reading the vertex, a saving of one random disk read per distinct vertex and flush when the graph is larger than the memory. Pass the hint with the first edge of the vertex you hand to a batch, never later: a wrong hint is not detected in production and leaves the edges the vertex already had unreachable from it (with assertions enabled, `-ea`, the batch checks every hint and fails instead). `GraphImporter` uses it for the vertices it creates. _Since v26.11.1_
+
+| `getVertexHeadReads()`
+| How many vertices the flushes read to find the edge list they append to: one per distinct vertex and flush that the batch neither created nor was given a hint for. _Since v26.11.1_
+
 | `flush()`
 | Manually flushes all buffered edges. Outgoing edges are sorted and connected; incoming edges are deferred.
 
