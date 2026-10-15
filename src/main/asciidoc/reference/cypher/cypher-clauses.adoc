@@ -160,6 +160,28 @@ Inside a pattern comprehension, the relationship variable of a variable-length h
 
 ---
 
+[[cypher-variable-length-distinct-endpoints]]
+===== Distinct End Vertices of a Variable-Length Pattern
+
+A variable-length hop enumerates paths: a vertex that many paths lead to is reached once per path. When nothing in the query can tell two paths between the same pair of vertices apart, ArcadeDB does not enumerate them. It walks the graph breadth first with a visited set and reports each end vertex once per start vertex, so the time grows with the number of vertices reached and not with the number of paths. That is the "everything this depends on" or "everything that depends on this" question over a graph with many paths onto few vertices:
+
+[source,cypher]
+----
+MATCH (a:Package)<-[:DEPENDS_ON*1..12]-(b:Package)
+WHERE a.name = 'core'
+RETURN count(DISTINCT b)
+----
+
+The answer is the same as the one path enumeration gives, in every direction and every <<cypher-path-mode,path mode>>. The shortcut applies when the statement is nothing but one non-optional `MATCH` with one hop, followed by `RETURN`, and:
+
+* the lower bound of the hop is 0 or 1 (`*`, `*..n`, `*0..n` and `*1..n`);
+* there is no named path and the relationship variable is not used anywhere (not in `WHERE`, `RETURN`, `ORDER BY` or an inline `WHERE`);
+* the `RETURN` is either `DISTINCT` over the start or end vertices or their properties, or it groups by such values and aggregates them with `count(DISTINCT ...)`, `collect(DISTINCT ...)`, `sum(DISTINCT ...)`, `avg(DISTINCT ...)`, `min(...)` or `max(...)`. `ORDER BY` may use those values or the output names.
+
+Anything else keeps enumerating paths: a plain `RETURN b`, `count(b)`, `size(r)`, a second `MATCH`, a `WITH`, `OPTIONAL MATCH`, and a lower bound of 2 or more. Use `EXPLAIN` to see which one a query gets: the hop is shown as `[DISTINCT ENDPOINTS]`. The traversal is lazy, so `LIMIT` stops it early, and the order of the rows (and of the list built by `collect(DISTINCT ...)`) is the breadth-first order; as in every `MATCH` without `ORDER BY`, no order is promised.
+
+---
+
 [[cypher-named-paths]]
 ===== Named Paths
 
