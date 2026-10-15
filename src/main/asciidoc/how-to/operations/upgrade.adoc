@@ -447,13 +447,49 @@ The Docker images are built on `eclipse-temurin:25-alpine` instead of Java 21, w
 *Action:* check custom JVM options against Java 25. To try a custom policy without blocking, set `arcadedb.server.httpContentSecurityPolicyReportOnly=true`. See <<upgrade-docker,Docker / Kubernetes>>.
 
 [discrete]
+====== 26.10.2 - New and rebuilt hash indexes use page layout 3, which 26.10.1 cannot open
+
+A `NOTUNIQUE_HASH` key whose record ids would take more than a quarter of a page now keeps them in a chain of pages of their own, so adding a record to a key costs the same whatever the key already holds (issue #9228). Before, the cost of an insert grew with the record ids the key already held: 49 pages were written per insert into a key with 20,000 of them. Every hash index created or rebuilt by 26.10.2, `UNIQUE_HASH` included, is written at page layout version 3. Hash indexes created by older versions keep working at their layout and move to version 3 only on `REBUILD INDEX`.
+
+*Impact:* none on upgrade. A 26.10.1 server knows layouts 1 and 2 only, and refuses a hash index at layout 3 (see <<downgrade-hash-indexes>>).
+
+*Action:* to get the new layout on an existing `NOTUNIQUE_HASH` index with large keys, run `REBUILD INDEX` on it. See <<index-hash,Hash index>>.
+
+[discrete]
+====== 26.10.2 - Cypher paths are sent as one path object on every protocol
+
+Every Cypher path is now one path value, whatever built it: a `MATCH p = ...` pattern, `shortestPath()`, `allShortestPaths()`, a path procedure, or `apoc.path.create`, `apoc.path.slice` and `apoc.path.combine` (issue #9913). Over HTTP (and `Result.toJSON()`), gRPC and PostgreSQL a path returned by a `MATCH` used to be sent as its text form; it is now the object `{"_type": "path", "nodes": [...], "relationships": [...], "length": n}`, with every node and relationship written whole whatever the JSON serializer settings. A Bolt driver receives a native `Path` for the paths of procedures and `shortestPath()` too, and Studio's graph view draws a returned path.
+
+*Impact:* a client that parsed the text form of a `MATCH` path gets an object instead.
+
+*Action:* read the `nodes`, `relationships` and `length` fields of the object, or return `nodes(p)` and `relationships(p)` explicitly. See <<graph-algo-path-value>>.
+
+[discrete]
+====== 26.10.2 - `COMMIT RETRY` and `Database.transaction()` do not retry a leader refusal
+
+A `NeedRetryException` now tells whether retrying on the same server can succeed (`isRetryableOnThisNode()`). An HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader answers `false`, so `BEGIN ... COMMIT RETRY <n>` and `Database.transaction(..., retries)` raise its `ServerIsNotTheLeaderException` on the first attempt (issue #9995). Before, they retried it `<n>` times with the retry delay in between, and `COMMIT RETRY ... ELSE` then ran the `ELSE` block. A refusal raised during an election, which names no leader, is still retried.
+
+*Impact:* the caller gets the leader refusal at once. A `COMMIT RETRY ... ELSE { ... } AND CONTINUE` block no longer runs its `ELSE` or hides the error for such a refusal.
+
+*Action:* send leader-only work to the leader the error names. See <<sql-script-commit>>.
+
+[discrete]
+====== 26.10.2 - GraphQL introspection reports real types, and Cypher typed constraints keep a property's attributes
+
+* GraphQL introspection of a type with no `.gql` declaration reports `MAP` and untyped `EMBEDDED` as the new `JSON` scalar, `EMBEDDED OF <T>` as an object, `LINK` as `ID`, `DECIMAL` as the new `BigDecimal` scalar and `BINARY` as a list of `Int`; in 26.10.1 and earlier they were all `String`. A sub-selection on a `LINK` property now resolves the linked record (issues #8756, #9467, #9468). See <<graphql-introspection-types,GraphQL type mapping>>.
+* `CREATE CONSTRAINT ... REQUIRE n.x IS :: <TYPE>` keeps the property's earlier attributes (`MANDATORY`, `READONLY`, `REGEXP`, `MIN`, `MAX`, `DEFAULT`) instead of dropping them, and checks the records already stored: when one fails, the constraint is refused and the old declaration stays (issue #9304). See <<cypher-is-typed-retype>>.
+
+*Action:* regenerate GraphQL client code built from introspection, and expect a typed constraint over existing data that does not fit to be refused.
+
+[discrete]
 ====== 26.10.2 - Embedded API changes
 
 * `Schema.alterMaterializedView()` refuses a null mode and a negative interval (`IllegalArgumentException`) and an interval on a `MANUAL` or `INCREMENTAL` view (`SchemaException`), which it used to store (issues #8726, #9381). SQL `ALTER MATERIALIZED VIEW` is unaffected.
 * `Schema.unregisterFunctionLibrary()` of a stored library is now saved to `schema.json` and replicated (issues #8879, #9423).
+* `Iterator.remove()` on the iterators of `Vertex.getEdges()` and `Vertex.getVertices()` deletes the edge through the database, as `edge.delete()` does, and a refused delete reaches the caller with the entry left in place; a second `remove()` throws `IllegalStateException` (issue #9779). Before, an iterator over given edge types only unlinked the walked side, and one over every edge type logged a refusal and unlinked anyway. See <<vertex-edge-iterator-remove>>.
 * On an HA follower, `unregisterFunctionLibrary()`, `Property` setters, `Schema.setExtension()`, the schema date settings and type setters such as `LocalEdgeType.setLightweight()` throw `ServerIsNotTheLeaderException` ("Changes to the schema must be executed on the leader server") instead of changing that follower alone (issues #9747, #9765). `Schema.setZoneId()` checks `UPDATE_DATABASE_SETTINGS`.
 
-*Action:* call these methods on the leader, and validate materialized view arguments before passing them.
+*Action:* call these methods on the leader, validate materialized view arguments before passing them, and expect `remove()` on an edge iterator to throw when the delete is refused.
 
 [discrete]
 ====== 26.10.2 - Client error handling: gRPC writes whose answer was lost, streamed error lines, Postgres transaction modes
@@ -778,3 +814,17 @@ Those entries stay in the Raft log, so a node that is restarted on an older buil
 If you have to go back that far, rebuild the node instead: stop it, delete its `raft-storage-<peerId>/` directory and its `databases/` folder, and start the older build so it rejoins empty and takes a fresh copy from the leader.
 
 NOTE: This applies only to the Raft log, not to your data. Database files themselves keep the usual serial-release compatibility described above.
+
+[[downgrade-hash-indexes]]
+===== Downgrading from 26.10.2 to 26.10.1 with hash indexes
+
+Since v26.10.2 every hash index (`UNIQUE_HASH` or `NOTUNIQUE_HASH`) that is created or rebuilt is written at page layout version 3, which 26.10.1 does not know.
+A 26.10.1 server refuses such an index with:
+
+----
+Hash index '<name>' has the page layout version 3, which this server does not support (it knows 1 and 2). It was created by a newer version: open the database with that version, or drop and recreate the index.
+----
+
+Hash indexes that 26.10.2 opened but did not rebuild keep their older layout and still open on 26.10.1.
+Before going back, drop the hash indexes created or rebuilt by 26.10.2 (the layout version is part of the index file name) and recreate them once the database runs on 26.10.1, or export the database and re-import it.
+Do not open a database holding a hash index created or rebuilt by 26.10.1 or later with a server older than 26.10.1, which does not check the layout version: see <<index-hash,Hash index>>.

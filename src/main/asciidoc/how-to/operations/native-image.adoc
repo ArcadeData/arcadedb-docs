@@ -1,0 +1,120 @@
+[[native-image]]
+==== Native Image (Experimental)
+
+ArcadeDB is also distributed as a native executable of the server, compiled ahead of time with https://www.graalvm.org/latest/reference-manual/native-image/[GraalVM Native Image].
+The native server needs no Java runtime, starts in a fraction of a second and uses far less memory than the same server on a JVM, which suits containers, serverless-style deployments and quick local testing.
+
+WARNING: The native image is an *experimental add-on*. It does not replace the standard JVM distribution described in <<binaries>> and <<install-docker>>, which remains the default, fully supported way to run ArcadeDB and the one the rest of this manual assumes.
+Use the native image when fast startup and a small memory footprint matter more than having every module available, and treat it as best-effort outside Linux.
+
+===== Getting the Native Image
+
+*Docker images.* The native server is published on Docker Hub in the same `arcadedata/arcadedb` repository as the JVM image, under its own tags:
+
+[%header,cols="1,3"]
+|===
+| Tag | Content
+| `<version>-native` (for example `{revnumber}-native`) | A release, as a multi-architecture image for `linux/amd64` and `linux/arm64`.
+| `<version>-native-amd64`, `<version>-native-arm64` | The same release for one architecture only.
+| `latest-native` | The nightly build of the `main` branch, a development snapshot. Pin a version tag for anything that matters.
+| `<next-version>-SNAPSHOT-native` | The same nightly build, tagged with the version under development.
+|===
+
+The nightly tags also exist per architecture (`latest-native-amd64`, `latest-native-arm64` and so on).
+The two architectures use different base images: the `linux/amd64` binary is fully static (musl libc) and runs on an empty `scratch` image, while the `linux/arm64` binary links glibc dynamically and runs on `gcr.io/distroless/base-debian12:nonroot`.
+
+*Release archives.* Each https://github.com/ArcadeData/arcadedb/releases[GitHub release] carries the native executable for several platforms, each with a `.sha256` checksum file:
+
+[%header,cols="2,3,2"]
+|===
+| Platform | Asset | Status
+| Linux x86-64 | `arcadedb-<version>-linux-x86_64.tar.gz` | Required for every release. Fully static, runs on any Linux.
+| Linux ARM64 | `arcadedb-<version>-linux-aarch_64.tar.gz` | Required for every release. Needs glibc on the host.
+| Windows x86-64 | `arcadedb-<version>-windows-x86_64.zip` | Best-effort: missing from a release whose Windows build failed.
+| macOS ARM64 (Apple Silicon) | `arcadedb-<version>-osx-aarch_64.tar.gz` | Best-effort: missing from a release whose macOS build failed.
+|===
+
+The archive contains a single executable with the same name as the archive, minus the extension (`.exe` on Windows).
+Studio and the configuration templates are embedded in it.
+
+===== Running the Native Server
+
+Run the executable directly, passing settings as `-D` arguments exactly as you would pass them to the JVM:
+
+[source,bash,subs="+attributes"]
+----
+tar -xzf arcadedb-{revnumber}-linux-x86_64.tar.gz
+./arcadedb-{revnumber}-linux-x86_64 -Darcadedb.server.rootPassword=<your-password>
+----
+
+The server uses the current directory as its root path, so it creates `databases/` and its other directories there unless you set `arcadedb.server.rootPath`.
+Studio is then available at http://localhost:2480.
+
+To run the Docker image:
+
+[source,bash,subs="+attributes"]
+----
+docker run --rm -p 2480:2480 -p 5432:5432 \
+  --user 1000:1000 \
+  -v "$(pwd)/databases:/home/arcadedb/databases" \
+  arcadedata/arcadedb:{revnumber}-native \
+  -Darcadedb.server.rootPassword=<your-password>
+----
+
+The native images differ from the JVM image in a few ways, because neither base image contains a shell:
+
+* *Settings are trailing arguments, not environment variables.*
+The JVM image's `bin/server.sh` expands `ARCADEDB_SETTINGS` and `JAVA_OPTS` onto the command line.
+The native image starts the binary directly, so pass `-Darcadedb.server.rootPassword=...` and any other setting as arguments after the image name, as in the example above.
+* *User.* The `linux/amd64` (`scratch`) image runs as UID 0 unless you pass `--user <uid>:<gid>`.
+The `linux/arm64` (distroless) image already runs as the non-root user 65532.
+Whatever UID you choose must own the host directory you mount for `databases`.
+* *Ports.* The image exposes `2480` (HTTP API and Studio), `2434` (Raft replication), `5432` (PostgreSQL), `6379` (Redis), `27017` (MongoDB), `7687` (Bolt) and `50051` (gRPC).
+There is no port `8182`, because Gremlin is not included.
+Publish the ports of the protocol plugins you enable in `arcadedb.server.plugins`.
+* *Volumes.* `config`, `databases`, `backups`, `replication` and `log` under `/home/arcadedb`, as in the JVM image.
+
+===== What the Native Image Includes
+
+* The SQL and OpenCypher query engines
+* The HTTP API and Studio
+* The PostgreSQL, Redis, MongoDB, Neo4j Bolt and gRPC wire protocols
+* JavaScript scripting through GraalJS (see the security caveat below)
+* The `console` and `graphql` modules
+* _(Since v26.10.2)_ Raft high availability, enabled the same way as on the JVM (`-Darcadedb.ha.enabled=true` and `-Darcadedb.ha.serverList=...`): see <<howto-high-availability>>
+* _(Since v26.10.2)_ Metrics: the Prometheus endpoint (`/prometheus`, enabled by adding `com.arcadedb.metrics.prometheus.PrometheusMetricsPlugin` to `arcadedb.server.plugins`) and OTLP metrics push (`-Darcadedb.serverMetrics.otlp.enabled=true`)
+* _(Since v26.10.2)_ Tracing: OpenTelemetry spans over OTLP (`-Darcadedb.serverMetrics.tracing.enabled=true`)
+
+A plugin named in `arcadedb.server.plugins` that is not in the image is skipped without a log line.
+If a setting appears to do nothing, check that its module is part of the native image before looking for a configuration mistake.
+
+===== Limitations Compared to the JVM Distribution
+
+* *No Gremlin.* Apache TinkerPop is not part of the native build. If you need Gremlin, use the JVM distribution.
+* *No SIMD vector math.* _(Since v26.10.2)_ A native image does not compile the Java Vector API into SIMD instructions, so ArcadeDB switches vector index builds, vector functions, Graph OLAP and time series to their scalar implementations when it detects a native image.
+Results are identical, but vector-heavy workloads run slower than on the JVM, where the Vector API is compiled to SIMD.
+To force a different JVector provider anyway, set the `jvector.vectorization_provider` system property.
+* *Thai full-text analyzer.* `org.apache.lucene.analysis.th.ThaiAnalyzer` fails with "This JRE does not have support for Thai segmentation", because the JDK's Thai dictionary is not available in the image.
+The other analyzers work.
+* *JavaScript is not hardened for untrusted callers.* Embedding GraalJS required relaxing a Truffle safety check for a few standard builtins (`Atomics.*`, `SharedArrayBuffer`, `TypedArray.prototype.set`), and any authenticated user who can run `js` commands can reach them.
+Do not expose the native image's JavaScript surface to untrusted users in a shared or multi-tenant deployment.
+* *Certificate trust store.* The image carries a snapshot of the build machine's JDK `cacerts` trust store, taken at build time.
+The CA bundle copied into the Docker images serves only code paths that read the operating system's bundle explicitly; it does not change the trust anchors baked into the binary.
+* *Size.* The executable is large, around 907 MiB on macOS ARM64, because every classpath resource, including the Studio assets, is embedded in it.
+
+===== Building the Native Image Yourself
+
+Most users should download a published binary or image.
+Two scripts in the ArcadeDB source tree build one.
+`build-native.sh` needs GraalVM Community Edition 25.0.2 installed (the exact version the build pins), with both `JAVA_HOME` and `GRAALVM_HOME` pointing at the GraalVM home.
+`build-native-docker.sh` needs only Docker: it fetches the pinned GraalVM into a throwaway builder image.
+
+[source,bash]
+----
+./native/scripts/build-native.sh               # binary for the current platform
+./native/scripts/build-native-docker.sh        # Linux Docker image for the current architecture
+----
+
+Native Image cannot cross-compile: each build produces a binary for the platform it runs on, and `build-native-docker.sh` builds the Linux binary inside a container so it also works on macOS.
+The build is memory hungry. `build-native-docker.sh` requires a Docker VM with about 16 GiB of memory, and for a local `build-native.sh` you can set the builder heap with `NATIVE_IMAGE_OPTIONS="-J-Xmx24g"` if the default runs out of memory.
+See `docs/native-image.md` in the ArcadeDB repository for the full build reference.

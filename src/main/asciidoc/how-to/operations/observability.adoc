@@ -163,6 +163,7 @@ grouped under `db="unknown"` rather than appearing one series per name.
 | `arcadedb.engine.databases` | Number of open databases
 | `arcadedb.engine.async.boundary.commits` | Asynchronous batch transactions cut short by a durability-flag change
 | `arcadedb.engine.async.workers.retiring` | Asynchronous workers a lowered parallel level retired and that are still draining
+| `arcadedb.engine.bucket.recount.publishes.refused` | Bucket `count()` recomputes not cached because a replicated apply ran under the scan _(Since v26.10.2)_
 |===
 
 The last two describe the asynchronous executor and are worth reading together with the throughput of your ingestion.
@@ -176,6 +177,12 @@ other on the same database, so batching is degrading towards one commit per task
 normal reading, and a brief spike during a `setParallelLevel()` call is expected. A reading that stays above zero means a
 retired worker is stuck inside user code and will never finish draining - a resize deliberately never interrupts one -
 so the thread stays alive until the database is closed.
+
+`bucket.recount.publishes.refused` (Prometheus `arcadedb_engine_bucket_recount_publishes_refused_total`; in the Profiler
+JSON, `+recountPublishesRefused: {count: N}+`) counts the times a bucket recomputed its record count but could not cache
+the result, because a replicated apply wrote to the bucket while it was being scanned. One or two increments are the
+normal cost of an HA follower catching up. A rate that never returns to zero means a follower on which every
+`count(*)` is a full scan. _(Since v26.10.2)_
 
 ====== Optional OTLP metrics export
 

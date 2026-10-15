@@ -518,6 +518,19 @@ On such a node, `linearizable` reads and `read_your_writes` reads whose bookmark
 This includes reads that were already waiting when the node was removed: they are refused within a second instead of after the quorum timeout.
 `eventual` reads, and `read_your_writes` reads whose bookmark the node already applied, are still served. _(Since v26.10.2: such reads waited the whole quorum timeout, and a `read_your_writes` read then served data missing the write its bookmark named.)_
 
+[[ha-removed-node-writes]]
+The same node refuses at once, with a retryable `NeedRetryException`, everything that would submit an entry to the
+cluster: a commit that carries writes (a read-only transaction still commits), a database drop, a database create or
+install, an `ALTER DATABASE` configuration change, and the replication of a security user, group or API token. The
+message names the reason and the way out, for a database operation
+`Database '<name>' cannot <operation> on this server: it is not a member of the Raft cluster's configuration any more (it left or was removed), so it receives no entries and could not apply this one. Send the request to a server of the cluster, or add this server back to it`
+and for a security document
+`Cannot replicate the security <document> from this server: it is not a member of the Raft cluster's configuration any more (it left or was removed), so it receives no entries and the change would apply on every other server but not here. Send the request to a server of the cluster, or add this server back to it`.
+_(Since v26.10.2: the leader still accepted the entry and committed it on every member, while the removed node waited
+`arcadedb.ha.quorumTimeout` for an apply it never received and then released the transaction unapplied; a drop dropped
+the database on every member and then failed on the removed node, and a security change was in force everywhere except
+on the node that answered the request.)_
+
 Clients communicate the consistency contract through three HTTP headers:
 
 [%header,cols="30%,12%,58%"]
@@ -683,9 +696,11 @@ address in the text or in a field of its own:
 |MongoDB |`10107 NotWritablePrimary`, with `not primary. The leader is server '<address>'` in `errmsg`.
 |Redis |`READONLY`, the answer Redis gives to a write sent to a replica, naming the leader.
 |PostgreSQL |`40001`: the protocol has no redirect code, so the state stays the retryable one and the message ends with `The leader is server '<address>'`.
+|Gremlin Server |The error's status message ends with `. The leader is server '<address>' (HTTP address; use its Gremlin Server port). Retry there`, following the production placeholder in production mode. The cluster knows its peers by their HTTP addresses, so connect to the Gremlin Server port of that host. See <<gremlin-server>>.
+|MCP |The tool error (`isError: true`, over HTTP `200`) ends with `. The leader is server '<address>'`, appended to the message, or to the production placeholder. See <<mcp-server>>.
 |===
 
-In 26.10.1 and earlier Bolt, MongoDB, PostgreSQL and Redis answered such a refusal as an ordinary write conflict (`Neo.TransientError.Transaction.DeadlockDetected`, `112 WriteConflict`, `40001`, `TRYAGAIN`) without the leader's address, so a client retried the same replica, which refused again.
+In 26.10.1 and earlier Bolt, MongoDB, PostgreSQL and Redis answered such a refusal as an ordinary write conflict (`Neo.TransientError.Transaction.DeadlockDetected`, `112 WriteConflict`, `40001`, `TRYAGAIN`) without the leader's address, so a client retried the same replica, which refused again. Gremlin Server and MCP answered it without the leader's address too, and in production mode with the bare placeholder.
 
 The address is added after the message is concealed in production mode, so it reaches the client in every mode. A
 refusal raised during an election, when no leader is known yet, names nobody and keeps its retryable answer (`503` over
@@ -800,6 +815,48 @@ the resync is the way out there. A database with no quarantine and no read floor
 The same override is available over gRPC as `AcceptDivergedDatabase` (see <<grpc-api>>) and from Java through
 `RemoteServer.acceptDivergedDatabase()`.
 
+[[ha-accept-stale-snapshot]]
+*Lifting the stale-snapshot read floor.* A node that restarts with a Raft snapshot marker ahead of the entries its
+databases applied (by more than `arcadedb.ha.snapshotGapTolerance`) is missing the entries in between, and the Raft log
+no longer holds them. It raises a node-wide *read floor*: `/api/v1/ready` answers `503` and every `linearizable` read is
+clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, and the only voter of a
+cluster is always its leader, so there the floor never lifts. For that case only, v26.10.2 adds a second override,
+`POST /api/v1/cluster/accept-stale-snapshot`, which names no database because the floor is node-wide:
+
+* It requires the `root` user, and the body is ignored. It accepts the node's databases as they are and records
+`max(marker index, applied index)` as the applied position, in one persisted write, so a restart does not raise the
+floor again. The response carries `result`, `localServer`, `readFloor`, `snapshotIndex` and `appliedIndex`.
+* The entries between the floor and the marker are *not* replayed: a database missing them stays missing them. Run
+`CHECK DATABASE` afterwards, and restore any damaged database from a backup.
+* A database quarantined on its own keeps its quarantine and its read floor: lift those with
+`+POST /api/v1/cluster/accept-diverged/{database}+`, one database at a time.
+* Every use is logged at `WARNING`, naming the user, the source address, the floor and the marker index:
+`<user> lifted the node-wide stale-snapshot read floor WITHOUT a resync (read floor <n>, snapshot marker <n>, applied position now <n>) ...`
+* It answers `404` when no floor stands, and `409 Conflict` on a node that is not the only voter (a follower resyncs on
+its own, and a leader hands the leadership to a peer first) or while a snapshot download is running on the node. A
+change that cannot be written to disk answers `500`
+(`Could not lift the stale-snapshot read floor: <reason>. The floor stays`) and lifts nothing.
+
+The same override is available over gRPC as `AcceptStaleSnapshot` (see <<grpc-api>>) and from Java through
+`RemoteServer.acceptStaleSnapshot()`.
+
+[[ha-accept-copy]]
+*Accepting the leader's unverified copy.* A database closed on a node while it was a follower, which the last resync
+could not verify, carries a marker file (`.ha-unverified-closed-copy`). Before such a node, once leader, reopens the copy
+and makes it the cluster's copy, it asks every peer of the configuration about its own, and refuses while a peer does
+not answer or holds a copy that cannot be ordered against it (the critical `unverified-closed-copy-refused` alert). A
+peer that is gone for good but still in the configuration keeps the database closed on every node. Since v26.10.1 the
+operator override is `POST /api/v1/cluster/accept-copy/{database}`:
+
+* It requires the `root` user, runs on the leader only (a follower answers `400`), and the body is ignored. It removes
+the marker and accepts the leader's copy without the other servers' confirmation. It does not reopen the copy: the next
+request that names the database does, and every follower then installs it. The response carries `result`, `database`,
+`localServer`, `appliedIndex` and, when one stood, `overriddenRefusal`.
+* Every use is logged at `WARNING`, naming the user, the source address, the applied index and the refusal it overrode:
+`Database '<name>': <user> accepted this leader's copy, which the last resync could not verify, as the cluster's copy WITHOUT the other servers' confirmation ...`
+* It answers `404` when this server holds no closed copy of the database marked unverified, and `500` when the marker
+cannot be removed, in which case the copy stays closed.
+
 [[ha-in-place-restart]]
 ====== Raft layer restarted in place
 
@@ -869,6 +926,14 @@ All endpoints require authentication as the `root` user.
 |POST
 |`/api/v1/cluster/accept-diverged/{database}`
 |_(Since v26.10.2.)_ Accept this node's copy of the database as it is, lifting its quarantine and read floor without a resync. Only where no peer can serve a resync: on the only voter of the cluster, or when every voter holds the database quarantined; anywhere else it answers `409`. Answers `404` when nothing stands on the database. Every use is logged at `WARNING`. See <<ha-accept-diverged,Lifting a quarantine without a resync>>.
+
+|POST
+|`/api/v1/cluster/accept-stale-snapshot`
+|_(Since v26.10.2.)_ Lift this node's node-wide stale-snapshot read floor without a resync, accepting its databases as they are; the entries between the floor and the snapshot marker are not replayed. Only on the only voter of the cluster, and not while a snapshot download is running; otherwise it answers `409`. Answers `404` when no floor stands, and `500` when the change cannot be persisted, leaving the floor in place. A database quarantined on its own keeps its quarantine. The body is ignored. Every use is logged at `WARNING`. See <<ha-accept-stale-snapshot,Lifting the stale-snapshot read floor>>.
+
+|POST
+|`/api/v1/cluster/accept-copy/{database}`
+|_(Since v26.10.1.)_ Leader only: accept the leader's closed copy of the database, which the last resync could not verify, as the cluster's copy without the other servers' confirmation. The next request that names the database reopens it. A follower answers `400`; a server with no such copy answers `404`. The body is ignored. Every use is logged at `WARNING`. See <<ha-accept-copy,Accepting the leader's unverified copy>>.
 
 |GET
 |`/api/v1/ha/snapshot/{database}`

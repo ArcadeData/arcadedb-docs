@@ -91,6 +91,43 @@ IMPORTANT: Submitting a type definition changes the GraphQL schema shared by eve
 Users without it get a security error on the command endpoint, and the read-only query endpoint refuses type definitions because they are not read-only.
 Plain GraphQL queries are not affected.
 
+[[graphql-introspection-types]]
+==== Introspection of database types
+
+Introspection (`__type(name:)` and `__schema { types }`) also describes the database types that have no GraphQL type definition, deriving each field from the property type.
+_(Since v26.10.2)_ Every field is described as the GraphQL result serializes it:
+
+[cols="2,3", options="header"]
+|===
+| Property type | Introspection type
+| `INTEGER`, `SHORT`, `BYTE` | `SCALAR Int`
+| `LONG` | `SCALAR Long`
+| `FLOAT`, `DOUBLE` | `SCALAR Float`
+| `BOOLEAN` | `SCALAR Boolean`
+| `MAP`, and `EMBEDDED` with no declared type | `SCALAR JSON`: a JSON object whose keys the schema does not declare
+| `EMBEDDED OF <T>` | `OBJECT <T>`, with the fields of `<T>`, which a sub-selection can walk
+| `LINK` | `SCALAR ID`: the value is the record id of the linked record, such as `"#28:0"`
+| `DECIMAL` | `SCALAR BigDecimal`: a JSON number that keeps every digit
+| `BINARY` | `LIST` of `Int`, one element per byte
+| `ARRAY_OF_SHORTS`, `ARRAY_OF_INTEGERS` / `ARRAY_OF_LONGS` / `ARRAY_OF_FLOATS`, `ARRAY_OF_DOUBLES` | `LIST` of `Int` / `Long` / `Float`
+| `LIST OF <X>` | `LIST` of the type `<X>` maps to (a `LIST` with no declared element type is a `LIST` of `String`)
+| `DATE`, `DATETIME` and the other temporal types, `STRING` | `SCALAR String`
+|===
+
+`JSON` and `BigDecimal` are custom scalars, listed by `__schema { types }` and resolved by `__type(name:)` like `Long`.
+They describe the value only: no coercion is applied to a result or to an argument.
+In 26.10.1 and earlier, `MAP`, `EMBEDDED`, `LINK`, `DECIMAL` and `BINARY` properties were described as `String`.
+
+A sub-selection on a `LINK` property, or on a list of links, resolves the linked records, as it does on an embedded document:
+
+[source,graphql]
+----
+{ docs { owner { city } links { city } } }
+----
+
+Without a sub-selection the same fields return the record ids (`"#28:0"`, `["#28:0"]`).
+_(Since v26.10.2)_ In 26.10.1 and earlier a sub-selection on a `LINK` property dropped the field from the response, and one on a list of links returned an empty list.
+
 ==== Query arguments
 
 Query fields can declare arguments of the standard GraphQL scalar types: `ID`, `String`, `Int`, `Float` and `Boolean`.

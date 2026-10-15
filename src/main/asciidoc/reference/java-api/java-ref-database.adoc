@@ -841,6 +841,29 @@ v.set("surname", "Miner");
 v.save();
 ----
 
+[[vertex-edge-iterator-remove]]
+*Removing edges while iterating a vertex*
+
+The iterators returned by `Vertex.getEdges()` and `Vertex.getVertices()`, with or without edge types, support
+`Iterator.remove()`. It deletes, through the database, the edge of the entry the last `next()` returned (for
+`getVertices()`, the edge leading to the vertex just returned; the vertex itself stays): the `DELETE_RECORD` permission is
+checked, the indexes on the edge are updated, the record events fire and the edge is unlinked from the vertex at the
+other end too, exactly as `edge.delete()` does. If the delete is refused (a security error, a before-delete listener
+vetoing it), the exception reaches the caller and the entry stays in place. A second `remove()` without a `next()` in
+between throws `IllegalStateException`.
+
+[source,java]
+----
+Iterator<Edge> it = v.getEdges(Vertex.DIRECTION.OUT, "IsFriendOf").iterator();
+while (it.hasNext())
+  if (it.next().getInteger("since") < 2000)
+    it.remove();
+----
+
+_(Since v26.10.2)_ In 26.10.1 and earlier, an iterator over given edge types only unlinked the entry from the walked
+vertex, leaving the edge record and the other vertex's link behind, and an iterator over every edge type logged a refused
+delete and unlinked the entry anyway.
+
 '''
 
 [[newedgebykeys-sourcevertextype-sourcevertexkey-sourcevertexvalue-destinationvertextype-destinationvertexkey-destinationvertexvalue-createvertexifnotexist-edgetype-bidirectional-properties]]
@@ -1060,6 +1083,12 @@ Executes a transaction block as a callback or a clojure.
 Before calling the callback in `TransactionScope`, the transaction is begun and after the end of the callback, the transaction is committed.
 In case of any exceptions, the transaction is rolled back.
 In case a `NeedRetryException` exceptions is thrown, the transaction is repeated up to `retries` times
+
+NOTE: _(Since v26.10.2)_ A `NeedRetryException` whose `isRetryableOnThisNode()` returns `false` is rethrown on the first
+attempt. That is a refusal that would repeat on every attempt against this node: a `ServerIsNotTheLeaderException`
+raised by an HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader to
+send it to. A refusal raised during an election, which names no leader, is still retried. In 26.10.1 and earlier such a
+refusal was retried `retries` times, with the retry delay between attempts, before reaching the caller.
 
 NOTE: The retry is skipped if the block already committed part of its work before failing. This happens
 when the block runs a statement with an explicit batch boundary, such as `UPDATE ... BATCH n`,

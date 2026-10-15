@@ -1404,6 +1404,28 @@ all.
 }
 ----
 
+[[mcp-running-tool-calls]]
+==== Listing and terminating tool calls
+
+Since v26.10.2 a tool call that works on a database (`query`, `execute_command`, `sample_records`, `vector_search`,
+`full_text_search`, `hybrid_search`, `upsert_entity` and `upsert_relationship`) is listed while it runs by the HTTP
+<<http-running-queries,`list queries`>> server command and by Cypher <<cypher-show-transactions,`SHOW TRANSACTIONS`>>,
+with `protocol` `mcp`:
+
+* A `query` or `execute_command` call is listed as the statement it runs, under the language it names (`cypher` when it
+names none).
+* Any other tool call is listed with language `mcp` and the tool name followed by its arguments, written as in the
+server log: for example `+vector_search {database="research", indexName="Paper[embedding]", queryVector=[384 item(s)], k=20}+`. A string
+argument is cut at 100 characters and an array is shown by its size.
+
+The entry's `clientAddress` is the address of the agent that made the call over HTTP, or `stdio` for the
+<<mcp-stdio,stdio transport>>, so the work of two agents that share one principal can be told apart.
+
+`terminate query`, `TERMINATE TRANSACTIONS` or the Studio <<studio-server-running-queries,Running Queries>> tab stop the
+call: the statements the tool runs are interrupted and the client receives an error result (`isError: true`). *root*
+sees and stops every call, any other user only their own. The other tools (`list_databases`, `get_schema`,
+`server_status`, the profiler and settings tools) are not listed.
+
 ==== Security
 
 The MCP server enforces multiple layers of security:
