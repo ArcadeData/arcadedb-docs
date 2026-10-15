@@ -136,6 +136,22 @@ database.getSchema().dropMaterializedView("ActiveUsers");
 database.getSchema().getMaterializedView("ActiveUsers").drop();
 ----
 
+*Changing the refresh mode*
+
+[source,java]
+----
+// Refresh every 5 minutes; pass 0 as the interval for MANUAL or INCREMENTAL
+database.getSchema().alterMaterializedView("ActiveUsers", MaterializedViewRefreshMode.PERIODIC, 300_000);
+database.getSchema().alterMaterializedView("ActiveUsers", MaterializedViewRefreshMode.INCREMENTAL, 0);
+----
+
+`alterMaterializedView()` is the Java form of `ALTER MATERIALIZED VIEW ... REFRESH`. _(Since v26.10.2)_ it works on a
+remote database too, where it is sent as that SQL statement, and the embedded and remote calls refuse the same
+arguments: a `null` mode or a negative interval (`IllegalArgumentException`) and an interval on a `MANUAL` or
+`INCREMENTAL` view (`SchemaException`). A remote `PERIODIC` interval must be a whole number of seconds, as in SQL. In
+v26.10.1 and earlier the remote call threw `UnsupportedOperationException`, and the embedded one stored an interval on a
+`MANUAL` or `INCREMENTAL` view, where nothing used it.
+
 *Inspecting a view*
 
 [source,java]

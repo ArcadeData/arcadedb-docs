@@ -55,6 +55,7 @@ CREATE TIMESERIES TYPE SensorReading
 | `PRECISION` | `MILLISECOND` | Timestamp unit. Only `MILLISECOND` is accepted: timestamps are stored, ingested, retained and queried in milliseconds (see the note below)
 | `TAGS (...)` | _(none)_ | Comma-separated `name TYPE` pairs for low-cardinality dimensions
 | `FIELDS (...)` | _(required)_ | Comma-separated `name TYPE` pairs for measurement values
+| `CODEC <codec>` | derived from the type | Per-column compression codec, written after a tag or field type (`temperature DOUBLE CODEC GORILLA_XOR`) or after the timestamp. By default the timestamp uses `DELTA_OF_DELTA`, tags `DICTIONARY`, `DOUBLE`/`FLOAT` fields `GORILLA_XOR`, integer, boolean and date/time fields `SIMPLE8B`, and other fields `DICTIONARY`. _(Since v26.10.2)_ a codec the sealed store cannot encode or read back unchanged is refused at creation: `NONE`, any timestamp codec but `DELTA_OF_DELTA`, `DELTA_OF_DELTA` on another column, and a numeric codec other than the column type's default (`SIMPLE8B` on a `DOUBLE`, `GORILLA_XOR` on a `LONG` or a text column). `DICTIONARY` is accepted on any tag or field. Earlier versions accepted such a codec, after which compaction of the type failed or the values read back changed. Types already created keep loading
 | `SHARDS` | `arcadedb.asyncWorkerThreads` (available cores minus 1) | Number of shards for parallel writes
 | `RETENTION` | _(none)_ | Automatic deletion of data older than the specified duration (e.g., `90 DAYS`, `1 HOURS`)
 | `COMPACTION_INTERVAL` | _(none)_ | Cuts sealed blocks at boundaries of this interval. A block that lies inside one query bucket is answered from its statistics without decompressing it, so set it to the bucket width of your most frequent aggregation (see <<timeseries-choosing-layout,Choosing the layout>>). Without it blocks are cut by size only and a block spanning several buckets is decompressed
@@ -218,6 +219,31 @@ at the end of a line was stored as `0.0` instead of rejecting the line. A line c
 still stored without the entries after the comma until v26.10.2.
 ====
 
+_(Since v26.10.2)_ A tag with an empty value (`cpu,host= value=1`) makes the line malformed too, as InfluxDB rejects it
+with "missing tag value"; to write a sample without a tag, leave the tag out. Earlier versions stored it as `host=""`. The
+gRPC write RPCs refuse an empty-string tag value with `INVALID_ARGUMENT` (an unset value still means the tag is absent),
+and the Java remote clients refuse it before sending.
+
+[[timeseries-undeclared-keys]]
+_(Since v26.10.2)_ A sample carrying a tag or field key its type does not declare *in that role* (a misspelled tag such
+as `weather,citty=rome temp=21.5`, or a field sent as a tag) is dropped, because storing it would file the point under a
+different series than the one sent, with the declared tag left null. The other samples of the request are stored, and the
+`400` partial-write body names the key in `undeclaredKeys` as `<measurement>.<key> (tag|field)` (the first 100; `dropped`
+counts every sample), with a message naming the database setting below. The OpenAPI `TimeSeriesWriteError` schema
+carries the new property, and the gRPC `TimeSeriesWriteSummary` reports the same list as `undeclared_keys` (field 8) on the
+unary and streaming write RPCs. A sample that simply omits a declared key is still accepted. Earlier versions stored the
+point without the undeclared key and answered `204`.
+
+The database setting `arcadedb.timeSeriesUndeclaredKeys` decides this for every time-series write: line protocol, gRPC,
+Prometheus remote write and SQL `INSERT`. `reject` (the default) drops and reports the sample as above (a failed statement
+for `INSERT`); `ignore` stores the sample with the undeclared keys discarded, which is what a schema-less producer such as
+Telegraf, sending extra tags the type was never meant to hold, needs:
+
+[source,sql]
+----
+ALTER DATABASE `arcadedb.timeSeriesUndeclaredKeys` 'ignore'
+----
+
 A value its column cannot store drops only the sample that carries it, which the `400` partial-write body names in
 `unreadableValues` as `<measurement>.<column> (tag|field): <reason>` (the reason names the column and its type, never the
 value; `dropped` is the count of samples, the list holds one entry per distinct reason and the first 100). The gRPC
@@ -289,6 +315,13 @@ Types are auto-created if they do not exist.
 
 _(Since v26.10.2)_ A label with an empty value is the same as an absent label, as in Prometheus: it is stored as absent and `{label=""}` selects it. A series carrying a label that the existing type does not declare as a tag is dropped and the request answers `400` naming the label (the other series of the request are stored); Prometheus does not retry a `400`. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` to discard the extra label instead.
 
+_(Since v26.10.2)_ The endpoint implements remote write 1.0 (`prometheus.WriteRequest`) and answers as the remote-write specification asks of such a receiver:
+
+* a `Content-Type` whose `proto=` parameter names another message (`application/x-protobuf;proto=io.prometheus.write.v2.Request`) is answered `415`, so a remote write 2.0 sender falls back to 1.0;
+* a body that decodes to no remote write 1.0 field at all, typically a 2.0 message sent without the `proto=` parameter, is answered `400`. It used to be answered `204`, so the sender discarded the batch as delivered;
+* a request carrying only metric metadata, or an empty `WriteRequest`, is still a no-op answered `204`;
+* a malformed protobuf body is answered `400` instead of `500`.
+
 [NOTE]
 ====
 _(Since v26.10.1)_ if your collector or proxy sends an `X-Request-Id` header, the request body is taken into
@@ -329,7 +362,7 @@ INSERT INTO SensorReading
   CONTENT { "ts": 1771581600000, "sensor_id": "sensor-A", "temperature": 22.5 }
 ----
 
-NOTE: _(Since v26.10.2)_ `INSERT` fails if it sets a property that is not a declared tag or field of the type (for example a misspelled tag), because the sample would otherwise be filed under a different series. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` on the database to discard such properties instead. The same setting governs line protocol, gRPC and Prometheus writes.
+NOTE: _(Since v26.10.2)_ `INSERT` fails if it sets a property that is not a declared tag or field of the type (for example a misspelled tag), because the sample would otherwise be filed under a different series (see <<timeseries-undeclared-keys,undeclared keys>>). Set `arcadedb.timeSeriesUndeclaredKeys=ignore` on the database to discard such properties instead. The same setting governs line protocol, gRPC and Prometheus writes.
 
 NOTE: _(Since v26.10.2)_ A `DATE`, `DATETIME`, `DATETIME_SECOND`, `DATETIME_MICROS` or `DATETIME_NANOS` tag or field behaves in SQL exactly like a document property of the same type. `INSERT` reads a value as such a property does: text and date/time objects as the instant they name, and a number as epoch milliseconds (epoch days for a `DATE`), whatever the column's precision. `SELECT` returns the value as the date/time object the property would return (a `java.time.LocalDateTime` for the `DATETIME` family by default), so a value read from a row can be written back as it is, and a `WHERE` condition on the column matches the same literal `INSERT` accepted, on a tag (pushed down to the storage engine) and on a field alike. An instant the column's precision cannot represent - for example a nanosecond count written to a `DATETIME_NANOS` column, which `INSERT` reads as milliseconds 53 million years from now - is refused with an error. Before, `SELECT` returned the raw epoch count in the column's own unit, which neither `INSERT` nor a filter read the same way, and such an instant was stored as `2262-04-11T23:47:16.854775807`. The engine API, line protocol, gRPC and HTTP surfaces keep exchanging these columns as epoch counts in the column's unit.
 
@@ -462,7 +495,7 @@ ArcadeDB provides a comprehensive set of `ts.*` SQL functions for time series an
 | Difference between the last and first values in the group.
 
 | `ts.movingAvg(value, window)`
-| Moving average with a configurable window size.
+| Trailing moving average: returns a list with one element per input row, in row order, where each element averages the window of `window` rows ending at that row (`window` may also be given as `{window: n}`). A row whose value is `null` keeps its slot and contributes nothing to the windows it belongs to: each window averages only its non-null values, and a window holding no value at all answers `null`, so the list can contain `null` elements. Each window's average depends only on its own members. _(Since v26.10.2.)_ Earlier versions dropped a `null` row from the list, which shifted every later average into an earlier row's slot.
 
 | `ts.interpolate(value, method [, timestamp])`
 | Gap filling. Methods: `'zero'`, `'prev'`, `'linear'`, `'none'`. The `'linear'` method requires the timestamp parameter.
@@ -578,6 +611,13 @@ and in the Java client as `TimeSeriesQuery.bucketOrigin()`) moves the bucket gri
 NOTE: `from`, `to`, `bucketInterval` and `maxDataPoints` must be whole numbers. A value with a fractional part
 is refused with `400` and a message naming the member, rather than being rounded down to something you did not
 ask for. A bucket width computed by division therefore has to be rounded by the client, deliberately.
+
+NOTE: _(Since v26.10.2)_ A `DATE` or `DATETIME` tag value given as text in a tag filter (the `tags` object of this
+endpoint and of the Grafana query endpoint, the `tag` parameter of `latest`, and the gRPC `TimeSeriesQuery` and
+`TimeSeriesLatest` RPCs) is read in the database's time zone, with its date formats, exactly as the `INSERT` that wrote the
+tag read it. Earlier versions read it in the JVM's default time zone, so on a server whose JVM zone differed from the
+database's the filter named another instant and selected nothing. In Java, `TimeSeriesGateway.buildTagFilter()` and
+`TimeSeriesGateway.andTag()` now take the `Database` as their first argument; code calling the old signatures must pass it.
 
 To retrieve the most recent data point:
 
@@ -878,32 +918,51 @@ validation now applies to `series`, which previously answered `500` for a malfor
 | Category | Supported
 
 | Vector selectors
-| `metric_name`, `metric{label="value"}`, `metric{label=~"regex"}`, `metric{label!="value"}`, `metric{label!~"regex"}`
+| `metric_name`, `metric{label="value"}`, `metric{label=~"regex"}`, `metric{label!="value"}`, `metric{label!~"regex"}`, and the `offset` modifier (`metric offset 1h`).
+_(Since v26.10.2)_ A matcher on a tag declared with a non-string type is read in the tag's declared type, and `=`, `!=`, `=~` and `!~` share one rule on `/query`, `/series` and remote read, so `=` and `!=` always select complementary sets. `{id="007"}` selects a `LONG` tag holding 7, and so does `{id=~"007"}`: a pattern that is a plain literal selects what the equality it spells selects, which is a deliberate deviation from Prometheus, where label values are text and `=~"007"` never matches `7`. A real pattern is matched against the label text only, so `=~"0.7"` does not select 7. A `DATE` or `DATETIME` matcher value is read the way `INSERT` reads it, in the database's time zone.
 
 | Range selectors
-| `metric[5m]`, `metric[1h]`, `metric[30s]`, `metric[1d]`
+| `metric[5m]`, `metric[1h]`, `metric[30s]`, `metric[1d]`; units `ms`, `s`, `m`, `h`, `d`, `w`, `y`
 
 | Aggregations
-| `sum`, `min`, `max`, `avg`, `count`, `topk`, `bottomk`, `quantile` with `by` / `without` clauses
+| `sum`, `min`, `max`, `avg`, `count`, `topk`, `bottomk`, with `by` / `without` clauses
 
-| Rate functions
-| `rate()`, `irate()`, `increase()`, `delta()`, `idelta()`
-
-| Over-time functions
-| `avg_over_time()`, `min_over_time()`, `max_over_time()`, `sum_over_time()`, `count_over_time()`, `stddev_over_time()`
+| Range-vector functions
+| `rate()`, `irate()`, `increase()`, `avg_over_time()`, `min_over_time()`, `max_over_time()`, `sum_over_time()`, `count_over_time()`
 
 | Math functions
-| `abs()`, `ceil()`, `floor()`, `round()`, `sqrt()`, `exp()`, `ln()`, `log2()`, `log10()`, `clamp_min()`, `clamp_max()`, `pi()`
-
-| Label functions
-| `label_replace()`, `label_join()`
-
-| Other
-| `absent()`, `histogram_quantile()`, `vector()`, `scalar()`, `time()`
+| `abs()`, `ceil()`, `floor()`, `round()` (with an optional `to_nearest` scalar). _(Since v26.10.2)_ they accept only an instant vector, as in Prometheus: a scalar argument such as `abs(-1)` is refused with `expected type instant vector in call to function "abs", got scalar`. Earlier versions answered the scalar (`abs(-1)` returned `1`).
 
 | Operators
-| `+`, `-`, `*`, `/`, `%`, `^`, comparison (`==`, `!=`, `<`, `>`, `\<=`, `>=`), logical (`and`, `or`, `unless`)
+| `+`, `-`, `*`, `/`, `%`, `^`, comparison (`==`, `!=`, `<`, `>`, `\<=`, `>=`), logical (`and`, `or`, `unless`).
+_(Since v26.10.2)_ The `bool` modifier after a comparison (`a > bool 1`) keeps every sample and answers `0` or `1` instead of filtering, and drops `__name__` from the result. `bool` right after an operator is always the modifier, never a metric name, so it is refused after an operator that is not a comparison: `a + bool` is a parse error (`bool modifier can only be used on comparison operators, not on '+'`).
+Two instant vectors are matched one-to-one on their full label set, `__name__` excluded. Vector matching modifiers (`on`, `ignoring`, `group_left`, `group_right`) are not supported.
 |===
+
+No other PromQL function is implemented, among them `quantile`, `delta()`, `idelta()`, `stddev_over_time()`, `sqrt()`, `clamp_min()`, `label_replace()`, `label_join()`, `absent()`, `histogram_quantile()`, `vector()`, `scalar()` and `time()`. A call to one is refused with `Unknown function: <name>` (HTTP `400` `bad_data`).
+
+[[timeseries-promql-refused]]
+[NOTE]
+.Refused expressions
+====
+_(Since v26.10.2)_ The expressions below are refused as Prometheus refuses them, with Prometheus' message. Over HTTP the
+answer is `400` with `"errorType": "bad_data"`; the SQL `promql()` function fails with the same message. Earlier versions
+answered most of them with an empty result or a `NaN` scalar.
+
+* A comparison between two scalars without `bool`: `1 > 0` gives `comparisons between scalars must use BOOL modifier`.
+  Write `1 > bool 0`.
+* `and`, `or` or `unless` with a scalar operand: `m and 1` gives `set operator "and" not allowed in binary scalar expression`.
+* A range vector or a string as the operand of an operator: `m[5m] + 1`, `-m[5m]` and `"a" + 1` give
+  `binary expression must contain only scalar and instant vector types` (for the unary minus,
+  `unary expression only allowed on expressions of type scalar or instant vector`).
+* A function or aggregation argument of the wrong type, or the wrong number of arguments: `sum(m[5m])` and `sum(1)` give
+  `expected type instant vector in aggregation expression, got range vector` (or `scalar`), `rate(m)` gives
+  `expected type range vector in call to function "rate", got instant vector`, and `abs()` gives
+  `expected 1 argument(s) in call to "abs", got 0`.
+* A range query (`query_range`) whose expression is a range vector or a string: `m[5m]` gives
+  `invalid expression type "range vector" for range query, must be Scalar or instant Vector` (`"string"` for a string
+  literal). An instant query still accepts both.
+====
 
 ===== PromQL via SQL
 
@@ -937,7 +996,9 @@ remote_read:
       password: password
 ----
 
-The endpoint accepts the standard Prometheus `remote_read` Protobuf query (snappy-compressed) and supports `=`, `!=`, `=~`, `!~` label matchers, applied with the same rules as the PromQL `/query` and `/series` endpoints. A `__name__` matcher that is not an equality (for example `{__name__=~"cpu.*"}`) selects every metric it matches among those the user can read. An invalid or unsafe regular expression is refused with HTTP `400` rather than answered with an empty result _(since v26.10.2)_.
+The endpoint accepts the standard Prometheus `remote_read` Protobuf query (snappy-compressed) and supports `=`, `!=`, `=~`, `!~` label matchers, applied with the same rules as the PromQL `/query` and `/series` endpoints (including the typed-tag rule in the _Vector selectors_ row of the table above). A `__name__` matcher that is not an equality (for example `{__name__=~"cpu.*"}`) selects every metric it matches among those the user can read. An invalid or unsafe regular expression is refused with HTTP `400` rather than answered with an empty result _(since v26.10.2)_.
+
+_(Since v26.10.2)_ Like remote write, the endpoint reads the `proto=` parameter of the `Content-Type` header and answers `415` when it names a message other than `prometheus.ReadRequest`, and a malformed protobuf body is answered `400` instead of `500`.
 
 ==== Continuous Aggregates
 
@@ -1039,6 +1100,14 @@ scheduled maintenance event rather than something that happens per request.
 A *retention* pass is different. It deletes old data outright, so a read that crosses one still completes and
 simply returns the rows that remain.
 
+_(Since v26.10.2)_ An unbounded read streams too: a SQL `SELECT` from a TIMESERIES type with no `LIMIT` in ascending
+order, the gRPC time-series stream without a row limit, and `TimeSeriesEngine.iterateQuery` in Java decode one sealed
+block per shard at a time instead of loading the whole range before returning the first row, so their memory no longer
+grows with the range (a 50-million-point range used to exhaust a 4 GB heap). They therefore follow the rules above: a
+block a retention pass deletes mid-read is skipped, and a downsampling pass mid-read refuses the read with the retryable
+error. Earlier versions held the type's compaction lock while loading the range, so neither pass could change what such a
+read returned.
+
 ===== What an Export Reports
 
 The `EXPORT DATABASE` summary carries two counters for TIMESERIES data that changed underneath it:
@@ -1105,11 +1174,11 @@ The explorer provides four tabs:
 
 | `POST`
 | `/api/v1/ts/{database}/query`
-| JSON query endpoint. Supports raw and aggregated queries with tag filtering and field projection. A `tags` name that is no `TAG` column of the type is refused with 400.
+| JSON query endpoint. Supports raw and aggregated queries with tag filtering and field projection. A `tags` name that is no `TAG` column of the type is refused with 400. A `DATE`/`DATETIME` tag value is read in the database's time zone.
 
 | `GET`
 | `/api/v1/ts/{database}/latest?type=<name>&tag=<key>:<value>`
-| Returns the most recent data point, with optional tag filter. Repeat `tag` to narrow across several tag columns; every occurrence must match. An occurrence that is malformed, or names no `TAG` column, is refused with 400.
+| Returns the most recent data point, with optional tag filter. Repeat `tag` to narrow across several tag columns; every occurrence must match. An occurrence that is malformed, or names no `TAG` column, is refused with 400. A `DATE`/`DATETIME` tag value is read in the database's time zone.
 
 | `GET`
 | `/ts/{database}/prom/api/v1/query?query=<promql>&time=<unix_seconds>`
@@ -1133,7 +1202,7 @@ The explorer provides four tabs:
 
 | `POST`
 | `/ts/{database}/prom/write`
-| Prometheus remote_write endpoint (snappy-compressed Protobuf).
+| Prometheus remote_write 1.0 endpoint (snappy-compressed Protobuf). Answers 415 to a remote write 2.0 `Content-Type`.
 
 | `POST`
 | `/ts/{database}/prom/read`

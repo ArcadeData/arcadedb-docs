@@ -40,6 +40,27 @@ list the files, not for the duration of the backup, so schema changes still run 
 progress.
 ====
 
+[[backup-vector-indexes]]
+===== Vector indexes
+
+A vector index keeps its proximity graph in a `.vecgraph` file, next to small side files that describe it: a manifest
+that vouches for the graph's pages (`.vecgraphfp`), an ordinal map (`.vecordmap`) and, for a `PRODUCT`-quantized index,
+the quantization (`.vecpq`). The graph is rebuilt from the vectors in the index pages whenever it cannot be verified, so a
+restored database always answers searches; what changes is whether its first search has to build the graph first.
+
+_(Since v26.10.2)_ a full backup archives the graph together with its side files when it can prove that they belong to
+the same graph as the pages captured by the backup: the files are unchanged across the point at which the backup took its
+snapshot. The restored database then verifies the graph against its manifest and reuses it. When the proof fails, for
+example because the graph was being persisted at that moment, or when the backup had to freeze the data files instead of
+using a point-in-time window (see <<howto-monitoring>>), the graph is archived empty and without side files. Each such
+vector index then builds its graph once, on its first search after the restore.
+
+An archive taken with 26.10.1 or earlier carries the graph pages without their side files. After restoring it, a vector
+index reuses those pages without being able to verify them: the reuse is counted in `unverifiedGraphReuses` in the
+index's `getStats()` and logged at `WARNING` (`Vector index <name> is reusing a persisted graph that carries no manifest
+...`). Run <<sql-rebuild-index,`REBUILD INDEX`>> on each vector index after restoring such an archive. A
+`PRODUCT`-quantized index rebuilds its graph on its own, since its quantization file is missing.
+
 ===== Configuration
 
 - `-f <backup-file>`        (string) filename of, or path to the backup file to create.

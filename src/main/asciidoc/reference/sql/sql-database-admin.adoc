@@ -54,6 +54,11 @@ NOTE: The value reported back is the one that took effect, which is not always t
 range is corrected to fit. For example `arcadedb.maxPageRAM` is reduced when the page cache asked for is larger than the
 heap can accommodate.
 
+NOTE: On an HA cluster the changed setting is replicated to every node, which applies exactly that key. A node running
+an older build cannot apply it, so during a rolling upgrade the statement is refused with HTTP `409` and the setting is put
+back. See <<ha-database-settings,Database settings>> for path-valued settings and for what to do when the statement times
+out. _(Since v26.10.2: the setting was written on the node that ran the statement only.)_
+
 *Examples*
 
 * Set the date time format to support milliseconds (the default is 'yyyy-MM-dd HH:mm:ss').
@@ -301,6 +306,12 @@ The command returns the integrity check report in one record with the fields:
              It should be zero.
 | `autoFix` | counter of autofix operations executed by the check database under the hood when corrupted records have been encountered.
               Some operations, like broken edges, can be fixed and restored automatically.
+| `unreadableStripeDirectories` | _since v26.10.2_, the RIDs of the edge-list stripe directories (the adjacency index of a
+                                  high-degree vertex) this release cannot read, because their format version is unknown
+                                  or they are truncated. Present, possibly empty, on every run; the reason for each is in
+                                  `warnings`. They are not listed under `corruptedRecords`. A `FIX` rebuilds the owning
+                                  vertex's edge list from the surviving edge records, and a full-scope `FIX` then reclaims
+                                  the old directory. Before v26.10.2 a truncated directory read as an empty edge list.
 | `orphanedEdgeSegments` | number of unreachable edge-list segments found in the dedicated edge-list buckets
                            (garbage left behind by repaired adjacency lists). Only present on a full-scope `FIX`.
 | `orphanedEdgeSegmentsReclaimed` | number of orphaned edge-list segments actually deleted by the `FIX`. Only present on a full-scope `FIX`.
@@ -563,6 +574,10 @@ has always contained them; earlier versions simply skipped them on import and st
 They are restored after the records, so a restored trigger does not fire again for data the source database had
 already processed. If one of them cannot be recreated - a trigger whose type no longer exists, for example - it is
 counted as a warning and the rest of the restore still completes.
+
+On an HA cluster these schema members are restored as one schema change, which holds the database write lock while it
+runs and replicates to every node. _(Since v26.10.2: they reached only the leader's schema, so the followers, and a new
+leader after a failover, had the imported types and records but no triggers, views, aggregates or functions.)_
 
 Installing a `JAVASCRIPT` or `JAVA` trigger, or a `js` function library, from an imported file requires the same
 `updateSecurity` permission that creating one by hand does, since either is code that runs inside the server.

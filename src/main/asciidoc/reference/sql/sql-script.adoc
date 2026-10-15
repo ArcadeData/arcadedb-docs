@@ -14,7 +14,7 @@ SQL Script solves both:
 * *One round-trip instead of many.* The whole script is sent to the server once.
   A graph mutation that takes 5 commands no longer pays 5x the latency -- the server runs them locally and sends back one response.
 * *Implicit transaction.* A script is automatically wrapped in a transaction (unless you open one yourself with `BEGIN`), so it is all-or-nothing for records: any failure rolls back every record change in the script. Schema changes are the exception, see below.
-* *Automatic retry on conflict.* Wrap the body in `BEGIN ... COMMIT RETRY <n>` and ArcadeDB will retry the transaction on `NeedRetryException` (typically a concurrent-modification or transient lock-timeout). This is what lets you run the same script in parallel from many clients without writing your own retry loop -- the server resolves the contention.
+* *Automatic retry on conflict.* Wrap the body in `BEGIN ... COMMIT RETRY <n>` and ArcadeDB will retry the transaction on a `NeedRetryException` that can clear on its own (typically a concurrent-modification or transient lock-timeout). A refusal that would repeat on every attempt, such as an HA follower refusing leader-only work and naming the leader, is raised at once instead (see <<sql-script-commit>>). This is what lets you run the same script in parallel from many clients without writing your own retry loop -- the server resolves the contention.
 * *Server-side variables and control flow.* `LET`, `IF`, `WHILE`, `FOREACH`, `RETURN`, etc. let you express small pieces of imperative logic without leaving SQL.
 
 A typical use case is a graph upsert: find or create a vertex, then attach an edge to it, possibly conditionally. With SQL Script that is one network call and one transaction; the server handles concurrency.
@@ -160,6 +160,7 @@ COMMIT [RETRY <n> [ELSE { <statements> } [AND] (FAIL | CONTINUE)]]
 
 * Without arguments, `COMMIT` simply commits the current transaction.
 * `RETRY <n>` makes the server re-run the whole `BEGIN ... COMMIT` block on a retryable failure, up to `n` times. Retryable failures include `NeedRetryException` (concurrent modification, MVCC conflicts) and transient transaction-lock timeouts. Between attempts the server waits a random delay capped by `arcadedb.txRetryDelay` (default 100 ms).
+* A refusal that holds on this server until something outside it changes is not retried: an HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader raises its `ServerIsNotTheLeaderException` on the first attempt, without running `ELSE` and without `AND CONTINUE` suppressing it, so the client can send the work to the leader. A refusal raised during an election, which names no leader, is still retried. _(Since v26.10.2)_ In 26.10.1 and earlier such a refusal was retried the full `<n>` times, and the `ELSE` block then ran.
 * `ELSE { ... }` is the fallback block executed when retries are exhausted.
 * `AND FAIL` (the default when `ELSE` is omitted) re-throws the original exception after the fallback runs.
 * `AND CONTINUE` swallows the exception and lets the script keep going.

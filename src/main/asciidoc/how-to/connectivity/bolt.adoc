@@ -120,6 +120,8 @@ A BOLT connection can only use the databases its user has access to, as with eve
 
 _(Since v26.10.1; before, these commands were not filtered by the user's permissions.)_
 
+_(Since v26.10.2.)_ The user is checked again on every request, so a user deleted, given a new password or stripped of a database grant after the connection logged in loses access on its next request. See <<server-wire-session-revalidation,User changes on open connections>>.
+
 [[bolt-tls]]
 ===== TLS/SSL
 
@@ -531,6 +533,7 @@ Server errors are mapped to Neo4j-style structured status codes so driver-side e
 | `Neo.ClientError.Transaction.Terminated` | the statement was stopped by `TERMINATE TRANSACTIONS`, `terminate query` or a terminate from Studio; drivers do not retry it (see <<bolt-terminate,Listing and terminating running statements>>). Since v26.10.2
 | `Neo.ClientError.Request.Invalid` | a malformed or out-of-sequence protocol message
 | `Neo.TransientError.Transaction.DeadlockDetected` | a concurrent-modification / lock-timeout conflict — drivers retry managed transactions on this code
+| `Neo.ClientError.Cluster.NotALeader` | a write sent to an HA replica that refuses it and names the leader. A routing (`neo4j://`) driver drops the node as writer and retries against the leader; a direct (`bolt://`) client receives the code with the leader's address in the message. See <<bolt-routing-ha,Routing and High Availability>>. Since v26.10.2
 | `Neo.DatabaseError.General.UnknownError` | an unexpected server-side failure
 |===
 
@@ -546,6 +549,8 @@ NOTE: In `production` server mode the message of a `FAILURE` raised by the engin
 * **HA cluster mid-election** (leader unknown): the node is advertised as READ + ROUTE only, never WRITE, until a leader is elected.
 
 The routing table's time-to-live is controlled by `arcadedb.bolt.routing.ttl` (default 300 s).
+
+A write that reaches a replica and is refused there, rather than forwarded, fails with `Neo.ClientError.Cluster.NotALeader` _(Since v26.10.2)_. The message ends with the leader's Bolt address when the routing table knows one (`Reconnect to the leader at '<address>' (Bolt address) and retry`), otherwise with its HTTP address. A `neo4j://` driver re-routes on this code by itself; a `bolt://` client, which talks to one node only, has to reconnect to the named leader. During an election, when no leader is known yet, the refusal names nobody and keeps the retryable `Neo.TransientError.Transaction.DeadlockDetected`: retry shortly. In 26.10.1 and earlier every such refusal was answered with `DeadlockDetected` and no address, so a driver retried the same replica. See <<ha-leader-refusal>>.
 
 [NOTE]
 ====

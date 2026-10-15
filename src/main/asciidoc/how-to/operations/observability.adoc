@@ -164,9 +164,10 @@ grouped under `db="unknown"` rather than appearing one series per name.
 | `arcadedb.engine.async.boundary.commits` | Asynchronous batch transactions cut short by a durability-flag change
 | `arcadedb.engine.async.workers.retiring` | Asynchronous workers a lowered parallel level retired and that are still draining
 | `arcadedb.engine.graph.light.edge.census.fallbacks` | Lightweight-edge lists the census could not count, whose edges each walk the list alone
+| `arcadedb.engine.bucket.recount.publishes.refused` | Bucket `count()` recomputes not cached because a replicated apply ran under the scan _(Since v26.10.2)_
 |===
 
-The last two describe the asynchronous executor and are worth reading together with the throughput of your ingestion.
+The two `async.*` metrics describe the asynchronous executor and are worth reading together with the throughput of your ingestion.
 
 `async.boundary.commits` counts how often a change to `setTransactionUseWAL()` / `setTransactionSync()` forced a worker
 to close its open batch transaction early. Occasional increments are normal - a bulk load flips those flags at its start
@@ -184,6 +185,12 @@ quadratic cost the census exists to avoid, which on a super-node is the differen
 Zero is the normal reading. The first failure of each list of a database is logged at `WARNING` (at most 64 distinct
 lists per database; the rest at `FINE`), so the log shows which list could not be read and this counter shows how often
 it keeps happening. _(Since v26.11.1: one `WARNING` per JVM and no counter.)_
+
+`bucket.recount.publishes.refused` (Prometheus `arcadedb_engine_bucket_recount_publishes_refused_total`; in the Profiler
+JSON, `+recountPublishesRefused: {count: N}+`) counts the times a bucket recomputed its record count but could not cache
+the result, because a replicated apply wrote to the bucket while it was being scanned. One or two increments are the
+normal cost of an HA follower catching up. A rate that never returns to zero means a follower on which every
+`count(*)` is a full scan. _(Since v26.10.2)_
 
 ====== Optional OTLP metrics export
 

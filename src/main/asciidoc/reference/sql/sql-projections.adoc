@@ -151,6 +151,10 @@ Result: `[{"items[4]": "John Smith"}]`
 
 `&quot;:{&quot; ( * | ([&quot;!&quot;] &lt;identifier&gt; [&quot;*&quot;] (&lt;comma&gt; [&quot;!&quot;] &lt;identifier&gt; [&quot;*&quot;])* ) ) &quot;}&quot;`
 
+Inside the braces, `*` projects every property, `<identifier>` includes one property and `!<identifier>` excludes it.
+A trailing `*` turns the identifier into a prefix: `+:{s*}+` includes every property whose name starts with `s`, each
+under its own name, and `+:{!s*}+` excludes them (see the prefix wildcard examples below).
+
 A projection can refer to a link or to a collection of links, eg. a LIST or MAP.
 In some cases you can be interested in the expanded object instead of the RID.
 
@@ -310,6 +314,23 @@ SELECT name, parent:{!surna*} FROM TheType WHERE name = 'baz'
    }
 }
 ----
+
+A prefix wildcard works on every value a nested projection applies to: a record, a map, and a plain result row (a row of
+a `LET` subquery, for example). It matches real property names only, not `@rid` or `@type`. It combines with excludes in
+the same braces and with a nested expansion, which then runs on each matching property:
+
+[source,sql]
+----
+SELECT @this:{s*} FROM TheType                  -- every property starting with 's'
+SELECT @this:{n*, !nested} FROM TheType         -- 'n...' properties except 'nested'
+SELECT @this:{ne*:{a}} FROM TheType             -- each 'ne...' property, projected to its 'a'
+----
+
+_(Since v26.10.2.)_ In v26.10.1 and earlier an include wildcard was read as a literal property name, so `+@this:{s*}+`
+answered a `null` column called `s`. A prefix wildcard cannot take an alias and must follow a plain property name:
+`+{se* AS k}+` fails with "Alias 'k' is not allowed on the wildcard projection item 'se*': the wildcard can match
+several properties, each projected under its own name", and `+{a.b*}+` with "The wildcard projection item 'a.b*' is not
+valid: a wildcard must follow a plain property name prefix" (see <<sql-curly,Nested projections>>).
 
 Nested projection syntax allows for multiple level depth expressions, eg. you can go three levels deep as follows:
 

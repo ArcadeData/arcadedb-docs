@@ -55,6 +55,23 @@ All clauses after the view name are optional. A minimal view covering the entire
 CREATE GRAPH ANALYTICAL VIEW fullGraph
 ----
 
+*Choosing the vertex properties*
+
+Without a `PROPERTIES` clause the view copies every vertex property. `PROPERTIES (a, b)` copies only the listed ones, and
+a list of names prefixed with `!`, quoted with backticks, copies every property except those:
+`+PROPERTIES (`!Body`, `!Text`)+`. Use one form or the other: when a list mixes them, the exclusions apply and the plain names are ignored.
+
+_(Since v26.10.2)_ an empty list, `PROPERTIES ()`, copies no vertex property: the view holds only the graph's structure,
+which is all that algorithms such as `algo.pagerank()` or `algo.wcc()` need, and it builds faster and takes less memory.
+In v26.10.1 and earlier `PROPERTIES ()` was a parsing error.
+
+[source,sql]
+----
+CREATE GRAPH ANALYTICAL VIEW topology
+  PROPERTIES ()
+  UPDATE MODE OFF
+----
+
 Use `IF NOT EXISTS` to avoid errors if the view already exists:
 
 [source,sql]
@@ -133,7 +150,7 @@ SELECT FROM schema:graphAnalyticalViews
 | `withName(String)` | Named registration + schema persistence | anonymous
 | `withVertexTypes(String...)` | Filter to specific vertex types | all
 | `withEdgeTypes(String...)` | Filter to specific edge types | all
-| `withProperties(String...)` | Materialize specific vertex properties | all
+| `withProperties(String...)` | Materialize specific vertex properties (names prefixed with `!` are excluded instead); an empty array materializes none | all
 | `withEdgeProperties(String...)` | Materialize edge properties (e.g., weights) | none
 | `withUpdateMode(UpdateMode)` | OFF, SYNCHRONOUS, or ASYNCHRONOUS | OFF
 | `withCompactionThreshold(int)` | Rebuild CSR after N accumulated delta edges | 10,000

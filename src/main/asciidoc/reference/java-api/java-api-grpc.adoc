@@ -544,6 +544,29 @@ raises `com.arcadedb.exception.QueryTerminatedException`. It is not a transient 
 a call, or letting its deadline expire, also stops the server-side work. See
 <<grpc-cancellation,Cancellation and running statements>>.
 
+Since 26.10.2 a write whose answer was lost is not reported as retryable. When the connection fails with a bare
+`UNAVAILABLE` (no exception class from the server, and not a failure to connect) after an admin write of
+`RemoteGrpcServer` or a streaming write of `RemoteGrpcDatabase` (`ingestStream`, `ingestBidi`, `timeSeriesWriteStream`,
+graph batch loads) was sent, the client raises a `RemoteException` instead of a `NeedRetryException`: the server may
+already have applied the write, or part of a stream, and a replay could apply it twice. Read the data back before
+sending it again. Reads and `validate_only` dry runs are still retryable. A client-side deadline that expires before
+any answer raises a `TimeoutException` whose message says the write may already have been applied. A commit, a command
+or a single-record write sent outside a transaction already followed this rule in 26.10.1.
+
+`RemoteGrpcServer` also exposes `acceptDivergedDatabase(database)` and `acceptStaleSnapshot()` (since 26.10.2), the
+root-only overrides that lift a quarantine or a stale-snapshot read floor where no peer can serve a resync.
+`acceptDivergedDatabase` is allowed on a node that is the only voter of its cluster, or when every voter holds the
+database quarantined; `acceptStaleSnapshot` on a sole voter only. A node with nothing to lift (for
+`acceptDivergedDatabase`, a database with no quarantine and no read floor) raises the client's not-found error, and a
+node that has peers to resync from, or runs without HA, its failed-precondition error. See the `AcceptDivergedDatabase`
+and `AcceptStaleSnapshot` RPCs in <<grpc-api,gRPC API>>, and
+<<ha-accept-diverged,Lifting a quarantine without a resync>> and
+<<ha-accept-stale-snapshot,Lifting the stale-snapshot read floor>> for when to use them.
+
+A create refused because the user, API token or database name is already taken raises
+`com.arcadedb.remote.RemoteAlreadyExistsException` (since 26.10.2), the same exception the HTTP client raises; see
+<<remote-server,RemoteServer Class>>.
+
 ==== Performance Tips
 
 To get the best performance from the gRPC API:

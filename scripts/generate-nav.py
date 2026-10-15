@@ -174,6 +174,7 @@ NAV_STRUCTURE: list[dict] = [
             ("Self-Managed Deployment", [
                 ("how-to/operations/binaries.adoc", "Install from Binaries"),
                 ("how-to/operations/install-docker.adoc", "Install with Docker"),
+                ("how-to/operations/native-image.adoc", "Native Image (Experimental)"),
                 ("how-to/operations/kubernetes.adoc", "Kubernetes"),
                 "tutorials/embed-server.adoc",
                 ("how-to/operations/server.adoc", "Server Configuration"),

@@ -338,6 +338,25 @@ On the follower, since v26.10.1, a DDL entry is applied incrementally: only the 
 are instantiated, instead of every component in the database being rebuilt (`arcadedb.ha.schemaIncrementalApply`, on by
 default). Building a large schema used to cost time quadratic in the number of types.
 
+Since v26.10.2 the schema changes that used to rewrite `schema.json` on the leader alone travel in a `SCHEMA_ENTRY` too,
+so every follower, and the node that becomes leader after a failover, enforces the same rules:
+
+* property constraints and attributes, set with `ALTER PROPERTY` or the Java `Property` setters: mandatory, not null,
+read only, min, max, regexp, custom values, type, hidden, compression and external;
+* the database time zone (`Schema.setZoneId()`) and the date and date-time formats (`arcadedb.dateFormat` and
+`arcadedb.dateTimeFormat`, changed with `ALTER DATABASE`), and schema extensions;
+* `ALTER TYPE ... lightweight` and `ALTER TYPE ... unique` on an edge type;
+* the downsampling policy of a TimeSeries type (`ALTER TIMESERIES TYPE ... DOWNSAMPLING POLICY`);
+* the bucket selection strategy of a type (`ALTER TYPE ... BucketSelectionStrategy`).
+
+In 26.10.1 and earlier these changed the leader's schema only: a `MANDATORY` constraint set on one leader, for example,
+was not enforced by the next one after a failover.
+
+Calling one of these setters through the Java API on a follower's database now fails, as every other DDL does, with a
+`ServerIsNotTheLeaderException` (`Changes to the schema must be executed on the leader server`) instead of changing that
+follower alone. Send the statement through SQL instead, which a follower forwards to the leader. `Schema.setZoneId()` now
+also requires the `updateDatabaseSettings` permission, like the two format setters.
+
 [[ha-schema-full-load]]
 ===== When a follower falls back to a full schema load (from v26.10.2)
 
@@ -377,6 +396,30 @@ its pages and load or rebuild the graph on the query thread. Since v26.10.2 the 
 warmed in the background, one after the other, after `arcadedb.vectorIndex.warmUpAfterSchemaReloadDelayMs` (1 s by default;
 `-1` disables it). Indexes nobody searched are not warmed.
 
+[[ha-type-rename]]
+===== Renaming a type on a cluster (from v26.10.2)
+
+`ALTER TYPE <name> NAME <new-name>` (and the Java `DocumentType.rename()`) renames the type's files as well as the type:
+its buckets, the files of its indexes and, for a vertex type, its edge buckets. In 26.10.1 and earlier only the leader
+renamed them. Since v26.10.2 the rename replicates with the schema change: the `SCHEMA_ENTRY` names every file that was
+renamed, and each follower renames the same bucket, index and edge files before it loads the new schema. That load is a
+full one (reason `file_renamed`, see <<ha-schema-full-load>>). Sent to a follower, the statement is forwarded to the
+leader like any other DDL.
+
+A node running an older build cannot rename the files, and would drop the type's buckets on its next schema reload. So
+while any peer of the Raft configuration runs an older build, or cannot be reached to say which build it runs, the rename
+is refused up front with HTTP `409 Conflict` (`Cluster is not ready for this operation`, with the missing peers in
+`exceptionArgs`), and nothing is renamed on any node. Finish the rolling upgrade, or restore contact with the peer, and
+run the statement again.
+
+No setting overrides this refusal: `arcadedb.ha.securityEntryCapabilityGate` does not apply to it. To rename a type while
+a peer is gone for good, remove that peer from the Raft configuration first (`DELETE /api/v1/cluster/peer/{peerId}`, see
+<<howto-ha-rest>>).
+
+WARNING: Once a rename has been replicated, the cluster cannot be downgraded below v26.10.2 on its retained Raft log: an
+older build replaying the entry cannot apply the rename. Rebuild a node you need to roll back from a snapshot, as
+described for schema deltas below.
+
 [[ha-schema-delta]]
 ===== Schema Delta Replication (from v26.10.1)
 
@@ -410,6 +453,34 @@ back on costs one whole-document entry per database to rebuild the diff base.
 Whether deltas are actually being shipped is not exposed through metrics yet. The counters are available only from Java,
 through `RaftReplicatedDatabase.getSchemaDeltasShipped()` and `getSchemaDocumentsShipped()`, and with
 `arcadedb.ha.logVerbose=2` a follower logs `Applying a <n>-char schema delta to database '<name>' ...` for each one.
+
+[[ha-database-settings]]
+===== Database settings (from v26.10.2)
+
+<<sql-alter-database,`ALTER DATABASE`>> and the `set database setting` server command change settings that the database
+keeps in its `configuration.json`. In 26.10.1 and earlier they wrote that file on the node that ran the command only, so
+the followers, and a new leader after a failover, kept the previous value. For `arcadedb.dateImplementation` and
+`arcadedb.dateTimeImplementation` that changed what reads returned, not only how the node was tuned.
+
+Since v26.10.2 a changed setting is replicated as its own Raft entry, and every node, the one that ran the command
+included, applies exactly the keys the entry names. A setting the command did not change keeps each node's own value. The
+command returns once its own node has applied the change.
+
+* *Rolling upgrades.* A node running an older build cannot decode the entry. While any peer has not confirmed it can, because
+it runs an older build or cannot be reached, the change is refused before anything is submitted, with HTTP `409 Conflict`
+or gRPC `FAILED_PRECONDITION` naming the peers, and the setting is put back on the node that ran the command. Setting
+`arcadedb.ha.securityEntryCapabilityGate=false` skips this check too, but a peer that cannot decode the entry then halts
+when it applies it.
+* *Path-valued settings.* `arcadedb.externalPropertyBucketPath`, `arcadedb.pageSnapshotSpillPath` and
+`arcadedb.opencypher.loadCsv.importDirectory` set this way now apply on every node, so the directory must exist, and be
+writable where the setting needs it, on all of them.
+* *Unknown outcome.* When the command fails with a replication timeout and it is not known whether the entry committed, the
+node that ran it settles the setting on what its own `configuration.json` holds: the new value if the entry was already
+applied there, otherwise the previous one, which the entry replaces on every node if it commits later. Run the command
+again to be sure which value is in force.
+* *Refusal.* When the change is refused outright, the node that ran it puts the previous value back, but only while the
+setting still holds the value the command stored. If a change to the same setting made on another node was applied in the
+meantime, that value stands.
 
 ===== Write Quorum
 
@@ -447,6 +518,19 @@ On such a node, `linearizable` reads and `read_your_writes` reads whose bookmark
 This includes reads that were already waiting when the node was removed: they are refused within a second instead of after the quorum timeout.
 `eventual` reads, and `read_your_writes` reads whose bookmark the node already applied, are still served. _(Since v26.10.2: such reads waited the whole quorum timeout, and a `read_your_writes` read then served data missing the write its bookmark named.)_
 
+[[ha-removed-node-writes]]
+The same node refuses at once, with a retryable `NeedRetryException`, everything that would submit an entry to the
+cluster: a commit that carries writes (a read-only transaction still commits), a database drop, a database create or
+install, an `ALTER DATABASE` configuration change, and the replication of a security user, group or API token. The
+message names the reason and the way out, for a database operation
+`Database '<name>' cannot <operation> on this server: it is not a member of the Raft cluster's configuration any more (it left or was removed), so it receives no entries and could not apply this one. Send the request to a server of the cluster, or add this server back to it`
+and for a security document
+`Cannot replicate the security <document> from this server: it is not a member of the Raft cluster's configuration any more (it left or was removed), so it receives no entries and the change would apply on every other server but not here. Send the request to a server of the cluster, or add this server back to it`.
+_(Since v26.10.2: the leader still accepted the entry and committed it on every member, while the removed node waited
+`arcadedb.ha.quorumTimeout` for an apply it never received and then released the transaction unapplied; a drop dropped
+the database on every member and then failed on the removed node, and a security change was in force everywhere except
+on the node that answered the request.)_
+
 Clients communicate the consistency contract through three HTTP headers:
 
 [%header,cols="30%,12%,58%"]
@@ -475,6 +559,12 @@ The one endpoint where it is not a header is the streaming bulk load, `POST /api
 There the response has already started by the time the commit index is known, and a header set at that point would be dropped silently, so the value travels in the body instead, as `commitIndex` on the terminal `summary` or `error` line.
 The Java driver handles this transparently: `RemoteDatabase.getLastCommitIndex()` advances the same way whichever encoding was used.
 
+Since v26.10.2 a replica relays such a streamed load to the leader in both directions at once, so a client that sends it to
+a replica receives the leader's `progress` lines while it is still uploading, as it does on the leader. A body that grows
+past `arcadedb.server.httpBodyContentMaxSize` after the leader started answering ends the stream with an `error` line
+carrying status `413` during the upload too. In 26.10.1 and earlier the replica handed back the leader's answer only
+once the whole upload had been sent.
+
 ===== Load Shedding and Backpressure
 
 The Raft group-commit queue is bounded (`arcadedb.ha.groupCommitQueueSize`, default 10000 pending transactions).
@@ -500,6 +590,18 @@ Common causes of leader unavailability include:
 - Network issues prevent the leader from reaching a majority of peers.
 
 When a replica rejoins after being offline, it catches up via the Raft log automatically; if it has fallen behind past the log purge boundary, the leader streams a full database snapshot over HTTP and the replica installs it atomically.
+Since v26.10.2 the snapshot is compressed at DEFLATE level 1 by default (`arcadedb.ha.snapshotCompressionLevel`), and two
+followers are served at the same time; see <<performance-tuning,Performance Tuning>> for when to change either.
+
+[[ha-snapshot-vector-graph]]
+A vector index's proximity graph is built by every node on its own, so it is not part of the data the nodes compare or
+share. Since v26.10.2 a snapshot ships the graph file (`.vecgraph`) empty, without its side files, and the follower builds
+and verifies a graph of its own on the first search of each vector index after the install, the way every node does after
+`CREATE INDEX`. That first search pays for one graph build. In 26.10.1 and earlier the follower received the leader's graph
+pages without the manifest that vouches for them and reused them unverified: each such reuse is counted in
+`unverifiedGraphReuses` in the index's `getStats()` and logged at `WARNING`
+(`Vector index <name> is reusing a persisted graph that carries no manifest ...`). A follower that installed a snapshot
+before upgrading keeps that graph until its next graph persist, a `REBUILD INDEX`, or its next snapshot install.
 
 The leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP: it re-resolves the peer and re-establishes the channel on its own, instead of leaving the follower silently disconnected and the cluster at bare quorum until an operator forces a leadership transfer. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>.
 
@@ -575,6 +677,40 @@ When a write is forwarded from a replica to the leader (or issued directly to th
 
 This case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
 
+[[ha-leader-refusal]]
+===== When a replica refuses a write and names the leader
+
+A replica forwards the writes it receives to the leader (see <<ha-concepts,High Availability Concepts>> for the writes it
+runs itself, inside a transaction the client opened). Some writes cannot be forwarded and are refused instead: a schema
+change sent over a protocol with no forward, or any write when the forward itself cannot be made. Such a refusal names the
+leader, and since v26.10.2 every wire protocol answers it as a redirect, in that protocol's own terms, with the leader's
+address in the text or in a field of its own:
+
+[%header,cols="25%,75%"]
+|===
+|Protocol |Answer
+|HTTP |`400` with the leader's address in `exceptionArgs`.
+|gRPC |`FAILED_PRECONDITION` with the leader in the `arcadedb-leader-*` trailers; on a streamed insert, the `NOT_LEADER` code with `leader_address`. See <<grpc-api>>.
+|`/ws` insert session |The `NOT_LEADER` code with `leaderAddress`. See <<websocket-insert-session>>.
+|Bolt |`Neo.ClientError.Cluster.NotALeader`. The text names the leader's Bolt address when the routing table knows one, otherwise its HTTP address. A routing (`neo4j://`) driver drops the node as writer and retries against the new one.
+|MongoDB |`10107 NotWritablePrimary`, with `not primary. The leader is server '<address>'` in `errmsg`.
+|Redis |`READONLY`, the answer Redis gives to a write sent to a replica, naming the leader.
+|PostgreSQL |`40001`: the protocol has no redirect code, so the state stays the retryable one and the message ends with `The leader is server '<address>'`.
+|Gremlin Server |The error's status message ends with `. The leader is server '<address>' (HTTP address; use its Gremlin Server port). Retry there`, following the production placeholder in production mode. The cluster knows its peers by their HTTP addresses, so connect to the Gremlin Server port of that host. See <<gremlin-server>>.
+|MCP |The tool error (`isError: true`, over HTTP `200`) ends with `. The leader is server '<address>'`, appended to the message, or to the production placeholder. See <<mcp-server>>.
+|===
+
+In 26.10.1 and earlier Bolt, MongoDB, PostgreSQL and Redis answered such a refusal as an ordinary write conflict (`Neo.TransientError.Transaction.DeadlockDetected`, `112 WriteConflict`, `40001`, `TRYAGAIN`) without the leader's address, so a client retried the same replica, which refused again. Gremlin Server and MCP answered it without the leader's address too, and in production mode with the bare placeholder.
+
+The address is added after the message is concealed in production mode, so it reaches the client in every mode. A
+refusal raised during an election, when no leader is known yet, names nobody and keeps its retryable answer (`503` over
+HTTP): retry shortly.
+
+NOTE: _(Since v26.10.2.)_ The PostgreSQL extended query protocol, which most drivers use for prepared statements, forwards
+a replica's DDL, and its writes outside an explicit transaction block, to the leader like the simple query protocol does.
+In 26.10.1 and earlier it ran them on the replica, so the same statement could succeed or fail depending on the driver's
+query mode.
+
 [[ha-running-queries]]
 ===== Running statements on a cluster
 
@@ -641,6 +777,110 @@ NOTE: The full text of the error behind `criticalHalt` and `raftLogFailure` is s
 
 A node in either state answers `503` on `/api/v1/ready`, so Kubernetes takes it out of the Service. _(Since v26.10.1 this no longer depends on `arcadedb.server.readinessRequiresHA`: a node whose replication has stopped is never ready, whatever that setting says.)_
 
+[[ha-quarantine]]
+====== Quarantined databases
+
+A node *quarantines* a database when it cannot apply a committed Raft entry for it: an intermediate transaction never
+reached the node (a WAL version gap), the entry cannot be decoded from the node's own log, applying it failed, a snapshot
+install did not bring the database up to the snapshot's index, or a schema change ran on this node but was never published
+to the others. The entry is skipped, so the node's copy is known to be missing a committed change. While the quarantine
+stands the node:
+
+* answers `503` on `/api/v1/ready`, and `GET /api/v1/cluster` raises the critical `local-resync-in-progress` alert, whose
+`details.divergedDatabases` and `details.divergenceCauses` name the database and the cause;
+* refuses reads that need linearizability on that database instead of serving them stale, and does not checkpoint its Raft
+log;
+* keeps the quarantine across restarts: it is recorded in `.raft/applied-index`.
+
+The way out is a resync, which reinstalls the database from a peer and lifts the quarantine. The node starts one itself;
+to force it, run `POST /api/v1/cluster/resync/{database}` on that node. A leader cannot resync from itself: transfer
+leadership first (`POST /api/v1/cluster/leader`).
+
+[[ha-accept-diverged]]
+A node that is the only voter of its cluster has no peer to resync from, so a quarantine restored from disk, or raised while
+the cluster still had peers, never lifts there. Neither does one that every voter holds on the same database (the critical
+`no-healthy-copy-on-any-voter` alert), since no node then has a copy to serve. For those cases only, v26.10.2 adds an
+operator override, `POST /api/v1/cluster/accept-diverged/{database}`:
+
+* It requires the `root` user. It accepts the node's local copy as the truth, and lifts the quarantine and the read floor
+that goes with it, in one persisted write. The response carries `database`, `localServer`, `appliedIndex` and, when they
+stood, `divergenceCause` and `readFloor`.
+* The entry the quarantine skipped is *not* replayed: if the copy is missing it, it stays missing. Run `CHECK DATABASE`
+afterwards, and restore from a backup if the database is damaged.
+* Every use is logged at `WARNING`, naming the user, the source address, the applied index and the cause:
+`Database '<name>': user 'root' (from <address>) lifted its quarantine WITHOUT a resync, accepting this node's copy as it is ...`
+* On a node with peers that can serve a resync it is refused with `409 Conflict` (gRPC `FAILED_PRECONDITION`), because
+the resync is the way out there. A database with no quarantine and no read floor answers `404`.
+
+The same override is available over gRPC as `AcceptDivergedDatabase` (see <<grpc-api>>) and from Java through
+`RemoteServer.acceptDivergedDatabase()`.
+
+[[ha-accept-stale-snapshot]]
+*Lifting the stale-snapshot read floor.* A node that restarts with a Raft snapshot marker ahead of the entries its
+databases applied (by more than `arcadedb.ha.snapshotGapTolerance`) is missing the entries in between, and the Raft log
+no longer holds them. It raises a node-wide *read floor*: `/api/v1/ready` answers `503` and every `linearizable` read is
+clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, and the only voter of a
+cluster is always its leader, so there the floor never lifts. For that case only, v26.10.2 adds a second override,
+`POST /api/v1/cluster/accept-stale-snapshot`, which names no database because the floor is node-wide:
+
+* It requires the `root` user, and the body is ignored. It accepts the node's databases as they are and records
+`max(marker index, applied index)` as the applied position, in one persisted write, so a restart does not raise the
+floor again. The response carries `result`, `localServer`, `readFloor`, `snapshotIndex` and `appliedIndex`.
+* The entries between the floor and the marker are *not* replayed: a database missing them stays missing them. Run
+`CHECK DATABASE` afterwards, and restore any damaged database from a backup.
+* A database quarantined on its own keeps its quarantine and its read floor: lift those with
+`+POST /api/v1/cluster/accept-diverged/{database}+`, one database at a time.
+* Every use is logged at `WARNING`, naming the user, the source address, the floor and the marker index:
+`<user> lifted the node-wide stale-snapshot read floor WITHOUT a resync (read floor <n>, snapshot marker <n>, applied position now <n>) ...`
+* It answers `404` when no floor stands, and `409 Conflict` on a node that is not the only voter (a follower resyncs on
+its own, and a leader hands the leadership to a peer first) or while a snapshot download is running on the node. A
+change that cannot be written to disk answers `500`
+(`Could not lift the stale-snapshot read floor: <reason>. The floor stays`) and lifts nothing.
+
+The same override is available over gRPC as `AcceptStaleSnapshot` (see <<grpc-api>>) and from Java through
+`RemoteServer.acceptStaleSnapshot()`.
+
+[[ha-accept-copy]]
+*Accepting the leader's unverified copy.* A database closed on a node while it was a follower, which the last resync
+could not verify, carries a marker file (`.ha-unverified-closed-copy`). Before such a node, once leader, reopens the copy
+and makes it the cluster's copy, it asks every peer of the configuration about its own, and refuses while a peer does
+not answer or holds a copy that cannot be ordered against it (the critical `unverified-closed-copy-refused` alert). A
+peer that is gone for good but still in the configuration keeps the database closed on every node. Since v26.10.1 the
+operator override is `POST /api/v1/cluster/accept-copy/{database}`:
+
+* It requires the `root` user, runs on the leader only (a follower answers `400`), and the body is ignored. It removes
+the marker and accepts the leader's copy without the other servers' confirmation. It does not reopen the copy: the next
+request that names the database does, and every follower then installs it. The response carries `result`, `database`,
+`localServer`, `appliedIndex` and, when one stood, `overriddenRefusal`.
+* Every use is logged at `WARNING`, naming the user, the source address, the applied index and the refusal it overrode:
+`Database '<name>': <user> accepted this leader's copy, which the last resync could not verify, as the cluster's copy WITHOUT the other servers' confirmation ...`
+* It answers `404` when this server holds no closed copy of the database marked unverified, and `500` when the marker
+cannot be removed, in which case the copy stays closed.
+
+[[ha-in-place-restart]]
+====== Raft layer restarted in place
+
+A node can restart its Raft layer without restarting the process: for example to recover once a full log volume has room
+again (see the note on sizing the Raft storage volume under Architecture), or to reformat its Raft storage and reinstall a snapshot when it is stuck at a stale term.
+Since v26.10.2 `GET /api/v1/cluster` reports both, and what happened after:
+
+* `localInPlaceRestarts` holds two counts since the process started: `recovered`, restarts that kept the Raft log, and
+`reformatted`, restarts that reformatted it. The same counts are published as metrics (see <<howto-monitoring>>).
+* `localReplicationPathUnproven` is `true` while the node has been restarted in place and has taken no replicated entry
+since, nor seen a newer term with a known leader. On an idle cluster that is normal for a while.
+* `localLeaderUnreachableSinceRestart` is `true` when that state outlasts the time a healthy path takes to deliver
+entries, while no leader has made itself known or the leader reports entries this node does not hold. It raises the
+`follower-leader-unreachable-since-restart` alert: `critical` when a leader is known, `warning` when none is, since a
+cluster that lost its quorum looks the same from every node. `raftState` reads `RUNNING` throughout, but the node does not
+count toward the quorum. If the alert outlasts the leader's channel reset and escalation (see
+<<ha-channel-self-healing>>), restart the node by hand.
+
+Since v26.10.2 a follower restarted in place is no longer reformatted automatically when it looks stuck at a stale term
+while its replication path is still unproven: that state also matches a node the leader's appends do not reach, and a
+reformat would turn it into a voter with an empty log. The reformat is held, a `WARNING` is logged every 5 minutes, and
+the `follower-stuck-at-stale-term` alert carries `details.replicationPathUnproven: true` with a recommendation to restart
+the node by hand.
+
 [[howto-ha-rest]]
 ===== Cluster Management REST API
 
@@ -653,7 +893,7 @@ All endpoints require authentication as the `root` user.
 
 |GET
 |`/api/v1/cluster`
-|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. _(Since v26.10.1: two concurrent add-peer requests for one address under different ids could both commit; the add now refuses the second.)_ _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_
+|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. _(Since v26.10.1: two concurrent add-peer requests for one address under different ids could both commit; the add now refuses the second.)_ _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_ Since v26.10.2 the answer also carries `localInPlaceRestarts` (`{"recovered": <n>, "reformatted": <n>}`), `localReplicationPathUnproven` and `localLeaderUnreachableSinceRestart`, see <<ha-in-place-restart>>.
 
 |POST
 |`/api/v1/cluster/peer`
@@ -678,6 +918,22 @@ All endpoints require authentication as the `root` user.
 |POST
 |`/api/v1/cluster/verify/{database}`
 |Compare component file checksums for the given database across all peers. Useful to confirm that all nodes have converged. See <<ha-verify-outcome,Verify Outcomes>> for the values `overallStatus` can take.
+
+|POST
+|`/api/v1/cluster/resync/{database}`
+|Discard this server's copy of the database and install a fresh snapshot from the leader. This lifts a quarantine (see <<ha-quarantine>>) and reinstalls a database the node is missing or whose snapshot install was interrupted. Refused on the leader itself: transfer leadership first. Answers `503` when no leader is reachable. The body is ignored.
+
+|POST
+|`/api/v1/cluster/accept-diverged/{database}`
+|_(Since v26.10.2.)_ Accept this node's copy of the database as it is, lifting its quarantine and read floor without a resync. Only where no peer can serve a resync: on the only voter of the cluster, or when every voter holds the database quarantined; anywhere else it answers `409`. Answers `404` when nothing stands on the database. Every use is logged at `WARNING`. See <<ha-accept-diverged,Lifting a quarantine without a resync>>.
+
+|POST
+|`/api/v1/cluster/accept-stale-snapshot`
+|_(Since v26.10.2.)_ Lift this node's node-wide stale-snapshot read floor without a resync, accepting its databases as they are; the entries between the floor and the snapshot marker are not replayed. Only on the only voter of the cluster, and not while a snapshot download is running; otherwise it answers `409`. Answers `404` when no floor stands, and `500` when the change cannot be persisted, leaving the floor in place. A database quarantined on its own keeps its quarantine. The body is ignored. Every use is logged at `WARNING`. See <<ha-accept-stale-snapshot,Lifting the stale-snapshot read floor>>.
+
+|POST
+|`/api/v1/cluster/accept-copy/{database}`
+|_(Since v26.10.1.)_ Leader only: accept the leader's closed copy of the database, which the last resync could not verify, as the cluster's copy without the other servers' confirmation. The next request that names the database reopens it. A follower answers `400`; a server with no such copy answers `404`. The body is ignored. Every use is logged at `WARNING`. See <<ha-accept-copy,Accepting the leader's unverified copy>>.
 
 |GET
 |`/api/v1/ha/snapshot/{database}`
@@ -746,6 +1002,23 @@ $ curl -u root:<password> \
 An unverified peer is deliberately *not* rolled up as an observed divergence, which would send an operator hunting for something nobody saw.
 
 IMPORTANT: Alerting that keys on `overallStatus != "ALL_CONSISTENT"` is unaffected by the third value. Alerting that keys on `overallStatus == "INCONSISTENCY_DETECTED"` must add `VERIFICATION_INCOMPLETE` to keep catching an unreachable or unidentifiable node.
+
+[[ha-verify-node-local-files]]
+====== Files left out of the comparison
+
+Some files in a database directory belong to the node that holds the copy, not to the data: two healthy nodes at the same
+commit can hold different ones, or one can have none. Since v26.10.2 they are left out of the checksums each node reports
+(`GET /api/v1/ha/snapshot/{database}/checksums`), so the verify no longer reports them as a divergence on a healthy
+cluster:
+
+* `statistics.json`, and `cached-count.json` from releases before 25.2.1: cached record counts and free-space hints, written
+when the node last closed the database;
+* `database.lck`, the exclusive-open marker;
+* a Graph Analytical View's persisted CSR (`gav-<view>.csr`) and its contraction-hierarchy orders (`.cchorder`), a cache
+written only on the node that was leader when it closed;
+* a vector index's proximity graph and the files derived from it (`.vecgraph`, `.vecgraphfp`, `.vecordmap` and `.vecpq`),
+which every node builds on its own. The vectors themselves live in the index pages, which are compared;
+* `last-tx-id.bin`, the highest transaction id the node assigned when it last rotated its WAL or closed.
 
 [[ha-verify-timeseries]]
 ====== TimeSeries Sealed Stores
@@ -1147,6 +1420,13 @@ A node that cannot complete the reinstall -- no leader reachable yet, for exampl
 While the leader runs a schema change (for example `CREATE INDEX` on a large type), or drops or reinstalls a database, it refuses write transactions that other nodes send for that database with a retryable error, and accepts them again as soon as the operation ends. Retry the write; a long index build means retries for as long as it runs. _(Since v26.10.1: those writes were previously accepted and could be applied inconsistently around the schema change.)_
 
 A write on a replica is also refused with a retryable error when its transaction began before the replica had applied a schema change the leader has already applied (for example a new index), so that it cannot leave a record out of that index. The retry waits for the schema change to be applied locally and then succeeds. Callers that do not retry see a `ConcurrentModificationException` during DDL bursts; set transaction retries accordingly. One peer that is older, not yet probed or offline turns this protection off for every writer, and it is best-effort across a leader restart. Set `arcadedb.ha.txSchemaCheck=false` on the writing nodes to switch it off. _(Since v26.10.1.)_
+
+A node whose Raft state machine is closed, or is being restarted in place, refuses every commit at once with a retryable
+`NeedRetryException`: `Database '<name>' cannot commit on this server: its Raft state machine is closed and has not been
+restarted yet, so a committed entry could not be applied here. Retry shortly, or send the request to another server of the
+cluster`. Retry on the same node once the restart is done, or on another node. _(Since v26.10.2: such a commit, a leader's
+included, waited for the whole quorum timeout before it failed, every commit for as long as the state machine stayed
+closed.)_
 
 [[ha-troubleshooting-misdirected-raft-request]]
 ====== A node logs that it sent a Raft request "to itself", or refused one "addressed to" another peer

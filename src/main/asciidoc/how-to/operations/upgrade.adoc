@@ -148,6 +148,359 @@ back.
 <<http-running-queries,List and terminate running queries>>.
 
 [discrete]
+====== 26.10.2 - openCypher temporals are stored natively
+
+openCypher used to store `time()`, `localtime()`, zoned `datetime()` and `duration()` values as Strings and guessed the type back from the text, so a String such as `"09:00-17:00"` read back as a time. They are now stored in four new property types, `OFFSET_TIME`, `LOCAL_TIME`, `ZONED_DATETIME` and `DURATION`, and a new database never reinterprets a String (issues #8572, #9462, #9636). A zoned `datetime()` written to a `DATETIME` property is stored as an instant and reads back as the UTC wall clock; before, it kept the local wall clock.
+
+*Impact:* a database written by 26.10.1 or earlier keeps the old reading of undeclared properties until it is migrated, so existing queries keep working after the upgrade. The migration is one-way and converts every String with a temporal shape on an undeclared property, including one meant as text.
+
+*Action:* take a backup, quiesce writers, and run `CALL db.migrateLegacyTemporals() YIELD records, properties` once per database (under HA, on the leader; the user needs `updateDatabaseSettings`). To convert only some properties, declare each with its new type and copy the values through a scratch property instead. See <<cypher-temporal-migration,Migrating Cypher temporals stored as Strings>>.
+
+[discrete]
+====== 26.10.2 - Weighted path finders share one edge-weight rule
+
+Every weighted shortest-path finder now reads an edge weight the same way: an edge without the weight property, or with a value that is not a number, weighs 1, and an edge whose weight is negative, NaN or infinite is not walked (issue #9443). Before, `dijkstra()`, `astar()`, `algo.dijkstra` and `algo.astar` treated a missing weight as 0, and several finders walked negative weights. `duanSSSP()` now accepts an options map `{ direction, edgeTypeNames }` as its fourth argument, answers through the same engine as `cchShortestPath()` and honors the command timeout. `bellmanFord()` and `algo.bellmanford` are unchanged.
+
+*Impact:* on a graph where some edges have no weight, `dijkstra()`, `astar()`, `algo.dijkstra` and `algo.astar` return different paths and distances. A graph with negative weights is now routed around those edges. Among paths of equal weight `duanSSSP()` may return a different one. Embedded code: the `MIN` constant of `SQLFunctionHeuristicPathFinderAbstract` is gone.
+
+*Action:* give every routed edge a weight if 0 was intended, and use `bellmanFord()` where negative weights must be walked. A custom subclass reads the rule from `com.arcadedb.graph.EdgeWeight`. See <<dijkstra,`dijkstra()`>> and <<algo-duan-sssp-sql,`duanSSSP()`>>.
+
+[discrete]
+====== 26.10.2 - SQL `UPSERT` requires a UNIQUE index
+
+`UPDATE ... UPSERT WHERE` without a sub-query used to accept any index, so an upsert matched through a non-unique index could create duplicates. It now needs an equality on every property of a UNIQUE index, as the sub-query form already did (issues #9339, #9342).
+
+*Impact:* an `UPSERT` served by a non-unique index, by part of a composite key, or by a range, `IN` or `OR` condition fails with an error stating the requirement.
+
+*Action:* create a UNIQUE index on the properties of the `WHERE` condition, or rewrite the condition as equalities on all of its properties. See <<sql-update,`UPDATE`>>.
+
+[discrete]
+====== 26.10.2 - SQL `sum()` over an empty or all-NULL group returns NULL
+
+SQL `sum()` now returns NULL for an empty or all-NULL group, like `avg()`, `min()` and `max()`. It used to return 0 (issues #9351, #9384). Cypher `sum()` keeps returning 0, as openCypher requires.
+
+*Impact:* SQL queries that read `sum()` of such a group get NULL.
+
+*Action:* wrap the aggregate where 0 is expected, for example `ifnull(sum(amount), 0)`.
+
+[discrete]
+====== 26.10.2 - SQL `k = <list>` no longer expands the list
+
+An index lookup used to expand a list on the right of `=`, so `k = [1, 2]` behaved like `k IN [1, 2]`, while a scan compared the field with the list. Only `IN` and the other multi-value operators expand a list now; `=` and the range operators compare with the list as one value, which matches nothing on a scalar field (issues #9370, #9385).
+
+*Impact:* a query that relied on `=` with a list to match any element returns no rows.
+
+*Action:* use `IN`.
+
+[discrete]
+====== 26.10.2 - A statement that hides a write inside a read is refused on the query path
+
+SQL decided whether a statement reads, writes or changes the schema from its top-level node only, so a write placed in a `LET`, a projection, a `FROM` sub-query, a `CASE`, a `RETURN` or a script block ran durably through the read-only paths (issues #9628, #9687). A statement now counts everything nested in it. `PROFILE` takes the classification of the statement it wraps, so `PROFILE INSERT` is a write (issue #9340). `EXPLAIN` stays read-only.
+
+*Impact:* `Database.query()`, `GET` and `POST /api/v1/query` and MCP identities without write permission refuse such statements. A DDL inside `IF`, `FOREACH` or `WHILE` needs `allowSchemaChange` on MCP.
+
+*Action:* send these statements as commands (`Database.command()`, `POST /api/v1/command`).
+
+[discrete]
+====== 26.10.2 - SQL `include()` and `exclude()` return a map
+
+`include()` and `exclude()` used to build a record carrying the source record identity, so calling `save()` on a projection overwrote the stored record. They now always return a map with no `@rid`, `@type` or `@cat` unless one of the names asks for it, and they work on edges (issues #9840, #9873). `UPDATE V SET copy = @this.exclude('secret')` now stores an embedded map instead of a link to the record itself.
+
+*Impact:* code that treated the result as a record (saving it, reading its `@rid`, calling `.out()` on it) changes.
+
+*Action:* apply traversals before the projection, and name `@rid` in `include()` when you need it. See <<include,`include()`>>.
+
+[discrete]
+====== 26.10.2 - SQL result rows: `values()` follows `keys()`, and a bare `ORDER BY @rid` on a `MATCH` with columns is refused
+
+`values()` on a sub-query row or `LET` variable used to return the record metadata as extra unlabeled values. It now returns one value per key, in the order of `keys()` (issue #9843). A SQL `MATCH` that returns columns, `$paths` or `$patterns` builds rows with no `@rid`, so `ORDER BY @rid` sorted on null and kept the pattern order; it now fails at planning time (issue #9911). The same applies to other bare record attributes such as `@type`.
+
+*Impact:* code that read the extra values of `values()` sees fewer, and a keyset pagination that used a bare `ORDER BY @rid` on such a `MATCH` fails.
+
+*Action:* write `ORDER BY <alias>.@rid`, or return the RID as a column and order by it. See <<sql-match,`MATCH`>>.
+
+[discrete]
+====== 26.10.2 - Schema refuses a `REGEXP` no value can match, and constrained properties on `LIGHTWEIGHT` edges
+
+`CREATE PROPERTY`, `ALTER PROPERTY` and `Property.setRegexp()` refuse a pattern that no value of the property type can match, such as `[A-Z]+` on a `LONG` or a `DATE`, which used to be accepted and then refused every write (issues #9853, #9871). A pattern the check cannot decide in time is accepted with a WARNING. A `MANDATORY` or default-valued property can no longer reach a `LIGHTWEIGHT` edge type through a supertype, by `CREATE EDGE TYPE ... EXTENDS ... LIGHTWEIGHT`, `ALTER TYPE ... SUPERTYPE`, `ALTER TYPE ... WITH lightweight = true` or by declaring the property on the supertype (issue #9846).
+
+*Impact:* such DDL fails with a `SchemaException`. A schema that already holds such a pattern or combination still opens.
+
+*Action:* fix the pattern, or remove it with `ALTER PROPERTY ... REGEXP null`. Make the inherited property optional, or keep the edge type record-backed. See <<sql-alter-property,`ALTER PROPERTY`>> and <<lightweight-edges,Lightweight edges>>.
+
+[discrete]
+====== 26.10.2 - Cypher `MERGE` matches what `MATCH` matches, and declared properties compare in their declared type
+
+`MERGE` used its own equality and disagreed with `MATCH`: it missed a stored `FLOAT`, creating a duplicate, and matched a temporal against the text of a `STRING` property (issues #9693, #9696). It now uses the comparison `MATCH` applies. On a property declared `STRING`, a stored text also equals a number, boolean or temporal whose written text it is, so `MATCH (n:S) WHERE n.v = 1` finds the node holding the text `+'1'+`; on a property declared `INTEGER`, `LONG`, `FLOAT`, `DOUBLE`, `BOOLEAN`, `DATE` or `DATETIME`, a text equals the value it converts to (issues #9695, #9794). Undeclared properties keep strict Cypher typing.
+
+*Impact:* a repeated `MERGE` no longer duplicates nodes in these cases, and `=`, `<>`, `IN` and joins on declared properties can return more rows than before.
+
+*Action:* none, unless a query relied on the old mismatch. See <<cypher-merge,`MERGE`>>.
+
+[discrete]
+====== 26.10.2 - `DROP CONSTRAINT <name>` does not drop named constraints created by older releases
+
+A named Cypher constraint now records what its `CREATE CONSTRAINT` created, and `DROP CONSTRAINT <name>` removes exactly that; before, it did nothing (issues #9646, #9707). Creating a constraint under a name in use and dropping an unknown name now raise an error, unless `IF NOT EXISTS` or `IF EXISTS` is given.
+
+*Impact:* a named constraint created by 26.10.1 or earlier has no such record, so `DROP CONSTRAINT <name>` raises an error for it.
+
+*Action:* drop an old constraint by its index name, or through SQL (`DROP INDEX`, `ALTER PROPERTY ... MANDATORY false`). See <<cypher-drop-constraint,`DROP CONSTRAINT`>>.
+
+[discrete]
+====== 26.10.2 - The `path.*` procedures answer as `apoc.path.*` does
+
+`path.expandconfig` now reads its `uniqueness` option, with the APOC default `RELATIONSHIP_PATH`, and `path.expand` is breadth-first with `RELATIONSHIP_PATH` (issue #10049). Before, the breadth-first walk was always `NODE_GLOBAL` and the depth-first walk and `path.expand` always `NODE_PATH`. `path.subgraphall` returns every relationship between the returned nodes, whatever the `relationshipFilter` (issue #10048). `relationshipFilter` and `labelFilter` read the APOC syntax, and an unknown relationship type or label is refused (issue #10025).
+
+*Impact:* on a graph with cycles or several routes to a node these procedures return more paths, growing quickly with `maxLevel`. A walk too wide for `arcadedb.queryMaxHeapElementsAllowedPerOp` or `arcadedb.queryMaxHeapRAM` fails the query.
+
+*Action:* to keep the old answers add `uniqueness: 'NODE_GLOBAL'` to a breadth-first `path.expandconfig`, `uniqueness: 'NODE_PATH'` to a depth-first one, and replace `path.expand` with the equivalent `path.expandconfig` call with `bfs: false, uniqueness: 'NODE_PATH'`. See <<path-expand-config,`path.expandconfig`>>.
+
+[discrete]
+====== 26.10.2 - An ISO duration text is parsed as Neo4j parses it
+
+`duration('<text>')`, a `DURATION` property set from text and a gRPC value tagged `duration` now follow the Neo4j grammar (issue #10055). Refused: a text with no component (`P`, `PT`, `P1YT`), a malformed number (`P.5Y`, `PT1.S`) and a fraction on any component but the last one (`P1.5Y2M`). Newly accepted: a sign before the `P` or on a component, and a decimal comma.
+
+*Impact:* writes and queries that used such texts fail instead of storing a zero or truncated duration.
+
+*Action:* correct the duration texts. See <<duration,`DURATION`>>.
+
+[discrete]
+====== 26.10.2 - Time-series writes refuse what they used to store silently
+
+* A line protocol, gRPC or remote write with an empty tag value (`cpu,host= value=1`) is refused with HTTP `400` or `INVALID_ARGUMENT`, as InfluxDB does. Leave the tag out instead (issues #8647, #9364).
+* A sample carrying a tag, field, property or label its type does not declare in that role is dropped and reported as a partial write (HTTP `400` with `undeclaredKeys`, or gRPC `undeclared_keys`). SQL `INSERT` fails, and Prometheus remote write drops the series (issues #8646, #9365, #9366, #9384). A sample that omits a declared key is still accepted. A Prometheus label with an empty value is an absent label.
+* A column codec that cannot encode the column type is refused at `CREATE`; types already persisted keep loading (issues #9310, #9384).
+* A line protocol line cut right after a tag or field `,` separator is refused (issues #9323, #9392).
+
+*Impact:* producers that send extra tags (Telegraf, for example), empty tag values or a misspelled key see refusals where they used to succeed.
+
+*Action:* fix the producers, or set the database setting `arcadedb.timeSeriesUndeclaredKeys=ignore` for schema-less producers. See <<timeseries-undeclared-keys,Undeclared keys>>.
+
+[discrete]
+====== 26.10.2 - Unbounded time-series reads stream
+
+`SELECT FROM <timeseries type>` without `LIMIT`, and the gRPC time-series stream without a row limit, now stream rows instead of loading the whole range first (issues #9420, #9421).
+
+*Impact:* a retention pass that runs during such a read gives a shorter answer, since the removed rows are skipped. A downsampling pass that runs during it fails the read with a retryable error (HTTP `503`, gRPC retry category), possibly after some rows were sent.
+
+*Action:* retry a read that fails this way, and expect a client to have received partial rows before the error.
+
+[discrete]
+====== 26.10.2 - PromQL refuses what Prometheus refuses
+
+The PromQL engine now answers HTTP `400` `bad_data` on `/prom/api/v1/query` and `/query_range`, and an error in SQL `promql()`, for expressions it used to answer with NaN, an empty result or an unchanged value (issues #9723, #9743, #9788, #9883, #9922, #9924): a comparison between two scalars without `bool` (`1 > 0`), `and`, `or` and `unless` with a scalar operand, a range vector or a string as an operator operand, a function or aggregation argument of the wrong type or count (`sum(m[5m])`, `abs(-1)`), and a range query over a range vector or a string. `bool` right after an operator is now the comparison modifier, so a metric named `bool` cannot be the right operand.
+
+*Impact:* dashboards and alert rules that used these expressions get an error instead of a value.
+
+*Action:* rewrite them as Prometheus requires, for example `1 > bool 0`. See <<timeseries-promql-refused,Refused PromQL expressions>>.
+
+[discrete]
+====== 26.10.2 - Time-series filters, Prometheus endpoints and `ts.movingAvg` change results
+
+* The PromQL label matchers `=`, `!=`, `=~` and `!~` read a typed tag the same way on `/query`, remote read and `/series`, so `=` and `!=` select complementary sets, and `=~"007"` selects a `LONG` tag holding 7 (issues #9833, #9880).
+* The JSON tag filter of `POST /ts/query`, `GET /ts/latest`, the Grafana query and the gRPC `TimeSeriesQuery` and `TimeSeriesLatest` calls reads a `DATE` or `DATETIME` value in the database time zone instead of the JVM one (issues #9879, #9929). Embedded API: `TimeSeriesGateway.andTag()` and `buildTagFilter()` now take the `Database` as an argument.
+* Prometheus remote write and read answer `415` for a `proto=` content type they do not implement, so a remote-write 2.0 sender falls back to 1.0 instead of losing the batch, and `400` instead of `204` for a non-empty body with no remote-write 1.0 field (issues #9624, #9755).
+* `ts.movingAvg()` keeps one element per row: a null sample keeps its slot instead of being dropped, which shifted every later average into an earlier row (issue #9958).
+
+*Impact:* some matcher and tag filter results change, a misconfigured remote-write sender now gets an error, and `ts.movingAvg()` results line up with their rows.
+
+*Action:* recompile embedded code that calls `andTag()` or `buildTagFilter()`; otherwise none.
+
+[discrete]
+====== 26.10.2 - `GraphBatch.withLightEdges(true)` needs a `LIGHTWEIGHT` edge type
+
+`GraphBatch` with the deprecated `withLightEdges(true)` flag now throws for a property-less edge into an edge type that does not declare `LIGHTWEIGHT`, instead of creating light edges in it (issues #9378, #9383). The batch HTTP endpoint answers `400`.
+
+*Action:* declare the edge type `LIGHTWEIGHT`. See <<lightweight-edges,Lightweight edges>>.
+
+[discrete]
+====== 26.10.2 - A Graph Analytical View over some of the vertex types no longer accelerates traversals
+
+A view created with `VERTEX TYPES` naming only some vertex types was chosen by edge type alone, so SQL `out()`, SQL `MATCH` and Cypher `MATCH` answered 0 for edges leaving the uncovered types (issues #9301, #9320). Such a partial view no longer serves count push-downs, SQL traversal, shortest paths or `algo.*` procedures. A view covering every vertex type is unaffected.
+
+*Impact:* queries that used a partial view now return correct results through the OLTP path, which can be slower.
+
+*Action:* to keep the acceleration, create the view over every vertex type. See <<graph-olap,Graph analytical views>>.
+
+[discrete]
+====== 26.10.2 - HA snapshot ship compresses at DEFLATE level 1
+
+The leader compresses a database snapshot shipped to a follower at the new `arcadedb.ha.snapshotCompressionLevel`, default `1` (fastest), instead of the JDK default level 6, and serves two followers concurrently (issues #9295, #9296).
+
+*Impact:* a full resync is faster on a LAN, but sends more bytes over a WAN or metered link.
+
+*Action:* set `arcadedb.ha.snapshotCompressionLevel=6` (or `-1`) to restore the previous level. See <<setting-server,SERVER settings>>.
+
+[discrete]
+====== 26.10.2 - HA: a follower restarted in place is no longer reformatted automatically
+
+A follower whose Raft layer was restarted in place, and that has since taken no replicated entry and seen no new leader, is no longer reformatted when it looks stuck at a stale term, because that signature also matches a dead replication path (issues #8901, #9001). A node that was never restarted in place keeps the automatic recovery of `arcadedb.ha.divergedFollowerRecovery`.
+
+*Impact:* such a node keeps raising the `follower-stuck-at-stale-term` alert and logs a WARNING every 5 minutes instead of healing itself.
+
+*Action:* restart the node by hand when the alert persists.
+
+[discrete]
+====== 26.10.2 - HA rolling upgrade: type renames and database settings wait for every node
+
+`ALTER TYPE ... NAME` and `ALTER DATABASE` / `set database setting` now replicate to every node; before, they changed the node that ran them only (issues #9762, #9763). While any peer runs an older build or cannot be reached, a rename is refused up front with HTTP `409`, and a database setting change with HTTP `409` / gRPC `FAILED_PRECONDITION`; nothing changes (issues #9891, #9904, #9919). Path-valued settings (`arcadedb.externalPropertyBucketPath`, `arcadedb.pageSnapshotSpillPath`, `arcadedb.opencypher.loadCsv.importDirectory`) now apply on every node. No setting overrides the rename refusal; `arcadedb.ha.securityEntryCapabilityGate=false` skips the database setting check, at the risk of halting a peer that cannot decode the entry (see <<ha-database-settings>>).
+
+*Impact:* during a rolling upgrade, and while a node is down, these commands fail. Once a rename has been replicated, the cluster cannot be downgraded past 26.10.2 on its retained Raft log.
+
+*Action:* finish the rolling upgrade before renaming types or changing database settings. To rename a type while a peer is gone for good, remove that peer from the Raft configuration first. Make sure path-valued settings point to a directory that exists on every node. See <<upgrade-ha-cluster,HA cluster upgrade>>.
+
+[discrete]
+====== 26.10.2 - HA vector indexes that lost entries on a follower must be rebuilt
+
+A vector insert committed through a follower could reuse a vector id the leader had already allocated and replace that vector on every node, so `countEntries()` stayed flat and the replaced vectors dropped out of search (issues #9428, #9507). The cause is fixed, but the lost vectors are not restored.
+
+*Impact:* an HA vector index that received inserts through followers before the upgrade can be missing entries.
+
+*Action:* run `REBUILD INDEX <name>` on such vector indexes after every node runs 26.10.2. See <<sql-rebuild-index,`REBUILD INDEX`>>.
+
+[discrete]
+====== 26.10.2 - Vector graphs are rebuilt after a snapshot install or a restore
+
+A snapshot install now ships a vector index graph file (`.vecgraph`) empty, and the follower builds and verifies its own graph on the first search (issues #9758, #9889). A full backup archives the graph with its side files only when it can prove they belong to the pages it captured; otherwise it archives the graph empty, and the restored index builds it on the first search (issues #9888, #9917, #9918). See <<backup-vector-indexes,Vector indexes>>.
+
+*Impact:* the first search on a vector index after a snapshot install, or after a restore whose graph could not be archived, pays one graph build. Archives taken before 26.10.2 restore the old graph unverified (counted in `unverifiedGraphReuses` and logged at `WARNING`).
+
+*Action:* after restoring an archive taken with 26.10.1 or earlier, run `REBUILD INDEX` on its vector indexes. See <<restore,Restore>>.
+
+[discrete]
+====== 26.10.2 - A follower's write refusal is a redirect on every protocol
+
+A write sent to an HA follower is refused with the leader address. Bolt, MongoDB and Redis reported it as a retryable conflict, so drivers retried against the same follower. A refusal that names the leader is now a redirect (issues #9845, #9868, #9869, #9930, #9931): Bolt `Neo.ClientError.Cluster.NotALeader` (was `DeadlockDetected`), MongoDB `10107 NotWritablePrimary` (was `112 WriteConflict`), Redis `READONLY` (was `TRYAGAIN`), the `/ws` insert endpoint code `NOT_LEADER` (was `DB_ERROR`) with a `leaderAddress` field, and the gRPC streaming inserts `InsertError.code = NOT_LEADER` (was `DB_ERROR` or `COMMIT_FAILED`) with `leader_address`. PostgreSQL keeps `40001`. During an election, with no leader known, the old retryable answers stay.
+
+*Impact:* a `bolt://` (not `neo4j://`) or plain MongoDB client no longer retries a leader refusal, and clients that matched the old codes miss the new ones.
+
+*Action:* send writes to the leader or use a routing driver, and handle the new codes. See <<websocket-insert-session,`/ws` insert session>>.
+
+[discrete]
+====== 26.10.2 - Gremlin Server in production mode refuses a channelizer that cannot hide error details
+
+With `arcadedb.server.mode=production`, a Gremlin Server channelizer other than TinkerPop's default `WebSocketChannelizer` (`WsAndHttpChannelizer`, `HttpChannelizer`, `UnifiedChannelizer` or a custom class), set by `channelizer:` in `gremlin-server.yaml` or by `gremlin.channelizer`, now fails the server start, because it would send engine error text, including stored values, to clients (issues #9639, #9750). Outside production mode the server starts with a WARNING.
+
+*Impact:* a production server configured with such a channelizer does not start after the upgrade.
+
+*Action:* remove the `channelizer` entry or set it to `org.apache.tinkerpop.gremlin.server.channel.WebSocketChannelizer`. See <<gremlin-server,Gremlin Server>>.
+
+[discrete]
+====== 26.10.2 - Security checks that now apply to open sessions, GraphQL and LOAD CSV settings
+
+* PostgreSQL, Bolt, MongoDB, Redis and `/ws` sessions re-check their user against the live security state on every request or frame (issues #9279, #9311, #9340). Deleting a user, changing a password or revoking a database grant now applies to open connections; a Bolt transaction or `/ws` session whose authorization is gone is rolled back.
+* A GraphQL type definition replaces the database GraphQL schema, so it needs `UPDATE_SCHEMA` (issue #9280).
+* The settings that control what `LOAD CSV` may reach (remote URLs, local files, import directory, blocked IP ranges) need `updateSecurity` to change through `ALTER DATABASE` (issue #9371).
+
+*Impact:* long-lived clients can be disconnected or refused after a security change, and users without these permissions are refused.
+
+*Action:* grant `updateSchema` to the users that define GraphQL types and `updateSecurity` to the users that change the LOAD CSV settings. See <<security,Security>>.
+
+[discrete]
+====== 26.10.2 - Rotate passwords set through `server.defaultDatabases` if diagnostics were uploaded
+
+Before 26.10.2, support diagnostics masked secrets by setting name only, so a password inside `-Darcadedb.server.defaultDatabases=Universe[albert:einstein]` was written in clear to `diagnostics.json`, uploaded to the portal and put in the support bundle (issues #9625, #9678). It is now masked there and in logs.
+
+*Action:* on a server that uploaded support diagnostics before 26.10.2, rotate every password configured through `arcadedb.server.defaultDatabases`. See <<support,Support>>.
+
+[discrete]
+====== 26.10.2 - Subtype records keep inherited `EXTERNAL` values inline until `REBUILD TYPE`
+
+A subtype that inherits an `EXTERNAL` property now stores its values in its own `_ext` bucket; before, they were written inline (issues #9683, #9815).
+
+*Impact:* subtype records written before the upgrade keep those values inline. They read normally, but do not get the storage benefits.
+
+*Action:* run `REBUILD TYPE <Subtype>` to move them. See <<external-property-storage,External property storage>>.
+
+[discrete]
+====== 26.10.2 - Creating a user or a database under a taken name answers `409`
+
+Creating a user whose name exists used to answer `403` "Security error", and creating a database whose name exists `400` (issues #10073, #10074). Both now answer `409` over HTTP (REST routes and server commands, including `import database`) and `ALREADY_EXISTS` over gRPC. The Java remote clients raise `RemoteAlreadyExistsException` for a taken user, API token or database name (issue #10075). Restoring into a taken name keeps `400`.
+
+*Action:* clients that matched `403` or `400` for these cases must handle `409`.
+
+[discrete]
+====== 26.10.2 - `BACKUP DATABASE` applies the retention policy
+
+The SQL `BACKUP DATABASE` statement now prunes the archive directory of the database after a successful backup, as the scheduler and the `trigger backup` command already did (issue #9844). With auto-backup disabled nothing is pruned.
+
+*Impact:* with auto-backup enabled, archives beyond the `maxFiles` (or tiered) retention of the effective policy are deleted, also for a database absent from the auto-backup configuration. The archive just written, and archives that do not follow the `<db>-backup-<timestamp>.zip` naming, are never deleted.
+
+*Action:* give archives you want to keep a custom name, for example `BACKUP DATABASE 'before-the-upgrade.zip'`. See <<backup,Backup>>.
+
+[discrete]
+====== 26.10.2 - gRPC settings are read from the configuration file and environment
+
+Every `arcadedb.grpc.*` setting is now a registered server setting, so the server configuration file and environment variables reach it (issue #9316). Before, only `arcadedb.grpc.port` was, and the others worked as JVM system properties only: a `grpc.tls.enabled=true` written in the configuration file was ignored and the endpoint stayed in cleartext. An invalid `grpc.mode` or `grpc.tls.enabled` value now makes the server refuse to start, `grpc.host` is applied to the standard server, and `grpc.compression.enabled=false` is honored (issue #9782).
+
+*Impact:* `grpc.*` values that sat unused in the configuration file now take effect at the next start, which can turn on TLS or change the bind address.
+
+*Action:* review the `grpc.*` entries of the configuration file and environment before upgrading. See <<grpc-settings,gRPC settings>>.
+
+[discrete]
+====== 26.10.2 - Docker images run on Java 25, and Studio is served with a Content-Security-Policy
+
+The Docker images are built on `eclipse-temurin:25-alpine` instead of Java 21, which enables compact object headers, and `ARCADEDB_OPTS_GC` drops the obsolete `-XX:+ZGenerational` (issue #9602). The jars still run on Java 21 for embedded use. Studio and the Swagger UI page are served with a `Content-Security-Policy` that refuses inline script (issue #9681), set by `arcadedb.server.httpContentSecurityPolicy`.
+
+*Impact:* custom images or scripts that set JVM flags removed in Java 25 fail to start. A reverse proxy or extension that injects inline script into Studio is blocked.
+
+*Action:* check custom JVM options against Java 25. To try a custom policy without blocking, set `arcadedb.server.httpContentSecurityPolicyReportOnly=true`. See <<upgrade-docker,Docker / Kubernetes>>.
+
+[discrete]
+====== 26.10.2 - New and rebuilt hash indexes use page layout 3, which 26.10.1 cannot open
+
+A `NOTUNIQUE_HASH` key whose record ids would take more than a quarter of a page now keeps them in a chain of pages of their own, so adding a record to a key costs the same whatever the key already holds (issue #9228). Before, the cost of an insert grew with the record ids the key already held: 49 pages were written per insert into a key with 20,000 of them. Every hash index created or rebuilt by 26.10.2, `UNIQUE_HASH` included, is written at page layout version 3. Hash indexes created by older versions keep working at their layout and move to version 3 only on `REBUILD INDEX`.
+
+*Impact:* none on upgrade. A 26.10.1 server knows layouts 1 and 2 only, and refuses a hash index at layout 3 (see <<downgrade-hash-indexes>>).
+
+*Action:* to get the new layout on an existing `NOTUNIQUE_HASH` index with large keys, run `REBUILD INDEX` on it. See <<index-hash,Hash index>>.
+
+[discrete]
+====== 26.10.2 - Cypher paths are sent as one path object on every protocol
+
+Every Cypher path is now one path value, whatever built it: a `MATCH p = ...` pattern, `shortestPath()`, `allShortestPaths()`, a path procedure, or `apoc.path.create`, `apoc.path.slice` and `apoc.path.combine` (issue #9913). Over HTTP (and `Result.toJSON()`), gRPC and PostgreSQL a path returned by a `MATCH` used to be sent as its text form; it is now the object `{"_type": "path", "nodes": [...], "relationships": [...], "length": n}`, with every node and relationship written whole whatever the JSON serializer settings. A Bolt driver receives a native `Path` for the paths of procedures and `shortestPath()` too, and Studio's graph view draws a returned path.
+
+*Impact:* a client that parsed the text form of a `MATCH` path gets an object instead.
+
+*Action:* read the `nodes`, `relationships` and `length` fields of the object, or return `nodes(p)` and `relationships(p)` explicitly. See <<graph-algo-path-value>>.
+
+[discrete]
+====== 26.10.2 - `COMMIT RETRY` and `Database.transaction()` do not retry a leader refusal
+
+A `NeedRetryException` now tells whether retrying on the same server can succeed (`isRetryableOnThisNode()`). An HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader answers `false`, so `BEGIN ... COMMIT RETRY <n>` and `Database.transaction(..., retries)` raise its `ServerIsNotTheLeaderException` on the first attempt (issue #9995). Before, they retried it `<n>` times with the retry delay in between, and `COMMIT RETRY ... ELSE` then ran the `ELSE` block. A refusal raised during an election, which names no leader, is still retried.
+
+*Impact:* the caller gets the leader refusal at once. A `COMMIT RETRY ... ELSE { ... } AND CONTINUE` block no longer runs its `ELSE` or hides the error for such a refusal.
+
+*Action:* send leader-only work to the leader the error names. See <<sql-script-commit>>.
+
+[discrete]
+====== 26.10.2 - GraphQL introspection reports real types, and Cypher typed constraints keep a property's attributes
+
+* GraphQL introspection of a type with no `.gql` declaration reports `MAP` and untyped `EMBEDDED` as the new `JSON` scalar, `EMBEDDED OF <T>` as an object, `LINK` as `ID`, `DECIMAL` as the new `BigDecimal` scalar and `BINARY` as a list of `Int`; in 26.10.1 and earlier they were all `String`. A sub-selection on a `LINK` property now resolves the linked record (issues #8756, #9467, #9468). See <<graphql-introspection-types,GraphQL type mapping>>.
+* `CREATE CONSTRAINT ... REQUIRE n.x IS :: <TYPE>` keeps the property's earlier attributes (`MANDATORY`, `READONLY`, `REGEXP`, `MIN`, `MAX`, `DEFAULT`) instead of dropping them, and checks the records already stored: when one fails, the constraint is refused and the old declaration stays (issue #9304). See <<cypher-is-typed-retype>>.
+
+*Action:* regenerate GraphQL client code built from introspection, and expect a typed constraint over existing data that does not fit to be refused.
+
+[discrete]
+====== 26.10.2 - Embedded API changes
+
+* `Schema.alterMaterializedView()` refuses a null mode and a negative interval (`IllegalArgumentException`) and an interval on a `MANUAL` or `INCREMENTAL` view (`SchemaException`), which it used to store (issues #8726, #9381). SQL `ALTER MATERIALIZED VIEW` is unaffected.
+* `Schema.unregisterFunctionLibrary()` of a stored library is now saved to `schema.json` and replicated (issues #8879, #9423).
+* `Iterator.remove()` on the iterators of `Vertex.getEdges()` and `Vertex.getVertices()` deletes the edge through the database, as `edge.delete()` does, and a refused delete reaches the caller with the entry left in place; a second `remove()` throws `IllegalStateException` (issue #9779). Before, an iterator over given edge types only unlinked the walked side, and one over every edge type logged a refusal and unlinked anyway. See <<vertex-edge-iterator-remove>>.
+* On an HA follower, `unregisterFunctionLibrary()`, `Property` setters, `Schema.setExtension()`, the schema date settings and type setters such as `LocalEdgeType.setLightweight()` throw `ServerIsNotTheLeaderException` ("Changes to the schema must be executed on the leader server") instead of changing that follower alone (issues #9747, #9765). `Schema.setZoneId()` checks `UPDATE_DATABASE_SETTINGS`.
+
+*Action:* call these methods on the leader, validate materialized view arguments before passing them, and expect `remove()` on an edge iterator to throw when the delete is refused.
+
+[discrete]
+====== 26.10.2 - Client error handling: gRPC writes whose answer was lost, streamed error lines, Postgres transaction modes
+
+* The gRPC Java client throws a non-retryable `RemoteException` when an admin write through `RemoteGrpcServer` or a streaming write (`ingestStream`, `ingestBidi`, `timeSeriesWriteStream`, graph batch loads) ends with a bare `UNAVAILABLE`, since the write may have been applied; reads and `validate_only` dry runs stay retryable. A client-side deadline is a `TimeoutException` whose message says the write may already have been applied (issues #8822, #9470).
+* In production mode, the `message` of the `error` line of a streamed query is the classified label, like the `error` field the line now carries in every mode; the detail is in the server log (issues #8899, #9475).
+* PostgreSQL: `SERIALIZABLE`, `READ ONLY` and `AND CHAIN` in `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK` are refused with SQLSTATE `0A000` instead of a syntax error (issues #9631, #9753).
+
+*Action:* do not retry a write the client reports as possibly applied without checking its outcome, and branch on the `error` field or the status instead of the `message` text.
+
+[discrete]
 ====== 26.10.1 — Sparse-vector top-K scores a window of documents at a time
 
 `vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now scores documents in windows (setting `arcadedb.sparseVectorScoringWindow`, default `16384`). On wide queries this is about twice as fast, and queries no longer wait for a `COMPACT INDEX` or a memtable flush to finish (issues #9200, #9209, #9210).
@@ -461,3 +814,17 @@ Those entries stay in the Raft log, so a node that is restarted on an older buil
 If you have to go back that far, rebuild the node instead: stop it, delete its `raft-storage-<peerId>/` directory and its `databases/` folder, and start the older build so it rejoins empty and takes a fresh copy from the leader.
 
 NOTE: This applies only to the Raft log, not to your data. Database files themselves keep the usual serial-release compatibility described above.
+
+[[downgrade-hash-indexes]]
+===== Downgrading from 26.10.2 to 26.10.1 with hash indexes
+
+Since v26.10.2 every hash index (`UNIQUE_HASH` or `NOTUNIQUE_HASH`) that is created or rebuilt is written at page layout version 3, which 26.10.1 does not know.
+A 26.10.1 server refuses such an index with:
+
+----
+Hash index '<name>' has the page layout version 3, which this server does not support (it knows 1 and 2). It was created by a newer version: open the database with that version, or drop and recreate the index.
+----
+
+Hash indexes that 26.10.2 opened but did not rebuild keep their older layout and still open on 26.10.1.
+Before going back, drop the hash indexes created or rebuilt by 26.10.2 (the layout version is part of the index file name) and recreate them once the database runs on 26.10.1, or export the database and re-import it.
+Do not open a database holding a hash index created or rebuilt by 26.10.1 or later with a server older than 26.10.1, which does not check the layout version: see <<index-hash,Hash index>>.
