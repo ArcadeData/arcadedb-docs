@@ -189,6 +189,19 @@ where it previously imported with the extra values silently dropped.)_
 If the analysis reads only rows it has to refuse, it cannot derive any property and the import fails saying so,
 naming the analysis limit when one is set - widening it is usually the fix.
 
+===== TimeSeries samples in a JSONL file
+
+The samples of a TimeSeries type are read back through the conversion every other way of writing to such a type shares
+(the line protocol, gRPC and the Prometheus remote write): a value is stored as the type of its column, so text a column
+can hold is stored as the value it names - `"80"` in an `INTEGER` tag, `"false"` in a `BOOLEAN` tag, a date in a `DATE`
+tag. A sample carrying a value no column can hold is refused by name, as `<type>.<column> (tag|field): <reason>`, and
+`onRowError` decides what follows: by default the import fails and nothing of that chunk of samples is imported; with
+`skip` only the refused samples are dropped and counted under `errors`, and the others of their chunk are kept.
+
+_(Since v26.11.1: the importer handed the engine the raw values of the file, so text for a typed column aborted the
+whole import with `Failed to append timeseries samples`, naming the column but not the sample, and `skip` dropped the
+entire chunk.)_
+
 [[importer-report]]
 ===== Import report
 

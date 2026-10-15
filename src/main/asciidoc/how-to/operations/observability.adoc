@@ -163,6 +163,7 @@ grouped under `db="unknown"` rather than appearing one series per name.
 | `arcadedb.engine.databases` | Number of open databases
 | `arcadedb.engine.async.boundary.commits` | Asynchronous batch transactions cut short by a durability-flag change
 | `arcadedb.engine.async.workers.retiring` | Asynchronous workers a lowered parallel level retired and that are still draining
+| `arcadedb.engine.graph.light.edge.census.fallbacks` | Lightweight-edge lists the census could not count, whose edges each walk the list alone
 |===
 
 The last two describe the asynchronous executor and are worth reading together with the throughput of your ingestion.
@@ -176,6 +177,13 @@ other on the same database, so batching is degrading towards one commit per task
 normal reading, and a brief spike during a `setParallelLevel()` call is expected. A reading that stays above zero means a
 retired worker is stuck inside user code and will never finish draining - a resize deliberately never interrupts one -
 so the thread stays alive until the database is closed.
+
+`graph.light.edge.census.fallbacks` is a counter of how often counting the lightweight edges of one vertex's edge list
+failed, so that every lightweight edge read off that list resolves its occurrence by walking the list itself - the
+quadratic cost the census exists to avoid, which on a super-node is the difference between milliseconds and minutes.
+Zero is the normal reading. The first failure of each list of a database is logged at `WARNING` (at most 64 distinct
+lists per database; the rest at `FINE`), so the log shows which list could not be read and this counter shows how often
+it keeps happening. _(Since v26.11.1: one `WARNING` per JVM and no counter.)_
 
 ====== Optional OTLP metrics export
 
