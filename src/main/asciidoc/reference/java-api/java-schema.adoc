@@ -181,6 +181,8 @@ ArcadeDB stores the database configuration into the schema and allows to change 
 
 [source,java]
 ----
+ZoneId   getZoneId();
+void     setZoneId(ZoneId zoneId);
 TimeZone getTimeZone();
 void     setTimeZone(TimeZone timeZone);
 String   getDateFormat();
@@ -188,4 +190,29 @@ void     setDateFormat(String dateFormat);
 String   getDateTimeFormat();
 void     setDateTimeFormat(String dateTimeFormat);
 String   getEncoding();
+void     setEncoding(String encoding);
 ----
+
+`setZoneId()`, `setDateFormat()` and `setDateTimeFormat()` are saved with the schema and need the
+`updateDatabaseSettings` permission (see <<groups,Groups>>); setting the value a setting already has changes nothing.
+`setZoneId()` is the setter to use for the time zone: `setTimeZone()` changes only the value held in memory by the open
+database, and the zone saved with the schema is the one `setZoneId()` sets. `setEncoding()` is the charset used to read a
+legacy schema file on this open; it is not saved, and the schema is always written as UTF-8.
+
+[[java-schema-ha-leader]]
+===== Schema Changes in a High Availability Cluster
+
+_(Since v26.10.2)_ every programmatic schema change is saved and replicated through the same schema session as the SQL
+DDL, so under HA it must run on the leader. On a follower these calls throw a `ServerIsNotTheLeaderException`
+(`Changes to the schema must be executed on the leader server`) instead of changing only the local `schema.json`:
+
+* the `Property` setters (`setMandatory()`, `setNotNull()`, `setReadonly()`, `setHidden()`, `setMin()`, `setMax()`,
+  `setRegexp()`, `setOfType()`, `setExternal()`, `setCompression()`, `setCustomValue()`, ...);
+* `Schema.setExtension()`;
+* the date settings `setZoneId()`, `setDateFormat()` and `setDateTimeFormat()`;
+* `setLightweight()` and `setUnique()` on an edge type (`LocalEdgeType`, what `ALTER TYPE ... WITH lightweight` runs);
+* `GraphAnalyticalViewBuilder.build()` for a named view, which saves the view definition with the schema.
+
+In v26.10.1 and earlier these calls rewrote only the `schema.json` of the node they ran on, so a change made on the
+leader never reached the followers and a constraint set before a failover was not enforced by the new leader. A
+statement sent over HTTP to a follower (`ALTER PROPERTY`, `ALTER DATABASE`, ...) is forwarded to the leader as before.

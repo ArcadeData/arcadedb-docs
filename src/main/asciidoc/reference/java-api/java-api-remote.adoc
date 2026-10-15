@@ -9,6 +9,19 @@ The RemoteServer class is used to manage remote server connections and databases
 
 The server administration calls (databases, users, groups and API tokens) prefer the cluster leader and wait out an election in progress. If the server becomes unreachable, they switch to another server of the cluster only when `arcadedb.network.sameServerErrorRetries` is greater than 0 (the default is 0). A write whose answer was lost is never sent again, because the server may already have applied it. `createApiToken` refuses to send the token over plain HTTP to a non-loopback host, whichever server the request is sent to, unless `setAllowInsecureApiTokenTransport(true)` is set.
 
+_(Since v26.10.2.)_ `acceptDivergedDatabase(databaseName)` and `acceptStaleSnapshot()` are the operator overrides for a
+node of a replicated cluster that has no peer left to resync from. Both are root only and accept the node's local copy
+as the truth without a resync, so the entries that were skipped are not replayed. `acceptDivergedDatabase` lifts the
+quarantine, and its read floor, standing on one database of a node that is the only voter of its cluster, through
+`POST /api/v1/cluster/accept-diverged/{database}`; it returns `result`, `database`, `localServer` and `appliedIndex`,
+plus `divergenceCause` and `readFloor` when they stood. `acceptStaleSnapshot` lifts the node-wide stale-snapshot read
+floor, through `POST /api/v1/cluster/accept-stale-snapshot`, and returns `result`, `localServer`, `readFloor`,
+`snapshotIndex` and `appliedIndex`. The server answers `404` when nothing stands to be lifted and `409` when the node is
+not the sole voter, where a resync from a peer is the way out. The gRPC client `RemoteGrpcServer` has the same two
+methods, returning the `AcceptDivergedDatabaseResponse` and `AcceptStaleSnapshotResponse` messages and raising its
+not-found and failed-precondition errors for the same cases (see <<grpc-api,gRPC API>>). When to use them is described
+in <<howto-high-availability,High Availability>>.
+
 [[remote-database]]
 ==== RemoteDatabase Class
 The RemoteDatabase class is used to work with a remote database instance.
@@ -169,6 +182,16 @@ If the transaction fails because another client modified the same records, it is
 The same happens when the server refuses the transaction before running it: the `503` a node answers while it installs a snapshot, a leader change, or a `begin` whose connection could not be established. Each retry waits first, with the exponential backoff the embedded `transaction()` uses (`arcadedb.txRetryDelayBase` doubling up to `arcadedb.txRetryDelay`), and when the refusal carries a `Retry-After` header the retry waits at least that long, up to `arcadedb.network.retryAfterMaxWait` (30 seconds by default). A duplicated key is retried only once, since failing twice means the duplicate is genuine. A commit the server answered with an error also releases the server-side session right away instead of leaving it to the session timeout. _(Since v26.10.1: before, the retries ran back to back, so a node installing a snapshot used up the whole budget within milliseconds.)_
 
 A commit whose connection drops after the request was sent is different: the server may already have applied it. Over gRPC such a commit (status `UNAVAILABLE` with no error from the server) raises a `TransactionException` and is *not* retried, so the work is never applied twice. Read the data back to find out whether the commit landed. _(Since v26.10.1: before, it was reported as a retryable conflict.)_
+
+_(Since v26.10.2.)_ The gRPC client draws the same line for the other writes whose answer can be lost. A bare
+`UNAVAILABLE` (no error class from the server, and not a failure to connect) on an admin write of `RemoteGrpcServer`
+(creating or dropping a database, a user or a token, and the other server writes) or on a streaming write of
+`RemoteGrpcDatabase` (`ingestStream`, `ingestBidi`, `timeSeriesWriteStream`, graph batch loads) raises a
+non-retryable `RemoteException` whose message says the server may already have applied the request. A streaming write
+commits as it goes, so any part of it, from none to all, may be durable. Reads, and `validate_only` dry runs, stay
+retryable. A client-side deadline that expires before the server answers raises a `TimeoutException` whose message says
+that the write may already have been applied. Before, these failures were reported as retryable, so a caller that
+retried could apply a write twice.
 
 A statement stopped on the server (by the <<http-running-queries,`terminate query`>> server command, Cypher
 `TERMINATE TRANSACTIONS` or Studio) raises `com.arcadedb.exception.QueryTerminatedException`, over HTTP and over gRPC

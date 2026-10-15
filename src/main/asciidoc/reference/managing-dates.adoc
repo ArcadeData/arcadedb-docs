@@ -43,7 +43,7 @@ The supported implementations are:
 
 NOTE: `java.util.Date` and `java.util.Calendar` can only handle precision down to the millisecond. When `arcadedb.dateTimeImplementation` is set to one of them, `DATETIME_MICROS` and `DATETIME_NANOS` values are returned as `java.time.LocalDateTime`, so no precision is lost; `DATETIME` and `DATETIME_SECOND` values are returned as the configured class. Before 26.10.1 such `DATETIME_MICROS`/`DATETIME_NANOS` values were read back as `NULL` (the data on disk was intact and reads correctly after the upgrade).
 
-NOTE: before 26.10.2, `arcadedb.dateImplementation=java.time.LocalDateTime` read every `DATE` as a timestamp in January 1970 and the value read could not be written back. A `DATE` now reads as midnight of its day, and writing a `LocalDateTime` to a `DATE` property keeps only the day. The data on disk was never affected.
+NOTE: before 26.10.2, `arcadedb.dateImplementation=java.time.LocalDateTime` read every `DATE` as a timestamp in January 1970 and the value read could not be written back. A `DATE` now reads as midnight of its day, and writing a `LocalDateTime` to a `DATE` property keeps only the day. The data on disk was never affected. _(Since v26.10.2)_ openCypher reads a property declared `DATE` as a Cypher `Date` under every `arcadedb.dateImplementation` (`java.util.Date`, `java.util.Calendar` and `java.time.LocalDateTime` included), and a `DATETIME` as a datetime under every `arcadedb.dateTimeImplementation`, so `WHERE n.d = date('2024-02-29')`, inline patterns, ranges and `toString(n.d)` (`2024-02-29`) behave the same whichever Java class the setting picks. In v26.10.1 and earlier a `DATE` read through one of those classes matched no `date()` predicate, and a `java.util.Calendar` `DATETIME` matched no Cypher comparison.
 
 NOTE: stored `DATETIME` values keep no time zone. In an openCypher comparison a stored value takes the zone of the datetime it is compared with, so `e.ts = datetime('2026-01-01T11:00:00Z')` and `e.ts = datetime('2026-01-01T12:00:00+01:00')` both match the same instant, whatever `arcadedb.dateTimeImplementation` is set to. Before 26.10.2, with `java.time.ZonedDateTime` a stored value did not equal the `Z` literal for its own instant, and with `java.util.Date` or `java.time.Instant` it matched `Z` but not the same instant in another zone.
 
@@ -71,7 +71,7 @@ _(Available since v26.10.2)_ Four more types hold what the openCypher `time()`, 
 
 A `DURATION` given as text, to `duration('...')` or to a `DURATION` property, is read with the ISO 8601 grammar Neo4j applies: `P[nY][nM][nW][nD][T[nH][nM][nS]]`, or the date-based `PYYYY-MM-DDThh:mm:ss`. Each component is a signed integer, only the last one present may carry a fraction (`P1.5Y`, `PT1,5S`), a sign before the `P` negates the whole duration (`-P1Y2D`), and the text must carry at least one component: `P`, `PT` and `P1YT` are refused _(since v26.10.2)_.
 
-openCypher stores these four natively, so a value always reads back as what it was written as, with no guessing from its text. A String that merely looks temporal, such as the opening hours `09:00-17:00` or a code like `P100D`, is a String and stays a String. Before 26.10.2 these four types were stored as Strings and openCypher guessed their type when reading an undeclared property, so `09:00-17:00` came back as a time and `WHERE l.hours = '09:00-17:00'` matched nothing.
+openCypher stores these four natively, so a value always reads back as what it was written as, with no guessing from its text. A String that merely looks temporal, such as the opening hours `09:00-17:00` or a code like `P100D`, is a String and stays a String (on a database upgraded from v26.10.1 or earlier, only once it is migrated, see <<cypher-temporal-migration,below>>). Before 26.10.2 these four types were stored as Strings and openCypher guessed their type when reading an undeclared property, so `09:00-17:00` came back as a time and `WHERE l.hours = '09:00-17:00'` matched nothing.
 
 All four can be indexed, with both `LSM_TREE` and `HASH`. A `ZONED_DATETIME` and an `OFFSET_TIME` compare as in openCypher and Neo4j: the same instant in two zones is two different values, so `12:00:00+01:00` does not equal `11:00:00Z`, with or without an index, and a unique index accepts both. Values are ordered by instant, then by UTC offset from west to east, then by zone name.
 
@@ -81,9 +81,23 @@ NOTE: a zoned `datetime()` written to a property declared `DATETIME` is stored a
 
 In JSON, these four types are written as their ISO text, for example `"2026-01-01T00:30+02:00"` for a `ZONED_DATETIME` and `"00:30+02:00"` for an `OFFSET_TIME`, also inside a `LIST` or a `MAP`. This is what the HTTP API always returned, and _(since v26.10.2)_ `Result.toJSON()`, the SQL `asJSON()` method and the PostgreSQL wire protocol agree with it. Before 26.10.2 they wrote a `ZONED_DATETIME` as epoch milliseconds, which lost the zone, and an `OFFSET_TIME` as `null`.
 
+[[cypher-temporal-migration]]
 ##### Migrating Cypher Temporals Stored as Strings
 
-A database written by an earlier version holds these values as Strings in undeclared properties, and they are now read as Strings. To get native values back, declare the property with its type and copy the String into it. `UPDATE Place SET hours = hours` does not do it: with the property declared the read has already converted the String, so the value looks unchanged and ArcadeDB skips the write.
+A database written by v26.10.1 or earlier holds these values as Strings in undeclared properties. Such a database keeps the old reading after the upgrade: openCypher still turns a String with the shape of a time, a zoned datetime or a duration on an undeclared property into a temporal value when it reads it, as before, and a new database created with v26.10.2 does not. The legacy reading ends when you run the one-off migration:
+
+[source,cypher]
+----
+CALL db.migrateLegacyTemporals() YIELD records, properties
+----
+
+The procedure rewrites every String with a temporal shape on a property the schema does not declare into its native type, in batches of 1,000 records each committed in its own transaction, and then marks the database native, so from then on a String is a String. It yields the number of `records` and `properties` it rewrote. A declared property and the elements of a list are left alone. If it fails part way the database stays legacy, and running it again picks up what is left; on a database that is already native it converts nothing and yields `0` and `0`.
+
+- It is one-way, and it converts every String with a temporal shape on an undeclared property, including one that was meant as text. Take a backup first, and quiesce writers while it runs: a String written meanwhile is converted too.
+- It changes a database setting, so the user needs the `updateDatabaseSettings` permission.
+- Under HA, run it on the leader. A follower refuses the schema change, while a request sent to a follower over HTTP is forwarded to the leader. The rewritten records and the native flag replicate to every follower.
+
+To convert only some properties, or a property you want to keep declared, declare the property with its type and copy the String into it instead. `UPDATE Place SET hours = hours` does not do it: with the property declared the read has already converted the String, so the value looks unchanged and ArcadeDB skips the write.
 
 The script parks the String in a scratch property, declares the property, and copies the String back. Run it with `sqlscript`, once per property, replacing `Place`, `hours` and `OFFSET_TIME` (use `LOCAL_TIME`, `ZONED_DATETIME` or `DURATION` for the other types):
 
@@ -132,7 +146,7 @@ How an offset in the string is treated depends on the type the value is stored a
 
 A string that matches *none* of these is rejected: the `INSERT` or `UPDATE` fails with an error naming the property. It is never stored as `NULL`. The same applies to the `date()` function and the `.asDatetime()` method when called without an explicit format, except that `date()` keeps its documented `NULL` answer for a value it cannot read.
 
-NOTE: Before 26.10.1 an unparseable date string was silently stored as `NULL` and the write reported success.
+NOTE: Before 26.10.1 an unparsable date string was silently stored as `NULL` and the write reported success.
 
 In the event that these default formats are not sufficient for the needs of your application, you can customize them through <<sql-alter-database,`ALTER DATABASE ... DATEFORMAT`>> and <<sql-alter-database,`DATETIMEFORMAT`>> commands.
 For instance,

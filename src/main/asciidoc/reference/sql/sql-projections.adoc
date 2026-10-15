@@ -311,6 +311,21 @@ SELECT name, parent:{!surna*} FROM TheType WHERE name = 'baz'
 }
 ----
 
+A prefix wildcard works on every value a nested projection applies to: a record, a map, and a plain result row (a row of
+a `LET` subquery, for example). It matches real property names only, not `@rid` or `@type`. It combines with excludes in
+the same braces and with a nested expansion, which then runs on each matching property:
+
+[source,sql]
+----
+SELECT @this:{s*} FROM TheType                  -- every property starting with 's'
+SELECT @this:{n*, !nested} FROM TheType         -- 'n...' properties except 'nested'
+SELECT @this:{ne*:{a}} FROM TheType             -- each 'ne...' property, projected to its 'a'
+----
+
+_(Since v26.10.2.)_ In v26.10.1 and earlier an include wildcard was read as a literal property name, so `+@this:{s*}+`
+answered a `null` column called `s`. A prefix wildcard cannot take an alias and must follow a plain property name:
+`+{se* AS k}+` and `+{a.b*}+` are parsing errors (see <<sql-curly,Nested projections>>).
+
 Nested projection syntax allows for multiple level depth expressions, eg. you can go three levels deep as follows:
 
 [source,sql]

@@ -112,6 +112,8 @@ psql "host=localhost port=5432 dbname=mydb user=root sslmode=require"
 
 NOTE: PostgreSQL 17 "direct" TLS (`sslnegotiation=direct`) is not supported.
 
+_(Since v26.10.2.)_ The user a connection authenticated as is checked again before every message: a user deleted, given a new password or stripped of the grant on the connected database is disconnected with a `FATAL` error, SQLSTATE `28P01`. See <<server-wire-session-revalidation,User changes on open connections>>.
+
 ===== Current limitations
 
 The documentation about Postgres wire protocol is not exhaustive to build a bullet proof protocol.
@@ -311,6 +313,19 @@ hints, e.g. `COMMIT /*traceparent='...'*/`), with extra `;`, `BEGIN ISOLATION <l
 with that isolation level, e.g. `BEGIN ISOLATION REPEATABLE_READ`) and `COMMIT RETRY <n>` (a plain `COMMIT` outside a
 SQL script, which has no block to retry). A `COMMIT` that fails, for example on a duplicated unique key, reports the
 error and ends the transaction, as in PostgreSQL: the session is back in idle state and no `ROLLBACK` is needed.
+
+Since v26.10.2 PostgreSQL's own transaction-control spellings are accepted too, as ORMs and drivers send them:
+
+* `BEGIN [WORK | TRANSACTION] [<mode> [, ...]]` and `START TRANSACTION [<mode> [, ...]]`, where `<mode>` is
+`ISOLATION LEVEL <level>`, `READ WRITE` or `[NOT] DEFERRABLE`;
+* `{COMMIT | END} [WORK | TRANSACTION] [AND NO CHAIN]`;
+* `{ROLLBACK | ABORT} [WORK | TRANSACTION] [AND NO CHAIN]`.
+
+`ISOLATION LEVEL READ COMMITTED` and `READ UNCOMMITTED` open a `READ_COMMITTED` transaction (in PostgreSQL too
+`READ UNCOMMITTED` behaves as `READ COMMITTED`), and `REPEATABLE READ` a `REPEATABLE_READ` one. What this server cannot
+honor is refused with SQLSTATE `0A000` (feature not supported) instead of a syntax error: `ISOLATION LEVEL SERIALIZABLE`,
+`READ ONLY`, and `COMMIT AND CHAIN` / `ROLLBACK AND CHAIN`. In v26.10.1 and earlier only ArcadeDB's SQL spellings above
+were recognized.
 
 [[postgres-savepoints]]
 Savepoints are not supported. `SAVEPOINT <name>` and `RELEASE [SAVEPOINT] <name>` are accepted and do nothing, but

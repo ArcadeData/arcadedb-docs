@@ -1,7 +1,7 @@
 [[grpc-api]]
 === gRPC API
 
-ArcadeDB exposes a gRPC interface for high-performance, strongly-typed access from any language with gRPC support (Java, Python, Go, C++, Node.js, Rust, C#, and more). The gRPC API provides two services with 65 RPCs covering queries, record operations, transactions, graph bulk loading, vector and full-text search, time series, and server administration.
+ArcadeDB exposes a gRPC interface for high-performance, strongly-typed access from any language with gRPC support (Java, Python, Go, C++, Node.js, Rust, C#, and more). The gRPC API provides two services with 67 RPCs covering queries, record operations, transactions, graph bulk loading, vector and full-text search, time series, and server administration.
 
 Proto definition: https://github.com/ArcadeData/arcadedb/blob/main/grpc/src/main/proto/arcadedb-server.proto[arcadedb-server.proto]
 
@@ -19,7 +19,10 @@ Enable it by adding the plugin to the `arcadedb.server.plugins` setting, then st
 
 The format is `<pluginName>:<pluginFullClass>` (comma-separated when registering several plugins). Once enabled, the server listens on port `50051` by default. Confirm it started by looking for a `gRPC server started` line in the server log, or with `grpcurl -plaintext localhost:50051 list`.
 
-Host, port, TLS, message size and the other gRPC options are configured through `arcadedb.grpc.*` system properties - see <<grpc-settings,gRPC settings>> for the full list. These plugin-level options are read as JVM system properties (`-Darcadedb.grpc.*`) and, unlike `arcadedb.server.plugins`, are not resolved from environment variables.
+Host, port, TLS, message size and the other gRPC options are configured through `arcadedb.grpc.*` system properties - see <<grpc-settings,gRPC settings>> for the full list. These plugin-level options are read as JVM system properties (`-Darcadedb.grpc.*`) and, unlike `arcadedb.server.plugins`, are not resolved from environment variables. _(Since v26.10.2.)_
+`arcadedb.grpc.host` binds the standard gRPC server to every local address the name resolves to (in v26.10.1 and earlier
+it was read but never applied, so the server listened on every interface); the xDS server (`grpc.mode` `xds` or
+`both`) has no host setting and still listens on every interface.
 
 [[grpc-services]]
 ==== Services
@@ -124,7 +127,13 @@ the request or chunk `type`), `timestamp`, and `tags` / `fields` maps of `GrpcVa
 variant needs `database` on the first chunk only and applies back-pressure, pulling one chunk at a time. A write is
 not atomic: each measurement's batch commits as it is appended. `TimeSeriesWriteSummary` reports `received`,
 `written`, and `dropped` (`written + dropped == received`), and lists dropped points' types under `unknown_types`,
-`non_time_series_types`, or `unavailable_types`.
+`non_time_series_types`, or `unavailable_types`. _(Since v26.10.2.)_ `undeclared_keys` (field 8) lists, as
+`<measurement>.<key> (tag|field)`, the tag or field keys a measurement's `TIMESERIES` type does not declare in that role:
+the points carrying them are dropped unless the database sets `arcadedb.timeSeriesUndeclaredKeys=ignore`.
+`unreadable_values` (field 9) lists, as `<measurement>.<column> (tag|field): <reason>`, values a column cannot store.
+Both lists are capped at 100 entries, while `dropped` still counts every point. The HTTP line-protocol endpoint reports
+the same lists as `undeclaredKeys` and `unreadableValues` in its `400` partial-write body, described by the
+`TimeSeriesWriteError` schema of the <<http-openapi,OpenAPI definition>>.
 * *`TimeSeriesQuery`*: `type`, inclusive `from_timestamp` / `to_timestamp` (unset means unbounded), `fields`
 projection (an unknown name is refused with `INVALID_ARGUMENT`), `tags` (`TimeSeriesTagFilter`, a conjunction of
 equality predicates on TAG columns; a non-TAG name is refused with `INVALID_ARGUMENT`), `limit`, `batch_size`
@@ -154,7 +163,11 @@ granted the named database; every other RPC requires the `root` user and otherwi
 *Leader routing.* On a replicated cluster, `CreateDatabase`, `DropDatabase`, `CreateUser`, `UpdateUser`,
 `DeleteUser`, `SaveGroup`, `DeleteGroup`, `CreateApiToken`, `DeleteApiToken`, `RestoreBackup`, `RestoreDatabase`,
 and `ImportDatabase` are refused on a follower with `FAILED_PRECONDITION` and the leader's address in the
-`arcadedb-leader-*` trailers. gRPC has no request proxy, so the client redirects itself.
+`arcadedb-leader-*` trailers. gRPC has no request proxy, so the client redirects itself. _(Since v26.10.2.)_ The
+streaming inserts of `ArcadeDbService` (`InsertStream` and `InsertBidirectional`, and the rows of a `BulkInsert`)
+report a write a follower refused differently: the refused row or commit comes back as an `InsertError` with `code`
+`NOT_LEADER` and the leader's address in `leader_address`, rather than through the `arcadedb-leader-*` trailers (see
+<<grpc-insert-operations,Insert operations>>).
 
 *Server info and databases*
 
@@ -256,7 +269,9 @@ hosts are accepted. See also <<backup,Backup>>.
 
 | `GetServerEvents` | `GetServerEventsRequest` | `GetServerEventsResponse` | _Since 26.10.1._ Server events as a JSON array, from the current event file or a named one, plus the list of event files
 | `Shutdown` | `ShutdownRequest` | `ShutdownResponse` | _Since 26.10.1._ Shut down this server (empty `server_name`) or the named HA peer. The local shutdown is scheduled asynchronously, so the response arrives first
-| `DisconnectCluster` | `DisconnectClusterRequest` | `DisconnectClusterResponse` | _Since 26.10.1._ Disconnect this server from the cluster
+| `DisconnectCluster` | `DisconnectClusterRequest` | `DisconnectClusterResponse` | _Since 26.10.1._ Disconnect this server from the cluster. `FAILED_PRECONDITION` when the server does not run HA
+| `AcceptDivergedDatabase` | `AcceptDivergedDatabaseRequest` | `AcceptDivergedDatabaseResponse` | _Since 26.10.2._ Root only. Lifts the quarantine, and its read floor, standing on `database` of a node that is the only voter of its cluster (or whose every voter holds the same database quarantined), accepting the local copy as it is without a resync. The response carries `local_server`, `applied_index`, `divergence_cause` and `read_floor`. `NOT_FOUND` when nothing stands on the database, `FAILED_PRECONDITION` when the node has peers it can resync from or runs without HA, `INVALID_ARGUMENT` on a malformed name. The RPC twin of `POST /api/v1/cluster/accept-diverged/{database}`, see <<howto-high-availability,High Availability>>
+| `AcceptStaleSnapshot` | `AcceptStaleSnapshotRequest` | `AcceptStaleSnapshotResponse` | _Since 26.10.2._ Root only. Lifts the node-wide stale-snapshot read floor of a node that is the only voter of its cluster, accepting its databases as they are without a resync. The response carries `local_server`, `read_floor`, `snapshot_index` and `applied_index`. `NOT_FOUND` when no floor stands, `FAILED_PRECONDITION` when the node has peers it can resync from, while a snapshot download runs, or without HA. The RPC twin of `POST /api/v1/cluster/accept-stale-snapshot`
 | `ConnectCluster` | `ConnectClusterRequest` | `ConnectClusterResponse` | _Since 26.10.1._ Join the server at `server_address` (an `arcadedb.ha.serverList` entry) to the cluster. `FAILED_PRECONDITION` when HA is not running or cannot change membership at runtime; empty address is `INVALID_ARGUMENT`
 | `ListSessions` | `ListSessionsRequest` | `ListSessionsResponse` | _Since 26.10.1._ Open HTTP authentication sessions, including their bearer tokens. Enable TLS before calling it across an untrusted network
 |===
@@ -274,11 +289,25 @@ hosts are accepted. See also <<backup,Backup>>.
 [[grpc-cancellation]]
 ==== Cancellation and running statements
 
-_Since 26.10.2._ The `ArcadeDbService` RPCs whose client sends a single request (such as `ExecuteQuery`,
-`ExecuteCommand`, `StreamQuery`, the search RPCs and `TimeSeriesQuery`; not the client-streaming inserts and loads,
-nor `BeginTransaction` and `RollbackTransaction`) are listed, while they run, by the HTTP <<http-running-queries,`list queries`>>
-server command and by Cypher <<cypher-show-transactions,`SHOW TRANSACTIONS`>>, with `protocol` `grpc`, and can be
-stopped by `terminate query`, `TERMINATE TRANSACTIONS` or Studio.
+_Since 26.10.2._ The `ArcadeDbService` RPCs (such as `ExecuteQuery`, `ExecuteCommand`, `StreamQuery`, `BulkInsert`,
+the search RPCs and `TimeSeriesQuery`, but not `BeginTransaction` and `RollbackTransaction`) are listed, while they
+run, by the HTTP <<http-running-queries,`list queries`>> server command and by Cypher
+<<cypher-show-transactions,`SHOW TRANSACTIONS`>>, with `protocol` `grpc`, and can be stopped by `terminate query`,
+`TERMINATE TRANSACTIONS` or Studio. A `BulkInsert` stops between two rows.
+
+The client-streaming loads (`InsertStream`, `InsertBidirectional`, `GraphBatchLoad` and `TimeSeriesWriteStream`) are
+listed from the first chunk, which names the database, to the end of the stream, including while the stream is idle
+between two chunks, and `terminate query` stops them there too. A terminated load ends with status `CANCELLED`, and
+what the load already wrote depends on its transaction mode:
+
+* `PER_STREAM` and `PER_REQUEST`: the open transaction is rolled back, so nothing the stream sent is committed.
+* `PER_BATCH`: the open batch is rolled back; batches committed before the termination stay committed.
+* `PER_ROW`: the rows committed before the termination stay, the rest are not applied.
+* A load that writes into a client transaction (`BeginTransaction`) rolls that transaction back and ends it.
+* `GraphBatchLoad` commits incrementally: what is already durable is reported in the `arcadedb-graph-batch-result-bin`
+trailer with `partial_commit` set. `TimeSeriesWriteStream` stops appending; batches already appended stay.
+
+In v26.10.1 and earlier the client-streaming loads were not listed and could not be terminated.
 
 A client that cancels a call, or whose deadline expires, or whose connection drops, terminates the server-side work
 too: the server stops it at its next check instead of running it to the end for an answer nobody reads.
@@ -358,6 +387,7 @@ reserves the parameter names `_skip` and `_limit`, and applies to SQL only: a qu
 `CURSOR`. If you order by a column with duplicate values, rows that tie can still move between pages, since every page
 re-runs the query; add a unique tie-break such as `ORDER BY createdAt DESC, @rid` when pages must be reproducible.
 
+[[grpc-insert-operations]]
 ===== Insert Operations
 
 [cols="2,3"]
@@ -365,8 +395,37 @@ re-runs the query; add a unique tie-break such as `ORDER BY createdAt DESC, @rid
 | `BulkInsertRequest` | Batch of records with type name, properties, and insert options
 | `InsertChunk` | A chunk of records for client-streaming inserts
 | `InsertRequest` / `InsertResponse` | Per-record request/response for bidirectional streaming
-| `InsertSummary` | Result summary: total inserted, errors, duration
+| `InsertSummary` | Result summary: `received`, `inserted`, `updated`, `ignored`, `failed`, the `errors` list of `InsertError`, `execution_time_ms`, `started_at` and `finished_at`
+| `InsertError` | One failed row or commit, see below
 | `InsertOptions` | Transaction mode, conflict handling, and batch size configuration
+|===
+
+A row that cannot be applied does not fail the call: it is counted in `failed` and reported as an `InsertError`, and the
+rest of the batch still goes in.
+
+[cols="1,1,3", options="header"]
+|===
+| Field | Number | Meaning
+
+| `message` | 1 | The engine's error text. In `production` server mode it is replaced by a generic message, see <<production-mode-errors,Error details in production mode>>
+| `row_index` | 2 | Index of the row within the chunk, or `-1` when the error belongs to a transaction or a commit rather than to one row
+| `code` | 3 | Machine-readable code, see below
+| `field` | 4 | The offending field, when known
+| `leader_address` | 5 | _Since 26.10.2._ Set only when `code` is `NOT_LEADER`: the address of the cluster leader to send the load to
+|===
+
+[cols="1,3", options="header"]
+|===
+| Code | Meaning
+
+| `CONFLICT` | The row's key is already taken (`ConflictMode` `CONFLICT_ERROR` or `CONFLICT_ABORT`), or a commit found a duplicated key
+| `DB_ERROR` | Any other failure of one row or chunk
+| `NOT_LEADER` | _Since 26.10.2._ The node is a follower and refused the write; `leader_address` names the leader. Before, a row refusal was `DB_ERROR` and a commit refusal `COMMIT_FAILED`
+| `COMMIT_FAILED` | A transaction commit failed for a reason other than a duplicated key or a leader refusal
+| `CONTRACT_VIOLATION` | The stream broke the protocol, for example its options changed mid-stream
+| `UNKNOWN_TRANSACTION` | The chunk named a transaction id the server does not know or has expired
+| `INVALID_KEY_COLUMN` | `key_columns` contains an empty name
+| `MISSING_ENDPOINTS` | An edge row has no `out` or no `in`
 |===
 
 ===== Command Results & Write Statistics

@@ -515,6 +515,11 @@ ON CREATE SET p += defaults
 NOTE: A property value in the pattern follows the same rule as <<cypher-set,`SET`>>: it must be a scalar, a
 list of scalars, or a `point()` value.
 
+NOTE: _(Since v26.10.2)_ `MERGE` finds exactly the records the identical `MATCH` pattern finds, with the same comparison,
+including for a declared property (see <<cypher-declared-string-comparison,Comparing a property declared in the schema>>).
+In v26.10.1 and earlier `MERGE` used a comparison of its own: it missed a stored `FLOAT` such as `0.1` that `MATCH` found,
+creating a duplicate, and matched a temporal against the text of a property declared `STRING`, which `MATCH` did not.
+
 ---
 
 [[cypher-set]]
@@ -1610,7 +1615,7 @@ CREATE CONSTRAINT FOR (p:Person) REQUIRE p.tags IS :: LIST<STRING NOT NULL>
 
 NOTE: If the property does not already exist in the schema, ArcadeDB will automatically create it as a STRING type. For other types, define the property first using SQL (`ALTER TYPE Person CREATE PROPERTY email STRING`).
 
-NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple times will not cause an error if the constraint already exists.
+NOTE: A constraint name is unique across the whole database. _(Since v26.10.2)_ `CREATE CONSTRAINT <name>` with a name already in use raises an error before creating anything; with `IF NOT EXISTS` it is a no-op. Running the same statement with `IF NOT EXISTS` several times therefore never raises. In v26.10.1 and earlier a duplicate name was accepted.
 
 [[cypher-constraint-names]]
 *Constraint names:*
@@ -1692,6 +1697,18 @@ CREATE CONSTRAINT FOR (p:Person) REQUIRE p.name IS NOT NULL
 
 A `NOT NULL` on the element type of a list (`LIST<STRING NOT NULL>`) is accepted.
 
+[[cypher-is-typed-retype]]
+*Re-typing a declared property:*
+
+When the property is already declared with another type, `IS TYPED <type>` (or `IS :: <type>`) re-declares it with the new type. _(Since v26.10.2)_ The attributes that do not depend on the type are always kept: `MANDATORY`, `NOTNULL`, `READONLY`, `HIDDEN`, `EXTERNAL`, `COMPRESSION` and custom values. The type-dependent ones are kept only when the new type reads them the same way:
+
+* `OF` when both types are a `LIST` or a `MAP`;
+* `REGEXP` when the new type is `STRING`;
+* `MIN` and `MAX` when both types measure the same thing (characters, bytes, items, a numeric value or a date) and the new type can hold the bound, so `max 4` moves from `INTEGER` to `LONG` but not from `STRING` to `LONG`, and `max 2.5` does not move onto an `INTEGER`;
+* `DEFAULT` when it converts to the new type without changing its value (a `DOUBLE` default `3.0` moves onto a `LONG`, `3.7` does not).
+
+Otherwise the statement is refused with an error naming each attribute that blocks it, and the declaration is left unchanged: remove or change the attribute with `ALTER PROPERTY` first. In v26.10.1 and earlier these attributes were copied onto the new type as they were, so a `STRING` property with `regexp '[A-Z]+'` re-typed to `LONG` refused every value.
+
 NOTE: Following Cypher 25 / GQL, `INTEGER` is the 64-bit generic integer type while `INT` is the alias for the 32-bit `INT32`. A property declared `IS TYPED INT` therefore holds 32-bit values; use `IS TYPED INTEGER` (or `INT64`) for 64-bit values.
 
 [NOTE]
@@ -1729,7 +1746,7 @@ DROP CONSTRAINT `Person[email]` IF EXISTS
 
 NOTE: The name of the unique index a `UNIQUE` or `NODE KEY` constraint created is accepted too, and drops the constraint that created it: an unnamed `NODE KEY` dropped by its index name is dropped whole, index and existence requirement. Use backtick escaping for names containing special characters like brackets.
 
-NOTE: `IF EXISTS` makes the operation safe to run even when the constraint does not exist.
+NOTE: _(Since v26.10.2)_ dropping a name that no constraint or index carries raises an error, unless `IF EXISTS` is given, which makes the statement a no-op. In v26.10.1 and earlier an unknown name was dropped silently and counted as removed.
 
 [[cypher-drop-constraint-undo]]
 *What dropping a constraint undoes:*
@@ -1737,6 +1754,7 @@ NOTE: `IF EXISTS` makes the operation safe to run even when the constraint does 
 _(Since v26.10.2)_ `DROP CONSTRAINT` undoes what the constraint created:
 
 * A `UNIQUE` constraint drops its unique index, a `NOT NULL` constraint clears the mandatory flag it set, and a `NODE KEY` / `KEY` constraint does both.
+* Only what the constraint itself created is undone. A `MANDATORY` flag or a unique index declared before the constraint, for example with SQL `CREATE PROPERTY ... (mandatory true)` or `CREATE INDEX`, is kept when the constraint is dropped, and so is an index or a flag another named constraint still needs.
 * A property type constraint (`IS TYPED`) lifts the type restriction. If the constraint declared the property, the declaration is removed. If it replaced an earlier declaration, for example one made with SQL `CREATE PROPERTY`, that declaration is put back; when records written since cannot be read as the old type, the drop is refused and the constraint stays in place.
 * While another constraint still needs the declaration, the type stays until that one is dropped too: a `NOT NULL` constraint needs a declared property to carry its mandatory flag, and a `UNIQUE` index is built over the declared type.
 * A requirement the schema enforces without a Cypher constraint, which `SHOW CONSTRAINTS` lists under a generated name, is dropped the same way: `constraint_<Type>_<property>_existence` clears the property's `MANDATORY` and `NOT NULL` flags, `constraint_<Type>_<property>_type` removes the property declaration (refused while the declaration also carries an index or other attributes, such as a default or a min/max, that would go with it), and the name of a unique index drops the index.
