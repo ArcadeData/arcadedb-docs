@@ -366,6 +366,15 @@ if( db.isOpen() ){
 Executes a query, with optional positional parameters.
 This method only executes idempotent statements, namely `SELECT` and `MATCH`, that cannot change the database.
 The execution of any other commands will throw a `QueryNotIdempotentException` exception.
+A write nested anywhere in the statement makes it a write, as described for
+<<query-language-command-positionalparameters,query( language, command, positionalParameters )>>.
+
+A statement is classified by everything it runs, not only by its first keyword. A write nested in a `LET`, a
+projection, a `FROM` subquery, a `CASE`, a `RETURN` or a script block makes the whole statement a write, so
+`SELECT FROM (INSERT INTO T SET a = 1)` or `SELECT *, (DELETE FROM T) AS d FROM V` is refused here: run it with
+`command()`. `PROFILE` takes the classification of the statement it wraps, while `EXPLAIN` does not execute its
+statement and stays a read. _(Since v26.10.2; in v26.10.1 and earlier only the top-level statement was checked, so such
+a nested write ran through `query()`.)_
 
 Syntax:
 

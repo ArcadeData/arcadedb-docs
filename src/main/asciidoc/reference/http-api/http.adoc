@@ -288,10 +288,44 @@ The `options` object of `start` accepts:
 |===
 
 The `batchAck` frame carries `chunkSeq`, the counters `received`, `inserted`, `updated`, `ignored`, `failed`, and an
-`errors` array with `rowIndex`, `code` and `message` for each record that could not be applied; the rest of the
-chunk still goes in. A session the client walks away from - the connection drops, or no frame arrives for
-`server.wsInsertSessionExpireTimeout` milliseconds - is rolled back, and the idle case is reported with an unsolicited
-`error` frame.
+`errors` array with `rowIndex`, `code`, `message` and `exception` for each record that could not be applied; the rest
+of the chunk still goes in. An entry with `rowIndex` `-1` reports a failure of the chunk's transaction rather than of one
+record: nothing in the chunk was applied. A session the client walks away from - the connection drops, or no frame
+arrives for `server.wsInsertSessionExpireTimeout` milliseconds - is rolled back, and the idle case is reported with an
+unsolicited `error` frame.
+
+The `code` of an `errors` entry is one of:
+
+[cols="10h,~",options="header"]
+|===
+|Code|Meaning
+|CONFLICT| The record's key is already taken (`conflictMode` `error` or `abort`), or the commit of the chunk found a duplicated key.
+|NOT_LEADER| _(Since v26.10.2.)_ The node is a follower of a replicated cluster and refused the write. The entry carries a `leaderAddress` field with the address of the leader to send the load to. In v26.10.1 and earlier this case was reported as `DB_ERROR`, without the address.
+|DB_ERROR| Any other failure.
+|===
+
+`leaderAddress` is a field of its own, outside `message`, so production mode does not hide it. A `per_stream` session
+whose `commit` frame is refused by a follower is answered with an `error` frame whose `error` is "Not the leader" and
+which carries `leaderAddress` too (since v26.10.2).
+
+*Terminating a chunk.* _(Since v26.10.2.)_ While a chunk runs it is listed by the <<http-running-queries,`list queries`>>
+server command, in every transaction mode, and `terminate query` stops it. The termination undoes what the session's
+mode allows: under `per_stream` the whole session's transaction is rolled back, chunks acknowledged before included;
+under `per_batch` the running chunk's transaction is rolled back and chunks acknowledged before stay committed; under
+`per_row` the rows committed before the termination stay and the rest are not applied. A session joined to an HTTP
+transaction (`transactionMode` `none`) rolls that transaction back and ends it. In every case the session is closed
+and the server sends an `error` frame that says what became of the chunk; the connection stays open and can `start`
+a new session.
+
+*Security.* _(Since v26.10.2.)_ The user that opened the connection is checked again on every frame, not only at the
+handshake:
+
+* a user that was dropped or given a new password has its session rolled back, receives an `error` frame, and the
+connection is closed (close code `1008`, "Principal is no longer valid");
+* a user whose grant on the session's database was revoked has its `chunk` and `commit` frames refused and the session
+rolled back; a `rollback` frame is always accepted;
+* a session joined to an HTTP transaction (`transactionId`) that a failed command has rolled back is refused, instead of
+writing its records outside the transaction, where they would autocommit.
 
 NOTE: In `production` server mode the engine's text in an `error` frame and in the `message` of an `errors` entry (for a
 conflict, the key values the row carried) is replaced by "The request failed. Check the server log for the details",
@@ -981,6 +1015,7 @@ Each protocol reports the termination to its client in its own terms, never as a
 `com.arcadedb.exception.QueryTerminatedException`. The gRPC Java client raises that exception.
 | MongoDB | Error code `11601` (`Interrupted`), what MongoDB answers for an operation `killOp` interrupted.
 | Redis | An `ERR` error whose message says the statement was terminated.
+| `/ws` insert session | _(Since v26.10.2.)_ An `error` frame (`"error": "Insert session error"`) saying what became of the chunk. The session is closed and the connection stays open, see <<websocket-insert-session,Streaming Inserts over WebSocket>>.
 |===
 
 Termination is cooperative: the statement stops at its next check, made by the SQL and openCypher operators that loop
@@ -1341,6 +1376,14 @@ are send in the body.
 
 NOTE: Even though a `POST` method is used, the query in `command` has to be idempotent.
 
+_(Since v26.10.2.)_ A SQL statement is classified by everything it runs, not only by its outermost statement. A write
+nested in a `LET`, a projection, a `FROM` subquery, a `CASE`, a `RETURN` or a script block (`IF`, `FOREACH`, `WHILE`)
+makes the whole statement a write, so `/api/v1/query` refuses it with `400` (the query is not idempotent) and writes
+nothing, for example `SELECT FROM Account LET $x = (INSERT INTO Log SET a = 1)` or `SELECT FROM (INSERT INTO Log SET a = 1)`.
+Send such a statement to <<http-executecommand,`/api/v1/command`>>. A nested read, such as
+`SELECT $c FROM Account LET $c = (SELECT count(*) FROM Account)`, still runs. In v26.10.1 and earlier these nested
+writes ran through the query endpoint.
+
 NOTE: _(since v26.10.1)_ `POST /api/v1/query` runs without an implicit transaction, like `GET /api/v1/query`, so a full scan of a large type can use several threads and is as fast as with `GET`. Inside a session (`/begin`) a scan stays sequential to keep it consistent with the transaction. `POST /api/v1/command` still runs in a transaction.
 
 `EXPLAIN` is answered the same way by the `GET` and the `POST` variants and by `/api/v1/command`: the plan arrives
@@ -1356,12 +1399,29 @@ milliseconds (default 5000, `0` disables), so a client that bounds silence does 
 Consumers must ignore blank lines, which the Java driver does. The Java driver fails a stream after
 `arcadedb.network.socketTimeout` of silence, with a minimum of 30 seconds, as for any other call.
 
+A failure after the stream has started cannot change the `200` status line, so it is reported in-band as a last
+`error` line instead of the `stats` trailer: `{"error": {...}}`. It carries what the buffered response would have
+answered the same failure with:
+
+* `message`: the failure's own message outside production mode. _(Since v26.10.2)_ in `production` server mode it is
+the classified label, as the buffered response conceals the raw text;
+* `status`: the HTTP status the buffered response would have used, and `exception` / `exceptionArgs` (the latter only
+when the failure has structured arguments, such as a duplicated key's index, keys and RID);
+* _(since v26.10.2)_ `error`, the classified label (for example `Cannot execute command`), `requestId` when the request
+carried one, `detail`, the cause chain, outside production mode only, and `retryAfter`, the integer number of seconds
+the buffered response would have sent as `Retry-After`, present only on a retryable refusal (a `503`, or a `409` for a
+request with the same `X-Request-Id` still in flight).
+
+Key on `status`, `exception` and `retryAfter` rather than parsing `message`. A stream that ends with neither a `stats`
+nor an `error` line did not arrive complete.
+
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
 * https://httpstatuses.io/400[`400`] invalid language, invalid query
 * https://httpstatuses.io/403[`403`] invalid credentials
-* https://httpstatuses.io/400[`500`] database does not exist, cannot execute query
+* https://httpstatuses.io/404[`404`] database does not exist (`Database not found`)
+* https://httpstatuses.io/500[`500`] cannot execute query
 * https://httpstatuses.io/503[`503`] the server is busy and the query can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
 * https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
 * https://httpstatuses.io/404[`404`] the database was dropped or closed (`DROP DATABASE`, `CLOSE DATABASE`) while the request was running (`DatabaseIsClosedException`)
@@ -1628,6 +1688,7 @@ Responses:
 * https://httpstatuses.io/400[`400`] missing body, missing or out-of-range argument, unknown index or wrong index type (the message lists the available indexes), invalid filter expression
 * https://httpstatuses.io/401[`401`] missing or invalid credentials
 * https://httpstatuses.io/403[`403`] the user has no access to the database
+* https://httpstatuses.io/404[`404`] the database does not exist (`{"error": "Database not found"}`). A user without a grant on that name gets the `403` instead, so the answer does not reveal which databases exist
 
 The route runs without a transaction. A `400` caused by a bad argument does not roll back a transaction the client opened with <<http-begin,`/begin`>>.
 
@@ -1695,6 +1756,7 @@ Responses:
 * https://httpstatuses.io/400[`400`] missing body, missing or out-of-range argument, unknown index, edge type or strategy, half a full-text leg, `expand` with a strategy other than `RRF` or on a non-vertex type, invalid filter or full-text query
 * https://httpstatuses.io/401[`401`] missing or invalid credentials
 * https://httpstatuses.io/403[`403`] the user has no access to the database
+* https://httpstatuses.io/404[`404`] the database does not exist (`{"error": "Database not found"}`). A user without a grant on that name gets the `403` instead, so the answer does not reveal which databases exist
 
 Example:
 
@@ -1762,6 +1824,7 @@ Responses:
 * https://httpstatuses.io/400[`400`] missing body, blank `queryText`, `limit` out of range, no index addressed, unknown or ambiguous index (the message lists the available full-text indexes), invalid Lucene syntax
 * https://httpstatuses.io/401[`401`] missing or invalid credentials
 * https://httpstatuses.io/403[`403`] the user has no access to the database
+* https://httpstatuses.io/404[`404`] the database does not exist (`{"error": "Database not found"}`). A user without a grant on that name gets the `403` instead, so the answer does not reveal which databases exist
 
 Example:
 
@@ -2074,7 +2137,7 @@ Send `Accept: application/x-ndjson` to be answered as the load runs instead of o
 
 Each `progress` line acknowledges a committed chunk and carries the temporary-ID mapping *for that chunk only*. Concatenate them to obtain the whole mapping, and check the total against `idMappingSize` on the last line. Because neither side ever holds more than one chunk, the 10,000-entry limit above does not apply here: a load of any size gets its complete mapping.
 
-The stream always ends with either a `summary` line (success) or an `error` line (failure); a stream that ends with neither did not arrive complete. On failure the `error` line carries the same counters the buffered response would have, plus the status code it would have been sent under, since the status line can no longer be changed once the stream has started.
+The stream always ends with either a `summary` line (success) or an `error` line (failure); a stream that ends with neither did not arrive complete. On failure the `error` line carries the same counters the buffered response would have (`verticesCreated`, `edgesCreated`, `partialCommit`), plus `status`, the status code it would have been sent under, since the status line can no longer be changed once the stream has started, and the members of the buffered error body (`error`, `exception`, `exceptionArgs`, `requestId`, and `detail` outside production mode). _(Since v26.10.2)_ a retryable refusal also carries `retryAfter`, the integer seconds the buffered response would have sent as `Retry-After` (a `503`, or a `409` for a request still in flight).
 
 Sending no `Accept` header, or any other value, returns the single buffered object described above, unchanged.
 

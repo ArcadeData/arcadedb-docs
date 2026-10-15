@@ -669,13 +669,26 @@ SELECT dob.convert( 'date' ) FROM User
 [[exclude]]
 ====== exclude()
 
-Excludes some properties in the resulting document.
+Answers a map with every property of the value except the excluded ones.
 
 Syntax: `&lt;value&gt;.exclude(&lt;field-name&gt;[,]*)`
 
 Applies to the following types:
 
-- document record
+- record (document, vertex or edge)
+- map
+- result row
+- collection of the above (each element is projected, and the answer is a list of maps)
+
+The answer is always a map, never a record. It carries no `@rid`, `@type` or `@cat` unless one of the names is a
+metadata field: `exclude('@cat', 'secret')` answers `@rid`, `@type` (and `@in`/`@out` on an edge) together with the
+properties. Because the answer is a value, `UPDATE ... SET copy = @this.exclude('secret')` stores it as an embedded map,
+and a chained access such as `@this.exclude('secret').name` reads the map. A graph traversal like `.out()` needs the
+record, so call it before projecting: `out().exclude('secret')`, not `exclude('secret').out()`.
+
+_(Since v26.10.2.)_ In v26.10.1 and earlier the answer was a record copy carrying the source RID (or a map when a
+metadata name was given), `UPDATE ... SET x = @this.exclude(..)` stored a link back to the record, and an edge raised
+`Cannot copy an edge`.
 
 *Examples*
 
@@ -842,13 +855,21 @@ SELECT name.ifnull("John Doe") FROM names
 [[include]]
 ====== include()
 
-Include only some properties in the resulting document.
+Answers a map with only the included properties of the value.
 
 Syntax: `&lt;value&gt;.include(&lt;value&gt;[,]*)`
 
 Applies to the following types:
 
-- document record
+- record (document, vertex or edge)
+- map
+- result row
+- collection of the above (each element is projected, and the answer is a list of maps)
+
+As with <<exclude,`exclude()`>>, the answer is always a map with no `@rid`, `@type` or `@cat` unless one of the names
+is a metadata field (`include('@rid', 'name')`). A name the value does not have answers a `null` entry. A chained access
+reads the map, so `@this.include('n', 'm').m` works, but a graph traversal such as `.out()` must come before the
+projection. _(Since v26.10.2; v26.10.1 and earlier answered a record copy carrying the source RID.)_
 
 *Examples*
 
@@ -857,7 +878,7 @@ Applies to the following types:
 SELECT expand( @this.include('name') ) FROM User
 ----
 
-You can specify a wildcard as ending character to inclide all the fields that start with a certain string.
+You can specify a wildcard as ending character to include all the fields that start with a certain string.
 Example to include all the fields that starts with `amount`:
 
 [source,sql]

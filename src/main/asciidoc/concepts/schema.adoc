@@ -143,6 +143,20 @@ SELECT name, purpose FROM schema:buckets WHERE purpose <> 'PRIMARY'
 
 External buckets show `purpose: 'EXTERNAL_PROPERTY'`.
 
+_(Since v26.10.2)_ a paired bucket belongs to its type for security and locking:
+
+* It carries the type's permissions (see <<groups,Groups>>). A user who may read the type reads its EXTERNAL values, and one refused read, update or delete on the type is refused on the paired bucket too. A user allowed to update the type may store and clear EXTERNAL values through an `UPDATE`, which creates or deletes the external record behind them, without holding `createRecord` or `deleteRecord`. A direct insert into an `_ext` bucket is refused for every user, `root` included.
+* `LOCK TYPE` and `LOCK BUCKET` on a primary bucket also lock its paired bucket, and so does a lock on a parent type for its subtypes' paired buckets.
+
+In v26.10.1 and earlier an `_ext` bucket ignored the type's permissions, so a refused user could reach the values by addressing the bucket directly, and a write of an EXTERNAL value under an explicit `LOCK TYPE` failed at commit with `not all the modified resources were locked`.
+
+[[sql-external-properties-inheritance]]
+*Subtypes and embedded documents*
+
+A subtype that inherits an EXTERNAL property has paired buckets of its own, and _(since v26.10.2)_ its records store the value there, as the parent's records do in the parent's paired buckets. In v26.10.1 and earlier a subtype record stored an inherited EXTERNAL value inline. Records written that way stay inline after the upgrade, and are read correctly, until they are next written or until you run `REBUILD TYPE <Subtype>`, which moves their values to the paired buckets.
+
+An embedded document has no bucket of its own, so the EXTERNAL values of an embedded document's type are stored inline in the owner record. In v26.10.1 and earlier saving such an embedded document failed with `record has no target bucket`.
+
 [[sql-external-properties-compression]]
 *Compression*
 

@@ -43,7 +43,7 @@ For strings it represents the maximum number of characters.
 For dates is the maximum date (uses the database date format).
 For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
 ** `regexp &lt;string&gt;` Defines the mask to validate the input as a Regular Expression.
-A pattern is matched against the text form of the value; a `LINK` is matched as the RID of the record it points to (e.g. `#12:0`). _(Since v26.10.2)_ It is refused when it is declared if no value could ever pass it: on a `BINARY`, `LIST`, `MAP`, `EMBEDDED` or `ARRAY_OF_*` property, on a `BOOLEAN` when it matches neither `true` nor `false`, when it is not a valid regular expression, or when no value of the type can be written as a text it matches. A pattern on a number, a date or a link is allowed when some value can match it (e.g. `'[0-9]{5}'` on a `LONG`, `'#12:.*'` on a `LINK`) and refused otherwise (e.g. `'[0-9]{25}'` on a `LONG`, which has at most 19 digits). A pattern using back references or look-arounds that cannot be settled is accepted with a warning. A database that already holds a refused declaration still opens with a warning, and a write of such a property is refused with a message naming `ALTER PROPERTY ... REGEXP null`, which removes it.
+A pattern is matched against the text form of the value; a `LINK` is matched as the RID of the record it points to (e.g. `#12:0`). _(Since v26.10.2)_ It is refused when it is declared if no value could ever pass it: on a `BINARY`, `LIST`, `MAP`, `EMBEDDED` or `ARRAY_OF_*` property, on a `BOOLEAN` when it matches neither `true` nor `false`, when it is not a valid regular expression, or when no value of the type can be written as a text it matches. A pattern on a number, a temporal type or a link is allowed when some value can match it (e.g. `+'[0-9]{5}'+` on a `LONG`, `'#12:.*'` on a `LINK`) and refused otherwise (e.g. `'[A-Z]+'` on a `LONG` or a `DATE`, `+'[0-9]{5}'+` on a `BYTE`, or `+'[0-9]{25}'+` on a `LONG`, which has at most 19 digits). The same check runs in `CREATE PROPERTY`, `ALTER PROPERTY ... REGEXP` and the Java `Property.setRegexp()`. A pattern the check cannot settle within its search budget (back references, look-arounds, or a pattern such as `'[0-9]+,[0-9]+'` on a `LONG`) is accepted with a WARNING in the server log naming `ALTER PROPERTY ... REGEXP null`. The check judges a `DATE` or `DATETIME` by the `arcadedb.dateImplementation` in effect when the property is declared. A database that already holds a refused declaration still opens with a warning, and a write of such a property is refused with a message naming `ALTER PROPERTY ... REGEXP null`, which removes it.
 ** `default <any>` Defines the value to use when the property is not present.
 The value is an *SQL expression*, evaluated once per new record, not a literal: write `default 'active'` for the string `active`, since an unquoted `active` is a field reference.
 The expression is compiled and validated when the property is declared, so a malformed one is rejected right there rather than silently producing garbage on every record.
@@ -185,8 +185,11 @@ ArcadeDB supports the following data types for standard properties:
 |===
 | `BOOLEAN` | `BYTE` | `SHORT` | `INTEGER` | `LONG`
 | `STRING` | `LINK` | `BINARY` | `DATE` | `DATETIME`
-| `FLOAT` | `DOUBLE` | `DECIMAL` | |
+| `FLOAT` | `DOUBLE` | `DECIMAL` | `ZONED_DATETIME` | `DURATION`
+| `DATETIME_SECOND` | `DATETIME_MICROS` | `DATETIME_NANOS` | `LOCAL_TIME` | `OFFSET_TIME`
 |===
+
+`LOCAL_TIME`, `OFFSET_TIME`, `ZONED_DATETIME` and `DURATION` are available since v26.10.2 (see <<managing-dates,Managing Dates>>).
 
 It supports the following data types for container properties:
 
@@ -235,7 +238,7 @@ ALTER PROPERTY <type-name>.<property-name> NAME <new-property-name>
     For dates is the maximum date (uses the database date format).
     For collections (lists, sets, maps) this attribute determines the maximally allowed number of elements.
  ** `regexp <string>` Defines the mask to validate the input as a Regular Expression.
-    Refused when no value of the property could pass it, as for <<sql-create-property,`CREATE PROPERTY`>>.
+    Refused when no value of the property's type could pass it, including a number or temporal type (`'[A-Z]+'` on a `LONG` or a `DATE`), as for <<sql-create-property,`CREATE PROPERTY`>>. A pattern the check cannot settle is accepted with a WARNING.
  ** `default <any>` Defines the value to use when the property is not present, as an *SQL expression* evaluated once per new record.
     Quote a literal (`default 'active'`); an unquoted `active` is a field reference and is rejected.
     A default that evaluates to `null` is equivalent to no default at all - see <<sql-create-property,`CREATE PROPERTY`>>.
@@ -332,4 +335,3 @@ For more information, see:
 
 * <<sql-alter-property,`ALTER PROPERTY`>>
 * <<sql-create-property, `CREATE PROPERTY`>>
-

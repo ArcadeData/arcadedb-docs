@@ -56,6 +56,7 @@ ArcadeDB exposes metrics for:
 * **JVM** -- Heap usage, GC pauses, thread count
 * **Backup** -- Point-in-time window activity (see below)
 * **Time series reads** -- How much data each query actually had to read (see below)
+* **High availability** -- Raft layer restarts and the HA worker pools (see below)
 
 ====== Disk space
 
@@ -124,6 +125,48 @@ summaries cannot narrow, or because the blocks predate the summary they would ne
 
 These counters are collected only while metrics are enabled; with metrics off the read path is unchanged and
 nothing is measured.
+
+[[monitoring-ha]]
+====== High availability
+
+On a node running HA, these metrics are published in addition to the schema full-load metrics described under
+<<ha-schema-full-load>>. _(Since v26.10.2)_
+
+[%header,cols="45%,55%"]
+|===
+| Metric | Meaning
+
+| `arcadedb_ha_in_place_restarts_recovered_total`
+| Times this node restarted its Raft layer in place and kept its Raft log, since the process started.
+
+| `arcadedb_ha_in_place_restarts_reformatted_total`
+| Times this node restarted its Raft layer in place and reformatted its Raft storage, rejoining through a snapshot.
+|===
+
+The same two counts are in `localInPlaceRestarts` on `GET /api/v1/cluster`. A rising `reformatted` count means a follower
+keeps losing its log; see <<ha-in-place-restart>>.
+
+The worker pools of the HA layer are published as `+arcadedb.executor.*+` rows, like the server's other pools, with the
+`pool` tag set to `snapshot_install`, `channel_recovery`, `stalled_resync`, `database_deleter` or `sm_lifecycle` (next to
+`security_seed` and `security_catch_up`). They are also shown in Studio's Executor Pools card. Two gauges say what a full
+pool did with the work it could not queue:
+
+[%header,cols="45%,55%"]
+|===
+| Metric | Meaning
+
+| `arcadedb_executor_tasks_rejected`
+| Tasks refused and dropped: `snapshot_install` (Ratis retries the install) and `channel_recovery`. Lost work, shown highlighted in the Studio *Rejected* column when it is not zero.
+
+| `arcadedb_executor_tasks_coalesced`
+| Tasks skipped because the same work was already queued or running: `channel_recovery`, `security_seed`, `security_catch_up`.
+|===
+
+`stalled_resync` and `database_deleter` run a task on the caller's thread when they are full, which
+`arcadedb_executor_tasks_caller_run_fallbacks` counts; `sm_lifecycle` has an unbounded queue, so its queue depth is the
+signal. The pools owned by the Raft state machine (`snapshot_install`, `sm_lifecycle`, `database_deleter`,
+`security_seed`, `security_catch_up`) get new counters when the Raft layer is restarted in place, which a Prometheus
+`rate()` reads as a counter reset.
 
 ===== Periodic Metric Dumps
 

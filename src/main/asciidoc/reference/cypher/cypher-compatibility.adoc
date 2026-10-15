@@ -217,13 +217,20 @@ Since v26.10.1. Before, `=`, `<>` and `IN` compared the instant only and called 
 ====
 
 [[cypher-temporal-storage]]
-===== Stored TIME, LOCAL TIME and DURATION Values
+===== Stored TIME, LOCAL TIME, Zoned DATETIME and DURATION Values
 
-ArcadeDB has no native storage type for `TIME`, `LOCAL TIME` and `DURATION`, so openCypher stores them as their ISO-8601
-text (for example `10:35-08:00` or `PT1M30.5S`) and turns that text back into a temporal value when a property is
-read. A property declared `STRING` in the schema is never converted: it always reads back as the string that was
-stored, so values such as an opening-hours range `'09:00-17:00'` or a code `'P100D'` compare, filter and sort as
-strings. Declare a property `STRING` when its values may look like a time or a duration but are plain text.
+_(Since v26.10.2.)_ ArcadeDB stores `time()`, `localtime()`, a zoned `datetime()` and `duration()` values natively, in
+the property types `OFFSET_TIME`, `LOCAL_TIME`, `ZONED_DATETIME` and `DURATION` (see
+<<managing-dates,Managing Dates>>). A value reads back as what it was written as, with no guessing from its text, so a
+String such as an opening-hours range `'09:00-17:00'` or a code `'P100D'` stays a String and compares, filters and sorts
+as one.
+
+In v26.10.1 and earlier these values were stored as their ISO-8601 text (for example `10:35-08:00` or `PT1M30.5S`) and
+turned back into a temporal value by their shape when an undeclared property was read. A database written by those
+versions keeps that reading after the upgrade until `CALL db.migrateLegacyTemporals()` converts the stored text to the
+native types (see <<cypher-temporal-migration,Migrating Cypher Temporals Stored as Strings>>). Until then, declare a
+property `STRING` when its values may look like a time or a duration but are plain text: a declared `STRING` is never
+converted.
 
 The `millisecond`, `microsecond` and `nanosecond` fields of `time()`, `localtime()`, `datetime()`, `localdatetime()`
 and the `*.truncate()` functions must each fit in their own range, as in Neo4j: `millisecond` 0-999, `microsecond`
