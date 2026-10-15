@@ -19,8 +19,8 @@ Enable it by adding the plugin to the `arcadedb.server.plugins` setting, then st
 
 The format is `<pluginName>:<pluginFullClass>` (comma-separated when registering several plugins). Once enabled, the server listens on port `50051` by default. Confirm it started by looking for a `gRPC server started` line in the server log, or with `grpcurl -plaintext localhost:50051 list`.
 
-Host, port, TLS, message size and the other gRPC options are configured through `arcadedb.grpc.*` system properties - see <<grpc-settings,gRPC settings>> for the full list. These plugin-level options are read as JVM system properties (`-Darcadedb.grpc.*`) and, unlike `arcadedb.server.plugins`, are not resolved from environment variables. _(Since v26.10.2.)_
-`arcadedb.grpc.host` binds the standard gRPC server to every local address the name resolves to (in v26.10.1 and earlier
+Host, port, TLS, message size and the other gRPC options are the `arcadedb.grpc.*` settings - see <<grpc-settings,gRPC settings>> for the full list. Since v26.10.2 every one of them is a registered server setting, read like `arcadedb.server.plugins` from the server configuration file, from environment variables and from JVM system properties (`-Darcadedb.grpc.*`). In v26.10.1 and earlier only `arcadedb.grpc.port` was; the others were read as JVM system properties only, so a `grpc.tls.enabled` written in the configuration file was ignored.
+_(Since v26.10.2.)_ `arcadedb.grpc.host` binds the standard gRPC server to every local address the name resolves to (in v26.10.1 and earlier
 it was read but never applied, so the server listened on every interface); the xDS server (`grpc.mode` `xds` or
 `both`) has no host setting and still listens on every interface.
 
@@ -203,7 +203,7 @@ never case-folded. The Java client exposes the two forms as `createDatabase` / `
 |===
 | RPC | Request | Response | Description
 
-| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user
+| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user. A name already taken is `ALREADY_EXISTS` _(since 26.10.2; in 26.10.1 and earlier `PERMISSION_DENIED`, the status of an authorization refusal)_
 | `UpdateUser` | `UpdateUserRequest` | `UpdateUserResponse` | _Since 26.10.1._ Update a user's `password` and/or `databases` grants. Each field is optional and an absent one is left untouched; a present but empty `databases` clears the grants
 | `DeleteUser` | `DeleteUserRequest` | `DeleteUserResponse` | Delete a user
 | `ListUsers` | `ListUsersRequest` | `ListUsersResponse` | _Since 26.10.1._ List users with their per-database groups. Password hashes are never included
@@ -238,7 +238,7 @@ never case-folded. The Java client exposes the two forms as `createDatabase` / `
 | `DeleteBackup` | `DeleteBackupRequest` | `DeleteBackupResponse` | _Since 26.10.1._ Delete one archive by plain file name (path separators and traversal are refused)
 | `RestoreBackup` | `RestoreBackupRequest` | stream `RestoreProgress` | _Since 26.10.1._ Restore a database's backup archive into `target_database`; `overwrite` replaces an existing target only after the restore succeeded
 | `RestoreDatabase` | `RestoreDatabaseRequest` | stream `RestoreProgress` | _Since 26.10.1._ Create a new database from an archive at a `url`
-| `ImportDatabase` | `ImportDatabaseRequest` | stream `ImportProgress` | _Since 26.10.1._ Create a new database and import the source at a `url` into it; progress carries importer lines and `parsed` / `vertices` / `edges` counters
+| `ImportDatabase` | `ImportDatabaseRequest` | stream `ImportProgress` | _Since 26.10.1._ Create a new database and import the source at a `url` into it; progress carries importer lines and `parsed` / `vertices` / `edges` counters. A name already taken is `ALREADY_EXISTS` _(since 26.10.2; in 26.10.1 and earlier `INVALID_ARGUMENT`)_
 |===
 
 The three restore and import RPCs are server-streaming: they send progress messages while the operation runs, then
@@ -270,8 +270,8 @@ hosts are accepted. See also <<backup,Backup>>.
 | `GetServerEvents` | `GetServerEventsRequest` | `GetServerEventsResponse` | _Since 26.10.1._ Server events as a JSON array, from the current event file or a named one, plus the list of event files
 | `Shutdown` | `ShutdownRequest` | `ShutdownResponse` | _Since 26.10.1._ Shut down this server (empty `server_name`) or the named HA peer. The local shutdown is scheduled asynchronously, so the response arrives first
 | `DisconnectCluster` | `DisconnectClusterRequest` | `DisconnectClusterResponse` | _Since 26.10.1._ Disconnect this server from the cluster. `FAILED_PRECONDITION` when the server does not run HA
-| `AcceptDivergedDatabase` | `AcceptDivergedDatabaseRequest` | `AcceptDivergedDatabaseResponse` | _Since 26.10.2._ Root only. Lifts the quarantine, and its read floor, standing on `database` of a node that is the only voter of its cluster (or whose every voter holds the same database quarantined), accepting the local copy as it is without a resync. The response carries `local_server`, `applied_index`, `divergence_cause` and `read_floor`. `NOT_FOUND` when nothing stands on the database, `FAILED_PRECONDITION` when the node has peers it can resync from or runs without HA, `INVALID_ARGUMENT` on a malformed name. The RPC twin of `POST /api/v1/cluster/accept-diverged/{database}`, see <<howto-high-availability,High Availability>>
-| `AcceptStaleSnapshot` | `AcceptStaleSnapshotRequest` | `AcceptStaleSnapshotResponse` | _Since 26.10.2._ Root only. Lifts the node-wide stale-snapshot read floor of a node that is the only voter of its cluster, accepting its databases as they are without a resync. The response carries `local_server`, `read_floor`, `snapshot_index` and `applied_index`. `NOT_FOUND` when no floor stands, `FAILED_PRECONDITION` when the node has peers it can resync from, while a snapshot download runs, or without HA. The RPC twin of `POST /api/v1/cluster/accept-stale-snapshot`
+| `AcceptDivergedDatabase` | `AcceptDivergedDatabaseRequest` | `AcceptDivergedDatabaseResponse` | _Since 26.10.2._ Root only. Lifts the quarantine, and its read floor, standing on `database` of a node that is the only voter of its cluster (or whose every voter holds the same database quarantined), accepting the local copy as it is without a resync. The response carries `local_server`, `applied_index`, `divergence_cause` and `read_floor`. `NOT_FOUND` when nothing stands on the database, `FAILED_PRECONDITION` when the node has peers it can resync from or runs without HA, `INVALID_ARGUMENT` on a malformed name. The RPC twin of `POST /api/v1/cluster/accept-diverged/{database}`, see <<ha-accept-diverged,Lifting a quarantine without a resync>>
+| `AcceptStaleSnapshot` | `AcceptStaleSnapshotRequest` | `AcceptStaleSnapshotResponse` | _Since 26.10.2._ Root only. Lifts the node-wide stale-snapshot read floor of a node that is the only voter of its cluster, accepting its databases as they are without a resync. The response carries `local_server`, `read_floor`, `snapshot_index` and `applied_index`. `NOT_FOUND` when no floor stands, `FAILED_PRECONDITION` when the node has peers it can resync from, while a snapshot download runs, or without HA. The RPC twin of `POST /api/v1/cluster/accept-stale-snapshot`, see <<ha-accept-stale-snapshot,Lifting the stale-snapshot read floor>>
 | `ConnectCluster` | `ConnectClusterRequest` | `ConnectClusterResponse` | _Since 26.10.1._ Join the server at `server_address` (an `arcadedb.ha.serverList` entry) to the cluster. `FAILED_PRECONDITION` when HA is not running or cannot change membership at runtime; empty address is `INVALID_ARGUMENT`
 | `ListSessions` | `ListSessionsRequest` | `ListSessionsResponse` | _Since 26.10.1._ Open HTTP authentication sessions, including their bearer tokens. Enable TLS before calling it across an untrusted network
 |===

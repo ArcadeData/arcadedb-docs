@@ -225,6 +225,13 @@ introduces: it is bound when the *whole* pattern matches and NULL when it does n
 is a zero-length path on the rows where `x` has an outgoing `KNOWS`, and NULL on the rows where it has none -
 even though `(x)` on its own would always match.
 
+*Returning a path.* A path returned as it is reaches the client as one path value, whether a `MATCH` pattern,
+`shortestPath()`, `allShortestPaths()`, a path procedure or `apoc.path.create`/`slice`/`combine` built it. A Bolt driver
+receives a `Path`. Over HTTP, gRPC and the PostgreSQL protocol, which have no path type, it is the object
+`{"_type": "path", "nodes": [...], "relationships": [...], "length": n}`, with every node and relationship written whole,
+and Studio's graph view draws its nodes and relationships. _(Since v26.10.2)_ In 26.10.1 and earlier a `MATCH` path was
+sent over HTTP, gRPC and PostgreSQL as its text form. See <<graph-algo-path-value>>.
+
 ---
 
 [[cypher-optional-match]]
@@ -987,6 +994,8 @@ Execution will use step-by-step interpretation
 
 The `PROFILE` clause executes the query and returns performance metrics along with the actual results. Unlike `EXPLAIN` which only shows the plan, `PROFILE` runs the query and provides real execution statistics.
 
+Because it runs the query, a `PROFILE` of a write (`CREATE`, `MERGE`, `SET`, `DELETE`, ...) is refused on the read-only path (`query()`, `/api/v1/query`) exactly like the bare write; profile it through `command()` or `POST /api/v1/command`. `EXPLAIN` never runs the query and is accepted on either path. _(Since v26.10.2)_
+
 *Syntax:*
 
 [source,cypher]
@@ -1707,7 +1716,7 @@ When the property is already declared with another type, `IS TYPED <type>` (or `
 * `MIN` and `MAX` when both types measure the same thing (characters, bytes, items, a numeric value or a date) and the new type can hold the bound, so `max 4` moves from `INTEGER` to `LONG` but not from `STRING` to `LONG`, and `max 2.5` does not move onto an `INTEGER`;
 * `DEFAULT` when it converts to the new type without changing its value (a `DOUBLE` default `3.0` moves onto a `LONG`, `3.7` does not).
 
-Otherwise the statement is refused with an error naming each attribute that blocks it, and the declaration is left unchanged: remove or change the attribute with `ALTER PROPERTY` first. In v26.10.1 and earlier these attributes were copied onto the new type as they were, so a `STRING` property with `regexp '[A-Z]+'` re-typed to `LONG` refused every value.
+Otherwise the statement is refused with an error naming each attribute that blocks it, and the declaration is left unchanged: remove or change the attribute with `ALTER PROPERTY` first. The stored records are then checked against the new declaration, as <<sql-create-property,`CREATE PROPERTY`>> checks them: if a record holds a value of another type, or breaks a kept `NOT NULL`, `MANDATORY`, `REGEXP`, `MIN` or `MAX`, the constraint is refused and the previous declaration is put back. In v26.10.1 and earlier the property was dropped and recreated with the new type alone, so every other attribute was lost without a warning (a `REQUIRE n.code IS NOT NULL` followed by `REQUIRE n.code IS :: INTEGER` left `code` optional), and the stored records were not checked.
 
 NOTE: Following Cypher 25 / GQL, `INTEGER` is the 64-bit generic integer type while `INT` is the alias for the 32-bit `INT32`. A property declared `IS TYPED INT` therefore holds 32-bit values; use `IS TYPED INTEGER` (or `INT64`) for 64-bit values.
 

@@ -608,6 +608,7 @@ Responses:
 * https://httpstatuses.io/400[`400`] invalid command
 * https://httpstatuses.io/403[`403`] invalid credentials
 * https://httpstatuses.io/404[`404`] the command names a database this server does not have
+* https://httpstatuses.io/409[`409`] the name is taken: `create database` on an existing database (`"error": "Database already exists"`) or `create user` on an existing user (`"error": "User already exists"`) _(Since v26.10.2)_
 * https://httpstatuses.io/400[`500`] invalid JSON request body
 
 NOTE: Since 26.10.1, a command naming a database that does not exist - `open database nosuchdb`, for example -
@@ -650,6 +651,10 @@ Return:
 ----
 {"result": "ok"}
 ----
+
+If a database with that name already exists, the command fails with `409` and `"error": "Database already exists"`;
+the label stays readable in production mode, where `detail` is concealed. _(Since v26.10.2)_ In 26.10.1 and earlier it
+answered `400`. Restoring a backup into a name that is taken (`restore database`, or `restore backup` without overwrite) still answers `400`.
 
 ====== Drop database
 
@@ -747,6 +752,11 @@ Return:
 ----
 {"result": "ok"}
 ----
+
+If a user with that name already exists, the command fails with `409` and `"error": "User already exists"`, on a single
+server and on a cluster alike; `POST /api/v1/server/users` answers the same. _(Since v26.10.2)_ In 26.10.1 and earlier it
+answered `403` with `"error": "Security error"`, the status a non-root caller gets, so the two could only be told apart
+by the message text.
 
 ====== Drop user
 
@@ -914,8 +924,8 @@ Since 26.10.2 a client can see what the server is running, stop one statement, a
 really stopped working on it. A benchmark harness or a coordinator that gives up on a query (its own deadline, a killed
 client process) uses this to free the server before it runs the next one.
 
-The list covers every protocol, not only HTTP: statements received over PostgreSQL, Bolt, gRPC, MongoDB, Redis and the
-Gremlin Server are listed and stopped the same way, and the same registry answers the Cypher
+The list covers every protocol, not only HTTP: statements received over PostgreSQL, Bolt, gRPC, MongoDB, Redis, the
+Gremlin Server and MCP (see <<mcp-running-tool-calls>>) are listed and stopped the same way, and the same registry answers the Cypher
 <<cypher-show-transactions,`SHOW TRANSACTIONS` and `TERMINATE TRANSACTIONS`>> commands and the Studio
 <<studio-server-running-queries,Running Queries>> tab.
 
@@ -1306,7 +1316,7 @@ Responses:
 * https://httpstatuses.io/201[`201`] created - the token is in `result.token`
 * https://httpstatuses.io/400[`400`] missing name or malformed permissions
 * https://httpstatuses.io/403[`403`] forbidden (non-root user)
-* https://httpstatuses.io/409[`409`] a token with that name already exists
+* https://httpstatuses.io/409[`409`] a token with that name already exists. _(Since v26.10.2)_ the body also names the exception in `exception`, like the other error bodies
 * https://httpstatuses.io/412[`412`] the request did not arrive over a protected transport and
   `arcadedb.server.apiTokenRequireSecureTransport` is on _(since v26.10.1)_
 

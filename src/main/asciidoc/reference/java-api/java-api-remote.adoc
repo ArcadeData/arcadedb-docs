@@ -12,15 +12,27 @@ The server administration calls (databases, users, groups and API tokens) prefer
 _(Since v26.10.2.)_ `acceptDivergedDatabase(databaseName)` and `acceptStaleSnapshot()` are the operator overrides for a
 node of a replicated cluster that has no peer left to resync from. Both are root only and accept the node's local copy
 as the truth without a resync, so the entries that were skipped are not replayed. `acceptDivergedDatabase` lifts the
-quarantine, and its read floor, standing on one database of a node that is the only voter of its cluster, through
-`POST /api/v1/cluster/accept-diverged/{database}`; it returns `result`, `database`, `localServer` and `appliedIndex`,
-plus `divergenceCause` and `readFloor` when they stood. `acceptStaleSnapshot` lifts the node-wide stale-snapshot read
-floor, through `POST /api/v1/cluster/accept-stale-snapshot`, and returns `result`, `localServer`, `readFloor`,
-`snapshotIndex` and `appliedIndex`. The server answers `404` when nothing stands to be lifted and `409` when the node is
-not the sole voter, where a resync from a peer is the way out. The gRPC client `RemoteGrpcServer` has the same two
-methods, returning the `AcceptDivergedDatabaseResponse` and `AcceptStaleSnapshotResponse` messages and raising its
-not-found and failed-precondition errors for the same cases (see <<grpc-api,gRPC API>>). When to use them is described
-in <<howto-high-availability,High Availability>>.
+quarantine, and its read floor, standing on one database, through `+POST /api/v1/cluster/accept-diverged/{database}+`.
+It is allowed on a node that is the only voter of its cluster, or when every voter holds the same database quarantined,
+since no node then has a copy to resync from. It returns `result`, `database`, `localServer` and `appliedIndex`, plus
+`divergenceCause` and `readFloor` when they stood. `acceptStaleSnapshot` lifts the node-wide stale-snapshot read floor,
+through `POST /api/v1/cluster/accept-stale-snapshot`, on a sole voter only, and returns `result`, `localServer`,
+`readFloor`, `snapshotIndex` and `appliedIndex`. The server answers `404` when nothing stands to be lifted (for
+`acceptDivergedDatabase`, when the database carries no quarantine and no read floor) and `409` where a resync from a
+peer is still the way out; `acceptStaleSnapshot` also answers `409` while a snapshot download is running. The gRPC
+client `RemoteGrpcServer` has the same two methods, returning the `AcceptDivergedDatabaseResponse` and
+`AcceptStaleSnapshotResponse` messages and raising its not-found and failed-precondition errors for the same cases (see
+<<grpc-api,gRPC API>>). When to use them is described in <<ha-accept-diverged,Lifting a quarantine without a resync>>
+and <<ha-accept-stale-snapshot,Lifting the stale-snapshot read floor>>.
+
+_(Since v26.10.2.)_ A create refused because the name is already taken raises
+`com.arcadedb.remote.RemoteAlreadyExistsException`: a user (`createUser`), an API token (`createApiToken`) or a
+database (`create`). The server answers these with `409 Conflict`, and the gRPC server with `ALREADY_EXISTS`;
+`RemoteGrpcServer` raises the same exception from `createUser`, `createApiToken` and `createDatabase`, where it used to
+report a duplicated key (or, for `createDatabase`, a plain `RuntimeException`). It extends `RemoteException`, so code
+that caught `RemoteException` for these cases keeps working, and a provisioning tool can catch it to treat "already
+there" as success. In 26.10.1 and earlier a taken user name answered `403` (`Security error`) and a taken database name
+`400`. Restoring a backup into a database name that is taken still answers `400`.
 
 [[remote-database]]
 ==== RemoteDatabase Class
