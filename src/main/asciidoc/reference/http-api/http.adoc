@@ -293,6 +293,17 @@ chunk still goes in. A session the client walks away from - the connection drops
 `server.wsInsertSessionExpireTimeout` milliseconds - is rolled back, and the idle case is reported with an unsolicited
 `error` frame.
 
+The counters are what the engine wrote, not what the session handed it. A record that a `BeforeRecordCreateListener` or a
+`BeforeRecordUpdateListener` vetoed was refused on purpose, so it is neither `inserted` or `updated` nor `failed`: it is
+counted as `ignored`, the same way the gRPC loader counts it. Under `conflictMode: update` a vetoed update does not fall
+through to inserting a second record for the key. A client that resumes a load from these counters can therefore trust
+`inserted + updated` to be the number of records that are durable.
+
+NOTE: Before v26.11.1 a record a listener vetoed was counted as `inserted` or `updated`, and a vetoed edge was answered as a
+`DB_ERROR` row carrying the text of a `NullPointerException`. A load that was driven off the counters may have marked a chunk
+as done although the engine had refused some of its records; compare `inserted + updated` with the number of records the
+chunk was expected to write.
+
 NOTE: In `production` server mode the engine's text in an `error` frame and in the `message` of an `errors` entry (for a
 conflict, the key values the row carried) is replaced by "The request failed. Check the server log for the details",
 and the detail is written to the server log. The `code` and the exception class are kept. Text the protocol writes about
