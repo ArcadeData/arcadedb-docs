@@ -788,9 +788,25 @@ FROM (
 ===== Maintenance: BM25 Corpus Statistics
 
 BM25 maintains per-type corpus counters (document count and total document length) that feed the average-document-length normalizer.
-They are updated incrementally as documents are indexed and removed.
-Because they are not transactionally reversed on rollback, a workload with many rolled-back transactions can let them drift slightly over time, which only affects length normalization (suboptimal, never wrong, scores).
-The first BM25 query of a session self-corrects them with a cheap check; for an exact repair without a full reindex, run:
+They are updated incrementally as documents are indexed and removed, and only when the transaction commits: a rolled-back transaction, or one retried after a `ConcurrentModificationException`, never touches them.
+On an HA cluster the transaction carries the change it made to the counters, so every node moves them together and the same query scores the same on every replica.
+This holds once every node of the cluster advertises the capability to read that change; while one does not (a node on an older version, or one that has not answered the capability probe yet, as on a freshly started leader), the leader logs a warning and the other nodes do not count those transactions. The first search of a node repairs a difference in the number of documents; a rewrite that keeps the number of documents changes only the total length of the documents, which that check cannot see, so run `REBUILD INDEX ... WITH statsOnly = true` on the leader once every node is upgraded.
+The first BM25 query of a session checks them with a cheap live count and, if they disagree (after a crash, for example), recomputes them with a scan of the type.
+The result of that repair is kept: it is written with the schema, at the next schema save or when the database closes, so it is paid once and not again after every clean restart.
+After a crash, or a process that is killed, the pages are restored from the log but the counters can lag them until the first search repairs them, because the counters are written at a clean close and at schema saves, not by the log.
+On an HA cluster that write is local to the node: the files of a follower and of the leader can hold different counters until the next `statsOnly` rebuild on the leader, which every node adopts.
+The warning that announces it names the logical index and the exact statement to run, for example `+REBUILD INDEX `Article[content]` WITH statsOnly = true+`.
+
+To look at the counters without triggering the repair, read the index from the schema catalog:
+
+[source,sql]
+----
+SELECT bm25 FROM schema:index:`Article[content]`
+----
+
+`bm25` holds `totalDocs`, `sumDocLength`, `avgDocLength`, `countersValid`, `staleCheckDone` (whether the session's drift check has run), `scans` (full-type scans published into the counters) and `epoch` (the number of explicit recomputes).
+
+For an exact repair without a full reindex, run:
 
 [source,sql]
 ----
@@ -802,6 +818,8 @@ REBUILD INDEX * WITH statsOnly = true
 ----
 
 This is also a good way to "pre-warm" the counters of a BM25 index migrated from an older version before serving traffic (otherwise the first query does a one-time full scan to build them).
+
+On an HA cluster, run it on the leader: the recomputed counters are saved with the schema and shipped to the followers, which adopt them even though they keep their own copy of the index.
 
 [[full-text-index-upgrade-notes]]
 ===== Behavior Changes When Upgrading
