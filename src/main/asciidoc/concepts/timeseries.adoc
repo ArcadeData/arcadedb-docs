@@ -63,7 +63,7 @@ CREATE TIMESERIES TYPE SensorReading
 
 [NOTE]
 ====
-Since v26.11.1 `PRECISION` accepts only `MILLISECOND`, and `SECOND`, `MICROSECOND` and `NANOSECOND` are refused.
+Since v26.10.2 `PRECISION` accepts only `MILLISECOND`, and `SECOND`, `MICROSECOND` and `NANOSECOND` are refused.
 Earlier versions accepted all four and honoured none of them: every ingestion endpoint (line protocol, Prometheus
 remote write, gRPC) converts its timestamps to milliseconds, and retention, downsampling and PromQL all count in
 milliseconds. On a `PRECISION SECOND` type fed with seconds, the first retention pass deleted every sample; on a
@@ -167,7 +167,7 @@ ones, so the number of blocks follows the data volume and not the time. A read t
 very moment they are merged is refused with a retryable error (HTTP `503`) instead of returning a partial answer:
 run it again. A merge rewrites the sealed file, so it needs free disk space of about the size of that file.
 
-Since v26.11.1. Compaction, merge, retention and downsampling all rewrite a shard's sealed file, so on one shard they
+Since v26.10.2. Compaction, merge, retention and downsampling all rewrite a shard's sealed file, so on one shard they
 run one at a time. A `COMPACT TIMESERIES TYPE` issued while a retention or downsampling pass is running waits for it
 (and the other way round), instead of the two overwriting each other's work. Before, a retention pass that overlapped a
 compaction could be silently undone the next time the database was opened. Likewise, a rewrite that failed half-way
@@ -215,13 +215,13 @@ malformed. So does a `,` separator with nothing after it, in the tags or in the 
 ====
 Since v26.10.1. Before, a malformed line was only logged and the request answered `204`, and a field missing its value
 at the end of a line was stored as `0.0` instead of rejecting the line. A line cut right after a `,` separator was
-still stored without the entries after the comma until v26.11.1.
+still stored without the entries after the comma until v26.10.2.
 ====
 
 A value its column cannot store drops only the sample that carries it, which the `400` partial-write body names in
 `unreadableValues` as `<measurement>.<column> (tag|field): <reason>` (the reason names the column and its type, never the
 value; `dropped` is the count of samples, the list holds one entry per distinct reason and the first 100). The gRPC
-`TimeSeriesWriteSummary` carries the same list as `unreadable_values`. _(Since v26.11.1)_ the line protocol and gRPC read a
+`TimeSeriesWriteSummary` carries the same list as `unreadable_values`. _(Since v26.10.2)_ the line protocol and gRPC read a
 value as `INSERT` does, instead of failing the whole request with a server error:
 
 * a `DATE` or `DATETIME` column takes a number as a count in the column's own unit, digits in quotes as the same count (so
@@ -287,7 +287,7 @@ The endpoint accepts the standard Prometheus `remote_write` Protobuf payload (sn
 Each time series is mapped to an ArcadeDB TimeSeries type named after the `__name__` label.
 Types are auto-created if they do not exist.
 
-_(Since v26.11.1)_ A label with an empty value is the same as an absent label, as in Prometheus: it is stored as absent and `{label=""}` selects it. A series carrying a label that the existing type does not declare as a tag is dropped and the request answers `400` naming the label (the other series of the request are stored); Prometheus does not retry a `400`. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` to discard the extra label instead.
+_(Since v26.10.2)_ A label with an empty value is the same as an absent label, as in Prometheus: it is stored as absent and `{label=""}` selects it. A series carrying a label that the existing type does not declare as a tag is dropped and the request answers `400` naming the label (the other series of the request are stored); Prometheus does not retry a `400`. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` to discard the extra label instead.
 
 [NOTE]
 ====
@@ -329,9 +329,9 @@ INSERT INTO SensorReading
   CONTENT { "ts": 1771581600000, "sensor_id": "sensor-A", "temperature": 22.5 }
 ----
 
-NOTE: _(Since v26.11.1)_ `INSERT` fails if it sets a property that is not a declared tag or field of the type (for example a misspelled tag), because the sample would otherwise be filed under a different series. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` on the database to discard such properties instead. The same setting governs line protocol, gRPC and Prometheus writes.
+NOTE: _(Since v26.10.2)_ `INSERT` fails if it sets a property that is not a declared tag or field of the type (for example a misspelled tag), because the sample would otherwise be filed under a different series. Set `arcadedb.timeSeriesUndeclaredKeys=ignore` on the database to discard such properties instead. The same setting governs line protocol, gRPC and Prometheus writes.
 
-NOTE: _(Since v26.11.1)_ A `DATE`, `DATETIME`, `DATETIME_SECOND`, `DATETIME_MICROS` or `DATETIME_NANOS` tag or field behaves in SQL exactly like a document property of the same type. `INSERT` reads a value as such a property does: text and date/time objects as the instant they name, and a number as epoch milliseconds (epoch days for a `DATE`), whatever the column's precision. `SELECT` returns the value as the date/time object the property would return (a `java.time.LocalDateTime` for the `DATETIME` family by default), so a value read from a row can be written back as it is, and a `WHERE` condition on the column matches the same literal `INSERT` accepted, on a tag (pushed down to the storage engine) and on a field alike. An instant the column's precision cannot represent - for example a nanosecond count written to a `DATETIME_NANOS` column, which `INSERT` reads as milliseconds 53 million years from now - is refused with an error. Before, `SELECT` returned the raw epoch count in the column's own unit, which neither `INSERT` nor a filter read the same way, and such an instant was stored as `2262-04-11T23:47:16.854775807`. The engine API, line protocol, gRPC and HTTP surfaces keep exchanging these columns as epoch counts in the column's unit.
+NOTE: _(Since v26.10.2)_ A `DATE`, `DATETIME`, `DATETIME_SECOND`, `DATETIME_MICROS` or `DATETIME_NANOS` tag or field behaves in SQL exactly like a document property of the same type. `INSERT` reads a value as such a property does: text and date/time objects as the instant they name, and a number as epoch milliseconds (epoch days for a `DATE`), whatever the column's precision. `SELECT` returns the value as the date/time object the property would return (a `java.time.LocalDateTime` for the `DATETIME` family by default), so a value read from a row can be written back as it is, and a `WHERE` condition on the column matches the same literal `INSERT` accepted, on a tag (pushed down to the storage engine) and on a field alike. An instant the column's precision cannot represent - for example a nanosecond count written to a `DATETIME_NANOS` column, which `INSERT` reads as milliseconds 53 million years from now - is refused with an error. Before, `SELECT` returned the raw epoch count in the column's own unit, which neither `INSERT` nor a filter read the same way, and such an instant was stored as `2262-04-11T23:47:16.854775807`. The engine API, line protocol, gRPC and HTTP surfaces keep exchanging these columns as epoch counts in the column's unit.
 
 NOTE: The timestamp column of a TimeSeries type is stored as a number, so `INSERT` does not accept an ISO-8601 string for it (`Cannot convert type String to LONG`): write an epoch value (as in the `CONTENT` example, milliseconds for a type with `PRECISION MILLISECOND`) or build it with the `date()` function, which interprets the text in the server's time zone. ISO-8601 strings are accepted in `WHERE` conditions on the timestamp column.
 
@@ -435,7 +435,7 @@ The comparisons pushed down are those SQL makes as plain numbers: a `DOUBLE` fie
 
 [NOTE]
 ====
-*When upgrading to 26.11.1*: an aggregation answered by the storage engine returns the same values and Java types as the generic plan. `min` and `max` return a value of the column's declared type (a date/time object for a `DATE` or `DATETIME` column), `sum` over a `LONG`, `INTEGER`, `SHORT` or `BYTE` field returns an integer that widens to a `BigDecimal` past the `long` range (`sum` over a `FLOAT` field a float), and `avg` is a `Double`, instead of the `Double` earlier versions returned for a query grouped by the time bucket or by tags. An integral column is aggregated exactly, as 64-bit integers with a 128-bit running total, so a value past 2^53 - an epoch-nanosecond instant, a 64-bit id - is no longer rounded.
+*When upgrading to 26.10.2*: an aggregation answered by the storage engine returns the same values and Java types as the generic plan. `min` and `max` return a value of the column's declared type (a date/time object for a `DATE` or `DATETIME` column), `sum` over a `LONG`, `INTEGER`, `SHORT` or `BYTE` field returns an integer that widens to a `BigDecimal` past the `long` range (`sum` over a `FLOAT` field a float), and `avg` is a `Double`, instead of the `Double` earlier versions returned for a query grouped by the time bucket or by tags. An integral column is aggregated exactly, as 64-bit integers with a 128-bit running total, so a value past 2^53 - an epoch-nanosecond instant, a 64-bit id - is no longer rounded.
 ====
 
 ===== TimeSeries SQL Functions
@@ -643,7 +643,7 @@ is an undefined total rather than an absence, and is returned as `NaN`.
 
 [NOTE]
 ====
-_(Since v26.11.1)_ A `LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN`, `DATE` or `DATETIME` column records absence too: a
+_(Since v26.10.2)_ A `LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN`, `DATE` or `DATETIME` column records absence too: a
 `null` written to it, or a column a `TimeSeriesBatch` row leaves unset, reads back as `null`, and `MIN`, `MAX`, `SUM`,
 `AVG` and `count(field)` skip it as they skip `NaN`. These types have no value to spare for absence, so a row of the
 mutable buffer carries a small null bitmap and a sealed block a null bitmap per column. The row layout is fixed when the
@@ -825,7 +825,7 @@ extremely wide range.
 
 [NOTE]
 ====
-Since v26.11.1 selector windows are left-open, as in Prometheus: an instant selector evaluated at `t` reads the samples
+Since v26.10.2 selector windows are left-open, as in Prometheus: an instant selector evaluated at `t` reads the samples
 in `(t - lookback, t]` and a range selector `[5m]` reads `(t - 5m, t]`. A series whose last sample is exactly one
 lookback old is therefore stale, and `count_over_time(m[5m])` over a feed whose scrape interval divides five minutes
 no longer counts the sample sitting on the lower boundary. Earlier versions included that boundary sample (the
@@ -937,7 +937,7 @@ remote_read:
       password: password
 ----
 
-The endpoint accepts the standard Prometheus `remote_read` Protobuf query (snappy-compressed) and supports `=`, `!=`, `=~`, `!~` label matchers, applied with the same rules as the PromQL `/query` and `/series` endpoints. A `__name__` matcher that is not an equality (for example `{__name__=~"cpu.*"}`) selects every metric it matches among those the user can read. An invalid or unsafe regular expression is refused with HTTP `400` rather than answered with an empty result _(since v26.11.1)_.
+The endpoint accepts the standard Prometheus `remote_read` Protobuf query (snappy-compressed) and supports `=`, `!=`, `=~`, `!~` label matchers, applied with the same rules as the PromQL `/query` and `/series` endpoints. A `__name__` matcher that is not an equality (for example `{__name__=~"cpu.*"}`) selects every metric it matches among those the user can read. An invalid or unsafe regular expression is refused with HTTP `400` rather than answered with an empty result _(since v26.10.2)_.
 
 ==== Continuous Aggregates
 
@@ -1381,9 +1381,9 @@ The TimeSeries engine uses a two-layer storage architecture:
 
 [NOTE]
 ====
-Since v26.11.1. A sealed block keeps the statistics of an integer column (`LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN` and the date/time types) exactly: the minimum and the maximum as 64-bit integers and the sum as a 128-bit integer, so `min`, `max` and `sum` of such a column past 2^53 are answered from the block headers, exactly, without decompressing anything. A block written by an earlier version is answered from its headers whenever its statistics are provably exact, and decompressed otherwise until the next compaction rewrites it. The sealed file format version is 3: an older ArcadeDB version refuses to open such a file, so keep this in mind before a downgrade.
+Since v26.10.2. A sealed block keeps the statistics of an integer column (`LONG`, `INTEGER`, `SHORT`, `BYTE`, `BOOLEAN` and the date/time types) exactly: the minimum and the maximum as 64-bit integers and the sum as a 128-bit integer, so `min`, `max` and `sum` of such a column past 2^53 are answered from the block headers, exactly, without decompressing anything. A block written by an earlier version is answered from its headers whenever its statistics are provably exact, and decompressed otherwise until the next compaction rewrites it. The sealed file format version is 3: an older ArcadeDB version refuses to open such a file, so keep this in mind before a downgrade.
 
-Since v26.11.1. Integer columns (`LONG`, `DATETIME_NANOS` and the other integral types) hold the full 64-bit range. A block whose values do not all fit the compact Simple-8b packing (outside +/-2^59, such as epoch-nanosecond instants or snowflake ids) is stored as plain 64-bit values instead of making the compaction fail. Such a block is larger, and an older ArcadeDB version cannot read it, so keep this in mind before a downgrade. Before, compaction of such a type failed permanently.
+Since v26.10.2. Integer columns (`LONG`, `DATETIME_NANOS` and the other integral types) hold the full 64-bit range. A block whose values do not all fit the compact Simple-8b packing (outside +/-2^59, such as epoch-nanosecond instants or snowflake ids) is stored as plain 64-bit values instead of making the compaction fail. Such a block is larger, and an older ArcadeDB version cannot read it, so keep this in mind before a downgrade. Before, compaction of such a type failed permanently.
 ====
 
 Data is distributed across N shards (default: `arcadedb.asyncWorkerThreads`, the available cores minus 1) for parallel writes and reads.

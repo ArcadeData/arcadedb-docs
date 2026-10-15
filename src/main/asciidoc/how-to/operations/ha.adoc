@@ -127,7 +127,7 @@ The derived port is used for the capability check only - never for a snapshot do
 
 A peer that still did not answer carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port. _(Since v26.10.1)_
 
-Every node also *learns* the HTTP address of a peer it cannot reach where it resolves it, the same way on every node. _(Since v26.11.1)_
+Every node also *learns* the HTTP address of a peer it cannot reach where it resolves it, the same way on every node. _(Since v26.10.2)_
 Each node states its own HTTP port and address in the capability check it sends to the others, and each answer carries the addresses the answering node holds for the other members.
 Neither is trusted on its own: an address is used only after the peer it names answers there under its own id.
 From then on that address serves every peer-to-peer call (snapshot downloads, verifies, forwarded writes) and is passed on to the other nodes.
@@ -138,7 +138,7 @@ On a cluster with `arcadedb.ssl.enabled`, offered addresses are not probed at al
 
 [NOTE]
 ====
-Before v26.11.1, the node that served an admission without an `http` port wrote a `raftPort + offset` guess for the new peer.
+Before v26.10.2, the node that served an admission without an `http` port wrote a `raftPort + offset` guess for the new peer.
 Every other node derived the peer's Raft host plus its *own* HTTP port, so two nodes could dial the same member on two different addresses.
 A declared address reached only the node it was typed on and the leader.
 ====
@@ -339,7 +339,7 @@ are instantiated, instead of every component in the database being rebuilt (`arc
 default). Building a large schema used to cost time quadratic in the number of types.
 
 [[ha-schema-full-load]]
-===== When a follower falls back to a full schema load (from v26.11.1)
+===== When a follower falls back to a full schema load (from v26.10.2)
 
 An entry the incremental path cannot express makes the follower rebuild every component of the database on its apply thread:
 an entry that retires a file, adds a dictionary, a compacted index or a bloom filter, writes pages into a compacted index
@@ -373,7 +373,7 @@ The `reason` tag is one of `incremental_disabled`, `file_renamed`, `not_loaded`,
 `non_incremental_touched_file` and `touched_file_missing`.
 
 NOTE: A full load also re-creates every vector index with nothing resident, so the first search of each used to read all of
-its pages and load or rebuild the graph on the query thread. Since v26.11.1 the vector indexes that had a graph resident are
+its pages and load or rebuild the graph on the query thread. Since v26.10.2 the vector indexes that had a graph resident are
 warmed in the background, one after the other, after `arcadedb.vectorIndex.warmUpAfterSchemaReloadDelayMs` (1 s by default;
 `-1` disables it). Indexes nobody searched are not warmed.
 
@@ -445,7 +445,7 @@ When a read runs on a replica, ArcadeDB offers three consistency levels, configu
 A node that is no longer a member of the Raft configuration (it left with `leaveCluster` or was removed with `DELETE /api/v1/cluster/peer/{id}`) receives no more entries.
 On such a node, `linearizable` reads and `read_your_writes` reads whose bookmark it has not applied are refused with a retryable error naming the reason, so the client can retry on a member.
 This includes reads that were already waiting when the node was removed: they are refused within a second instead of after the quorum timeout.
-`eventual` reads, and `read_your_writes` reads whose bookmark the node already applied, are still served. _(Since v26.11.1: such reads waited the whole quorum timeout, and a `read_your_writes` read then served data missing the write its bookmark named.)_
+`eventual` reads, and `read_your_writes` reads whose bookmark the node already applied, are still served. _(Since v26.10.2: such reads waited the whole quorum timeout, and a `read_your_writes` read then served data missing the write its bookmark named.)_
 
 Clients communicate the consistency contract through three HTTP headers:
 
@@ -583,7 +583,7 @@ Each server keeps its own list of running statements: the HTTP <<http-running-qu
 `TERMINATE TRANSACTIONS` run on the server that receives them, a replica included, and are never forwarded to the
 leader. A statement id names a statement on the server that issued it.
 
-Since v26.11.1 a write that a replica forwards to the leader can be followed and stopped from either side:
+Since v26.10.2 a write that a replica forwards to the leader can be followed and stopped from either side:
 
 * On the replica it is listed with `forwardedTo`, the name of the leader running it.
 * On the leader it is listed with `forwardedFrom`, the id it has on the replica, and with the tag the client sent
@@ -1167,7 +1167,7 @@ Nothing needs to be done for the cluster to keep working. The surviving majority
 
 The same refusal applies when the nodes disagree about a peer's id, which is derived from its `host:raftPort` entry in the server list: a node whose own entry differs from the one the other nodes hold for it is unreachable to them, and the message names the id they used. Make every node's server list spell each peer the same way.
 
-_(Since v26.11.1.)_ Earlier versions answered such a request in the name of the peer it was meant for. A leader that received its own heartbeat stepped down, and a candidate that received its own vote request failed every election with `java.lang.IllegalStateException` at `RaftConfigurationImpl.hasMajority`. The cluster then had no leader until the surviving nodes were restarted.
+_(Since v26.10.2.)_ Earlier versions answered such a request in the name of the peer it was meant for. A leader that received its own heartbeat stepped down, and a candidate that received its own vote request failed every election with `java.lang.IllegalStateException` at `RaftConfigurationImpl.hasMajority`. The cluster then had no leader until the surviving nodes were restarted.
 
 ====== Verbose HA logging
 

@@ -260,7 +260,7 @@ RETURN p.name, friend.name
 
 NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
 
-*Testing for absence.* An `OPTIONAL MATCH` whose new variable is then tested for `IS NULL` keeps exactly the rows for which the pattern does not exist, which is what `WHERE NOT pattern` says. Since v26.11.1 it is planned that way: when the variables the `OPTIONAL MATCH` introduces are read by nothing but that test (a conjunct of the `WHERE` of the `WITH`, or `FILTER`, right after it), the nodes it shares with the earlier `MATCH` clauses are never null, and that `WITH` neither aggregates nor orders nor pages, the two spellings below run the same plan, including the anti-join count push-down (issue #9598):
+*Testing for absence.* An `OPTIONAL MATCH` whose new variable is then tested for `IS NULL` keeps exactly the rows for which the pattern does not exist, which is what `WHERE NOT pattern` says. Since v26.10.2 it is planned that way: when the variables the `OPTIONAL MATCH` introduces are read by nothing but that test (a conjunct of the `WHERE` of the `WITH`, or `FILTER`, right after it), the nodes it shares with the earlier `MATCH` clauses are never null, and that `WITH` neither aggregates nor orders nor pages, the two spellings below run the same plan, including the anti-join count push-down (issue #9598):
 
 [source,cypher]
 ----
@@ -744,7 +744,7 @@ RETURN p.name
 [[cypher-let]]
 ===== LET
 
-`LET` (ISO GQL) adds new variables to every row without grouping or dropping the others. It is the same as `WITH *, expression AS variable`. Since v26.11.1.
+`LET` (ISO GQL) adds new variables to every row without grouping or dropping the others. It is the same as `WITH *, expression AS variable`. Since v26.10.2.
 
 [source,cypher]
 ----
@@ -1086,7 +1086,7 @@ MATCH (c:Company) WHERE c.employees > 100 RETURN c.name AS name, 'company' AS ty
 [[cypher-when]]
 ===== Conditional query: WHEN ... THEN ... ELSE
 
-A conditional query (Cypher 25) runs the first branch whose condition is true, the `ELSE` branch when none is, and returns no rows when none is true and there is no `ELSE`. Since v26.11.1.
+A conditional query (Cypher 25) runs the first branch whose condition is true, the `ELSE` branch when none is, and returns no rows when none is true and there is no `ELSE`. Since v26.10.2.
 
 [source,cypher]
 ----
@@ -1300,7 +1300,7 @@ OPTIONAL CALL algo.bfs(s) YIELD node
 RETURN s.name, node.name AS reached
 ----
 
-NOTE: Before v26.11.1 an `OPTIONAL CALL` whose procedure ran but yielded no rows dropped the incoming row, like a plain `CALL`; only a procedure that failed produced the `null` row. Queries such as `MATCH (s) OPTIONAL CALL algo.bfs(s) YIELD node RETURN count(*)` now also count the nodes that reach nothing.
+NOTE: Before v26.10.2 an `OPTIONAL CALL` whose procedure ran but yielded no rows dropped the incoming row, like a plain `CALL`; only a procedure that failed produced the `null` row. Queries such as `MATCH (s) OPTIONAL CALL algo.bfs(s) YIELD node RETURN count(*)` now also count the nodes that reach nothing.
 
 *Subqueries (CALL { ... }):*
 
@@ -1615,7 +1615,7 @@ NOTE: `IF NOT EXISTS` makes the operation idempotent — running it multiple tim
 [[cypher-constraint-names]]
 *Constraint names:*
 
-_(Since v26.11.1)_ A constraint created without a name gets a generated one, `constraint_<Label>_<property>[_<property>...]_<kind>`, where the kind is `unique`, `key`, `existence` (for `IS NOT NULL`) or `type` (for `IS TYPED`):
+_(Since v26.10.2)_ A constraint created without a name gets a generated one, `constraint_<Label>_<property>[_<property>...]_<kind>`, where the kind is `unique`, `key`, `existence` (for `IS NOT NULL`) or `type` (for `IS TYPED`):
 
 [%header,cols="3,2"]
 |===
@@ -1629,7 +1629,7 @@ _(Since v26.11.1)_ A constraint created without a name gets a generated one, `co
 
 The name is derived from the statement, so repeating the same unnamed statement does not create a second constraint. It is the name <<cypher-show-constraints,`SHOW CONSTRAINTS`>> lists and <<cypher-drop-constraint,`DROP CONSTRAINT`>> takes.
 
-NOTE: _(Since v26.11.1)_ A property carries one property type constraint at most: a second `IS TYPED` constraint that requires a different type of the same property is refused, as in Neo4j. Drop the first one before creating the other.
+NOTE: _(Since v26.10.2)_ A property carries one property type constraint at most: a second `IS TYPED` constraint that requires a different type of the same property is refused, as in Neo4j. Drop the first one before creating the other.
 
 [[cypher-constraint-when-checked]]
 *When existence constraints are checked:*
@@ -1696,7 +1696,7 @@ NOTE: Following Cypher 25 / GQL, `INTEGER` is the 64-bit generic integer type wh
 
 [NOTE]
 ====
-*When upgrading to 26.11.1*: before, a property type constraint refused a list with an element type (`LIST<STRING>`), `LOCAL DATETIME` and `ZONED DATETIME` declared a `DATETIME` (millisecond precision, which truncated the sub-millisecond digits and dropped the zone), `LOCAL TIME` and `ZONED TIME` declared a `STRING`, `DURATION` declared a `LONG` (which refused every duration value) and `POINT` declared a `STRING`. A constraint created before 26.11.1 keeps the declaration it made then.
+*When upgrading to 26.10.2*: before, a property type constraint refused a list with an element type (`LIST<STRING>`), `LOCAL DATETIME` and `ZONED DATETIME` declared a `DATETIME` (millisecond precision, which truncated the sub-millisecond digits and dropped the zone), `LOCAL TIME` and `ZONED TIME` declared a `STRING`, `DURATION` declared a `LONG` (which refused every duration value) and `POINT` declared a `STRING`. A constraint created before 26.10.2 keeps the declaration it made then.
 ====
 
 ---
@@ -1734,7 +1734,7 @@ NOTE: `IF EXISTS` makes the operation safe to run even when the constraint does 
 [[cypher-drop-constraint-undo]]
 *What dropping a constraint undoes:*
 
-_(Since v26.11.1)_ `DROP CONSTRAINT` undoes what the constraint created:
+_(Since v26.10.2)_ `DROP CONSTRAINT` undoes what the constraint created:
 
 * A `UNIQUE` constraint drops its unique index, a `NOT NULL` constraint clears the mandatory flag it set, and a `NODE KEY` / `KEY` constraint does both.
 * A property type constraint (`IS TYPED`) lifts the type restriction. If the constraint declared the property, the declaration is removed. If it replaced an earlier declaration, for example one made with SQL `CREATE PROPERTY`, that declaration is put back; when records written since cannot be read as the old type, the drop is refused and the constraint stays in place.
@@ -1743,7 +1743,7 @@ _(Since v26.11.1)_ `DROP CONSTRAINT` undoes what the constraint created:
 
 [NOTE]
 ====
-*When upgrading to 26.11.1*: before, dropping a property type constraint left the property declared with the constraint's type, so the type restriction stayed in force after the constraint was gone.
+*When upgrading to 26.10.2*: before, dropping a property type constraint left the property declared with the constraint's type, so the type restriction stayed in force after the constraint was gone.
 ====
 
 ---
@@ -1751,7 +1751,7 @@ _(Since v26.11.1)_ `DROP CONSTRAINT` undoes what the constraint created:
 [[cypher-show-constraints]]
 ===== SHOW CONSTRAINTS
 
-`SHOW CONSTRAINTS` lists the constraints of the database with Neo4j's syntax and columns, so the tools and drivers written for Neo4j read it unchanged. _(Since v26.11.1)_ It is answered by the openCypher engine, so it works the same over every protocol that runs Cypher: HTTP, Studio, Bolt and the embedded Java API.
+`SHOW CONSTRAINTS` lists the constraints of the database with Neo4j's syntax and columns, so the tools and drivers written for Neo4j read it unchanged. _(Since v26.10.2)_ It is answered by the openCypher engine, so it works the same over every protocol that runs Cypher: HTTP, Studio, Bolt and the embedded Java API.
 
 *Syntax:*
 
@@ -1823,7 +1823,7 @@ DROP INDEX person_name
 DROP INDEX person_name IF EXISTS
 ----
 
-_(Since v26.11.1)_ The index is created under the name the statement gives it, which is the name <<cypher-show-indexes,`SHOW INDEXES`>> lists, `DROP INDEX` takes, and SQL sees. An index created without a name is named `<Type>[<property>,...]`, for example `Person[name]`: use backtick escaping to drop it, `+DROP INDEX `Person[name]`+`. Before 26.11.1 the name was ignored, so `DROP INDEX person_name` dropped nothing.
+_(Since v26.10.2)_ The index is created under the name the statement gives it, which is the name <<cypher-show-indexes,`SHOW INDEXES`>> lists, `DROP INDEX` takes, and SQL sees. An index created without a name is named `<Type>[<property>,...]`, for example `Person[name]`: use backtick escaping to drop it, `+DROP INDEX `Person[name]`+`. Before 26.10.2 the name was ignored, so `DROP INDEX person_name` dropped nothing.
 
 Index and constraint names share one namespace, as in Neo4j:
 
@@ -1837,7 +1837,7 @@ Index and constraint names share one namespace, as in Neo4j:
 [[cypher-show-indexes]]
 ===== SHOW INDEXES
 
-`SHOW INDEXES` lists the indexes of the database with Neo4j's syntax and columns. _(Since v26.11.1)_ Like `SHOW CONSTRAINTS`, it is answered by the openCypher engine over every protocol (HTTP, Studio, Bolt, embedded).
+`SHOW INDEXES` lists the indexes of the database with Neo4j's syntax and columns. _(Since v26.10.2)_ Like `SHOW CONSTRAINTS`, it is answered by the openCypher engine over every protocol (HTTP, Studio, Bolt, embedded).
 
 *Syntax:*
 
@@ -2067,7 +2067,7 @@ NOTE: The user must already exist. If the user does not exist, an error is retur
 ===== SHOW TRANSACTIONS and TERMINATE TRANSACTIONS
 
 `SHOW TRANSACTIONS` lists the statements the server is running and `TERMINATE TRANSACTIONS` stops them, with Neo4j's
-syntax, so the tools and scripts written for Neo4j work unchanged. Available since 26.11.1.
+syntax, so the tools and scripts written for Neo4j work unchanged. Available since 26.10.2.
 
 Both commands read the same registry as the HTTP <<http-running-queries,`list queries` and `terminate query`>> server
 commands: a "transaction" here is one running statement, whatever protocol it came from (HTTP, PostgreSQL, Bolt,

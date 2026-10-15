@@ -173,7 +173,7 @@ reported success and the work was silently gone. The endpoints this covers:
 The two errors easiest to hit on the observability routes are a malformed `start`/`end` timestamp and a read whose
 answer exceeds `arcadedb.server.maxResultRows`; neither touches your transaction any more.
 
-Since v26.11.1 the same holds for `GET /api/v1/query` and `POST /api/v1/query`. They still run inside the session's
+Since v26.10.2 the same holds for `GET /api/v1/query` and `POST /api/v1/query`. They still run inside the session's
 transaction, so they see what you wrote in it, but they only read, so an error on them leaves your open transaction
 as it was: a `413` for an answer over `arcadedb.server.maxResultRows`, or a `400` for a request refused before the query
 ran (for example `Accept: application/x-ndjson` on a statement that cannot be streamed). `POST /api/v1/command`
@@ -255,7 +255,7 @@ default) is outstanding towards one connection, that subscription is dropped and
 `0` to disable the limit.
 
 In `production` server mode an `error` frame answering a failed action carries "The request failed. Check the server
-log for the details" instead of the engine's message, which is written to the server log (since v26.11.1). See
+log for the details" instead of the engine's message, which is written to the server log (since v26.10.2). See
 <<production-mode-errors,Error details in production mode>>.
 
 [[websocket-insert-session]]
@@ -297,7 +297,7 @@ NOTE: In `production` server mode the engine's text in an `error` frame and in t
 conflict, the key values the row carried) is replaced by "The request failed. Check the server log for the details",
 and the detail is written to the server log. The `code` and the exception class are kept. Text the protocol writes about
 the request itself, such as a missing `keyColumns`, an invalid option or an expired session, stays visible. Before
-v26.11.1 the message was sent as is in every mode. See <<production-mode-errors,Error details in production mode>>.
+v26.10.2 the message was sent as is in every mode. See <<production-mode-errors,Error details in production mode>>.
 
 A `/ws` connection is allowed `server.wsMaxControlFrameSize` (64 KB by default) per text frame until it has an
 insert session, and `server.wsMaxInsertFrameSize` (16 MB) while it has one, so a `chunk` can carry a whole batch
@@ -865,7 +865,7 @@ Return:
 [[http-running-queries]]
 ====== List and terminate running queries
 
-Since 26.11.1 a client can see what the server is running, stop one statement, and verify afterwards that the server
+Since 26.10.2 a client can see what the server is running, stop one statement, and verify afterwards that the server
 really stopped working on it. A benchmark harness or a coordinator that gives up on a query (its own deadline, a killed
 client process) uses this to free the server before it runs the next one.
 
@@ -878,7 +878,7 @@ Gremlin Server are listed and stopped the same way, and the same registry answer
 value is an opaque label of at most 256 printable characters; the statement is listed under it. Sent to
 <<http-begin,`/api/v1/begin`>>, it labels every statement of that transaction session that carries no label of its
 own. A value that breaks these rules is refused with `400 Bad Request` on every endpoint, before anything runs or a
-transaction session is created. _(Since v26.11.1: a refused tag on `/api/v1/begin` still opened a transaction session
+transaction session is created. _(Since v26.10.2: a refused tag on `/api/v1/begin` still opened a transaction session
 that no client could end.)_
 
 [source,shell]
@@ -953,7 +953,7 @@ $ curl -X POST http://localhost:2480/api/v1/server \
 |===
 
 A statement that ran in a transaction session (`/api/v1/begin`) answers two more fields, in the answer of
-`terminate query` and in each entry of the answer of `terminate queries tag` _(since v26.11.1)_: `sessionId`, the
+`terminate query` and in each entry of the answer of `terminate queries tag` _(since v26.10.2)_: `sessionId`, the
 session it ran in, and `sessionOpen`, whether that session is still open now that the statement has ended. A
 terminated command ends its session (`false`). A terminated read leaves the session to its client (`true`), as
 described under _Transaction sessions_ below: a caller that wants the session gone, not only the statement, ends it with
@@ -1009,7 +1009,7 @@ and still waits for the response cannot be told from one that left: for such cli
 `/api/v1/batch`) also ends the session and rolls back everything the session wrote, exactly as a failure of that
 command does. Terminating a read (`GET` or `POST /api/v1/query`) or a time-series, vector, PromQL or Grafana request
 stops only that request and leaves the session and its transaction as they were, so a client whose read timed out can
-retry it and still commit its writes _(since v26.11.1)_. The answer of `terminate query` says which case
+retry it and still commit its writes _(since v26.10.2)_. The answer of `terminate query` says which case
 applied through `sessionOpen`. `list transactions` lists the open sessions (id, user, database,
 tag, idle time, whether a request is running in it, and the ids of its running statements), and
 `terminate transaction <sessionId>` terminates what runs in it, rolls it back and ends it. That includes a `/ws` insert

@@ -279,7 +279,7 @@ would return an empty result set rather than a slow one. If no slot frees within
 (ten minutes by default), the query builds anyway and logs a warning, because by then the slot is being held by a
 rebuild that is stuck rather than slow.
 
-Since v26.11.1 that wait no longer outlives the query. A vector search -- `vector.neighbors()` in SQL,
+Since v26.10.2 that wait no longer outlives the query. A vector search -- `vector.neighbors()` in SQL,
 `db.index.vector.queryNodes` in Cypher, `select().nearestTo()` in the Java API -- stops within a fraction of a second
 when its statement is cancelled (a client that disconnects, a gRPC deadline, a query terminated from the running
 queries list) or reaches its timeout (`arcadedb.command.timeout`, a SQL `TIMEOUT` clause, `Select.timeout()`), whether
@@ -288,7 +288,7 @@ timeout or termination error. The build itself is not abandoned: it runs in the 
 finishes, and the next search uses the graph it publishes. A command timeout shorter than the build therefore delays
 the first successful search on that index until the build completes, but never prevents it.
 
-A schema reload starts every index cold, and since v26.11.1 that no longer lands on the first search. A reload replaces
+A schema reload starts every index cold, and since v26.10.2 that no longer lands on the first search. A reload replaces
 every index with a freshly built instance with no location map and no graph resident, which on an HA follower happens for
 every schema entry its incremental refresh declines (see <<ha-schema-full-load>>). The vector indexes that had a graph
 resident before the reload are therefore warmed in the background, on one thread and one after the other, once the schema
@@ -411,12 +411,12 @@ or run one throwaway search. The `graphLoadsFromOrdinalMap` index stat counts ho
 [NOTE]
 ====
 The location map is also where a vector index learns which vector ids are already taken, so a load that does not read
-every entry cannot safely give out new ones. Before v26.11.1 such a load was kept for the life of the process anyway,
+every entry cannot safely give out new ones. Before v26.10.2 such a load was kept for the life of the process anyway,
 and the inserts that followed could take ids that unread entries already held: two records then shared one vector id,
 and one of them dropped out of search results (`CHECK DATABASE` reports it as a vector id that a load gives to another
 record).
 
-Since v26.11.1 a load stopped from outside -- an `OutOfMemoryError`, an interrupted thread, a database closing under
+Since v26.10.2 a load stopped from outside -- an `OutOfMemoryError`, an interrupted thread, a database closing under
 it -- is discarded and done again on the next access. A load that finds a page it cannot read keeps serving searches
 from what it read, logs a `SEVERE` message, and refuses new vectors (an insert, or an update that changes a vector)
 until the index is rebuilt; deleting stays possible. `CHECK DATABASE` lists such an index among the corrupted ones,

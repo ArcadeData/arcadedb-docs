@@ -13,7 +13,7 @@ WARNING: Never run the importer against a database directory that an ArcadeDB Se
 The import runs in two passes:
 
 1. **Pass 1** -- Process each vertex source once: create vertices with full properties, and collect the edges a vertex source declares (foreign keys, split fields) as compressed int arrays
-2. **Pass 2** -- Create all edges using <<java-batch-importer,GraphBatch>>, one batch per edge type with bidirectional edges for full IN+OUT traversal: first the collected ones, then each edge-only source, streamed from its file straight into its batch _(since v26.11.1; before, edge-only sources were collected in memory first)_
+2. **Pass 2** -- Create all edges using <<java-batch-importer,GraphBatch>>, one batch per edge type with bidirectional edges for full IN+OUT traversal: first the collected ones, then each edge-only source, streamed from its file straight into its batch _(since v26.10.2; before, edge-only sources were collected in memory first)_
 3. **Vector graphs** -- Build the graph of every `LSM_VECTOR` index on a type the import wrote to, so the index answers at index speed the moment `run()` returns (see <<graph-importer-vector-index-build,Loading into a type with a vector index>>)
 
 The speculative background maintenance of the database's indexes (the vector index's inactivity rebuild) is held off for the whole run, not only while one of the batches is open: a stall between the two passes must not be read as "the load is over".
@@ -21,7 +21,7 @@ The speculative background maintenance of the database's indexes (the vector ind
 [[graph-importer-memory]]
 ===== Memory and Progress
 
-What the importer keeps in memory grows with the number of vertices, not with the number of edges _(since v26.11.1)_. Per vertex it holds:
+What the importer keeps in memory grows with the number of vertices, not with the number of edges _(since v26.10.2)_. Per vertex it holds:
 
 - its RID (8 bytes);
 - its identity in a hash map (11 to 17 bytes, or 17 to 26 when the key does not fit in an `int`);
@@ -29,7 +29,7 @@ What the importer keeps in memory grows with the number of vertices, not with th
 
 That is roughly 12 to 17 GB of heap for 200 million vertices. The page cache (`arcadedb.maxPageRAM`, a quarter of the heap by default) comes on top of it. Size `-Xmx` for both, or lower `arcadedb.maxPageRAM` to leave the importer more of the heap.
 
-Edge segments are created at the size their edges need. No empty segment is pre-allocated for each vertex: before v26.11.1 the vertex pass wrote 2 KB per vertex, about 400 GB for 200 million vertices.
+Edge segments are created at the size their edges need. No empty segment is pre-allocated for each vertex: before v26.10.2 the vertex pass wrote 2 KB per vertex, about 400 GB for 200 million vertices.
 
 Each pass logs how far it has got every 30 seconds, with the rate, the heap in use and the share of the time spent in garbage collection pauses:
 
