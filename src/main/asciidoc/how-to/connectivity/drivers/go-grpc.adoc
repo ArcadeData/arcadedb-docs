@@ -236,6 +236,13 @@ wire chunk, so you decide how rows are batched. The driver handles the envelope:
 for the stream, an incrementing chunk sequence, `Database` on the first chunk and `last` on the
 final one.
 
+`InsertStream` never sets `options.database`. Servers before 26.9.1 read the database from
+`InsertOptions.database` alone
+(https://github.com/ArcadeData/arcadedb/issues/6597[ArcadeData/arcadedb#6597]), so against one the
+stream reports its rows as received, inserts none, and returns no error. 0.2.0 copied `Database`
+into the options to cover those servers; 0.3.0 dropped the copy. Set `options.database` yourself if
+you must use such a server.
+
 [source,go]
 ----
 person := func(name string) *generated.GrpcRecord {
@@ -321,10 +328,15 @@ transaction, and then commits or rolls back with the same contract as the HTTP d
 
 The handle has `ExecuteQuery`, `ExecuteCommand`, `CreateRecord`, `UpdateRecord`, `DeleteRecord`,
 `LookupByRid`, `VectorSearch`, `HybridSearch`, `FullTextSearch`, `TimeSeriesLatest`,
-`StreamQuery` and `TimeSeriesQuery`. Each sends a copy of your request with `Database` and the
-`Transaction` field set to this transaction, so you never set either yourself, and the request you
-passed in is left untouched for reuse. `InsertStream` and `TimeSeriesWriteStream` are not on the
-handle, and `BulkInsert`, `InsertBidirectional` and `GraphBatchLoad` are raw-only.
+`StreamQuery`, `TimeSeriesQuery` and `InsertStream`. Each sends a copy of your request with
+`Database` and the `Transaction` field set to this transaction, so you never set either yourself,
+and the request you passed in is left untouched for reuse. Rows sent through `tx.InsertStream`
+commit or roll back with the transaction; on servers before 26.9.1, which ran an insert stream
+outside any transaction
+(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), they survived a
+rollback. `TimeSeriesWriteStream` is not on the handle, because a time-series chunk has no
+transaction field on the wire, and `BulkInsert`, `InsertBidirectional` and `GraphBatchLoad` are
+raw-only.
 
 As with the HTTP driver, calls made through `c` or `c.Raw()` while the function runs do not join
 the transaction. Do not keep the handle after `Transaction` returns: the server refuses its calls

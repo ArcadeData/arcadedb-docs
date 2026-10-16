@@ -281,16 +281,19 @@ on the final one -- and leaves how rows are batched to you.
 
 [WARNING]
 ====
-*`InsertStreamRequest.transaction` is forwarded but not honored.*
+*`database` goes on the first chunk only, and servers before 26.9.1 insert nothing.*
 
-The field exists because the `.proto` declares it, and the driver sets it on every chunk exactly
-as you give it. On server 26.9.1 and earlier it buys nothing: the server ignores the
-`TransactionContext` on `InsertStream` entirely
-(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), builds its own
-insert context, and commits on its own. A batch you believe is atomic is not, and nothing errors
-to tell you so. That is also why `insertStream` is absent from the transaction handle below.
-Do not rely on it until #6607 lands.
+`insertStream` sends `database` on the first chunk only, as the `.proto` specifies, and passes your
+options through unchanged: it never sets `options.database`. Servers before 26.9.1 read the
+database from `InsertOptions.database` alone
+(https://github.com/ArcadeData/arcadedb/issues/6597[ArcadeData/arcadedb#6597]), so against one
+the stream reports its rows as received, inserts none, and succeeds. Drivers up to 0.2.0 copied
+`database` into the options to cover those servers; 0.3.0 dropped the copy. Check `inserted`, not
+just that the call returned, and set `options.database` yourself if you must use such a server.
 ====
+
+To make the inserted rows part of a transaction, call `tx.insertStream` on the transaction handle
+below: they then commit or roll back with it.
 
 ===== Transactions
 
@@ -332,10 +335,24 @@ A `commitTransaction` that resolves with `committed: false` -- what the server a
 transaction it already reaped -- throws rather than reporting a success whose writes were lost.
 
 The handle exposes `executeQuery`, `executeCommand`, `createRecord`, `updateRecord`,
-`deleteRecord`, `lookupByRid` and `streamQuery`, each with the transaction's `database` and
-`transaction` context bound in automatically, so you never set either yourself. Note the
-omissions: `insertStream` and `bulkInsert` are not on the handle, because the server does not run
-them inside your transaction at all -- binding them there would silently lie.
+`deleteRecord`, `lookupByRid`, `streamQuery` and `insertStream`, each with the transaction's
+`database` and `transaction` context bound in automatically, so you never set either yourself.
+Rows sent through `tx.insertStream` commit when the callback resolves and are discarded when it
+throws:
+
+[source,javascript]
+----
+// rows() yields arrays of records, one array per wire chunk
+await grpc.transaction("mydb", async (tx) => {
+  await tx.insertStream({ database: "mydb", options: { targetClass: "Person" }, chunks: rows() });
+  // throwing here rolls the streamed rows back with everything else
+});
+----
+
+That needs ArcadeDB 26.9.1 or later: older servers ran an insert stream outside any transaction
+(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), so its rows
+survived a rollback. `bulkInsert` and `graphBatchLoad` are not on the handle; they stay reachable
+through `grpc.raw` only, outside any transaction.
 
 The trap is the same one the HTTP driver has: calls made through the outer client while a
 transaction is open do not join it. Only calls through the handle take part.

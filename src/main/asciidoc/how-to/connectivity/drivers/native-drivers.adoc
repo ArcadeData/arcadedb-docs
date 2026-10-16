@@ -67,23 +67,49 @@ truncated, so past that ceiling a narrower filter is the only way forward.
 
 ===== Versions and server compatibility
 
-[cols="2,1,1", options="header"]
+All six drivers are released together, at one version, and each release is generated against one
+ArcadeDB server release's contract:
+
+[cols="1,1,3", options="header"]
 |===
-| Package | Version | ArcadeDB server
+| Driver version | ArcadeDB server | Packages
 
-| `arcadedb-driver`, `arcadedb-driver-grpc` (PyPI)
-| 0.1.0
-| 26.9.1
+| 0.3.0
+| 26.10.2
+| All six: `arcadedb-driver` and `arcadedb-driver-grpc` (PyPI), `@arcadedb/driver` and
+`@arcadedb/driver-grpc` (npm), `github.com/ArcadeData/arcadedb-drivers/go/arcadedb` and
+`.../go/arcadedbgrpc` (Go modules)
 
-| `@arcadedb/driver`, `@arcadedb/driver-grpc` (npm)
-| 0.1.0
-| 26.9.1
-
-| `github.com/ArcadeData/arcadedb-drivers/go/arcadedb`, `.../go/arcadedbgrpc` (Go modules)
 | 0.2.0
 | 26.10.1
+| All six
+
+| 0.1.0
+| 26.9.1
+| PyPI and npm only
 |===
 
-Each driver is generated against one server release's contract, shown above. Install commands in
-these pages are deliberately unpinned; the registries carry the current version. The Go modules
-had no 0.1.0 release: their first published version is 0.2.0.
+Pointing a driver at a server on a materially different release may work for the endpoints both
+versions share, but is not tested or supported. Install commands in these pages are deliberately
+unpinned; the registries carry the current version. The Go modules had no 0.1.0 release: their
+first published version is 0.2.0. Each release's changes are listed in the
+https://github.com/ArcadeData/arcadedb-drivers/releases[arcadedb-drivers release notes].
+
+===== Upgrading to 0.3.0
+
+0.3.0 adds server administration, login sessions and API tokens, listing and terminating running
+work, query tags, and a duplex insert session to the three HTTP drivers; each language's page
+below shows them. Three changes can affect existing code:
+
+* *gRPC insert streams no longer copy the database into `InsertOptions.database`.* All three gRPC
+  drivers send `database` on the first chunk only, as the `.proto` specifies. Every supported
+  server (26.9.1 and later) reads it there. A server older than 26.9.1 reads only
+  `options.database`, so against it a stream now reports its rows as received, inserts nothing,
+  and raises no error. If you must use such a server, set `options.database` yourself.
+* *A stream's in-band error carries the server's own status.* An error event in the middle of an
+  HTTP query or command stream used to surface with status 200. It now carries the event's
+  `status` (500, 503, 409 and so on), and falls back to 200 only when the event has none. Retry
+  logic keyed on the status now sees the real one.
+* *Go: the option types are split.* `QueryOption` is now a sealed interface, joined by
+  `CommandOption` and `TransactionOption`. Existing calls compile unchanged; only code that
+  implemented `QueryOption` itself, or passed a `[]QueryOption` to `Command`, needs updating.
