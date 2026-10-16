@@ -76,8 +76,8 @@ positional parameter keys at `0`.
 ====
 *There is no timeout option, and `fetch` has no default timeout.*
 
-`createClient` accepts exactly three options -- `baseUrl`, `auth` and `fetch`. There is no
-`timeout`, and the client calls the runtime's global `fetch`, which waits forever by default. A
+`createClient` accepts exactly four options -- `baseUrl`, `auth`, `fetch` and `WebSocket` (used
+only by the insert session described below). There is no `timeout`, and the client calls the runtime's global `fetch`, which waits forever by default. A
 request against a stalled connection therefore hangs indefinitely unless you bound it yourself.
 The `fetch` option is where to do that: pass a wrapper that attaches an `AbortSignal`.
 
@@ -107,7 +107,7 @@ xref:how-to/connectivity/drivers/python-http.adoc[the Python HTTP driver page], 
 
 `basicAuth("root", "playwithdata")` builds the `Authorization` header for HTTP basic auth;
 `bearerAuth("AU-...")` substitutes directly for it wherever you already hold a session token or
-other bearer credential.
+other bearer credential; see <<js-http-sessions,Sessions and API tokens>> for getting one.
 
 ===== The result envelope
 
@@ -120,11 +120,17 @@ interface QueryEnvelope<T> {
   limit: number;
   returned: number;
   truncated: boolean;
+  explain?: string;                       // EXPLAIN / PROFILE only
+  explainPlan?: Record<string, unknown>;  // present exactly when `explain` is
 }
 ----
 
 See xref:how-to/connectivity/drivers/native-drivers.adoc#native-drivers[Native Drivers] for why
 `truncated` matters and what to do when it is `true`.
+
+An `EXPLAIN` or `PROFILE` statement answers with its execution plan instead of rows: `explain`
+holds it as indented text and `explainPlan` as the same plan in structured form, while `result`
+is empty and `returned` is `0`. An empty `result` there is not "no rows matched".
 
 ===== Transactions
 
@@ -177,7 +183,23 @@ try {
 ----
 
 `requestId` is the server's request identifier for that call and differs on every request; use
-it to correlate a failure with the server log.
+it to correlate a failure with the server log. Two more fields come from the response's headers:
+`retryAfter`, the seconds the server asked you to wait before retrying (on a 503, or a 409 for an
+identical request still in flight), and `commitIndex`, the Raft index to send back as
+`X-ArcadeDB-Read-After` on a later read. Both are `undefined` when the server sent none, and `0`
+is a valid `retryAfter`, so compare against `undefined`.
+
+[WARNING]
+====
+*A 409 has two meanings.* It is either "an identical request is still in flight", which is
+retryable after `retryAfter`, or "query terminated", because an operator stopped the statement and
+its writes were rolled back. Retrying the second undoes the operator's decision. Tell them apart
+with `isQueryTerminated(err)`, never by `status === 409`.
+====
+
+A rejected time-series write throws `TimeSeriesWriteError`, a subclass of `ArcadeDBError` that
+says how many samples were `written` and `dropped` and why. A write is not atomic: the `written`
+samples landed, so re-sending the whole batch writes them twice.
 
 `server.raw` -- the underlying https://openapi-ts.dev/openapi-fetch/[openapi-fetch] client
 beneath the facade -- takes the opposite approach: it never throws. It returns `{ data, error }`
@@ -186,7 +208,128 @@ and leaves handling the error to the caller. Use the facade for the ergonomics o
 
 Beyond `query`, `command` and `transaction`, a database handle also exposes `db.ts`,
 `db.grafana` and `db.promql` for time-series ingestion, Grafana panel queries and a
-PromQL-compatible query surface -- see the package README linked below for those.
+PromQL-compatible query surface (including `db.promql.labelValues`), and `db.vector` for vector,
+hybrid and full-text search -- see the package README linked below for those.
+
+===== Labelling work with a query tag
+
+`query`, `command`, `queryStream`, `commandStream`, `batchLoad` and `batchLoadStream` take an
+optional `queryTag`, and `transaction` takes one as its second argument. The tag travels as the
+`X-ArcadeDB-Query-Tag` header, so you can list and terminate the work by it:
+
+[source,javascript]
+----
+await db.query({ language: "sql", command: "SELECT FROM Orders", queryTag: "nightly-report" });
+
+await db.transaction(
+  async (tx) => {
+    await tx.command({ language: "sql", command: "UPDATE Orders SET archived = true" });
+  },
+  { queryTag: "archive-run" },
+);
+----
+
+A transaction's tag is sent on the begin request only; the server applies it to every statement in
+the transaction that carries no tag of its own.
+
+===== Duplex insert session
+
+`db.insertSession()` opens an insert session on the server's `/ws` endpoint. Unlike `batchLoad`,
+whose commit policy is fixed before the load starts, a session lets you read each chunk's
+acknowledgement before deciding what to send next, and whether to commit at all:
+
+[source,javascript]
+----
+const session = await db.insertSession({ targetType: "Person" });
+try {
+  const ack = await session.sendChunk([{ name: "a" }, { name: "b" }]);
+  console.log(ack.inserted, ack.failed, ack.errors); // nothing is durable yet
+  const done = await session.commit();                // or: await session.rollback()
+  console.log(done.outcome, done.summary.inserted);
+} finally {
+  await session.close();                              // rolls back if still open
+}
+----
+
+It uses the runtime's global `WebSocket` (Node 22+); on Node 20, pass the `ws` package's class as
+`createClient`'s `WebSocket` option.
+
+===== Administration
+
+`createDatabase`, `dropDatabase`, `createUser`, `updateUser`, `dropUser`, `listUsers`,
+`saveGroup`, `deleteGroup` and `listGroups` are on the server handle, and `serverCommand` runs any
+other server command. All of them are root-only:
+
+[source,javascript]
+----
+await server.createDatabase("tenant_a");
+await server.createUser("alice", "a-long-password", { databases: { tenant_a: ["admin"] } });
+const users = await server.listUsers();
+await server.dropUser("alice");
+await server.dropDatabase("tenant_a");
+----
+
+A user or database that already exists is a 409 on ArcadeDB 26.10.2 and later. Older servers
+answer 403 for a duplicate user and 400 for a duplicate database.
+
+[[js-http-sessions]]
+===== Sessions and API tokens
+
+[source,javascript]
+----
+// Log in as each user once, then keep a client that holds only that user's token.
+const login = await server.loginAs("alice", "a-long-password"); // or server.login()
+const alice = server.withToken(login.token);                    // server is unchanged
+await alice.listDatabases();                                    // only what alice may see
+await alice.logout();
+
+// A long-lived machine credential (root only).
+const created = await server.createAPIToken("ci", { database: "tenant_a" });
+store(created.token);                          // the only time the plaintext exists
+await server.deleteAPIToken(created.tokenHash); // by hash, never by token
+----
+
+`listSessions` and `listAPITokens` list what exists. Each user holds at most 100 sessions, and a
+further login silently evicts the oldest, so log in once per user and reuse the token rather than
+logging in per request. Wrong Basic credentials are answered 403, not 401; 401 is what an invalid,
+expired or logged-out token gets.
+
+===== Running work
+
+[source,javascript]
+----
+import { isQueryTerminated } from "@arcadedb/driver";
+
+const running = await server.listQueries({ tag: "nightly-report" }); // or { database }
+const results = await server.terminateQueriesByTag("nightly-report", { waitMs: 3000 });
+await server.terminateQuery(running[0].id);
+const open = await server.listTransactions();
+await server.terminateTransaction(open[0].id);
+const progress = await db.progress(); // long-running maintenance operations
+----
+
+Any authenticated user may call these: root sees and stops every statement, another user only
+their own. Each terminate answer carries a `status`, and which one you get decides whether you have
+anything to undo:
+
+[cols="1,3", options="header"]
+|===
+| `status` | Meaning
+
+| `"terminated"` | It stopped, and what it wrote was rolled back.
+| `"completed"` | It finished before it noticed, so what it did stands.
+| `"terminating"` | It had not stopped when the wait ended; the request's own outcome is the answer.
+| `"not found"` | No such statement on this server, or another user's.
+|===
+
+[WARNING]
+====
+* *Each server sees only its own work.* These commands are not forwarded to the cluster leader, so
+  behind a load balancer the server you reach may not be the one running the statement.
+* *A commit after `terminateTransaction` still reports success.* The transaction's writes are
+  rolled back, but the server answers its owner's commit with 204, as if it had committed
+  (https://github.com/ArcadeData/arcadedb/issues/10164[ArcadeData/arcadedb#10164]).
+====
 
 ===== Next steps
 
@@ -195,4 +338,5 @@ PromQL-compatible query surface -- see the package README linked below for those
 * xref:how-to/connectivity/drivers/js-grpc.adoc[JavaScript / TypeScript -- gRPC Driver] -- the
   gRPC counterpart for throughput-sensitive server-to-server work.
 * The https://github.com/ArcadeData/arcadedb-drivers/tree/main/typescript/packages/driver#readme[package README]
-  for the full method list, including `db.ts`, `db.grafana` and `db.promql`.
+  for the full method list and every failure mode of the methods above, including `db.ts`,
+  `db.grafana`, `db.promql` and `db.vector`.

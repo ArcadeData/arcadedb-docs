@@ -63,7 +63,13 @@ exactly what makes it easy to ship. Always start positional parameter keys at `"
 
 `basic_auth("root", "playwithdata")` builds the `Authorization` header for HTTP basic auth;
 `bearer_auth("AU-...")` substitutes directly for it wherever you already hold a session token
-from `/api/v1/login`, or any other bearer credential.
+from `srv.login()` (see <<python-http-sessions,Sessions and API tokens>>), or any other bearer
+credential.
+
+An `EXPLAIN` or `PROFILE` statement answers with its execution plan instead of rows: the
+envelope's `explain` holds it as indented text and `explain_plan` as the same plan in structured
+form, while `result` is empty and `returned` is `0`. An empty `result` there is not "no rows
+matched".
 
 ===== Sync and async
 
@@ -93,8 +99,9 @@ asyncio.run(main())
 ----
 
 Beyond `query`, `command` and `transaction`, a database handle also exposes `db.ts`, `db.grafana`
-and `db.promql` for time-series ingestion and querying -- see the package README linked below for
-those.
+and `db.promql` for time-series ingestion and querying (including `db.promql.label_values`), and
+`db.vector` for vector, hybrid and full-text search -- see the package README linked below for
+those. Everything in the sections below has the same async twin.
 
 ===== Close your client
 
@@ -166,7 +173,22 @@ except ArcadeDBError as err:
 ----
 
 `request_id` is the server's `X-Request-Id` for that call and is different on every request; use
-it to correlate a failure with the server log.
+it to correlate a failure with the server log. Two more fields come from the response's headers:
+`retry_after`, the seconds the server asked you to wait before retrying (on a 503, or a 409 for an
+identical request still in flight), and `commit_index`, the Raft index to send back as
+`X-ArcadeDB-Read-After` on a later read. Both are `None` when the server sent none.
+
+[WARNING]
+====
+*A 409 has two meanings.* It is either "an identical request is still in flight", which is
+retryable after `retry_after`, or "query terminated", because an operator stopped the statement and
+its writes were rolled back. Retrying the second undoes the operator's decision. Tell them apart
+with `is_query_terminated(err)`, never by `err.status == 409`.
+====
+
+A rejected time-series write raises `TimeSeriesWriteError`, a subclass of `ArcadeDBError` that
+says how many samples were `written` and `dropped` and why. A write is not atomic: the `written`
+samples landed, so re-sending the whole batch writes them twice.
 
 `srv.raw` takes the opposite approach: it never raises. It is not a second facade with its own
 `query` and `command` methods -- it is the generated `openapi-python-client` `Client` object, the
@@ -189,6 +211,121 @@ with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "p
 ----
 200 ['mydb']
 ----
+
+===== Labelling work with a query tag
+
+`query`, `command`, `query_stream`, `command_stream`, `batch_load`, `batch_load_stream` and
+`transaction()` take an optional `query_tag`, sent as the `X-ArcadeDB-Query-Tag` header, so you can
+list and terminate the work by it:
+
+[source,python]
+----
+db.query(language="sql", command="SELECT FROM Event", query_tag="nightly-report")
+
+with db.transaction(query_tag="etl-run-42") as tx:
+    tx.command(language="sql", command="INSERT INTO Event SET n = 1")  # labelled etl-run-42
+----
+
+A transaction's tag is sent on the begin request only; the server applies it to every statement in
+the transaction that carries no tag of its own.
+
+===== Duplex insert session
+
+`db.insert_session()` opens an insert session on the server's `/ws` endpoint. Unlike `batch_load`,
+whose commit policy is fixed before the load starts, a session lets you read each chunk's
+acknowledgement before deciding what to send next, and whether to commit at all:
+
+[source,python]
+----
+with db.insert_session(target_type="Person") as session:
+    for batch in batches:
+        ack = session.send_chunk(batch)  # nothing is durable yet
+        if ack["failed"]:
+            session.rollback()
+            break
+    else:
+        session.commit()
+----
+
+Leaving the `with` block with the session still open rolls it back.
+
+===== Administration
+
+`create_database`, `drop_database`, `create_user`, `update_user`, `drop_user`, `list_users`,
+`save_group`, `delete_group` and `list_groups` are on the server handle, and `server_command` runs
+any other server command. All of them are root-only:
+
+[source,python]
+----
+srv.create_database("tenant_a")
+srv.create_user("alice", "a-long-password", databases={"tenant_a": ["admin"]})
+users = srv.list_users()
+srv.drop_user("alice")
+srv.drop_database("tenant_a")
+----
+
+A user or database that already exists is a 409 on ArcadeDB 26.10.2 and later. Older servers
+answer 403 for a duplicate user and 400 for a duplicate database.
+
+[[python-http-sessions]]
+===== Sessions and API tokens
+
+[source,python]
+----
+# Log in as each user once, then keep a client that holds only that user's token.
+login = srv.login_as("alice", "a-long-password")  # or srv.login()
+with srv.with_token(login.token) as alice:         # srv is unchanged
+    alice.list_databases()                          # only what alice may see
+    alice.logout()
+
+# A long-lived machine credential (root only).
+created = srv.create_api_token("ci", database="tenant_a")
+store(created.token)                       # the only time the plaintext exists
+srv.delete_api_token(created.token_hash)   # by hash, never by token
+----
+
+`list_sessions` and `list_api_tokens` list what exists. Each user holds at most 100 sessions, and a
+further login silently evicts the oldest, so log in once per user and reuse the token rather than
+logging in per request. Wrong Basic credentials are answered 403, not 401; 401 is what an invalid,
+expired or logged-out token gets.
+
+===== Running work
+
+[source,python]
+----
+from datetime import timedelta
+from arcadedb_driver import is_query_terminated
+
+running = srv.list_queries(tag="nightly-report")  # or database=...
+results = srv.terminate_queries_by_tag("nightly-report", wait=timedelta(seconds=3))
+srv.terminate_query(running[0].id)
+open_txs = srv.list_transactions()
+srv.terminate_transaction(open_txs[0].id)
+progress = srv.db("mydb").progress()  # long-running maintenance operations
+----
+
+Any authenticated user may call these: root sees and stops every statement, another user only
+their own. Each terminate answer carries a `status`, and which one you get decides whether you have
+anything to undo:
+
+[cols="1,3", options="header"]
+|===
+| `status` | Meaning
+
+| `terminated` | It stopped, and what it wrote was rolled back.
+| `completed` | It finished before it noticed, so what it did stands.
+| `terminating` | It had not stopped when the wait ended; the request's own outcome is the answer.
+| `not found` | No such statement on this server, or another user's.
+|===
+
+[WARNING]
+====
+* *Each server sees only its own work.* These commands are not forwarded to the cluster leader, so
+  behind a load balancer the server you reach may not be the one running the statement.
+* *A commit after `terminate_transaction` still reports success.* The transaction's writes are
+  rolled back, but the server answers its owner's commit with 204, as if it had committed
+  (https://github.com/ArcadeData/arcadedb/issues/10164[ArcadeData/arcadedb#10164]).
+====
 
 [[python-choosing-protocol]]
 ===== Choosing a protocol from Python
@@ -267,4 +404,5 @@ Times are for the whole result consumed in Python (warm median of 3). Bolt is sh
 * xref:how-to/connectivity/drivers/python-grpc.adoc[Python -- gRPC Driver] -- the gRPC
   counterpart for throughput-sensitive server-to-server work.
 * The https://github.com/ArcadeData/arcadedb-drivers/tree/main/python/packages/driver#readme[package README]
-  for the full method list, including `db.ts`, `db.grafana` and `db.promql`.
+  for the full method list and every failure mode of the methods above, including `db.ts`,
+  `db.grafana`, `db.promql` and `db.vector`.

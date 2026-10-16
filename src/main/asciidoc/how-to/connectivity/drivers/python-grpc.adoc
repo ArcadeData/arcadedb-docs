@@ -184,6 +184,11 @@ wraps -- every one of the other nine RPCs reached through `raw` would go out sil
 Attaching auth to the channel instead of the call means there is no RPC you can reach through this
 client without it.
 
+Your own per-call headers are a separate thing. Every facade method, on the client and on a
+transaction handle alike, takes keyword-only `timeout=` and `metadata=` (a sequence of
+`(key, value)` pairs). `metadata` is appended to what the channel's auth interceptor adds, never a
+replacement for it.
+
 [WARNING]
 ====
 *The insecure-channel guard, and its limit.*
@@ -263,16 +268,19 @@ one session id for the stream, an incrementing chunk sequence, `database` on the
 
 [WARNING]
 ====
-*`InsertStreamRequest.transaction` is forwarded but not honored.*
+*`database` goes on the first chunk only, and servers before 26.9.1 insert nothing.*
 
-The field exists because the `.proto` declares it, and the driver sets it on every chunk exactly
-as you give it. On server 26.9.1 and earlier it buys nothing: the server ignores the
-`TransactionContext` on `InsertStream` entirely
-(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), builds its own
-insert context, and commits on its own. A batch you believe is atomic is not, and nothing errors
-to tell you so. That is also why `insert_stream` is absent from the transaction handle below.
-Do not rely on it until #6607 lands.
+`insert_stream` sends `database` on the first chunk only, as the `.proto` specifies, and passes your
+options through unchanged: it never sets `options.database`. Servers before 26.9.1 read the
+database from `InsertOptions.database` alone
+(https://github.com/ArcadeData/arcadedb/issues/6597[ArcadeData/arcadedb#6597]), so against one
+the stream reports its rows as received, inserts none, and succeeds. Drivers up to 0.2.0 copied
+`database` into the options to cover those servers; 0.3.0 dropped the copy. Check `inserted`, not
+just that the call returned, and set `options.database` yourself if you must use such a server.
 ====
+
+To make the inserted rows part of a transaction, call `tx.insert_stream` on the transaction
+handle below: they then commit or roll back with it.
 
 ===== Transactions
 
@@ -313,11 +321,31 @@ exception's `__cause__` rather than replacing it, and a commit that fails trigge
 rollback first so the server-side session is not left for the reaper.
 
 The handle is how you run work inside the transaction. It exposes `execute_query`,
-`execute_command`, `create_record`, `update_record`, `delete_record`, `lookup_by_rid` and
-`stream_query`, each of them binding the transaction's id and database onto a copy of the request
-you pass -- so you never set `transaction` or `database` yourself, and a request object you reuse
-elsewhere is left untouched. Note the omissions: `insert_stream` and `BulkInsert` are not on the
-handle, because the server does not run them inside your transaction at all.
+`execute_command`, `create_record`, `update_record`, `delete_record`, `lookup_by_rid`,
+`stream_query` and `insert_stream`, each of them binding the transaction's id and database onto a
+copy of the request you pass -- so you never set `transaction` or `database` yourself, and a
+request object you reuse elsewhere is left untouched. Rows sent through `tx.insert_stream` commit
+with the transaction and are discarded if the block raises:
+
+[source,python]
+----
+from arcadedb_driver_grpc import InsertStreamRequest, messages
+
+# batches() yields lists of messages.GrpcRecord, one list per wire chunk
+with client.transaction("mydb") as tx:
+    summary = tx.insert_stream(
+        InsertStreamRequest(
+            database="mydb",
+            options=messages.InsertOptions(target_class="Person"),
+            chunks=batches(),
+        )
+    )
+----
+
+That needs ArcadeDB 26.9.1 or later: older servers ran an insert stream outside any transaction
+(https://github.com/ArcadeData/arcadedb/issues/6607[ArcadeData/arcadedb#6607]), so its rows
+survived a rollback. `BulkInsert` and `GraphBatchLoad` are not on the handle; they stay reachable
+through `client.raw` only, outside any transaction.
 
 The trap is the same one the HTTP driver has: calls made through the outer `client` while a
 transaction is open do not join it. Only calls through the handle take part.
