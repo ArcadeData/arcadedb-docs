@@ -3,7 +3,8 @@
 
 `github.com/ArcadeData/arcadedb-drivers/go/arcadedb` is ArcadeDB's Go HTTP client, generated from
 the server's OpenAPI contract. A hand-written facade on top covers queries, commands,
-transactions, streaming, batch loading, vector search and time series.
+transactions, streaming, batch loading, insert sessions, vector search, time series, server
+administration, login sessions and API tokens, and listing and terminating running work.
 
 ===== Install
 
@@ -58,7 +59,12 @@ func main() {
 `Query` returns a `QueryEnvelope`. The rows are in `Result`, a `[]map[string]any`, and the
 envelope also carries `Limit`, `Returned` and `Truncated`. Check `Truncated` before you treat `Result` as the whole
 answer; <<native-drivers,Native Drivers>> explains why. Pass `arcadedb.WithLimit(n)` to `Query` to
-set the row cap for one call (`-1` for none). `Command` takes no limit.
+set the row cap for one call (`-1` for none). `Command` takes no limit: `WithLimit` is a
+`QueryOption` only, so passing it to `Command` does not compile.
+
+An `EXPLAIN` or `PROFILE` statement answers with its execution plan instead of rows: the envelope's
+`Explain` holds it as indented text and `ExplainPlan` as the same plan in structured form, while
+`Result` is empty and `Returned` is `0`. An empty `Result` there is not "no rows matched".
 
 Rows are decoded with `encoding/json`, so numbers arrive as `float64`. An integer larger than
 2^53^ loses precision.
@@ -83,7 +89,7 @@ Named parameters sidestep the problem: `"SELECT FROM Person WHERE age > :min"` w
 `NewServer` takes functional options:
 
 * `WithBasicAuth(user, password)` or `WithBearerToken(token)`, for example a session token from
-  `/api/v1/login`.
+  `srv.Login` (see <<go-http-sessions,Sessions and API tokens>>).
 * `WithHeader(name, value)` adds a header to every request.
 * `WithHTTPClient(client)` replaces the default `http.Client`.
 
@@ -151,8 +157,10 @@ Some behavior to know about:
 * The request is sent on the first iteration and again on every later range over the same
   iterator. Treat the iterator as single-use.
 * An error that happens after the server has sent its `200` status arrives in-band. The driver
-  yields it once as an `*ArcadeDBError` with `Status` 200, and the loop ends. Rows yielded before it
-  stay delivered.
+  yields it once as an `*ArcadeDBError`, and the loop ends. Rows yielded before it stay delivered.
+  Its `Status` is the event's own status (503 for a retryable conflict, 409 for a duplicated key,
+  500 for an unexpected failure), and only an event that carries none reads as 200. Up to 0.2.0
+  it was always 200.
 * Leaving the loop early with `break` or `return` closes the response body.
 * `CommandStream` only works for read-only statements. The server refuses a mutating statement
   with `400`, because the streamed rows would reach you before the commit, and that commit could
@@ -229,6 +237,23 @@ if errors.As(err, &aerr) {
 find the failure in the server log. The body's `error` string is in `ErrorMessage` rather than
 `Error`, because Go does not allow a field and a method with the same name.
 
+Two more fields come from the response's headers: `RetryAfter`, a `time.Duration` the server asked
+you to wait before retrying (on a 503, or a 409 for an identical request still in flight), and
+`CommitIndex`, the Raft index to send back as `X-ArcadeDB-Read-After` on a later read. Both are 0
+when absent.
+
+[WARNING]
+====
+*A 409 has two meanings.* It is either "an identical request is still in flight", which is
+retryable after `RetryAfter`, or "query terminated", because an operator stopped the statement and
+its writes were rolled back. Retrying the second undoes the operator's decision. Tell them apart
+with `arcadedb.IsQueryTerminated(err)`, never by `Status` alone.
+====
+
+A rejected time-series write returns a `*arcadedb.TimeSeriesWriteError`, which embeds
+`*ArcadeDBError` and says how many samples were written and dropped and why. A write is not atomic:
+the written samples landed, so re-sending the whole batch writes them twice.
+
 `srv.Raw()` takes the opposite approach. It returns the generated `*generated.ClientWithResponses`,
 which never turns a status code into an error: `err` reports transport failures only, and you
 check the status yourself.
@@ -247,9 +272,11 @@ fmt.Println(resp.StatusCode(), resp.JSON200.Result)
 200 [mydb]
 ----
 
-Use `Raw()` for the endpoints the facade does not wrap: security, cluster, authentication, MCP and
-metrics, and `POST /api/v1/server` for server commands. Mixing up which of the two surfaces you
-are calling is the most common way to end up with an unhandled failure.
+Use `Raw()` for the endpoints the facade does not wrap: cluster, AI, MCP and metrics operations,
+and the two protobuf PromQL remote read and write routes. For server commands use
+`srv.ServerCommand` rather than `POST /api/v1/server` through `Raw()`, whose typed response
+misreads the server's `{"result": "ok"}` answer. Mixing up which of the two surfaces you are
+calling is the most common way to end up with an unhandled failure.
 
 [TIP]
 ====
@@ -266,9 +293,128 @@ The database handle also has:
   `/api/v1/batch`. A load commits every `commitEvery` records, so it is not atomic: a load that
   fails partway leaves earlier chunks committed, and retrying the whole payload duplicates them.
 * `db.Vector()` for vector, hybrid and full-text search.
-* `db.TS()`, `db.Grafana()` and `db.PromQL()` for time-series ingestion and querying.
+* `db.TS()`, `db.Grafana()` and `db.PromQL()` for time-series ingestion and querying, including
+  `db.PromQL().LabelValues`.
+* `db.InsertSession` for a duplex insert session, below.
 
 The package README linked below covers each of them.
+
+===== Labelling work with a query tag
+
+`arcadedb.WithQueryTag("nightly-report")` sends the `X-ArcadeDB-Query-Tag` header, so you can list
+and terminate the work by it. `Query`, `QueryStream`, `Command`, `CommandStream` and `Transaction`
+all take it; a batch load takes it as `generated.ExecuteBatchParams.XArcadeDBQueryTag`.
+
+[source,go]
+----
+err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
+	_, err := tx.Command(ctx, arcadedb.SQL, "UPDATE Account SET flagged = true WHERE balance < 0", nil)
+	return err
+}, arcadedb.WithQueryTag("audit"))
+----
+
+A transaction's tag is sent on the begin request only; the server applies it to every statement in
+the transaction that carries no tag of its own.
+
+===== Duplex insert session
+
+`db.InsertSession` opens an insert session on the server's `/ws` endpoint. Unlike `BatchLoad`,
+whose commit policy is fixed before the load starts, a session lets you read each chunk's
+acknowledgement before deciding what to send next, and whether to commit at all:
+
+[source,go]
+----
+s, err := db.InsertSession(ctx, arcadedb.WithInsertTargetType("Person"))
+if err != nil {
+	return err
+}
+defer s.Close() // rolls back if the session is still open; idempotent
+
+ack, err := s.SendChunk(ctx, []map[string]any{{"name": "Alice"}, {"name": "Bob"}})
+if err != nil {
+	return err
+}
+// ack.Inserted, ack.Failed, ack.Errors: decide here whether to go on. Nothing is durable yet.
+res, err := s.Commit(ctx) // res.Outcome == "commit"
+----
+
+A session is not safe for concurrent use: use one per goroutine.
+
+===== Administration
+
+`CreateDatabase`, `DropDatabase`, `CreateUser`, `UpdateUser`, `DropUser`, `ListUsers`,
+`SaveGroup`, `DeleteGroup` and `ListGroups` are on the `*Server`, and `ServerCommand` runs any other
+server command. All of them are root-only:
+
+[source,go]
+----
+err := srv.CreateDatabase(ctx, "tenant_a")
+err = srv.CreateUser(ctx, "alice", "a-long-password",
+	map[string][]string{"tenant_a": {"admin"}}) // database -> groups
+users, err := srv.ListUsers(ctx)
+err = srv.DropUser(ctx, "alice")
+err = srv.DropDatabase(ctx, "tenant_a")
+----
+
+A user or database that already exists is a 409 on ArcadeDB 26.10.2 and later. Older servers
+answer 403 for a duplicate user and 400 for a duplicate database.
+
+[[go-http-sessions]]
+===== Sessions and API tokens
+
+[source,go]
+----
+// Log in as each user once, then keep a client that holds only that user's token.
+login, err := srv.LoginAs(ctx, "alice", "a-long-password") // or srv.Login(ctx)
+alice := srv.WithToken(login.Token)                       // srv is unchanged
+dbs, err := alice.ListDatabases(ctx)                      // only what alice may see
+err = alice.Logout(ctx)
+
+// A long-lived machine credential (root only).
+created, err := srv.CreateAPIToken(ctx, arcadedb.APITokenRequest{Name: "ci", Database: "tenant_a"})
+store(created.Token)                              // the only time the plaintext exists
+err = srv.DeleteAPIToken(ctx, created.TokenHash)  // by hash, never by token
+----
+
+`ListSessions` and `ListAPITokens` list what exists. Each user holds at most 100 sessions, and a
+further login silently evicts the oldest, so log in once per user and reuse the token rather than
+logging in per request. Wrong Basic credentials are answered 403, not 401; 401 is what an invalid,
+expired or logged-out token gets.
+
+===== Running work
+
+[source,go]
+----
+qs, err := srv.ListQueries(ctx, arcadedb.ListQueriesOptions{Tag: "nightly-report"}) // or Database
+rs, err := srv.TerminateQueriesByTag(ctx, "nightly-report", arcadedb.TerminateOptions{Wait: 3 * time.Second})
+r, err := srv.TerminateQuery(ctx, qs[0].ID, arcadedb.TerminateOptions{})
+txs, err := srv.ListTransactions(ctx)
+r, err = srv.TerminateTransaction(ctx, txs[0].ID, arcadedb.TerminateOptions{})
+p, err := db.Progress(ctx) // long-running maintenance operations
+----
+
+Any authenticated user may call these: root sees and stops every statement, another user only
+their own. Each terminate answer carries a `Status`, and which one you get decides whether you have
+anything to undo:
+
+[cols="1,3", options="header"]
+|===
+| `Status` | Meaning
+
+| `QueryTerminated` | It stopped, and what it wrote was rolled back.
+| `QueryCompleted` | It finished before it noticed, so what it did stands.
+| `QueryTerminating` | It had not stopped when the wait ended; the request's own outcome is the answer.
+| `QueryNotFound` | No such statement on this server, or another user's.
+|===
+
+[WARNING]
+====
+* *Each server sees only its own work.* These commands are not forwarded to the cluster leader, so
+  behind a load balancer the server you reach may not be the one running the statement.
+* *A commit after `TerminateTransaction` still reports success.* The transaction's writes are
+  rolled back, but the server answers its owner's commit with 204, as if it had committed
+  (https://github.com/ArcadeData/arcadedb/issues/10164[ArcadeData/arcadedb#10164]).
+====
 
 ===== Next steps
 
