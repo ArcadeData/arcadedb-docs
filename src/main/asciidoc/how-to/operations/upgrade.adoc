@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - A taken schema object name is a conflict, not a server error
+
+Creating, or renaming onto, a name already taken by a type, property, index, constraint, bucket, trigger, view or function now raises `com.arcadedb.exception.AlreadyExistsException`, a `SchemaException` (issue #10153). Before, the SQL statements raised `CommandExecutionException`, and defining a function or a library twice, or renaming or copying a type onto a taken name, raised `IllegalArgumentException`.
+
+*Impact:* over HTTP these answer `409` instead of `500` (or `400` for a rename); over PostgreSQL `42P07`, `42701` or `42710` instead of `XX000` or `42P01`; over Bolt a `Neo.ClientError.Schema.*AlreadyExists` code; over gRPC `ALREADY_EXISTS`. Embedded or remote Java code that caught `IllegalArgumentException` or `CommandExecutionException` for this case no longer catches it.
+
+*Action:* catch `AlreadyExistsException` (or `SchemaException`) where you handle a name that is already taken. Clients that keyed on the old status codes should expect the new ones.
+
+[discrete]
 ====== 26.10.2 - Client requests wait in a queue when the server is busy
 
 Every request of a remote client (HTTP, Postgres, BOLT, Redis, gRPC, Gremlin Server, MCP, MongoDB) now goes through a query admission gate: at most twice the number of cores run at once, and a request that arrives when they are all taken, or when the running queries hold more than 80% of the query heap budget, waits in a queue and starts in arrival order (issue #9518). Before, every request started at once, and under a burst of heavy queries the last ones were refused by the heap budget or exhausted the heap.
