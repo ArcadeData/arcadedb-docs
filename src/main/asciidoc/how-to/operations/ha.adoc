@@ -481,6 +481,9 @@ again to be sure which value is in force.
 * *Refusal.* When the change is refused outright, the node that ran it puts the previous value back, but only while the
 setting still holds the value the command stored. If a change to the same setting made on another node was applied in the
 meantime, that value stands.
+* *Overlapping commands.* The entry carries the value its own command set, not the value the node holds when the entry is
+submitted. When two commands change the same setting at the same time, every node applies them in commit order and ends on
+the value of the one that committed last.
 
 ===== Write Quorum
 
@@ -814,6 +817,32 @@ the resync is the way out there. A database with no quarantine and no read floor
 
 The same override is available over gRPC as `AcceptDivergedDatabase` (see <<grpc-api>>) and from Java through
 `RemoteServer.acceptDivergedDatabase()`.
+
+[[ha-held-entries]]
+====== Entries held for the next restart (from v26.11.1)
+
+Some committed entries belong to no single database: security users, groups and API tokens, and a database's
+`configuration.json`. When a node cannot write one of them (for example the volume is full or read-only), it cannot
+quarantine a database for it. Versions before v26.11.1 skipped the entry and went on checkpointing the Raft log, so a restart
+did not replay it and the node silently kept the old users or settings.
+
+Since v26.11.1 the node *holds* the entry instead. It does not checkpoint the Raft log past it, so the log keeps growing, and
+it logs at `WARNING`, at most every five minutes:
+
+`The Raft log is not checkpointed past index <n> because entries are held for the replay (...)`
+
+A hold is lifted when:
+
+* a later entry for the same user, group or token is written successfully, or a later configuration entry rewrites every
+setting the held one named;
+* the database is dropped or resynced;
+* the node installs a snapshot from the leader that covers the entry;
+* the node restarts and applies the entry again.
+
+If the warning keeps appearing, fix the cause (free the disk, restore write access) and restart the node.
+
+A committed entry for a single database that fails to apply, whatever the cause, now quarantines that database and resyncs
+it (see <<ha-quarantine>>), instead of being skipped.
 
 [[ha-accept-stale-snapshot]]
 *Lifting the stale-snapshot read floor.* A node that restarts with a Raft snapshot marker ahead of the entries its
