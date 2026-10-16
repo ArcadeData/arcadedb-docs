@@ -172,13 +172,13 @@ WHERE a.name = 'core'
 RETURN count(DISTINCT b)
 ----
 
-The answer is the same as the one path enumeration gives, in every direction and every <<cypher-path-mode,path mode>>. The shortcut applies when the statement is nothing but one non-optional `MATCH` with one hop, followed by `RETURN`, and:
+The answer holds the same rows and values as the one path enumeration gives, in every direction and every <<cypher-path-mode,path mode>>; only their order can differ, see below. The shortcut applies when the statement is nothing but one non-optional `MATCH` with one hop, followed by `RETURN`, and:
 
 * the lower bound of the hop is 0 or 1 (`*`, `*..n`, `*0..n` and `*1..n`);
 * there is no named path and the relationship variable is not used anywhere (not in `WHERE`, `RETURN`, `ORDER BY` or an inline `WHERE`);
 * the `RETURN` is either `DISTINCT` over the start or end vertices or their properties, or it groups by such values and aggregates them with `count(DISTINCT ...)`, `collect(DISTINCT ...)`, `sum(DISTINCT ...)`, `avg(DISTINCT ...)`, `min(...)` or `max(...)`. `ORDER BY` may use those values or the output names.
 
-Anything else keeps enumerating paths: a plain `RETURN b`, `count(b)`, `size(r)`, a second `MATCH`, a `WITH`, `OPTIONAL MATCH`, and a lower bound of 2 or more. Use `EXPLAIN` to see which one a query gets: the hop is shown as `[DISTINCT ENDPOINTS]`. The traversal is lazy, so `LIMIT` stops it early, and the order of the rows (and of the list built by `collect(DISTINCT ...)`) is the breadth-first order; as in every `MATCH` without `ORDER BY`, no order is promised.
+Anything else keeps enumerating paths: a plain `RETURN b`, `count(b)`, `size(r)`, a second `MATCH`, a `WITH`, `OPTIONAL MATCH`, and a lower bound of 2 or more. Use `EXPLAIN` to see which one a query gets: the hop is shown as `[DISTINCT ENDPOINTS]`. The traversal is lazy, so `LIMIT` stops it early. The order of the rows, and of the list built by `collect(DISTINCT ...)`, is the breadth-first order of the walk, while path enumeration meets the vertices depth first: the same data can come back in another order once a statement stops being eligible (a named path or a second `MATCH` is enough). As in every `MATCH` without `ORDER BY`, no order is promised. A statement that reads the order of the collected list, such as `head(collect(DISTINCT b.name))` or `collect(DISTINCT b.name)[0]`, is not one of the shapes above and keeps the order of the path enumeration.
 
 ---
 

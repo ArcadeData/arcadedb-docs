@@ -455,6 +455,14 @@ answer was the relationships the walk followed. Finding them reads the outgoing 
 relationship, by the identity of its far end: the record of a relationship that leads out of the subgraph is never read), so a
 node with a very large number of relationships of filtered-out types pays for scanning them.
 
+A node is reached only through a relationship whose record exists. When the record is gone but the adjacency lists of its two
+endpoints still name it (a dangling entry, left behind by an incomplete replication or a partially rolled-back transaction), the
+entry is skipped and reported in the log, by every path procedure alike: `path.subgraphnodes`, `path.subgraphall`,
+`path.spanningtree` and `path.expandconfig` return the same nodes, and each node of `path.subgraphall` is the start node or an
+endpoint of one of the `relationships` returned with it. Another, live, relationship to the same node still reaches it. The check
+asks the bucket whether the record exists, once per node reached, and reads no record. Before 26.11.1 `path.subgraphnodes` and
+`path.subgraphall` followed such an entry, and returned a node that no returned relationship touched.
+
 Before 26.10.1, a `labelFilter` that excluded a neighbour could still leave the edge reaching it in `relationships`,
 even though that neighbour was missing from `nodes`.
 
