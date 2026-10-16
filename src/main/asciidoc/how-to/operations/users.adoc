@@ -56,7 +56,9 @@ node - see <<token-authentication,Token-Based Authentication>>.
 Since 26.10.1 each server also keeps `config/server-security-cluster.json` beside the user, group and API-token
 files. It holds only a checksum of the last security document that server received from the cluster, which is what
 lets it tell a change it has already applied from one built on an out-of-date view. Keep it with the rest of the
-configuration directory; if it is lost the server rebuilds it on the next security change.
+configuration directory; if it is lost the server rebuilds it on the next security change. Since 26.11.1, if the
+server cannot write it, it keeps the previous checksum and the change stays in the Raft log until the write succeeds,
+so a restart replays the change instead of judging the next one against an out-of-date checksum.
 
 Before 26.10.1 a cluster whose servers were started from a static server list - rather than joined with
 `connect cluster` or the `addpeer` endpoint - could accept the first user change on only one node, because each
@@ -65,8 +67,11 @@ server hashes passwords with its own random salt and so starts with a different 
 
 If a server cannot write `config/server-users.jsonl` - a full or read-only volume - it logs a SEVERE error and
 keeps running, applying the change in memory so it takes effect there straight away (before 26.10.1 the server
-stopped, and restarted into the same failure). Only saving the file failed, and that is not retried: after
-fixing the volume, reissue the user change, or that server reverts to the previous users on its next restart.
+stopped, and restarted into the same failure). Since 26.11.1 the save is retried while the server keeps applying
+cluster changes, and until it succeeds the change stays in the Raft log, so a restart replays it rather than reverting
+to the previous users. The same holds for groups and API tokens. The Raft log is not compacted past such a change while
+the volume stays unwritable, so fix the volume. Before 26.11.1 the save was not retried: after fixing the volume the
+user change had to be reissued, or that server reverted to the previous users on its next restart.
 ====
 
 ++++
