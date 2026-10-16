@@ -286,6 +286,34 @@ hosts are accepted. See also <<backup,Backup>>.
 | `Ready` | `ReadyRequest` | `ReadyResponse` | _Since 26.10.1._ Unauthenticated readiness probe; a not-ready node answers `ready = false` with a `reason` rather than an error status
 |===
 
+*Error statuses*
+
+A refused admin call answers the status of the refusal whatever the server wrapped it in on its way out: a name
+already taken is `ALREADY_EXISTS`, a user, group or token that does not exist `NOT_FOUND`, a security policy
+refusing an argument `PERMISSION_DENIED`, failed authentication `UNAUTHENTICATED`, a backup, restore or import
+already running on the database `ABORTED`, a malformed argument `INVALID_ARGUMENT`, an operation this server's
+configuration does not support `FAILED_PRECONDITION`, and a transient failure such as a Raft quorum not reached
+`UNAVAILABLE`, which a client retries. The description is the refusal's own sentence, also in production mode, except
+for a generic argument, authentication or retry failure raised underneath another error: that one keeps its status
+but its text is concealed in production mode, because it may come from a library and carry internal details. A
+statement stopped on request is `CANCELLED`, as on the data-plane RPCs (see <<grpc-cancellation,Cancellation>>).
+Only an unexpected server fault is `INTERNAL`, and in production mode its description is concealed.
+
+On the data-plane RPCs, the `arcadedb-exception-class` trailer names the exception that decided the status rather
+than the one wrapped around it, so the Java client rebuilds the engine's own type: a `SchemaException` for a missing
+type (not the `RecordNotFoundException` that `NOT_FOUND` alone reads as), or a `DuplicatedKeyException` carrying its
+index name.
+
+[NOTE]
+====
+In v26.10.2 and earlier, only the leader-redirect refusal was recognised under a wrapper. Any other refusal the
+server raised under one (for example inside a commit or a backup) answered `INTERNAL`, and in production mode its
+sentence was replaced by the wrapper's. A call that failed on a momentary loss of quorum was therefore not retried by
+the client. A search refused by the per-type ACL answered `INTERNAL` the same way. On the data plane, a wrapped
+duplicated key lost its index-name trailer, and a wrapped maintenance-slot conflict answered `INTERNAL` instead of
+`ABORTED`.
+====
+
 [[grpc-cancellation]]
 ==== Cancellation and running statements
 
