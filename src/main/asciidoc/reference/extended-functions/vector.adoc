@@ -230,10 +230,15 @@ vector.neighbors(<index-spec>, <query-vector>, <k>, { <option>: <value>, ... })
 | Key | Type | Description
 | `efSearch` | Integer | Same semantics as the positional form.
 | `filter`   | List of RIDs or RID strings | Restricts the search to the provided set of records. Useful to combine a vector search with a logical filter: first select the candidate RIDs, then pass them as `filter`. An empty list (or a subquery that returns no rows) matches nothing, so the function returns no results. Omit the option, or pass `null`, to search without a restriction. Unknown keys are rejected.
+| `where`    | Map or String | Restricts the search to the records that satisfy a predicate, tested on each candidate as the search meets it: a map of property to value, every entry of which must hold with the SQL `=` semantics (`{ embed_space: :space }`, nested paths such as `meta.source` allowed), or a SQL condition (`'year >= :minYear AND lang = :lang'`, whose parameters are the query's). Unlike a `filter` subquery it does not load every record in scope and list its RID on every call: only the candidates the search considers are loaded, once each. Combined with `filter`, a candidate must be in the list and satisfy the predicate. Also accepted by `vector.sparseNeighbors`. Since 26.11.1.
 | `groupBy`  | String | Diversifies the answer by a property: `k` becomes the number of distinct values of that property to return rather than the number of rows, and at most `groupSize` rows are returned per value. Supports nested paths (`meta.source`). Records whose property is missing share the single `null` group.
 | `groupSize` | Integer | Rows to return per group when `groupBy` is set. Defaults to `1`, so the answer is the `k` nearest records with `k` distinct values. Must be `>= 1`; ignored when `groupBy` is absent.
 | `maxDistance` | Number | Drops neighbors further than this distance, turning the query into a radius search bounded by `k`. The result may legitimately hold fewer than `k` rows. Defaults to no bound.
 |===
+
+TIP: Prefer `where` to a `filter` subquery when the restriction is a property of the records and keeps a sizeable share
+of them: the subquery loads every record in scope on each call, the predicate only the candidates the search reaches. A
+`filter` remains the better choice for a small, precomputed list of RIDs, which the index can scan directly.
 
 *Returns:* List - Nearest neighbors with distances
 
@@ -258,6 +263,12 @@ SELECT vector.neighbors(
 
 -- Using a parameter binding for the RID list
 SELECT vector.neighbors('Document[embedding]', :queryVector, 10, { efSearch: 300, filter: :allowedRids })
+
+-- Restrict by a property without listing every RID in scope
+SELECT vector.neighbors('Document[embedding]', :queryVector, 10, { where: { tenantId: :tenant } })
+
+-- ... or by any SQL condition
+SELECT vector.neighbors('Document[embedding]', :queryVector, 10, { where: 'year >= :minYear AND category <> :excluded' })
 
 -- One result per source document: 10 distinct sources, nearest chunk of each
 SELECT vector.neighbors('Chunk[embedding]', :queryVector, 10, { groupBy: 'sourceFile' })
