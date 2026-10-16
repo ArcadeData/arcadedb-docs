@@ -39,6 +39,12 @@ insert, where a vetoed row is counted as `ignored`. A Java caller that counts it
 whatever happened. The lower-level `DatabaseInternal.createRecordReportingVeto()`, `updateRecordReportingVeto()` and
 `deleteRecordReportingVeto()` answer the same for each operation _(since v26.10.2)_.
 
+NOTE: Over the remote Java drivers (HTTP `RemoteDatabase` and gRPC `RemoteGrpcDatabase`) a record cannot be skipped silently, because
+the caller is not the process that registered the listener: `save()` of a document, a vertex or an edge a server side listener refused
+raises `RecordVetoedException`, for a create and for an update alike, and `saveReportingVeto()` answers `false` instead. The driver
+statistics (`createRecord`, `updateRecord`) count only the writes the server applied. Before v26.11.1 a vetoed update was reported over
+gRPC as a success, over HTTP as a `RecordNotFoundException`, and a vetoed create over HTTP as a `NoSuchElementException` _(since v26.11.1)_.
+
 NOTE: An edge is the one write that has to return what it created, so `Vertex.newEdge()` cannot answer "skipped": when a
 `BeforeRecordCreateListener` refuses the edge it raises `RecordVetoedException`, a `ValidationException` that every protocol reports as
 the request being refused and not as a server fault, and nothing is stored or linked. The same refusal fails an openCypher `CREATE`
