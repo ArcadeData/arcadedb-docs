@@ -216,6 +216,63 @@ Since v26.10.1. Before, `=`, `<>` and `IN` compared the instant only and called 
 `DISTINCT` and grouping counted them as two values.
 ====
 
+[[cypher-temporal-comparison]]
+===== Comparing and Ordering Temporal Values
+
+Values of two different temporal types are never equal and are not comparable, as in Neo4j: `=` is `false`, `<>` is
+`true`, and `<`, `<=`, `>`, `>=` are `null`. That holds for a `localdatetime()` against a `datetime()` too, so
+`localdatetime('2024-01-01T12:00') = datetime('2024-01-01T12:00Z')` is `false`.
+
+The one exception is a `DATETIME` property read from the database. ArcadeDB stores a `DATETIME` as an instant and
+reads it back in Cypher as a local datetime in UTC, so against a zoned `datetime()` it compares as that instant:
+`MATCH (e:Event) WHERE e.createdAt > datetime('2024-01-01T00:00Z')` filters on the stored instant, whether the bound
+is a literal or a parameter.
+
+Durations are equal when every component is (`duration('P1D') <> duration('PT24H')`), and are not comparable, since a
+month or a day has no fixed length: `duration('P1D') < duration('P2D')` is `null`, and `<=` / `>=` are `true` only for
+two equal durations. A range filter on a duration therefore keeps no row; filter on a number instead, such as
+`duration.inSeconds(...)` or `d.days`.
+
+`ORDER BY`, `min()` and `max()` order every value, temporal ones included:
+
+* values of different temporal types by type: `DATETIME`, `LOCAL DATETIME`, `DATE`, `TIME`, `LOCAL TIME`, `DURATION`,
+all of them after paths and before strings;
+* durations by average length, a month counting 365.2425 / 12 days, then by months and then by days, so `PT24H` sorts
+before `P1D`, and `P1M` before `P31D`.
+
+[NOTE]
+====
+Since v26.11.1. Before, a `localdatetime()` equalled the `datetime()` at the same UTC instant, durations compared with
+`<` component by component (so `P31D` was less than `P1M`), `ORDER BY` put `PT25H` before `P1D`, temporal values
+sorted after numbers, and `ORDER BY` over two temporal types failed with "Cannot compare DateTime with CypherDate".
+====
+
+[[cypher-duration-arithmetic]]
+===== Duration Arithmetic and Aggregation
+
+Multiplying or dividing a duration is exact down to the nanosecond: a fraction of a month carries into days at the
+average month of 30.436875 days, a fraction of a day into seconds, and only the last digit, the nanosecond, is
+truncated toward zero. So `duration('P1D') / 24` is `PT1H` and `duration('P1M') / 3` is `P10DT3H29M42S`. An `INTEGER`
+operand is used as the integer it is, and a `FLOAT` as the decimal it is written as, so `duration('P1M') * 0.1` is
+exactly a tenth of a month. Neo4j computes the same cascade in double precision, and where the two answers differ it is
+by Neo4j's rounding error (it answers `PT7H18M17.459999999S` for `duration('P1M') / 100`).
+
+`sum()` adds durations component by component, and `avg()` divides that sum by their count, the way `/` divides:
+`avg()` of `P1M` and `P1D` is `P15DT17H14M33S`. Numbers and durations cannot be mixed in one aggregation.
+
+`duration.between()`, `duration.inMonths()` and `duration.inDays()` count months and days on the calendar of the first
+argument's time zone, and only the rest in elapsed time, so the day of a daylight saving change is one day:
+`duration.between(datetime('2024-03-30T12:00[Europe/Paris]'), datetime('2024-03-31T12:00[Europe/Paris]'))` is `P1D`,
+and `duration.inSeconds()` of the same pair is `PT23H`. The second argument is read in the time zone of the first, and a
+value with no time zone in the time zone of the other.
+
+[NOTE]
+====
+Since v26.11.1. Before, `duration('P1D') / 24` answered `PT59M59.999999999S`, an `INTEGER` factor past 2^53 was
+rounded, `duration.between()` and `inDays()` counted elapsed time across a daylight saving change (`PT23H`), and
+`sum()` / `avg()` refused durations.
+====
+
 [[cypher-temporal-storage]]
 ===== Stored TIME, LOCAL TIME, Zoned DATETIME and DURATION Values
 
@@ -236,7 +293,17 @@ The `millisecond`, `microsecond` and `nanosecond` fields of `time()`, `localtime
 and the `*.truncate()` functions must each fit in their own range, as in Neo4j: `millisecond` 0-999, `microsecond`
 0-999 when `millisecond` is also given (else 0-999999), `nanosecond` 0-999 when a coarser field is given (else up to
 999999999). A value out of range, such as `time({hour: 12, millisecond: 5000})`, is an error rather than being carried
-into the seconds.
+into the seconds. Given with a base value (`time:`, `datetime:`, ...), these fields replace its whole fraction of second:
+`localtime({time: localtime('12:30:45.123456789'), nanosecond: 5})` is `12:30:45.000000005`. The adjustment map of a
+`*.truncate()` keeps the units the truncation left: `localtime.truncate('millisecond', t, {nanosecond: 5})` keeps the
+milliseconds of `t`.
+
+`datetime({epochSeconds: ...})` and `datetime({epochMillis: ...})` take a `timezone` like any other `datetime()` map,
+and read the instant in it. A `dayOfWeek` without a `week` moves a base date within its own ISO week, and a
+`dayOfQuarter` without a `quarter` within its own quarter: `date({date: date('2024-02-29'), dayOfWeek: 1})` is
+`2024-02-26`. `datetime()` reads any year `date()` and `localdatetime()` read, such as `-0001-12-31T23:59:59Z` or
+`+10000-01-01T00:00Z`. The `timezone` of a `time()` can be a zone name: a time has no date, so `'Asia/Tokyo'` stands for
+the offset the zone has now (`+09:00`), as in Neo4j.
 
 `duration.between(a, b)` splits the interval into whole months, then whole days, then the remaining time, as Neo4j
 does, so `a + duration.between(a, b)` is always `b`.
