@@ -241,7 +241,9 @@ ArcadeDB> INSERT INTO Client FROM SELECT id + 1000 AS id, name FROM Client WHERE
 ----
 
 copies each matching client once. ArcadeDB drains such a `SELECT` before the first insert, holding its rows in memory, and only
-when the `SELECT` can read a bucket the statement writes to: a copy between unrelated types streams the rows as before.
+when the `SELECT` can read a bucket the statement writes to (or nests a subquery): a copy between unrelated types streams the rows
+as before. The rows held count against the heap budget all queries share, so copying a very large type into itself can be refused
+with a heap-limit error; copy it in ranges (`WHERE id BETWEEN ...`) or through an intermediate type instead.
 
 NOTE: Before v26.11.1 such a `SELECT` could read its own inserts: with an `OR` filter a row was copied twice, and with an
 index range on the filtered property (`WHERE id >= 4` over an index on `id`) the statement never ended (issue #10192).
