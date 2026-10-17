@@ -457,6 +457,11 @@ scalars, or a `point()` value.
 NOTE: A relationship type name cannot contain `~`, since that character is reserved internally for
 multi-label vertex types.
 
+NOTE: A relationship endpoint bound by an earlier clause must be a node. A variable an `OPTIONAL MATCH` left null, or a
+value that is not a node, fails the statement with `Expected the value NULL to be of type NODE`, as on Neo4j _(since
+v26.11.1; before, `OPTIONAL MATCH (a:A {k: 99}) CREATE (a)-[:R]->(b)` created an anonymous node in place of `a`)_. A
+null property, on the other hand, is simply not set: `CREATE (n:B {k: null})` creates a node without `k`.
+
 ---
 
 [[cypher-merge]]
@@ -474,6 +479,14 @@ The `MERGE` clause creates nodes or relationships if they don't exist, or matche
 ----
 
 `ON CREATE SET` and `ON MATCH SET` accept every form the <<cypher-set,`SET`>> clause does.
+
+A property of the `MERGE` pattern cannot be null, since nothing matches a null and the `MERGE` would create the element
+again on every run: `MERGE (n:A {k: null})`, `UNWIND [null] AS x MERGE (n:A {k: x})`, `MERGE (n:A {k: $p})` with `$p`
+null and `MATCH (a) MERGE (n:B {k: a.missing})` all fail with `'MERGE' cannot be used with a graph element property
+value that is null`, on nodes and relationships alike. A relationship endpoint bound to null, by an `OPTIONAL MATCH`
+that found nothing, fails the statement as in <<cypher-create,`CREATE`>>. Both match Neo4j _(since v26.11.1; before,
+only the literal `null` was refused, a null from a variable created a node without the property, and a null endpoint
+silently dropped the row)_.
 
 Like `MATCH`, `MERGE` can name the path it matched or created. The path spans the whole pattern, so
 `length()`, `nodes()` and `relationships()` report what they would for the equivalent `MATCH`, whether or

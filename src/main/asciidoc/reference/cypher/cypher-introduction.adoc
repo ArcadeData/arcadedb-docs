@@ -97,15 +97,20 @@ ResultSet result = database.query("opencypher",
 
 ===== Automatic Transaction Handling
 
-All write operations (CREATE, SET, DELETE, MERGE) automatically handle transactions:
+A write statement (CREATE, SET, DELETE, MERGE, REMOVE, FOREACH, a write procedure) automatically handles its transaction:
 
-* If no transaction is active, the operation creates, executes, and commits its own transaction
-* If a transaction is already active, the operation reuses it without committing
-* Proper rollback on errors for self-managed transactions
+* If no transaction is active, the whole statement runs in one transaction, committed when the statement has run to its
+  end, as over HTTP and as an implicit transaction in Neo4j. A statement that fails leaves nothing behind, and one that
+  meets a concurrent conflict is run again from the committed state, up to `arcadedb.txRetries` times _(since v26.11.1;
+  before, each write clause committed its own transaction row by row, so a failing statement kept the writes made before
+  the error)_
+* If a transaction is already active, the statement runs in it and leaves the commit or rollback to its owner
+* A `CALL { ... } IN TRANSACTIONS` subquery still commits each batch on its own, so a statement using one is not run
+  again on a conflict
 
 [source,java]
 ----
-// Automatic transaction - commits automatically
+// Automatic transaction - the whole statement commits once it completes
 database.command("opencypher", "CREATE (n:Person {name: 'Alice'})");
 
 // Manual transaction - you control commit/rollback
