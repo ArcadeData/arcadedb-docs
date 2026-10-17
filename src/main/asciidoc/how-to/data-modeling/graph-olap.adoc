@@ -112,6 +112,8 @@ Listing an edge type in `EDGE TYPES` also materializes its sub-types, and a hop 
 
 Since v26.11.1 listing a vertex type in `VERTEX TYPES` also holds the vertices of its sub-types, including sub-types created after the view was built, as a query on that type reads them without a view. A view over `V` with `W EXTENDS V` therefore covers both, and serves queries once `W` holds vertices. Before, a view held the listed types only, and once a sub-type held a vertex the view no longer covered every vertex, so the planner never used it (issue #10208). A CSR persisted by an earlier release is rebuilt once on the first open.
 
+A type that already holds vertices and is attached to a listed type later (`ALTER TYPE Y SUPERTYPE +V`) holds vertices the view never read: the view does not use them until it is rebuilt, which it does by itself in *SYNCHRONOUS* and *ASYNCHRONOUS* mode, while an *OFF* view turns STALE. Edge types attached the same way are not detected yet (issue #10214): rebuild the view after such a change.
+
 *Altering a view*
 
 Change the update mode or compaction threshold of an existing view:
@@ -198,7 +200,8 @@ next one of the committing thread) reads the records and sees the commit, while 
 view keeps serving the snapshot as of the previous merge. `awaitReady()` waits for the pending merges. Since v26.11.1;
 before, every relevant commit started a full rebuild of the CSR whatever the size of the change, and the view served no
 query until it finished, even with `arcadedb.gavUseWhenStale`, so under a steady stream of small commits almost no
-query used it (issue #10189).
+query used it (issue #10189). If the merge falls more than 100,000 commits behind, the pending changes are dropped and
+the view rebuilds once, STALE in the meantime.
 
 *Writes during a build or rebuild.* A view starts tracking changes before it scans the graph, so a transaction that
 commits while the view is being built or rebuilt is never lost: in *SYNCHRONOUS* mode it is applied on top of the
