@@ -14,7 +14,7 @@ A *trigger* is a named database object that automatically executes when specific
 * *Multi-language*: Choose between SQL statements, JavaScript code, or Java classes
 * *High performance*: Java class triggers offer maximum performance with compiled code
 * *Persistent*: Triggers are stored in the schema and survive database restarts
-* *Type-specific*: Each trigger applies to a specific document/vertex/edge type
+* *Type-specific*: Each trigger applies to a document/vertex/edge type and to all its subtypes (see <<sql-triggers-subtypes,Subtypes>>)
 
 ===== Trigger Events
 
@@ -38,6 +38,35 @@ NOTE: Re-pointing an edge (`UPDATE ... SET @in = ...` / `@out = ...`, or `set("@
 `AFTER CREATE` fires for the replacement and `AFTER DELETE` for the edge it replaces.
 `BEFORE DELETE` does not fire, because a veto there would leave both edges in place.
 _(Since v26.10.2: only the replacement's `AFTER CREATE` fired, so a listener keeping derived state, such as a graph analytical view, kept the old edge too.)_
+
+NOTE: Creating or deleting an edge fires the edge's triggers only. The vertices it connects keep a pointer to their edge list, which the database rewrites when a vertex gets its first edge of a direction or its edge list grows a new segment; that is internal bookkeeping, not an update of the vertex, so it fires no `UPDATE` trigger on the vertex and a `BEFORE UPDATE` trigger cannot veto it.
+_(Since v26.11.1: the rewrite fired the vertex's `UPDATE` triggers on some edge creations and not on others, and a `BEFORE UPDATE` trigger that vetoed it left the new edge unreachable from the vertex.)_
+
+NOTE: `INSERT INTO <type> FROM SELECT ...` fires `CREATE` triggers once per inserted row, like any other `INSERT`.
+_(Since v26.11.1: it also fired the `UPDATE` triggers of every inserted row.)_
+
+[[sql-triggers-subtypes]]
+===== Subtypes
+
+A trigger declared `ON TYPE P` fires for the records of `P` and of every type that extends it, directly or through other types: the same records `SELECT FROM P` returns. A `BEFORE` trigger that validates the writes to `P` therefore cannot be bypassed by writing to a subtype.
+
+[source,sql]
+----
+CREATE VERTEX TYPE Person;
+CREATE VERTEX TYPE Employee EXTENDS Person;
+CREATE TRIGGER person_audit AFTER CREATE ON TYPE Person
+  EXECUTE SQL 'INSERT INTO AuditLog SET action = "created", ts = sysdate()';
+
+INSERT INTO Employee SET name = 'Jay';   -- fires person_audit
+----
+
+* A trigger on a subtype does not fire for the records of its super type.
+* A record fires the triggers of its own type first, then those of its super types, nearest first. A veto by any `BEFORE` trigger stops the operation.
+* Each trigger fires once per record, even when its type is reached through more than one path. This is the case of an openCypher node with several labels: `CREATE (:A:B)` creates a record of the composite type `A~B`, which extends both `A` and `B`, so it fires the triggers of `A` and of `B`, and those of a type both labels extend only once.
+* The coverage follows the type hierarchy as it changes: a type created later with `EXTENDS P`, or given `P` as a super type with `ALTER TYPE ... SUPERTYPE +P`, is covered from then on, and one that stops extending `P` is no longer.
+* Listeners registered from Java on a type (`database.getSchema().getType("P").getEvents()`) are not polymorphic: they keep firing for the records of that exact type only.
+
+_(Since v26.11.1: a trigger fired only for the records of its exact type, so the records of its subtypes, openCypher multi-label nodes included, skipped it.)_
 
 ===== SQL Triggers
 
@@ -597,7 +626,7 @@ DROP TRIGGER user_audit;
 
 1. *Synchronous Execution*: Triggers execute synchronously within the transaction. Long-running triggers can impact performance.
 
-2. *Type Matching*: Triggers match the exact type name. Polymorphic matching (inheriting triggers from parent types) is not currently supported.
+2. *Type Matching*: A trigger covers its type and all its subtypes (see <<sql-triggers-subtypes,Subtypes>>). A record that has a trigger on both its type and a super type fires both.
 
 3. *Order of Execution*: When multiple triggers exist for the same event on the same type, they execute in alphabetical order by trigger name.
 
