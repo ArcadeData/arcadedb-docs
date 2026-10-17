@@ -68,6 +68,19 @@ If a record does not satisfy the declaration, the statement fails, names the fir
 `ALTER PROPERTY ... MIN`, `MAX` and `REGEXP`, and the openCypher `NOT NULL` and `NODE KEY` constraints, make the same check.
 On a type with many records this scan takes time proportional to the number of records.
 
+[NOTE]
+====
+A `STRING` property is refused over records that already hold the property as a non-string value (an integer, a long, a float, a date, a boolean, ...), the same way `INTEGER` is refused over a stored `'abc'`. The error names the record and suggests converting the values first, for example:
+
+[source,sql]
+----
+UPDATE T SET n = n.asString()
+CREATE PROPERTY T.n STRING
+----
+
+This behavior changed in 26.11.1 (issue #10204). Before, `CREATE PROPERTY T.n STRING` was accepted without converting the stored values, and an index on `n` then compared them as text while a scan compared them natively, so range conditions and `ORDER BY` could disagree depending on whether the index was used. A script that declares a `STRING` property over existing non-string values now fails until the values are converted.
+====
+
 NOTE: _(Since v26.11.1)_ `CREATE PROPERTY` and `ALTER PROPERTY` read an attribute value the same way. `null` removes the attribute (`regexp null`, `min null`, `max null`, `compression null`), while a quoted `'null'` is the text. A flag (`mandatory`, `notnull`, `readonly`, `hidden`, `external`) takes `true` or `false`. A bare word such as `ALTER PROPERTY Doc.name REGEXP abc` is a field reference, not a value, and is refused: quote it (`'abc'`). Earlier versions stored the text `null` as the pattern of `CREATE PROPERTY ... (regexp null)`, which left the property unable to hold any other value, and silently removed the attribute on `ALTER PROPERTY` with a bare word.
 
 NOTE: A `LIST OF <type>` or `MAP OF <type>` property only accepts elements of that type.

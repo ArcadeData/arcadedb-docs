@@ -35,6 +35,17 @@ The refresh is:
 If the refresh fails, the view is marked `STALE` and a warning is logged.
 A manual refresh can recover it.
 
+*Which types are tracked.* An `INCREMENTAL` view is refreshed when a transaction changes a record of any type its query names, anywhere in the query: the top-level `FROM`, a subquery in `FROM`, and a subquery in `WHERE`, in the projection or in `LET`, at any depth. Each of these types is tracked together with all its subtypes, including subtypes created after the view. They are listed in the `sourceTypes` column of `schema:materializedViews`, and `DROP TYPE` on any of them is refused while the view exists.
+
+*Sources that cannot be tracked.* `REFRESH INCREMENTAL` is refused with an error, on `CREATE MATERIALIZED VIEW` and on `ALTER MATERIALIZED VIEW ... REFRESH INCREMENTAL`, when the query reads a source that no type's record events report: a `TRAVERSE`, a `MATCH`, a function call in `FROM`, a bucket (`FROM bucket:...`), an index, schema metadata (`FROM schema:...`), record ids or parameters in `FROM`. Use `REFRESH MANUAL` or `REFRESH EVERY` for such a view.
+
+Values reached by following a link or an edge from a tracked record (for example `address.city` or `out()`) are not tracked, since they cannot be detected from the query text: a change to the linked record does not refresh the view.
+
+[NOTE]
+====
+This behavior changed in 26.11.1 (issue #10205). Before, only the type of the first `FROM` identifier was tracked, and only its own records, not those of its subtypes: a change to a type read by a subquery, or to a subtype, left the view out of date while its status stayed `VALID`. Existing views loaded from an older database have their source list completed from their query automatically on open, so they start refreshing on those changes and `DROP TYPE` of those types is refused. An existing `INCREMENTAL` view whose query reads one of the untrackable sources above keeps loading; creating a new one, or switching a view to `INCREMENTAL`, is refused.
+====
+
 [[refresh-mode-periodic]]
 ====== PERIODIC
 
@@ -164,16 +175,17 @@ view.getRefreshMode();      // MaterializedViewRefreshMode.PERIODIC
 view.getStatus();           // "VALID", "STALE", "BUILDING", or "ERROR"
 view.getLastRefreshTime();  // epoch millis of last successful refresh
 view.isSimpleQuery();       // true if eligible for per-record optimization
-view.getSourceTypeNames();  // list of source type names parsed from the query
+view.getSourceTypeNames();  // every type the query names, at any depth
 view.getBackingType();      // the underlying DocumentType
 ----
 
 ===== Behavior and Constraints
 
 * *Backing type protection*: You cannot `DROP TYPE` on a type that backs a materialized view. Drop the materialized view first.
+* *Source type protection*: You cannot `DROP TYPE` on a type the defining query reads (any type listed in `sourceTypes`). Drop the materialized view first.
 * *Renaming a type*: `ALTER TYPE <source> NAME <new>` on a source type of a view carries the view with it: the source type name the view stores and the `FROM` of its defining query are rewritten to the new name, and the change is saved with the schema. A continuous aggregate follows the rename of its source type the same way, and so does a trigger bound to the type. The rename is refused, before anything moves, when the type is the *backing* type of a view (a view is named after its backing type, so it cannot be renamed on its own) or when the query names the type in a form that cannot be re-pointed with certainty (for example a subquery that reads the same type again): drop the view, rename the type and create the view again. A view defined through an alias of the type keeps working without being rewritten, since the alias survives the rename. _(Since v26.11.1. Before, the rename left the view naming a type that no longer existed: its refresh failed, and `DROP TYPE` on the renamed type was let through. A database that already holds a view in that state is protected from the drop: `DROP TYPE` is refused, naming the view that is out of date, until that view is dropped.)_
 * *Name uniqueness*: The view name must not match any existing type or materialized view.
-* *Source type validation*: All types referenced in the `FROM` clause must exist when the view is created.
+* *Source type validation*: All types referenced by the query, including those in subqueries, must exist when the view is created.
 * *Persistence*: View definitions are stored in `schema.json` under a `"materializedViews"` key and survive database restarts. Listener registration for `INCREMENTAL` views and scheduler tasks for `PERIODIC` views are re-established on startup.
 * *Transaction safety*: The initial full refresh and all subsequent refreshes run inside their own transactions.
 * *Query result columns*: Only non-internal properties (those not starting with `@`) are copied into the backing type during refresh.
@@ -187,7 +199,6 @@ view.getBackingType();      // the underlying DocumentType
 
 ===== Limitations
 
-* <<sql-alter-materialized-view,`ALTER MATERIALIZED VIEW`>> is not yet implemented.
 * Per-record incremental refresh (tracking `_sourceRID` to update individual view rows) is a planned future optimization. Currently, all refresh operations perform a full truncate-and-reload.
 * No support for cross-database queries in the defining query.
 * Server replication: materialized view data lives in the local backing type and is replicated like any other document type in an HA cluster, but refresh triggering is local to the node that executes the write.

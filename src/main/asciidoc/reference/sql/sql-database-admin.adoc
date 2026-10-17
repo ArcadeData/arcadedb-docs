@@ -536,7 +536,7 @@ EXPORT DATABASE [<url>] [WITH ( <setting-name> = <setting-value> [,] )* ]
 * *`WITH`* Optional settings as comma-separated key/value pairs:
  ** *`format`* The format of the export. Default is `jsonl`.
   *** *`jsonl`* exports in https://jsonlines.org/[JSONL] format - a newline-delimited JSON variant
-  *** *`graphml`* exports in the popular http://graphml.graphdrawing.org/[GraphML] format. GraphML is supported by all the major Graph DBMS. This format does not support complex types, like collection of elements. Using `graphson` instead of `graphml` is recommended
+  *** *`graphml`* exports in the popular http://graphml.graphdrawing.org/[GraphML] format. GraphML is supported by all the major Graph DBMS. GraphML has no type for collections and many scalar types: ArcadeDB writes such values as text with an `arcadedb:type` attribute that its own GraphML import reads back (see the note below). Using `graphson` instead of `graphml` is recommended
   *** *`graphson`* exports in the https://tinkerpop.apache.org/docs/current/dev/io/#graphson[GraphSON] format supported by all the major Graph DBMS
 +
 `graphml` and `graphson` are provided by the optional `arcadedb-gremlin` module. Without it on the classpath the
@@ -581,6 +581,27 @@ leader after a failover, had the imported types and records but no triggers, vie
 
 Installing a `JAVASCRIPT` or `JAVA` trigger, or a `js` function library, from an imported file requires the same
 `updateSecurity` permission that creating one by hand does, since either is code that runs inside the server.
+====
+
+[[sql-export-jsonl-value-fidelity]]
+[NOTE]
+====
+Since 26.11.1 a `jsonl` export and import round trip keeps more of the database as it was (issue #10201):
+
+* *Links to records that are not in the export.* A link whose target is not part of the export (the record was deleted before the export, or excluded by `includeTypes`, `excludeTypes` or `includeRecords`) is set to `null` on import. Inside a `LIST OF` or `MAP OF` property, which cannot hold `null`, the element or entry is dropped. The import counts them as `danglingLinks` in its result and logs a warning. If the property is `MANDATORY` or `NOT NULL` the record fails like any other record error. Before, such a link kept its old RID, which after the import named another record.
+* *Values with no declaration keep their type.* Undeclared properties, elements of untyped `LIST` and `MAP` properties, and properties of embedded documents are restored with the type they had: a `DECIMAL` keeps its scale, `LONG`, `SHORT`, `BYTE` and `FLOAT` stay themselves, dates and datetimes keep their full precision, `BINARY` values and primitive arrays stay arrays, and undeclared links stay links and are remapped to the imported records. The export (format version 2, `exporterVersion` 2 in the `info` line) writes, beside a record's `p` properties, a sparse type tree under the key `y` (tokens such as `LONG`, `DATETIME`, `LINK`, `BINARY`, `ARRAY_OF_FLOATS`, `EMBEDDED`; an array of per-element types for a list; an object of per-entry types for a map). Before, these values came back as whatever JSON parsed them into (an `INTEGER` or `DOUBLE`, a string, a list). A map with a `t` key is no longer mistaken for an embedded document.
+* *Bucket count.* Each type is recreated with the number of buckets it had in the export (`BUCKETS n`, including 0 for an abstract type). Before, it got the default bucket count.
+
+Files exported by older versions have no `y` key and import exactly as before.
+====
+
+[[sql-export-graph-formats-value-fidelity]]
+[NOTE]
+====
+Since 26.11.1 the `graphson` and `graphml` exports write every property value (issue #10202):
+
+* *GraphSON.* A `BYTE`, `SHORT`, `DECIMAL`, date or datetime property no longer makes the export of the whole database fail. Such values are written with TinkerPop's extended `gx:` types (`gx:Byte`, `gx:Int16`, `gx:BigDecimal`, `gx:LocalDate`, `gx:LocalDateTime`, ...), and `BINARY` values (`arcadedb:Binary`, base64), primitive arrays (`arcadedb:FloatArray`, ...) and Cypher durations with ArcadeDB's own `arcadedb:` types. `IMPORT DATABASE` reads them back with their types. A reader outside ArcadeDB needs TinkerPop's `GraphSONXModuleV3`, as for any GraphSON file with `gx:` types, and cannot read the `arcadedb:` types. Links are written as plain RID text.
+* *GraphML.* The export is still standard GraphML in TinkerPop's layout (`labelV` / `labelE` keys), readable by TinkerPop and other GraphML tools. A key is declared with a GraphML type (`boolean`, `int`, `long`, `float`, `double`, `string`) only when all its values share it. A value GraphML has no type for (`BYTE`, `SHORT`, `DECIMAL`, dates, `BINARY` as base64, arrays, lists, and maps as JSON text) is written as text with an `arcadedb:type` attribute (namespace `https://arcadedb.com/xmlns/graphml`), which ArcadeDB's GraphML import reads back to the original type; other tools ignore the attribute and read the text. `BINARY` and `float[]` values are no longer written as Java identity strings (`[B@...`), and a key whose values have different types no longer aborts the import with a `NumberFormatException`. Links are written as plain RID text and imported as strings.
 ====
 
 *Examples*
@@ -628,7 +649,7 @@ be imported. The importer automatically recognize the file between the following
 
 * *OrientDB* database export
 * *Neo4J* database export
-* *GraphML* database export. This format does not support complex types, like collection of elements. Using GraphSON instead of
+* *GraphML* database export. GraphML has no type for collections and many scalar types; values exported by ArcadeDB carry an `arcadedb:type` attribute that restores their type (see <<sql-export-graph-formats-value-fidelity,the note on graph formats>>). Using GraphSON instead of
  GraphML is recommended
 * *GraphSON* database export
 * *JSON* documents or responses

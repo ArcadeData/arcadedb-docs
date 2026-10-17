@@ -19,6 +19,51 @@ Creating, or renaming onto, a name already taken by a type, property, index, con
 *Action:* catch `AlreadyExistsException` (or `SchemaException`) where you handle a name that is already taken. Clients that keyed on the old status codes should expect the new ones.
 
 [discrete]
+====== 26.11.1 - `REFRESH INCREMENTAL` views track every type their query reads
+
+An `INCREMENTAL` materialized view now refreshes on changes to every type its query names, at any depth (subqueries in `FROM`, `WHERE`, projection, `LET`), and to all their subtypes (issue #10205). Before, only the first `FROM` type was tracked, without its subtypes, and the view went stale while staying `VALID`. `REFRESH INCREMENTAL` is refused for a query that reads a `TRAVERSE`, a `MATCH`, a function, a bucket, an index, `schema:` metadata, record ids or parameters in `FROM`.
+
+*Impact:* existing views have their source list completed from their query on open, so they refresh more often, and `DROP TYPE` of any type they read is refused while the view exists. Creating such a view, or switching one to `INCREMENTAL`, with an untrackable source fails.
+
+*Action:* use `REFRESH MANUAL` or `REFRESH EVERY` for a view over an untrackable source. See <<refresh-mode-incremental,INCREMENTAL>>.
+
+[discrete]
+====== 26.11.1 - `CREATE PROPERTY ... STRING` over stored non-string values is refused
+
+`CREATE PROPERTY T.n STRING` now fails when records of `T` or its subtypes already hold `n` as a number, a date, a boolean or another non-string value, as `CREATE PROPERTY ... INTEGER` over a stored `'abc'` always did (issue #10204). Before, it was accepted without converting the values, and an index on `n` compared them as text while a scan compared them natively.
+
+*Impact:* a schema script that declares such a property fails, naming the first offending record.
+
+*Action:* convert the values first, for example `UPDATE T SET n = n.asString()`, then create the property. See <<sql-create-property,`CREATE PROPERTY`>>.
+
+[discrete]
+====== 26.11.1 - SQL `replace()` and `length()` on `NULL` return `NULL`
+
+`s.replace('a', 'b')` on a `NULL` `s` returns `NULL` (it returned `'a'`, its first argument), and so does `replace()` with a `NULL` argument. `s.length()` on `NULL` returns `NULL` (it returned 0), as SQL's `REPLACE()` and `LENGTH()` do (issue #10193). `''.length()` is still 0.
+
+*Impact:* `WHERE s.length() = 0` no longer matches records where `s` is `NULL`.
+
+*Action:* add `s IS NULL OR ...` where `NULL` values must keep matching. See <<length,length()>> and <<replace,replace()>>.
+
+[discrete]
+====== 26.11.1 - JSONL import clears links to records outside the export, and restores value types and bucket counts
+
+A link whose target is not in a `jsonl` export (deleted before the export, or excluded by `includeTypes`, `excludeTypes` or `includeRecords`) is set to `null` on import, or dropped from a `LIST OF` / `MAP OF`, and counted as `danglingLinks` in the import result (issue #10201). Before, it kept its old RID, which after the import named another record. Values with no declaration now keep their type (`DECIMAL` scale, `LONG`, `SHORT`, `BYTE`, `FLOAT`, full date precision, `BINARY`, arrays, links), and each type is recreated with its exported bucket count.
+
+*Impact:* a record whose `MANDATORY` or `NOT NULL` link points outside the export fails to import like any other record error. The export is format version 2 (`exporterVersion` 2); files exported by older versions import as before.
+
+*Action:* none for most installations. Check `danglingLinks` in the import result. See <<sql-export-jsonl-value-fidelity,the JSONL round trip note>>.
+
+[discrete]
+====== 26.11.1 - GraphSON and GraphML exports write every value type, and Gremlin accepts primitive arrays
+
+A `graphson` export no longer fails for the whole database on a `BYTE`, `SHORT`, `DECIMAL`, date or `BINARY` property: it writes TinkerPop's `gx:` types and ArcadeDB's own `arcadedb:` types (issue #10202). A `graphml` export declares a key with a GraphML type only when all its values share it, and writes the other values as text with an `arcadedb:type` attribute that ArcadeDB's GraphML import reads back. The Gremlin API now accepts `byte[]`, `short[]`, `int[]`, `long[]`, `float[]` and `double[]` property values and stores them natively; the graph features report `Integer`, `Long`, `Float` and `Double` array values as supported. String and boolean arrays are still refused.
+
+*Impact:* a GraphSON file with `gx:` types needs TinkerPop's `GraphSONXModuleV3` to be read outside ArcadeDB, and the `arcadedb:` types are readable by ArcadeDB only. Links are written as plain RID text in both formats.
+
+*Action:* none for ArcadeDB to ArcadeDB transfers. See <<sql-export-graph-formats-value-fidelity,the graph formats note>>.
+
+[discrete]
 ====== 26.10.2 - Client requests wait in a queue when the server is busy
 
 Every request of a remote client (HTTP, Postgres, BOLT, Redis, gRPC, Gremlin Server, MCP, MongoDB) now goes through a query admission gate: at most twice the number of cores run at once, and a request that arrives when they are all taken, or when the running queries hold more than 80% of the query heap budget, waits in a queue and starts in arrival order (issue #9518). Before, every request started at once, and under a burst of heavy queries the last ones were refused by the heap budget or exhausted the heap.

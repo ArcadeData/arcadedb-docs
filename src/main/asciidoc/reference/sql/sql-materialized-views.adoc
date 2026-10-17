@@ -21,9 +21,9 @@ CREATE MATERIALIZED VIEW [IF NOT EXISTS] <name>
 
 * *`<name>`* Defines the name of the materialized view. It must not conflict with any existing type or materialized view.
 * *`IF NOT EXISTS`* Silently skips creation if a view with the same name already exists, instead of raising an error. See <<sql-if-not-exists-result,here>> for the shape of the result.
-* *`<select-query>`* A SQL `SELECT` statement that defines the data for the view. All source types referenced must exist at creation time.
+* *`<select-query>`* A SQL `SELECT` statement that defines the data for the view. All source types referenced, including those in subqueries, must exist at creation time.
 * *`REFRESH MANUAL`* (default) The view is only refreshed when triggered explicitly.
-* *`REFRESH INCREMENTAL`* The view is automatically refreshed after each committed transaction that modifies a source type.
+* *`REFRESH INCREMENTAL`* The view is automatically refreshed after each committed transaction that modifies a source type. Every type the query names is a source type, at any depth (top-level `FROM`, subqueries in `FROM`, `WHERE`, projection or `LET`), together with all its subtypes. Refused with an error when the query reads a source that cannot be tracked: a `TRAVERSE`, a `MATCH`, a function call, a bucket, an index, `schema:` metadata, record ids or parameters in `FROM`. See <<refresh-mode-incremental,INCREMENTAL>>.
 * *`REFRESH EVERY <n> SECOND | MINUTE | HOUR`* The view is refreshed on a schedule at the given interval.
 * *`BUCKETS <n>`* Sets the number of buckets for the backing document type.
 
@@ -85,8 +85,6 @@ For more information, see:
 
 Changes the refresh mode of an existing materialized view.
 
-NOTE: `ALTER MATERIALIZED VIEW` is planned for a future release and is not yet implemented.
-
 *Syntax*
 
 [source,sql]
@@ -97,7 +95,7 @@ ALTER MATERIALIZED VIEW <name>
 
 * *`<name>`* The name of the materialized view to alter.
 * *`REFRESH MANUAL`* Switches the view to manual refresh mode.
-* *`REFRESH INCREMENTAL`* Switches the view to incremental refresh mode (automatic after each relevant commit).
+* *`REFRESH INCREMENTAL`* Switches the view to incremental refresh mode (automatic after each relevant commit). Refused with an error when the view's query reads a source that cannot be tracked, as on `CREATE MATERIALIZED VIEW`.
 * *`REFRESH EVERY <n> SECOND | MINUTE | HOUR`* Switches the view to periodic refresh mode at the specified interval.
 
 For more information, see:
@@ -138,7 +136,7 @@ DROP MATERIALIZED VIEW ActiveUsers
 DROP MATERIALIZED VIEW IF EXISTS NonExistentView
 ----
 
-NOTE: You cannot drop the backing document type of a materialized view directly using `DROP TYPE`. Drop the materialized view first.
+NOTE: You cannot drop the backing document type of a materialized view directly using `DROP TYPE`, nor any type its query reads (listed in `sourceTypes` of `schema:materializedViews`). Drop the materialized view first.
 
 For more information, see:
 
