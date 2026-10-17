@@ -499,8 +499,13 @@ An expression that returns something different from a boolean value is always ev
 
 **Math Operators**
 
-- **`+`  (plus)**: addition if both operands are numbers, string concatenation (with string conversion) if one of the operands is not a number. The order of calculation (and conversion) is from left to right, eg `'a' + 1 + 2 = 'a12'`, `1 + 2 + 'a' = '3a'`. It can also be used as a unary operator (no effect).
-- **`-`  (minus**): subtraction between numbers. Non-number operands are evaluated to zero. Null values are treated as a zero, eg `1 - null = 1`. Minus can also be used as a unary operator, to invert the sign of a number. Between a date/time value and another date/time value, `-` returns the `Duration` between the two. A date/time value minus `null` (or a missing field) returns the date/time value unchanged; `null` minus a date/time value returns `null`.
+- **`+`  (plus)**: addition if both operands are numbers, string concatenation (with string conversion) if one of the operands is not a number. The order of calculation (and conversion) is from left to right, eg `'a' + 1 + 2 = 'a12'`, `1 + 2 + 'a' = '3a'`. If one of the operands is null (or a missing field) and the other is a number, a date/time value, a duration or null, the addition will evaluate to null, eg `1 + null = null`. Concatenating to a string, a list or a map ignores a null, eg `'a' + null = 'a'`. It can also be used as a unary operator (no effect).
+- **`-`  (minus**): subtraction between numbers. If one of the operands is null (or a missing field) and the other is a number, a date/time value, a duration or null, the subtraction will evaluate to null, eg `1 - null = null`. Minus can also be used as a unary operator, to invert the sign of a number, and `-null` is null. Between a date/time value and another date/time value, `-` returns the `Duration` between the two. A list or a map minus null is returned unchanged.
++
+[NOTE]
+====
+Since v26.11.1, `+` and `-` with a null number or date/time operand evaluate to null, as `*`, `/` and `%` always did and as in standard SQL. Before, the null was treated as zero (`1 - null = 1`, `-null = 0`) and a date/time value minus null returned the date/time value, so `WHERE age - 4 < 6` returned the records without `age`. Use `ifnull()` (or `??`) to keep the old result, eg `ifnull(discount, 0) + 1`. The `+=` and `-=` assignments still start a missing or null field from zero, see below.
+====
 - **`*`  (multiplication)**: multiplication between numbers. If one of the operands is null, the multiplication will evaluate to null.
 - **`/`  (division)**: division between numbers. If one of the operands is null, the division will evaluate to null. Integer, long and decimal division (and modulo) by zero fail with an `ArithmeticErrorException`, while a double division by zero returns `Infinity`.
 +
@@ -512,8 +517,8 @@ When either operand is a `DECIMAL` or a big integer, the division is exact: the 
 - **`>>>`  (unsigned bitwise right shift)** The same as `>>`, but with negative numbers it will fill with `1` on the left. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`[`  (bitwise right shift)** shifts bits on the left, eg. `2 [ 2 = 8`. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`&`  (bitwise AND)** executes a bitwise AND operation. Both operands have to be Integer or Long values, otherwise the result will be null.
-- **`|`  (bitwise OR)** executes a bitwise OR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
-- **`^`  (bitwise XOR)** executes a bitwise XOR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
+- **`|`  (bitwise OR)** executes a bitwise OR operation. Both operands have to be Integer or Long values, otherwise the result will be null _(since v26.11.1 a null operand also gives null; before, it was treated as zero)_.
+- **`^`  (bitwise XOR)** executes a bitwise XOR operation. Both operands have to be Integer or Long values, otherwise the result will be null _(since v26.11.1 a null operand also gives null; before, it was treated as zero)_.
 - **`||`**: array concatenation (see below for details).
 
 **Math Operators precedence**
@@ -533,7 +538,7 @@ When either operand is a `DECIMAL` or a big integer, the division is exact: the 
 **Math + Assign operators**
 
 These operators can be used in UPDATE statements to update and set values. The semantics is the same as the operation plus the assignment,
-eg. `a += 2` is just a shortcut for `a = a + 2`.
+eg. `a += 2` is just a shortcut for `a = a + 2`, with one difference: `+=` and `-=` start a missing or null field from zero (or, for a string or a collection, from nothing), so `SET counter += 1` sets `counter` to 1 on a record without it, and `SET counter -= 1` sets it to -1, while `SET counter = counter + 1` sets it to null.
 
 - **`+=`  (add and assign)**: adds right operand to left operand and assigns the value to the left operand. Returns the final value of the left operand. If one of the operands is not a number, then this operator acts as a `concatenate string values and assign`
 - **`-=`  (subtract and assign)**: subtracts right operand from left operand and assigns the value to the left operand. Returns the final value of the left operand

@@ -108,9 +108,13 @@ produced by an expression such as `+'red blue'.split(' ')+`.
 
 ====== NULL and unknown
 
-Comparing with a missing or `+NULL+` value is neither true nor false but _unknown_, as in standard SQL. This applies to `+=+`, `+<>+`, `+!=+`, `+<+`, `+<=+`, `+>+`, `+>=+` and `+BETWEEN+`. A `+WHERE+` keeps a record only when the condition is true, and `+NOT+` of an unknown stays unknown, so `+WHERE age <> 5+` and `+WHERE NOT (age = 5)+` do not return records without `+age+`, the same as `+age NOT IN [5]+`. Likewise `+age = NULL+` and `+age <> NULL+` match nothing, and a boolean used as a value (`+SELECT age <> 5+`, `+CASE WHEN age <> 5 ...+`) is `+NULL+` for those records.
+Comparing with a missing or `+NULL+` value is neither true nor false but _unknown_, as in standard SQL. This applies to `+=+`, `+<>+`, `+!=+`, `+<+`, `+<=+`, `+>+`, `+>=+`, `+BETWEEN+`, `+LIKE+`, `+ILIKE+` and `+MATCHES+` _(`+LIKE+`, `+ILIKE+` and `+MATCHES+` since v26.11.1)_. A `+WHERE+` keeps a record only when the condition is true, and `+NOT+` of an unknown stays unknown, so `+WHERE age <> 5+` and `+WHERE NOT (age = 5)+` do not return records without `+age+`, the same as `+age NOT IN [5]+`. Likewise `+age = NULL+` and `+age <> NULL+` match nothing, and a boolean used as a value (`+SELECT age <> 5+`, `+CASE WHEN age <> 5 ...+`) is `+NULL+` for those records.
 
 To test for a missing value use `+IS NULL+`, `+IS NOT NULL+` or the null-safe `+<=>+`. To keep the records without a value, write it out: `+WHERE age <> 5 OR age IS NULL+`.
+
+`+IN+` follows the same logic: `+3 NOT IN [4, NULL]+` is unknown, because the `+NULL+` might be 3, so a `+NOT IN+` whose list or sub-query holds a `+NULL+` returns no record. Use `+NOT IN (SELECT k FROM U WHERE k IS NOT NULL)+` to leave the `+NULL+` out _(since v26.11.1 for a sub-query; before, a `+NULL+` row of the sub-query was ignored)_.
+
+Arithmetic with a `+NULL+` operand is `+NULL+`, so `+WHERE age - 4 < 6+` does not return records without `+age+` either (see <<sql-syntax,Math Operators>>).
 
 [discrete]
 
