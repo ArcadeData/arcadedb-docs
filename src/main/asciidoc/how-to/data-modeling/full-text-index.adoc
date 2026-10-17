@@ -788,12 +788,13 @@ FROM (
 ===== Maintenance: BM25 Corpus Statistics
 
 BM25 maintains per-type corpus counters (document count and total document length) that feed the average-document-length normalizer.
+An index on a type that has subtypes counts the documents of the whole hierarchy, as its searches do.
 They are updated incrementally as documents are indexed and removed, and only when the transaction commits: a rolled-back transaction, or one retried after a `ConcurrentModificationException`, never touches them.
 On an HA cluster the transaction carries the change it made to the counters, so every node moves them together and the same query scores the same on every replica.
 This holds once every node of the cluster advertises the capability to read that change; while one does not (a node on an older version, or one that has not answered the capability probe yet, as on a freshly started leader), the leader logs a warning and the other nodes do not count those transactions. The first search of a node repairs a difference in the number of documents; a rewrite that keeps the number of documents changes only the total length of the documents, which that check cannot see, so run `REBUILD INDEX ... WITH statsOnly = true` on the leader once every node is upgraded.
 The first BM25 query of a session checks them with a cheap live count and, if they disagree (after a crash, for example), recomputes them with a scan of the type.
 The result of that repair is kept: it is written with the schema, at the next schema save or when the database closes, so it is paid once and not again after every clean restart.
-After a crash, or a process that is killed, the pages are restored from the log but the counters can lag them until the first search repairs them, because the counters are written at a clean close and at schema saves, not by the log.
+After a crash, or a process that is killed, the pages are restored from the log but the counters can lag them, because the counters are written at a clean close and at schema saves, not by the log. The recovery therefore marks every BM25 index for a full recompute, which its first search runs, so both the document count and the total length are repaired _(since v26.11.1: before, only a difference in the document count was noticed)_.
 On an HA cluster that write is local to the node: the files of a follower and of the leader can hold different counters until the next `statsOnly` rebuild on the leader, which every node adopts.
 The warning that announces it names the logical index and the exact statement to run, for example `+REBUILD INDEX `Article[content]` WITH statsOnly = true+`.
 

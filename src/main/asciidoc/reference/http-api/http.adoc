@@ -1930,7 +1930,7 @@ Where:
 - `database` is the database name
 
 Set the session id returned from the <<http-begin,/begin>> command in the request header.
-If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
+If the session (and therefore the server side transaction) is unknown, expired or already ended, `404` is returned: nothing was committed.
 
 The commit ends the session, whether it succeeds or fails: a commit that fails rolls the transaction back, and the
 answer carries the header `arcadedb-session-closed: true`, so there is no need to send a <<http-rollback,/rollback>>
@@ -1942,12 +1942,17 @@ lost, so the session is marked as rolled back: the next command naming it is ref
 the `/commit`) to end it. When nothing was lost (a failed read, an error before the first write) the session goes on in a
 fresh transaction. _(Since v26.10.1: before, the commands after the failure ran in autocommit and `/commit` answered `204`.)_
 
+A `/commit` retried while the first one is still running (a client that timed out and sent it again) waits up to 5
+seconds for the first one to finish, then answers `204` if that commit succeeded and `404` if it failed. A retry that
+reaches another server, or arrives after a restart, cannot know the outcome and answers `404`: send an
+<<http-request-replay,`X-Request-Id`>> to make a retry safe in every case. _(Since v26.11.1: before, the retry answered
+`404` even when the first commit succeeded.)_
+
 Response:
 
 * https://httpstatuses.io/204[`204`] OK
-* https://httpstatuses.io/403[`403`] invalid credentials
-* https://httpstatuses.io/404[`404`] the session's transaction was rolled back by a failed command
-* https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
+* https://httpstatuses.io/401[`401`] invalid credentials
+* https://httpstatuses.io/404[`404`] the session is unknown, expired or already ended, or its transaction was rolled back by a failed command
 
 Example:
 
