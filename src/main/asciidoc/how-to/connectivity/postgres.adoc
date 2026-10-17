@@ -197,6 +197,35 @@ Only the connected user is described as a role; an emulated catalog does not han
 list. A query about roles, databases, privileges, character sets or collations that also mentions
 `pg_namespace` is now answered as the question it asks, instead of being answered as a schema query.
 
+_Since v26.11.1_, `psql`'s `\dt`, `\d <table>` and `\d+ <table>` list and describe the database's types, and the
+PostgreSQL ODBC driver (psqlodbc) answers `SQLColumns` and `SQLTables(SQL_ALL_TABLE_TYPES)`. Before, `\dt` printed
+`Did not find any relations`, `SQLColumns` returned no columns and `SQLTables(SQL_ALL_TABLE_TYPES)` failed with a
+syntax error. The catalog queries these clients send are now read as PostgreSQL reads them:
+
+* a parenthesised join in `FROM` - `FROM (pg_class c JOIN pg_namespace n ON ...) JOIN pg_attribute a ON ...` - and a
+  join to `pg_am` (every table reports the `heap` access method);
+* the condition of an `INNER JOIN` filters rows exactly like the `WHERE` clause, and a `LEFT JOIN` whose condition
+  does not hold reads `NULL` from the joined relation instead of removing the row;
+* `OPERATOR(pg_catalog.=)` and the other `OPERATOR(...)` spellings, and `COLLATE`;
+* `UNION`, `INTERSECT` and `EXCEPT` (with or without `ALL`) whose arms are catalog queries or `SELECT` statements
+  over literals, such as `SELECT 1 UNION SELECT 2`. ArcadeDB SQL has no set operations, so a set operation that
+  reads your own types is still passed to the SQL engine, which rejects it;
+* `count(*)` and the other aggregates (`count`, `sum`, `avg`, `min`, `max`, `bool_and`, `bool_or`, `string_agg`,
+  `array_agg`), with or without `GROUP BY`;
+* correlated sub-selects: `(SELECT ...)` as a value, `EXISTS (SELECT ...)`, `ARRAY(SELECT ...)` and
+  `IN (SELECT ...)`;
+* a column default appears in `pg_attrdef` and is printed by `pg_get_expr()`, so `\d` and a JDBC client's
+  `COLUMN_DEF` show it, as `information_schema.columns` already did.
+
+A projection that names two columns alike, such as `SELECT NULL, NULL, relkind`, returns both columns.
+
+[NOTE]
+====
+`format_type()` and the `regtype` cast now return the name PostgreSQL prints for a type (`integer`, `character
+varying`, `double precision`) instead of its internal name (`int4`, `varchar`, `float8`), matching PostgreSQL.
+`pg_type.typname` is unchanged.
+====
+
 [[postgres-copy-to-stdout]]
 ===== COPY ... TO STDOUT
 
