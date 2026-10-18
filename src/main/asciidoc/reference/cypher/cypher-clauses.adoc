@@ -598,6 +598,11 @@ SET p:Employee
 NOTE: `SET` is a simultaneous assignment: every value is read as it was before the clause ran, so
 `SET p.a = p.b, p.b = p.a` swaps the two rather than copying one onto the other.
 
+A `SET` updates each matched node once, even when it writes the indexed property the `MATCH` reads its nodes by:
+`MATCH (n:A) WHERE n.k > 0 SET n.k = n.k + 1000` with an index on `A.k` reads the range of the index first, then
+updates. Only the record addresses are held, a few bytes per node. Before v26.11.1 such a statement met the nodes it had
+just updated again further on in the index and ran out of memory. _(Since v26.11.1)_
+
 A property value must be a scalar, a list of scalars, or a `point()` value. A map value (`SET p.address =
 {city: 'Rome'}`), or a right-hand side of `=` / `+=` that is neither a map nor an entity (`SET p = 5`), is
 rejected with a `TypeError` and no part of the clause is written.
@@ -863,6 +868,10 @@ ORDER BY p.city ASC, p.age DESC, p.name ASC
 Strings are sorted by Unicode code point, the same order an index keeps them in (and the order Neo4j uses). The same
 order applies to string comparisons (`<`, `>`, ...) and to `min()`/`max()` _(since v26.10.1)_.
 
+`BINARY` values are sorted by their bytes, compared unsigned and one by one, a shorter value before a longer one it is
+the start of: the order SQL's `ORDER BY` and an index give them. Before v26.11.1 the order of two binary values changed
+from one run of the query to the next. _(Since v26.11.1)_
+
 ---
 
 [[cypher-skip-limit]]
@@ -1008,6 +1017,10 @@ Execution will use step-by-step interpretation
 The `PROFILE` clause executes the query and returns performance metrics along with the actual results. Unlike `EXPLAIN` which only shows the plan, `PROFILE` runs the query and provides real execution statistics.
 
 Because it runs the query, a `PROFILE` of a write (`CREATE`, `MERGE`, `SET`, `DELETE`, ...) is refused on the read-only path (`query()`, `/api/v1/query`) exactly like the bare write; profile it through `command()` or `POST /api/v1/command`. `EXPLAIN` never runs the query and is accepted on either path. _(Since v26.10.2)_
+
+A query that fails fails under `PROFILE` too, with the same error, and a write that fails is rolled back exactly as it is without `PROFILE`. _(Since v26.11.1)_
+
+NOTE: Before v26.11.1 a failing query under `PROFILE` answered no rows and no error: the error only appeared as an `Error:` line of the profile text, and the writes the query made before failing were committed. A client that relied on that line to detect a failure now receives the error itself.
 
 *Syntax:*
 
