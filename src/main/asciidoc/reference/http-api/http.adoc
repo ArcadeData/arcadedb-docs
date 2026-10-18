@@ -616,6 +616,17 @@ answers `404` instead of `500`. Naming a database the server has not got is a mi
 server fault, and it is the same status the server already gave for a database that is closed or dropped. Adjust
 any monitoring that alerts on `5xx` from this endpoint.
 
+[[http-open-on-demand]]
+*Databases opened on demand.* Since v26.11.1 a database that exists on disk but is not open on the server, because
+`arcadedb.server.databaseLoadAtStartup` is `false` or after a `close database`, is opened by the first HTTP request
+that names it (query, command, batch load, WebSocket insert session), as the Postgres, BOLT and gRPC protocols already
+did. Until v26.10.2 the HTTP API answered `Database '<dbname>' is not available` until the database was opened
+explicitly with `open database`. Only a directory that really holds a database (one with a `schema.json` or
+`schema.prev.json` file) is opened: any other name is refused as before, and a request never creates a directory. The
+user must still be authorized on the database. This makes `databaseLoadAtStartup=false` practical for a server that
+hosts many databases: it starts without opening any of them, and each one is opened by its first request
+(issue #10234).
+
 Examples:
 
 ====== List databases

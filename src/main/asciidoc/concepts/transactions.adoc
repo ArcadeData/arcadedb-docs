@@ -225,6 +225,21 @@ an append. A created or renamed file is forced with a full `fsync`, followed by 
 directory entry survives a power loss too. If an fsync fails, the WAL is kept, and the next pass retries the fsync.
 If a clean close cannot complete it, the WAL and the lock file stay on disk, and the next open runs recovery.
 
+[[wal-files-on-demand]]
+===== WAL files opened on demand
+
+Since v26.11.1 a database no longer opens its whole pool of WAL files when it opens (one per core by default). A WAL
+file is opened on the first commit that needs it, so `arcadedb.txWalFiles` is now the maximum size of the pool, not
+the number of files always open. The WAL housekeeping also closes and removes a WAL file that received no writes for
+`arcadedb.txWalIdleTimeout` milliseconds (60 seconds by default), once all its pages reached the data files. A database
+that is only read, or not written for that long, holds no WAL file open. Set `arcadedb.txWalIdleTimeout` to 0 or a
+negative value to keep every WAL file open until the database is closed.
+
+The WAL housekeeping of all the databases of the JVM runs on one shared scheduler of two daemon threads, named
+`ArcadeDB WAL Housekeeping-N`, instead of one `java.util.Timer` thread per database (named
+`ArcadeDB TransactionManager <db>`) as before. On a 16-core machine a server that hosted thousands of databases held a
+thread and about 18 file descriptors per database just for the WAL (issue #10234).
+
 NOTE: Up to version 26.9.x, a clean close forced every data file of the database, including the files that nothing
 had written. Each of those fsyncs costs a flush of the device write cache, about half a millisecond per file on a
 laptop NVMe drive and more on network or cloud block storage. So the close of a database with 100 indexed types took

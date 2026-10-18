@@ -350,7 +350,7 @@ The following plugins are available for ArcadeDB Server:
 |`redis.port`|TCP/IP port number used for incoming connections for Redis plugin. Default is 6379|Integer|6379
 |`mongo.host`|TCP/IP host name used for incoming connections for Mongo plugin. Default is '0.0.0.0'|String|0.0.0.0
 |`mongo.port`|TCP/IP port number used for incoming connections for Mongo plugin. Default is 27017|Integer|27017
-|`server.databaseLoadAtStartup`|Open all the available databases at server startup|Boolean|true
+|`server.databaseLoadAtStartup`|Open all the available databases at server startup. When `false`, a database is opened by the first request that names it, over HTTP too since v26.11.1 (see <<http-open-on-demand,Databases opened on demand>>), so a server with many databases starts at once and holds open only the databases in use|Boolean|true
 |`server.databaseDirectory`|Directory containing the database|String|${arcadedb.server.rootPath}/databases
 |`server.backupDirectory`|Directory containing the backups|String|${arcadedb.server.rootPath}/backups
 |`server.configDirectory`|Directory the server reads and writes its configuration files in: `server-configuration.json`, the security files (`server-users.jsonl`, `server-groups.json`, `server-api-tokens.json`), `backup.json`, `ai.json`, `mcp-config.json` and `gremlin-server.yaml`. Set it as a `-D` system property or in `ARCADEDB_SETTINGS`, never in `server-configuration.json`, which lives inside it. Read once at startup; the directory is created if missing. `arcadedb-log.properties` is not read from here: logging is still configured with `-Djava.util.logging.config.file`. See <<docker-config-directory,Relocating the configuration directory>>. _(Since v26.10.1)_|String|${arcadedb.server.rootPath}/config
@@ -382,6 +382,7 @@ The following plugins are available for ArcadeDB Server:
 |`server.mode`|Server mode between 'development', 'test' and 'production'|String|development
 |`server.name`|Server name|String|ArcadeDB_0
 |`server.plugins`|Server plugins to load, see <<available-plugins,available plugins>>. Format as comma separated list of: `<pluginName>:<pluginFullClass>`.|String|
+|`server.queryWarmUp`|Once the server is online, warms the query stack up in the background: on a low-priority daemon thread it parses a SQL statement and runs `SELECT 1` in SQL and `RETURN 1` in OpenCypher on a database the server holds open, so the first request of a client does not pay for loading the parsers and the function registry. The first SQL request over HTTP after a fresh start went from about 140 ms to about 20 ms server-side. With no database open it only parses the SQL statement: it never opens a database. Set to `false` to skip it _(since v26.11.1, issue #10218)_|Boolean|true
 |`server.rootPassword`|Password for root user to use at first startup of the server. Set this to avoid asking the password to the user|String|null
 |`server.rootPasswordPath`|Path to file with password for root user to use at first startup of the server. Set this to avoid asking the password to the user|String|null
 |`server.rootPath`|Root path in the file system where the server is looking for files. By default is the current directory|String|null
@@ -547,8 +548,9 @@ The following plugins are available for ArcadeDB Server:
 |`txRetryDelayBase`|Starting size, in milliseconds, of the transaction retry backoff window, doubled on each further attempt up to `txRetryDelay`|Integer|2
 |`txStaleReadCheck`|Refuses, with a retryable `ConcurrentModificationException`, a property write on a record read in the current transaction when another transaction committed a change to that record in between, so a value computed from the older read can never overwrite the concurrent change (a lost update under `READ_COMMITTED`). Adding or removing edges on a vertex is never refused. Only direct property assignment and removal is checked, not an in-place change to a list, map or embedded document got from the record. SQL `UPDATE` and Cypher `SET`/`MERGE`/`REMOVE` already compute their values from the latest data and are not affected. Set to false to restore the previous last-writer-wins behavior _(since v26.10.1)_|Boolean|true
 |`txWAL`|Uses the WAL|Boolean|true
-|`txWalFiles`|Number of concurrent files to use for tx log. 0 or a negative value = available cores, which is also the default|Integer|(machine dependent)
+|`txWalFiles`|Maximum number of concurrent files to use for tx log. 0 or a negative value = available cores, which is also the default. Since v26.11.1 a WAL file is opened on the first commit that needs it, instead of all of them when the database opens, and `txWalIdleTimeout` closes the ones left idle (see <<wal-files-on-demand>>)|Integer|(machine dependent)
 |`txWalFlush`|Flushes the WAL on disk at commit time. It can be 0 = no flush, 1 = flush without metadata and 2 = full flush (fsync). In `production` server mode, this is automatically set to `1` if not explicitly configured. See <<wal-flush-durability>>|Integer|0
+|`txWalIdleTimeout`|Milliseconds a WAL file of the pool can stay without writes before the WAL housekeeping closes and removes it, once all its pages reached the data files. Together with the WAL files opened on demand, a database that is only read, or not written for this long, holds no WAL file open. 0 or a negative value keeps every WAL file open until the database is closed. See <<wal-files-on-demand>> _(since v26.11.1)_|Long|60000
 |`typeDefaultBuckets`|Default number of buckets to create per type|Integer|1
 |===
 
