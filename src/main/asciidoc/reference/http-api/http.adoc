@@ -618,14 +618,19 @@ any monitoring that alerts on `5xx` from this endpoint.
 
 [[http-open-on-demand]]
 *Databases opened on demand.* Since v26.11.1 a database that exists on disk but is not open on the server, because
-`arcadedb.server.databaseLoadAtStartup` is `false` or after a `close database`, is opened by the first HTTP request
-that names it (query, command, batch load, WebSocket insert session), as the Postgres, BOLT and gRPC protocols already
-did. Until v26.10.2 the HTTP API answered `Database '<dbname>' is not available` until the database was opened
+`arcadedb.server.databaseLoadAtStartup` is `false`, is opened by the first HTTP request that names it (query,
+command, batch load, WebSocket insert session), as the Postgres, BOLT and gRPC protocols already did. Until v26.10.2 the HTTP API answered `Database '<dbname>' is not available` until the database was opened
 explicitly with `open database`. Only a directory that really holds a database (one with a `schema.json` or
 `schema.prev.json` file) is opened: any other name is refused as before, and a request never creates a directory. The
 user must still be authorized on the database. This makes `databaseLoadAtStartup=false` practical for a server that
 hosts many databases: it starts without opening any of them, and each one is opened by its first request
 (issue #10234).
+
+A database closed with the `close database` server command is the exception: it was closed on purpose, for a restore of its
+files or a cold backup, so an HTTP request does not reopen it. It stays closed until `open database` (or a restore, an import
+or a drop of that name). The server remembers this in memory only and for the node that received the command: after a restart
+the database is opened again, at start or on its first request, and the Postgres, BOLT and gRPC protocols still open it on
+demand.
 
 Examples:
 

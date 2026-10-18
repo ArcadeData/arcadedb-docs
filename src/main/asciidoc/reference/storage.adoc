@@ -83,6 +83,8 @@ Creating the bucket and index files themselves is cheap: about a millisecond per
 
 Since 26.11.1 a schema change no longer walks every type to work out which type owns which bucket, and neither does opening the database: creating 20,000 types in one `bulkChange()` went from minutes to under two seconds, and opening a database with 20,000 types from tens of seconds to about one second.
 The bucket-to-type maps are updated for the types the change touched, and building the new `schema.json` re-serializes only those types and their hierarchy, reusing the JSON of every other type (issue #10247).
+A change that names no type (a property attribute, an index drop, a rename, a compaction) re-serializes every type, as before.
+The setting `schema.incrementalSerialization` (default `true`) turns the reuse off, and the Java system property `arcadedb.schema.verifyIncrementalSerialization=true` makes every save compare what it wrote with the full serialization and fail on a difference (the test suites run with it; it costs one extra full serialization per save).
 What remains proportional to the size of the schema is the write itself, since `schema.json` holds every type: a single DDL statement on a schema of 20,000 types writes about 3 MB and takes a few tens of milliseconds, so batching matters more the more types the database has.
 
 IMPORTANT: Schema changes are not transactional.
