@@ -302,6 +302,12 @@ Properties are stored as typed flat arrays — `int[]`, `long[]`, `double[]`, or
 Each column has a compact null bitmap (1 bit per vertex).
 Dictionary encoding maps unique string values to integer codes, achieving near-100% compression for low-cardinality fields.
 
+A column takes its type from the schema, or for an undeclared property from the first values the build samples. Since
+v26.11.1 a value the column cannot give back as it is (a `2.5` or a `NaN` in an integer column, a `FLOAT` in a double one,
+a number in a string one) is not stored in it: a read of that vertex's property through the view falls back to the
+record, so queries answer with the value the record holds. Until v26.10.2 it was converted into the column's type, and
+a query over the view could read `2` where the record held `2.5` (issue #10255).
+
 [[gav-edge-properties-pending-changes]]
 ===== Edge Properties and Pending Changes
 
@@ -541,6 +547,17 @@ statistics - the fan-out of each hop sampled on the label it leaves - rather tha
 * an `OPTIONAL MATCH` only tested for absence (`OPTIONAL MATCH (c)-[h:HAS_TAG]->(t) WITH ... WHERE h IS NULL`), which is
 planned as `WHERE NOT (c)-[:HAS_TAG]->(t)` and so reaches the anti-join push-down (issue #9598, see
 <<cypher-optional-match,OPTIONAL MATCH>>).
+
+Since v26.11.1 a triangle written as one `MATCH`, `MATCH (a:Person)-[:KNOWS]-(b:Person)-[:KNOWS]-(c:Person)-[:KNOWS]-(a)
+RETURN count(*)`, is a count push-down too, with no `WHERE` or with one that orders the three variables strictly on one
+property (`WHERE a.id < b.id AND b.id < c.id`, in any spelling of `<` and `>` that orders all three). Each triangle is
+found once by the sorted intersection `algo.triangleCount` uses and weighed by the matches it stands for, so on a
+10,000-person, 180,000-edge graph the ordered count takes milliseconds instead of seconds (issue #10255). The answer is
+the pattern's own, not the algorithm's simple graph: parallel relationships are matches of their own, the comparison is
+on the property values (two equal values, a null, or values of two types such as a number and a string drop the
+triangle), and without a `WHERE` the six walks of every triangle and the walks over self loops are counted. The hops
+must be undirected, anonymous and of one type, and the three variables carry one label or none; `EXPLAIN` shows
+`COUNT TRIANGLES (CSR sorted intersection)` with the order it counts.
 
 *Multi-hop chains on the view.* A chain of labeled hops such as `MATCH (a:P)-[:K]->(b:P)-[:K]->(c:P)` is walked on the
 view (`EXPLAIN` shows `GAVFusedChain`). Since v26.10.2 a `count(*)`, or `count(x)` of a variable of the chain, is counted
