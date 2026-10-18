@@ -205,6 +205,13 @@ query until it finished, even with `arcadedb.gavUseWhenStale`, so under a steady
 query used it (issue #10189). If the merge falls more than 100,000 commits behind, the pending changes are dropped and
 the view rebuilds once, STALE in the meantime.
 
+*Commit order.* In both modes the changes reach the overlay in the order their transactions committed, however many threads commit at once. A thread
+whose commit follows another one on the same records returns from `commit()` once its change is in the view, which is after the
+change it follows; this is why a commit can wait a moment on a slower one. Since v26.11.1; before, two commits that conflicted could reach the
+overlay in the opposite order, and when an edge was created in the record slot a deleted edge had just freed, the deletion
+arriving second withdrew the new edge from the view for good, so the counts it served were a few edges short of the same
+queries without the view (issue #10249).
+
 *Writes during a build or rebuild.* A view starts tracking changes before it scans the graph, so a transaction that
 commits while the view is being built or rebuilt is never lost: in *SYNCHRONOUS* mode it is applied on top of the
 finished view (checked against what the scan already read, so nothing is counted twice) in *SYNCHRONOUS* and
