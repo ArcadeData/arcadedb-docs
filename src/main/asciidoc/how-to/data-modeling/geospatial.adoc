@@ -222,11 +222,15 @@ SELECT geo.envelope(geo.geomFromText('LINESTRING(0 0, 10 5, 20 0)')) AS bbox
 [[geo-distance]]
 ====== geo.distance()
 
-Returns the distance between two points using the https://en.wikipedia.org/wiki/Haversine_formula[Haversine formula] (great-circle distance).
+Returns the great-circle distance between two geometries, using the https://en.wikipedia.org/wiki/Haversine_formula[Haversine formula].
+For two points it is the distance between them; for any other pair of shapes it is the distance between their two closest points, and 0 when they intersect (a point inside a polygon is at distance 0 from it).
+Two shapes facing each other across the antimeridian are measured the short way round.
 
 Syntax: `geo.distance(<geometry1>, <geometry2> [, <unit>])`
 
-The optional `unit` parameter accepts `'km'` (default) or `'m'`.
+The optional `unit` parameter accepts `'m'` (default), `'km'`, `'mi'` or `'nmi'`.
+
+NOTE: Before 26.11.1 a shape that was not a point was measured from the centre of its bounding box.
 
 [source,sql]
 ----
@@ -406,7 +410,9 @@ WHERE geo.contains(boundary, geo.geomFromText('POINT(2.2945 48.8584)')) = true
 [[geo-d-within]]
 ====== geo.dWithin()
 
-Returns `true` if the first geometry is within the given distance (in degrees) of the second.
+Returns `true` if the first geometry is within the given distance (in degrees of great-circle arc) of the second.
+The distance is measured between the two shapes, as `geo.distance()` measures it: 0 when they intersect, otherwise between their closest points.
+Before 26.11.1 it was measured between the centres of the two shapes, so a point inside a large polygon could be found farther from it than the given distance.
 
 [source,sql]
 ----
@@ -553,7 +559,11 @@ WHERE geo.within(outV().location, geo.geomFromText(
 No dedicated geometry column type is introduced; WKT is the only supported format at storage level.
 * GeoJSON is not a storage format, but `geo.asGeoJson()` converts any geometry to GeoJSON for output.
 * 3D geometry and raster data are not supported.
-* The antimeridian and polar edge cases are handled correctly by the underlying GeoHash grid.
+* Coordinates are longitude/latitude, and a shape means the area its coordinates enclose on the longitude/latitude plane, as OGC WKT, PostGIS `geometry`, Shapely and GeoJSON (RFC 7946) read it: a polygon wider than 180 degrees of longitude, or a polar cap such as `POLYGON ((-180 80, 180 80, 180 90, -180 90, -180 80))`, is the area written.
+* A shape that crosses the antimeridian is written either as a `MULTIPOLYGON` split at 180, or with longitudes running past it, e.g. `POLYGON ((170 0, 190 0, 190 10, 170 10, 170 0))` for the 20 degrees around the antimeridian: such a shape is split there automatically. A polygon written `170 .. -170` is the 340-degree band between those meridians.
+* A coordinate out of range (a latitude past +/-90, a longitude past one turn of the globe) is not a geometry: the `geo.*` functions refuse it, and a write into a property with a `GEOSPATIAL` index fails rather than store a value the index would skip. Building or rebuilding the index over records written before still skips such a value, with a warning naming the record.
+
+NOTE: Before 26.11.1 a polygon wider than 180 degrees was read as crossing the antimeridian, so it became its complement and a polar cap enclosed nothing, and an invalid coordinate was stored, skipped by the index, and made every later scan of the type fail. A `GEOSPATIAL` index holding a polygon written across the antimeridian as `170 .. -170` has to be rebuilt after rewriting it in one of the two forms above.
 * Changing the precision level of an existing geospatial index requires rebuilding the index:
 
 [source,sql]

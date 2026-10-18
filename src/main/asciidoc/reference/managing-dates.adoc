@@ -148,6 +148,21 @@ A string that matches *none* of these is rejected: the `INSERT` or `UPDATE` fail
 
 NOTE: Before 26.10.1 an unparsable date string was silently stored as `NULL` and the write reported success.
 
+Every format, built in or configured, and every pattern passed to `.asDate()`, `.asDatetime()` or `date()`, is read strictly: a day or an hour that does not exist is refused, never moved to one that does. `'2021-02-30'` and `'2021-04-31'` are not dates, and `'2021-02-03 24:00:00'` is not a datetime: a write of one fails, and `.asDate()`, `.asDatetime()` and `date()` answer `NULL` for it. A comparison with such a literal, as in `WHERE day = '2021-02-30'`, matches no record.
+
+In a pattern, `yyyy` is the proleptic year, the year the ISO formats read, unless the pattern also names the era (`G`): so `'0000-01-01'.asDate('yyyy-MM-dd')` is the year 0 (1 BC), exactly as `'0000-01-01'.asDate()`, and formats back as `0000`. A pattern with a 12-hour field (`hh`, `KK`) reads the AM/PM marker `a` when it has one, and the morning when it does not.
+
+NOTE: Before 26.11.1 an impossible date was moved to the last day of its month (`2021-02-30` read as `2021-02-28`) and `24:00:00` to midnight of the next day, a pattern with `yyyy` could not read the year 0, and no pattern with `hh ... a` could be parsed at all.
+
+[discrete]
+#### Comparing and Subtracting Dates
+
+A `DATE` compared with a `DATETIME` (of any precision) is that day at midnight, as SQL compares a date with a timestamp: with `day = 2021-02-03` and `time = 2021-02-03 12:00`, `day < time` is true and `day = time` is false, whichever side of the operator each is on, and with an index on `day` or without one. Before 26.11.1 the datetime was narrowed to its day when it was on the right of the operator, so `day = time` was true there and false the other way round.
+
+Subtracting two dates answers the exact duration between them, whatever their precision: `day - time` with a `DATETIME_NANOS` operand three centuries away no longer overflows.
+
+A time field in a `.format()` pattern formats a `DATE` as its midnight: `day.format('yyyy-MM-dd HH:mm:ss')` answers `2021-02-03 00:00:00`, where it used to throw.
+
 In the event that these default formats are not sufficient for the needs of your application, you can customize them through <<sql-alter-database,`ALTER DATABASE ... DATEFORMAT`>> and <<sql-alter-database,`DATETIMEFORMAT`>> commands.
 For instance,
 

@@ -81,6 +81,9 @@ Under HA the batch is also replicated as one Raft entry.
 
 Creating the bucket and index files themselves is cheap: about a millisecond per type with one index, once the schema writes are batched.
 
+Since 26.11.1 a schema change no longer walks every type to work out which type owns which bucket, and neither does opening the database: creating 20,000 types in one `bulkChange()` went from minutes to under two seconds, and opening a database with 20,000 types from tens of seconds to about one second.
+What remains proportional to the size of the schema is the write itself, since `schema.json` holds every type: a single DDL statement on a schema of 20,000 types writes about 3 MB and takes a few tens of milliseconds, so batching matters more the more types the database has.
+
 IMPORTANT: Schema changes are not transactional.
 A DDL statement run inside a transaction takes effect immediately and is visible to every other session; a rollback does not undo it.
 Its types, properties and files stay, and the schema is written at the end of the transaction whether it commits or rolls back.
