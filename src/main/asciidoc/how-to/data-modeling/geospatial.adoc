@@ -563,7 +563,9 @@ No dedicated geometry column type is introduced; WKT is the only supported forma
 * A shape that crosses the antimeridian is written either as a `MULTIPOLYGON` split at 180, or with longitudes running past it, e.g. `POLYGON ((170 0, 190 0, 190 10, 170 10, 170 0))` for the 20 degrees around the antimeridian: such a shape is split there automatically. A polygon written `170 .. -170` is the 340-degree band between those meridians.
 * A coordinate out of range (a latitude past +/-90, a longitude past one turn of the globe) is not a geometry: the `geo.*` functions refuse it, and a write into a property with a `GEOSPATIAL` index fails rather than store a value the index would skip. Building or rebuilding the index over records written before still skips such a value, with a warning naming the record.
 
-NOTE: Before 26.11.1 a polygon wider than 180 degrees was read as crossing the antimeridian, so it became its complement and a polar cap enclosed nothing, and an invalid coordinate was stored, skipped by the index, and made every later scan of the type fail. A `GEOSPATIAL` index holding a polygon written across the antimeridian as `170 .. -170` has to be rebuilt after rewriting it in one of the two forms above.
+NOTE: Before 26.11.1 a polygon wider than 180 degrees was read as crossing the antimeridian, so it became its complement and a polar cap enclosed nothing, and an invalid coordinate was stored, skipped by the index, and made every later scan of the type fail. A `GEOSPATIAL` index holding a polygon written across the antimeridian as `170 .. -170` has to be rewritten in one of the two forms above and rebuilt.
+
+A `GEOSPATIAL` index created before 26.11.1 is not used by queries until it is rebuilt: it may hold the complement of a polygon wider than 180 degrees, which would leave a matching record out of the answer. The `geo.*` predicates scan the type instead, which is always correct, and the index reports the advice (in the log when the database opens, and in `schema:indexes`). Run `REBUILD INDEX` on it to go back to indexed queries.
 * Changing the precision level of an existing geospatial index requires rebuilding the index:
 
 [source,sql]
