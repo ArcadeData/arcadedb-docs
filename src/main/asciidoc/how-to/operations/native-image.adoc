@@ -21,7 +21,7 @@ Use the native image when fast startup and a small memory footprint matter more 
 |===
 
 The nightly tags also exist per architecture (`latest-native-amd64`, `latest-native-arm64` and so on).
-The two architectures use different base images: the `linux/amd64` binary is fully static (musl libc) and runs on an empty `scratch` image, while the `linux/arm64` binary links glibc dynamically and runs on `gcr.io/distroless/base-debian12:nonroot`.
+The two architectures use different base images: the `linux/amd64` binary is fully static (musl libc) and runs on an empty `scratch` image, while the `linux/arm64` binary links glibc dynamically and runs on `gcr.io/distroless/base-debian12`.
 
 *Release archives.* Each https://github.com/ArcadeData/arcadedb/releases[GitHub release] carries the native executable for several platforms, each with a `.sha256` checksum file:
 
@@ -54,8 +54,8 @@ To run the Docker image:
 
 [source,bash,subs="+attributes"]
 ----
+mkdir -p databases && sudo chown 1000:1000 databases   # only for a bind mount, see below
 docker run --rm -p 2480:2480 -p 5432:5432 \
-  --user 1000:1000 \
   -v "$(pwd)/databases:/home/arcadedb/databases" \
   arcadedata/arcadedb:{revnumber}-native \
   -Darcadedb.server.rootPassword=<your-password>
@@ -66,9 +66,19 @@ The native images differ from the JVM image in a few ways, because neither base 
 * *Settings are trailing arguments, not environment variables.*
 The JVM image's `bin/server.sh` expands `ARCADEDB_SETTINGS` and `JAVA_OPTS` onto the command line.
 The native image starts the binary directly, so pass `-Darcadedb.server.rootPassword=...` and any other setting as arguments after the image name, as in the example above.
-* *User.* The `linux/amd64` (`scratch`) image runs as UID 0 unless you pass `--user <uid>:<gid>`.
-The `linux/arm64` (distroless) image already runs as the non-root user 65532.
-Whatever UID you choose must own the host directory you mount for `databases`.
+* *User.* _(Since v26.11.1)_ Both native images run as UID/GID `1000:1000`, the same user as the JVM image, so no `--user` is needed and a volume written by any of the three images can be mounted by the others.
+Anonymous and named volumes start owned by `1000:1000` and are writable out of the box.
+A bind mount keeps the ownership of the host directory, so every bind-mounted path the server writes (`databases`, but also `config` and `log`) must be writable by UID 1000, otherwise the server fails to start with an `AccessDeniedException`.
+To run as another UID, pass `--user <uid>:<gid>` and give that UID ownership of every volume and bind mount, including `config` and `log`.
+* *Upgrading from an earlier native image.* Before v26.11.1 the `linux/amd64` image ran as root and the `linux/arm64` image as the distroless `nonroot` user (65532), so the volumes they wrote are owned by those UIDs.
+Re-own each one once before starting the new image:
++
+[source,bash]
+----
+docker run --rm --user 0 -v <volume>:/data busybox chown -R 1000:1000 /data
+----
++
+The same command makes those volumes usable by the JVM image.
 * *Ports.* The image exposes `2480` (HTTP API and Studio), `2434` (Raft replication), `5432` (PostgreSQL), `6379` (Redis), `27017` (MongoDB), `7687` (Bolt) and `50051` (gRPC).
 There is no port `8182`, because Gremlin is not included.
 Publish the ports of the protocol plugins you enable in `arcadedb.server.plugins`.
