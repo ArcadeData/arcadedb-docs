@@ -72,6 +72,11 @@ In the event that a bucket of the same name exists in the bucket, the new type u
 bucket in the command and a bucket of this name does not exist, ArcadeDB creates one. The new bucket has the same name as the type,
 but in lower-case.
 
+A bucket belongs to one type only. The statement is refused when a bucket it would attach already belongs to another type, whether
+listed in `BUCKET` or reused because its name is `<type>_<n>`, and when the same bucket is listed twice. The refusal is checked
+before anything is created, so the schema is left as it was and no half-built type remains. _(Since v26.11.1. Before, the type was
+registered first and stayed in the schema, without the refused bucket, and also after a restart.)_
+
 When working with multiple cores, it is recommended that you use multiple buckets to improve concurrency during inserts. To change
 the number of buckets created by default, <<sql-alter-database,`ALTER DATABASE`>> command to update the `minimumbuckets` property.
 You can also define the number of buckets you want to create using the `BUCKETS` option when you create the type.
@@ -243,7 +248,7 @@ ArcadeDB> ALTER TYPE Account CUSTOM meta = { abool: true, alist: [1,2,3,4,5]};
 ArcadeDB> ALTER TYPE Account NAME Client;
 ----
 
-NOTE: Renaming a type carries what is bound to it by name: its buckets and indexes, the <<materialized-views,materialized views>> and continuous aggregates that read it (their stored source type and the `FROM` of their defining query), and the triggers defined on it. The rename is refused, before anything is changed, when the type is the backing type of a materialized view or a continuous aggregate (it is named after the view), or when a view's query names the type in a form that cannot be re-pointed with certainty. _(Since v26.11.1. Before, a view or an aggregate kept naming the old type: its refresh failed, `DROP TYPE` on the renamed source was let through, and a trigger came back unbound after a restart.)_
+NOTE: Renaming a type carries what is bound to it by name: its buckets and indexes (those it declares and the sub-indexes it holds for the indexes of its super types; renaming a super type leaves the sub-indexes of its sub types as they are), the <<materialized-views,materialized views>> and continuous aggregates that read it (their stored source type and the `FROM` of their defining query), and the triggers defined on it. The rename is refused, before anything is changed, when the type is the backing type of a materialized view or a continuous aggregate (it is named after the view), or when a view's query names the type in a form that cannot be re-pointed with certainty. _(Since v26.11.1. Before, a view or an aggregate kept naming the old type: its refresh failed, `DROP TYPE` on the renamed source was let through, and a trigger came back unbound after a restart.)_
 
 * Add the former type name 'Account' as alias for 'Client':
 
