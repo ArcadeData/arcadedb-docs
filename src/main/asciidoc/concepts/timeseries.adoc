@@ -167,7 +167,11 @@ ALTER PROPERTY SensorReading.sensor_id MANDATORY true
 or `DATETIME` column, compared in the column's own precision (a `DATETIME_NANOS` column to the nanosecond);
 * `REGEXP` is matched against the text of the value as `SELECT` returns it, a date as the date and not as its epoch count;
 * `MANDATORY` and `NOTNULL` both require a value. A sample has no way to keep a column set to null apart from one left out, so a
-`MANDATORY` column refuses a null too, and a `NaN` in a `FLOAT` or `DOUBLE` column, which is how such a column stores no value.
+`MANDATORY` column refuses a null too, and a `NaN` in a `FLOAT` or `DOUBLE` column, which is how such a column stores no value;
+* a `STRING` column, tag or field, stores a sample written without it as the empty text and returns it so, and that empty text is
+what `MIN` and `REGEXP` check: on a column declared `MIN 2` or `REGEXP '[a-z]+'` a sample that leaves the column out is refused,
+whether the constraint was declared before or after the sample. A numeric or date column keeps no value as no value, and no
+`MIN`, `MAX` or `REGEXP` applies to it.
 
 A SQL `INSERT` that violates a constraint fails with a `ValidationException`, as for a document. Unlike a document type, a
 multi-row `INSERT` (`CONTENT [...]`, multi-row `VALUES`, `FROM SELECT`) refused at one row keeps the rows appended before it,
@@ -175,9 +179,18 @@ because each sample is appended in its own shard transaction (see _Appends and T
 and Prometheus remote write the sample that violates it is dropped alone and named in `unreadableValues`
 (`<measurement>.<column> (tag|field|timestamp): <reason>`, the reason naming the constraint and never the value); the JSONL
 import applies its row-error policy. As for a document type, a constraint is refused when a sample already stored violates it
-(`Cannot set MAX 10: the sample at timestamp ... violates it`); delete those samples first. A stored `STRING` column reads an
-absent value back as the empty text, so `MANDATORY`/`NOTNULL` cannot be checked against the samples already there, only against
-the new ones.
+(`Cannot set MAX 10: the sample at timestamp ... violates it`). A sample cannot be deleted or updated (see _Samples Are
+Immutable_), so the remedy is a new TIMESERIES type that declares the constraint, filled with the conforming samples:
+
+[source,sql]
+----
+CREATE TIMESERIES TYPE SensorReading2 TIMESTAMP ts TAGS (sensor_id STRING) FIELDS (temperature DOUBLE, humidity DOUBLE)
+ALTER PROPERTY SensorReading2.temperature MAX 150
+INSERT INTO SensorReading2 FROM SELECT ts, sensor_id, temperature, humidity FROM SensorReading WHERE temperature <= 150
+----
+
+A stored `STRING` column reads an absent value back as the empty text, so `MANDATORY`/`NOTNULL` cannot be checked against the
+samples already there, only against the new ones.
 
 `DEFAULT` and `HIDDEN` are refused on a TIMESERIES column: no write path fills in an absent column and every read returns all
 of them, so either would be stored without any effect. `READONLY` is accepted, a sample being immutable anyway.
@@ -226,6 +239,26 @@ mutable page that holds no row of that tag without reading its rows, whether or 
 DROP TIMESERIES TYPE SensorReading
 DROP TIMESERIES TYPE SensorReading IF EXISTS
 ----
+
+==== Samples Are Immutable
+
+A sample cannot be deleted or updated once written: `DELETE FROM`, `UPDATE` and `TRUNCATE TYPE` on a TIMESERIES type are refused
+(`Cannot DELETE the samples of the TIMESERIES type 'SensorReading': a sample cannot be deleted or updated once written ...`).
+Samples leave a type in three ways:
+
+* the `RETENTION` of the type removes the samples older than it;
+* `DROP TIMESERIES TYPE` removes all of them, with the type;
+* to keep a subset, copy it into a new TIMESERIES type with `INSERT INTO <new type> FROM SELECT ... FROM <type> WHERE ...` and
+drop the old one.
+
+A `DELETE` whose source is a subquery deletes the records that subquery returns: a row that is not a record, such as a sample or
+a projection (`DELETE FROM (SELECT name FROM Person)`), is refused, since there is nothing to delete.
+
+[NOTE]
+====
+Before v26.11.1 `DELETE FROM` a TIMESERIES type reported the matching samples as deleted and kept them, `UPDATE` reported
+`count: 0`, and `TRUNCATE TYPE` reported success: none of them removed or changed a sample.
+====
 
 ==== Ingesting Data
 
@@ -518,6 +551,8 @@ WHERE ts >= '2026-02-19' AND ts < '2026-02-20'
 ----
 
 Range conditions on a numeric `FIELD` are pushed down too: `>`, `>=`, `<`, `\<=`, `=` and `BETWEEN` against a literal or a parameter, combined with `AND` (`FIELDS` in `EXPLAIN`). A sealed block whose recorded minimum and maximum rule a condition out is skipped without being read, a block whose whole range satisfies every condition is answered as if there were no condition (from its statistics, in an aggregation), and only the blocks in between are decompressed, with the condition tested on the decoded columns before any row is built. That applies to the aggregations above, so `SELECT count(*) ... WHERE ts ... AND temperature > 30` is answered by the storage engine, and to a plain row query, which then builds rows only for the samples that pass.
+
+When the storage engine answers the whole `WHERE` of a row query - a time range, tag equalities and the field conditions above, combined with `AND` - the plan has no `FILTER ITEMS` step, and a projection made only of column names (aliases allowed) builds each row once, in the fetch (`PROJECTED` in `EXPLAIN`), instead of building a row of every column and copying it, as for `SELECT sensor_id, ts, temperature FROM SensorReading WHERE ts >= ? AND ts < ? AND temperature > 30`.
 
 The comparisons pushed down are those SQL makes as plain numbers: a `DOUBLE` field against any number, and a `LONG`, `INTEGER`, `SHORT` or `BYTE` field against an integer. A missing measurement never satisfies one, as `NULL > 30` does not. Any other condition - on a `FLOAT` field, `<>`, an `OR`, a comparison between two columns, a function of the field, a decimal against an integer field - gives the same answer through the generic filter.
 
