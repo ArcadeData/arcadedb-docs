@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - gRPC `BeginTransaction` refuses `SERIALIZABLE`
+
+A gRPC `BeginTransaction` that asks for `SERIALIZABLE` isolation is now refused with `INVALID_ARGUMENT`, as is an isolation value the server does not know, a newer client's enum constant (issue #10386). Before, the server began the transaction at `REPEATABLE_READ` (or, for an unknown value, at `READ_COMMITTED`) and answered success, so a caller that needed write-skew prevention was told its transaction started and got a weaker guarantee. HTTP, SQL, openCypher and PostgreSQL already refused a level the engine cannot provide, and SQL `BEGIN ISOLATION` and openCypher `START TRANSACTION ISOLATION` now say so in the same words as HTTP: `Invalid isolationLevel 'SERIALIZABLE': accepted values are [READ_COMMITTED, REPEATABLE_READ]` (SQL raised the JVM's `No enum constant ...`).
+
+*Impact:* a hand-written gRPC client that sends `SERIALIZABLE` now fails at `BeginTransaction`. The first-party `RemoteGrpcDatabase` never sent it. `READ_UNCOMMITTED`, the proto default, still begins, at the stronger `READ_COMMITTED`, and the response reports it in `effective_isolation`. The server no longer logs a throttled warning for `SERIALIZABLE`, because there is nothing left to warn about.
+
+*Action:* ask for `REPEATABLE_READ`, the strongest level the engine provides. See <<transactions,Transactions>>.
+
+[discrete]
+====== 26.11.1 - A plugin route that another plugin or the server already holds fails the server start
+
+The routes a plugin declares through `registerAPI(HttpServer, PluginRoutes)` are now one namespace shared by every plugin (issue #10385). Declaring another method on a path a different plugin declared merges into the same entry. Declaring a method a plugin already declared on that path, a path that fills a route the server registers for itself (for example `GET /api/v1/server` or `/api/v1/query/mydb`), or a prefix equal to one of the server's own mounts (`/api/v1`, `/api/v1/ai`, `/ws`), is refused with an `IllegalStateException` naming both parties, and the server does not start. Before, the second registration silently replaced the first plugin's route, which then answered `405` naming the other plugin's method, a plugin could shadow a core route, and a plugin declaring the `/api/v1` prefix replaced the whole core router, with no log line. The same check applies to a plugin still implementing the deprecated `registerAPI(HttpServer, PathHandler)`.
+
+*Impact:* a third-party plugin that relied on replacing another route no longer starts the server. The plugins shipped with ArcadeDB are unaffected.
+
+*Action:* give the route another path, or remove the plugin that also declares it. A route declared `GET` now also answers `HEAD` with the same handler, as the core health routes do, so container healthchecks such as `wget --spider` work against it (issue #10384).
+
+[discrete]
 ====== 26.11.1 - A taken schema object name is a conflict, not a server error
 
 Creating, or renaming onto, a name already taken by a type, property, index, constraint, bucket, trigger, view or function now raises `com.arcadedb.exception.AlreadyExistsException`, a `SchemaException` (issue #10153). Before, the SQL statements raised `CommandExecutionException`, and defining a function or a library twice, or renaming or copying a type onto a taken name, raised `IllegalArgumentException`.
