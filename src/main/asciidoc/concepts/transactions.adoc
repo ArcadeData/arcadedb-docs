@@ -315,6 +315,16 @@ A `ConcurrentModificationException` always means another transaction wrote the r
 In particular, updating a record that the same transaction has already deleted is not a conflict, it simply has no effect - the delete wins, since the record will not exist once the transaction commits.
 The order of the two operations does not matter.
 
+==== A statement that fails halfway
+
+ArcadeDB has no savepoints, so a statement that fails inside a transaction cannot be taken back on its own.
+A statement that fails having written nothing leaves the transaction usable, and so does a single-row refusal (a duplicated key, a failed validation), because the refused record retracts itself.
+A multi-row `INSERT`, `UPDATE` or `DELETE` that fails after part of its records were written marks the transaction rollback-only: `commit()` throws a `TransactionException` ("Transaction cannot be committed: a statement failed after part of its records were written ...") and nothing of the transaction is published, so a caller that catches the error and goes on can never commit half a statement.
+Roll the transaction back and retry it, or issue the rows as separate statements.
+A statement that runs on its own, with no transaction begun, is rolled back whole.
+The lines of a `sqlscript` are not covered: a script handles its own failures with `COMMIT RETRY n ELSE ... AND CONTINUE | FAIL`.
+_(Since v26.11.1: earlier versions committed the rows written before the error.)_
+
 ==== Nested transactions and propagation
 
 ArcadeDB does support nested transaction.
