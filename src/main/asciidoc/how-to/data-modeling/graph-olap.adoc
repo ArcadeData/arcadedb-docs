@@ -334,7 +334,7 @@ Weighted algorithms therefore keep the fast columnar path while a view is being 
 Two cases remain that the view cannot answer, and for those the algorithm reads the edge records directly - exact, only slower:
 
 * several parallel edges join the same two vertices and only some of them were deleted, since the overlay counts deletions per vertex pair and cannot say which of the parallel edges went;
-* a property of an existing edge was changed while another edge of the same type joins the same two vertices, until the rebuild that refreshes the columns completes, since the view cannot tell which of the two changed. Since v26.10.2, a change to an edge that is the only one of its type between its two vertices is kept in the overlay and answered from there, with no rebuild (issue #9437). Adding and deleting edges never have this effect.
+* a property of an existing edge was changed while another edge of the same type joins the same two vertices, until the rebuild that refreshes the columns completes, since the view cannot tell which of the two changed. Since v26.10.2, a change to an edge that is the only one of its type between its two vertices is kept in the overlay and answered from there, with no rebuild (issue #9437). Adding and deleting edges never have this effect. Since v26.11.1, neither does saving an edge the view does not hold: an edge to a vertex of a type the view does not cover, or an edge whose vertex is deleted in the same transaction (issue #10350).
 
 ==== Memory Usage
 
@@ -398,6 +398,8 @@ Both are fixed. The vertices a view holds are renumbered onto a gapless range be
 
 While a view is holding pending changes the whole-graph procedures also stop using the parallel kernels listed above, which read the base CSR arrays directly and know nothing of the overlay: they would otherwise answer for the graph as it stood at the last build.
 Those calls still run off the view's adjacency, single-threaded rather than parallel, and the compaction that folds the overlay back into the base graph (by default after 10,000 pending edges) restores the parallel path.
+
+Since v26.11.1, each `algo.*` call, and each SQL `shortestPath()` or `bellmanFord()` call, reads one fixed snapshot of the view from start to end, including the rows streamed after the call returns. A rebuild or compaction that completes during the call does not affect it. Before, a rebuild that landed mid-call numbered the vertices afresh while the call was still reading. One row could then come back with a null node, or a row could name the wrong vertex (issue #10350). A long call keeps the snapshot it started on in memory until it ends.
 
 [[gav-cch]]
 ==== Shortest Paths with Contraction Hierarchies (CCH)
