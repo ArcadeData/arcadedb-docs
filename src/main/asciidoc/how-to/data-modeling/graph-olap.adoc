@@ -218,6 +218,17 @@ finished view (checked against what the scan already read, so nothing is counted
 *ASYNCHRONOUS* modes, and in *OFF* mode the view is published STALE. Writers are not blocked by a running build, including
 `REBUILD GRAPH ANALYTICAL VIEW`.
 
+A committed change that the view cannot merge, or that a build cannot replay on top of the CSR it just scanned, is not
+dropped: the view logs a warning, reports itself STALE and rebuilds, so it never keeps answering from a graph that never
+existed (issue #10338). Before 26.11.1 such a change was dropped with a warning, and a first build that hit one never
+published.
+
+NOTE: Before 26.11.1 a *SYNCHRONOUS* or *ASYNCHRONOUS* view could answer wrongly until the database was reopened after
+three kinds of commit: an edge created in the transaction that deletes one of its endpoints (a negative `algo.degree()`,
+or a lightweight edge that stayed counted; issues #10340 and #10339), a transaction committed right after
+`CREATE GRAPH ANALYTICAL VIEW` (issue #10338), and a vertex property that was removed, which kept its old value
+(issue #10335). Rebuild a view with `REBUILD GRAPH ANALYTICAL VIEW` if it served such commits on an earlier version.
+
 In *SYNCHRONOUS* and *ASYNCHRONOUS* modes the view being rebuilt keeps serving queries, and keeps absorbing commits, until the rebuild
 publishes its new CSR: only the caller of `REBUILD GRAPH ANALYTICAL VIEW` (or of `build()`) waits for the scan. Since
 v26.10.1 the scan no longer runs while holding the view's lock, so neither a committing transaction nor a status check
