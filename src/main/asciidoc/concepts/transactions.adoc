@@ -324,9 +324,11 @@ A statement that fails having written nothing leaves the transaction usable, and
 A multi-row statement in any language (`INSERT`, `UPDATE` or `DELETE` in SQL, `SET`, `CREATE` or `DELETE` in openCypher, including the ones Bolt runs inside `BEGIN`, or a `sqlscript`) that fails after part of its records were written marks the transaction rollback-only: `commit()` throws a `TransactionException` ("Transaction cannot be committed: a statement failed after part of its records were written ...") and nothing of the transaction is published, so a caller that catches the error and goes on can never commit half a statement.
 Roll the transaction back and retry it, or issue the rows as separate statements.
 A statement that runs on its own, with no transaction begun, is rolled back whole.
-A `sqlscript` that handles its own failures with a `BEGIN ... COMMIT RETRY n ELSE ... AND CONTINUE | FAIL` block concludes the transaction it opened itself and is not affected.
+A `sqlscript` whose writes are all inside a `BEGIN ... COMMIT RETRY n ELSE ... AND CONTINUE | FAIL` block handles its own failures and is not affected; a write outside such a block is covered.
+A Gremlin traversal runs while its result is read, so it is covered at that point.
+A statement that a function or procedure runs through the database, and whose failure the outer statement catches, marks the transaction too.
 An openCypher statement whose existence-constraint check takes back every record it created leaves the transaction usable too, as nothing of the statement remains.
-_(Since v26.11.1: earlier versions committed the rows written before the error. openCypher and `sqlscript` are covered since issue #10379.)_
+_(Since v26.11.1: earlier versions committed the rows written before the error. openCypher, `sqlscript` and Gremlin are covered since issue #10379.)_
 
 ==== Nested transactions and propagation
 
