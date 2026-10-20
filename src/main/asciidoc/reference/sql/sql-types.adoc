@@ -248,7 +248,7 @@ ArcadeDB> ALTER TYPE Account CUSTOM meta = { abool: true, alist: [1,2,3,4,5]};
 ArcadeDB> ALTER TYPE Account NAME Client;
 ----
 
-NOTE: Renaming a type carries what is bound to it by name: its buckets and indexes (those it declares and the sub-indexes it holds for the indexes of its super types; renaming a super type leaves the sub-indexes of its sub types as they are), the <<materialized-views,materialized views>> and continuous aggregates that read it (their stored source type and the `FROM` of their defining query), and the triggers defined on it. The rename is refused, before anything is changed, when the type is the backing type of a materialized view or a continuous aggregate (it is named after the view), or when a view's query names the type in a form that cannot be re-pointed with certainty. _(Since v26.11.1. Before, a view or an aggregate kept naming the old type: its refresh failed, `DROP TYPE` on the renamed source was let through, and a trigger came back unbound after a restart.)_
+NOTE: Renaming a type carries what is bound to it by name: its buckets and indexes (those it declares and the sub-indexes it holds for the indexes of its super types; renaming a super type leaves the sub-indexes of its sub types as they are), the <<materialized-views,materialized views>> and continuous aggregates that read it (their stored source type and the `FROM` of their defining query), the triggers defined on it, and the graph analytical views that list it (their definition is updated and the view rebuilt). The rename is refused, before anything is changed, when the type is the backing type of a materialized view or a continuous aggregate (it is named after the view), or when a view's query names the type in a form that cannot be re-pointed with certainty. _(Since v26.11.1. Before, a view or an aggregate kept naming the old type: its refresh failed, `DROP TYPE` on the renamed source was let through, and a trigger came back unbound after a restart.)_
 
 * Add the former type name 'Account' as alias for 'Client':
 
@@ -302,6 +302,8 @@ Be sure to create a backup before running it.
 NOTE: Bear in mind, that the schema must remain coherent.
 For instance, avoid removing types that are super-types to others.
 This operation won't delete the associated bucket.
+
+NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a materialized view, a continuous aggregate or a graph analytical view reads the type. Drop the view first. _(Since v26.11.1 for graph analytical views. Before, the drop went through and the view failed to build at the next open.)_
 
 NOTE: A database written by a version affected by issue #8169 can still contain a type that was dropped but came back after a restart with no buckets: inserting into it fails with `Cannot retrieve a bucket for type ... because there are no buckets associated`. Since v26.10.1 the database logs a warning at open naming every type that has no buckets and no subtypes, and `DROP TYPE <name>` removes such a type permanently.
 
