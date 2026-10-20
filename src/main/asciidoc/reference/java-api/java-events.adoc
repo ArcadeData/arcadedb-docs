@@ -45,6 +45,11 @@ raises `RecordVetoedException`, for a create and for an update alike, and `saveR
 statistics (`createRecord`, `updateRecord`) count only the writes the server applied. Before v26.11.1 a vetoed update was reported over
 gRPC as a success, over HTTP as a `RecordNotFoundException`, and a vetoed create over HTTP as a `NoSuchElementException`; the update of a
 remote edge that no longer exists, which used to succeed silently, now raises `RecordNotFoundException` as a document's does _(since v26.11.1)_.
+`vertex.newEdge()` of a remote vertex raises `RecordVetoedException` too, with the message the embedded engine builds (the edge type and both
+endpoints), where it used to fail with a bare `java.util.NoSuchElementException` because the server answers no row for a refused
+`CREATE EDGE` _(since v26.11.1)_. `vertex.moveToType()` and `vertex.moveToBucket()` of a remote vertex now go to the server (the immutable
+vertex used to call itself and the mutable one reached for an embedded database it has none of), and raise `RecordNotFoundException`
+for a vertex that no longer exists, as `countEdges()` does.
 
 NOTE: An edge is the one write that has to return what it created, so `Vertex.newEdge()` cannot answer "skipped": when a
 `BeforeRecordCreateListener` refuses the edge it raises `RecordVetoedException`, a `ValidationException` that every protocol reports as

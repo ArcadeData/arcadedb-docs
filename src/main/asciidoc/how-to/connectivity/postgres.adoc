@@ -155,9 +155,19 @@ discover schemas, tables, columns and types, typically via
 - are answered by recognizing the *shape* of the query (which relations it names, which columns it projects,
 including a client's own `CASE` expressions) rather than by matching one tool's exact spelling. This means the
 same question is answered the same way whichever Postgres client sends it, rather than only for a short list
-of tools this plugin happened to be tested against. A catalog query in a shape the server does not recognize
-returns an empty result set rather than an error, matching how PostgreSQL itself answers a `pg_catalog` object
-it does not have.
+of tools this plugin happened to be tested against. A catalog query in a shape the server does not recognize, or
+over a catalog relation it does not model (`pg_index`, `pg_proc`, `pg_constraint`, `information_schema.table_constraints`
+and so on), fails with SQLSTATE `0A000` (`feature_not_supported`) whose message names the relation, _since v26.11.1_.
+Before, it returned an empty result set, which a client reads as an empty catalog: an ungrouped
+`SELECT count(*) FROM pg_proc WHERE ...` came back with no row at all where PostgreSQL always sends one, and
+`psql`'s `\di`, psqlodbc's `SQLPrimaryKeys` and `SQLStatistics` reported nothing. A refusal a client can see is
+recoverable; a wrong empty answer is not. The connection stays usable after the error. Two kinds of statement keep the
+empty result, on purpose: a statement that names `pg_catalog` but reads no catalog relation, such as
+`SELECT pg_catalog.set_config(...)`, the session probes `pg_dump` sends; and a _type lookup_, a query that reads `pg_type`
+and nothing beyond the relations a driver joins to it (`pg_namespace`, `pg_class`, `pg_attribute`, `pg_range`, `pg_enum`)
+and computes no aggregate, such as the ones the PostgreSQL JDBC driver sends to name a type it does not know. This
+server's `pg_type` is the closed set of types it can produce, so "no such type" is the answer those drivers are built to
+handle.
 
 The emulated schema list always contains exactly one schema, named after the connected database - matching
 `SELECT current_schema()` - because a PostgreSQL connection is bound to one database and sees the schemas
@@ -230,6 +240,19 @@ instead of returning an empty result.
 varying`, `double precision`) instead of its internal name (`int4`, `varchar`, `float8`), matching PostgreSQL.
 `pg_type.typname` is unchanged.
 ====
+
+_Since v26.11.1_, `information_schema.columns.data_type` answers the SQL standard name, as `format_type()` does
+(`integer`, `character varying`, `double precision`, `timestamp without time zone`), and the literal `ARRAY` for any
+array column. `udt_name` keeps the `pg_type` name (`int4`, `varchar`, `float8`, `_text`), so the two columns differ
+exactly where PostgreSQL's do. The precision columns the relation declares are written for the built-in types that
+have them: `numeric_precision` (16, 32 and 64 for the integers, 24 for `real`, 53 for `double precision`),
+`numeric_scale` (0 for the integers), `datetime_precision` (6 for a timestamp, 0 for a date) and
+`character_octet_length` (2^30 for a text column with no declared length). `numeric_precision_radix` is `NULL` for a type
+that is not a number, where it used to answer 2.
+
+_Since v26.11.1_, `pg_class.relhasindex` and `pg_tables.hasindexes` are `false` for every type, because ArcadeDB's
+indexes are not reported through `pg_index` yet. `psql`'s `\d` reads the flag before it lists a table's indexes, so a
+table with an index is described without an `Indexes:` section instead of being sent into a refused query.
 
 [[postgres-copy-to-stdout]]
 ===== COPY ... TO STDOUT
@@ -499,8 +522,8 @@ the same case: `42P07` (`duplicate_table`) for a type, an index or a view, `4270
 NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.
 Most of these queries - the ones asking about schemas, tables, columns and a few other well-known catalogs -
 are now answered generically (see above), but a tool asking about a `pg_catalog` object with no ArcadeDB
-equivalent (indexes, foreign keys, triggers, and similar) still gets an empty result for that specific
-question rather than an error.
+equivalent (indexes, foreign keys, triggers, and similar) gets an error with SQLSTATE `0A000` for that specific
+question, since v26.11.1, instead of an empty result that reads as an empty catalog.
 See tested <<compatible-tools,compatible tools>> below.
 If the tool that you use to work with Postgres is not compatible with ArcadeDB, please https://github.com/ArcadeData/arcadedb/issues[open an issue].
 
