@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - An update of a record the transaction already updated, refused by a constraint or a listener, makes the commit fail
+
+When a transaction updates a record and a later statement updates it again, a `MAX`, `MIN`, `REGEXP` or other constraint (or a before-update listener that throws) can refuse the second update after its values were set on the copy of the record the transaction writes at commit. That copy kept the refused values and the commit stored them (issue #10482). The statement still fails with the constraint's error, and `commit()` now throws a `TransactionException` ("Transaction cannot be committed: a statement failed after part of its records were written ..."), like any other statement that fails after writing. A before-update listener that returns `false` to skip the record, which was a silent veto, now makes the commit fail too when the record was already updated by the transaction, since the skipped values would otherwise be committed.
+
+*Impact:* code that caught the error of such an update, or relied on a listener's veto of an already updated record, and went on to commit, now gets a `TransactionException` at `commit()`. A refused update of a record the transaction had not updated yet is unchanged: nothing of it is left. An openCypher statement whose existence-constraint check takes back every record it created, with the edges it connected to them, no longer makes the commit fail.
+
+*Action:* roll the transaction back and retry, or avoid refusing an update after the same record was updated in the transaction. See <<transactions,Transactions>>.
+
+[discrete]
 ====== 26.11.1 - `DELETE FROM` and `TRUNCATE TYPE` remove the samples of a TIMESERIES type
 
 `DELETE FROM <timeseries type> WHERE <time range> [AND <tag> = <value> ...]` and `TRUNCATE TYPE <timeseries type>` now remove samples, from the mutable pages and the sealed blocks of every shard, replicated under HA as a compaction is (issue #10342). Before, #10336 refused them, and before that they reported rows deleted or success and kept every sample. A `WHERE` that is not exactly a time range and tag equalities (a predicate on a `FIELD` column, an `OR`), a `LIMIT`, a `BATCH` and `RETURN BEFORE` are refused. `UPDATE` stays refused. The refusal of `ALTER PROPERTY ... MAX`/`MIN`/`REGEXP`/`MANDATORY` over a stored sample that violates it now names the `DELETE` that removes the sample.
