@@ -181,6 +181,14 @@ not delete anything: every edge record stores its own endpoint identities, so th
 records. After the rebuild, a full-scope `FIX` (no `TYPE`/`BUCKET` filter) also reclaims the orphaned edge-list segments the old,
 unreachable chains left on disk.
 
+A <<lightweight-edges,lightweight edge>> has no record to be rebuilt from. _Since v26.11.1_ the rebuild carries the lightweight
+entries of the part of the dropped list it can still read over into the new one (`salvagedLightEdges`), and rebuilds the
+lightweight edges of a bidirectional type stored in the unreadable part from their copy in the other endpoint's list
+(`recoveredLightEdges`), as many times as that list holds them. That costs one more walk of the edge lists of every vertex, only
+in `FIX` mode and only when a list is rebuilt. A lightweight edge of a unidirectional type is stored in its source's outgoing list
+only: one stored in the unreadable part has no other copy and is lost, and the run counts the list under `unsalvageableEdgeLists`
+with a warning naming the vertex and the direction. Before v26.11.1 a rebuild dropped every lightweight edge of the list.
+
 The other shape is a *dangling reference*: an adjacency entry that points at a record which no longer exists, typically left behind
 by a vertex deleted by an old release, before edge removal became strict. There is nothing to rebuild in that case - the record the
 entry names is gone - so `FIX` drops the entry instead.
@@ -312,6 +320,13 @@ The command returns the integrity check report in one record with the fields:
                                   `warnings`. They are not listed under `corruptedRecords`. A `FIX` rebuilds the owning
                                   vertex's edge list from the surviving edge records, and a full-scope `FIX` then reclaims
                                   the old directory. Before v26.10.2 a truncated directory read as an empty edge list.
+| `salvagedLightEdges` | _since v26.11.1_, lightweight edges a `FIX` carried over from the readable part of an edge list it
+                         rebuilt. Lightweight edges have no record, so the rebuild from the edge records cannot bring them back.
+| `recoveredLightEdges` | _since v26.11.1_, lightweight edges of a bidirectional type that sat in the unreadable part of a
+                          rebuilt edge list, rebuilt from their copy in the other endpoint's list.
+| `unsalvageableEdgeLists` | _since v26.11.1_, rebuilt edge lists that could not be read in full. A lightweight edge of a
+                             unidirectional type stored in the unreadable part had no other copy and is lost; the warning
+                             names the vertex and the direction.
 | `orphanedEdgeSegments` | number of unreachable edge-list segments found in the dedicated edge-list buckets
                            (garbage left behind by repaired adjacency lists). Only present on a full-scope `FIX`.
 | `orphanedEdgeSegmentsReclaimed` | number of orphaned edge-list segments actually deleted by the `FIX`. Only present on a full-scope `FIX`.
