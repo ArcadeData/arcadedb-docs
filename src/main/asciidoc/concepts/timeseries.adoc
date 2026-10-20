@@ -288,7 +288,12 @@ shard; the statistics that answer `count`, `sum`, `min` and `max` without readin
 
 Every statement that removes at least one sealed sample rewrites the sealed file of each shard it changes, as retention does, so
 its cost is about the size of that file whatever the range: many small deletes cost more than one statement that names the same
-samples. A range that misses the mutable pages is decided from their header, with no page read.
+samples. Under HA the leader ships the whole sealed file of each shard it changed, as it does for retention. A range that misses
+the mutable pages is decided from their header, with no page read; any other delete reads the mutable pages of the shard into
+memory once, as a compaction does, so it weighs what a compaction of the same pages weighs.
+
+A statement that fails part way says so: the shards before the one that failed are already deleted, and running the statement
+again deletes the rest.
 
 [IMPORTANT]
 ====
