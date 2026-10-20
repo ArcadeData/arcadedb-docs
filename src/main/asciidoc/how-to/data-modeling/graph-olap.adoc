@@ -135,6 +135,8 @@ Force a full rebuild of the CSR snapshot:
 REBUILD GRAPH ANALYTICAL VIEW social
 ----
 
+A view whose build failed when the database opened is no longer loaded, but its definition is kept: `REBUILD` builds it again from the definition, and reports the error to the caller if the build fails again. Before v26.11.1 `REBUILD` refused such a view as "not loaded", and the only way back was `DROP` and `CREATE` (issue #10368).
+
 *Dropping a view*
 
 [source,sql]
@@ -142,6 +144,15 @@ REBUILD GRAPH ANALYTICAL VIEW social
 DROP GRAPH ANALYTICAL VIEW social
 DROP GRAPH ANALYTICAL VIEW IF EXISTS social
 ----
+
+*Types a view lists*
+
+A view stores the vertex and edge types it lists, and the edge types of its contraction hierarchies, by name. Like a materialized view does with its source types, it protects them:
+
+* `DROP TYPE` of a type a view lists is refused, naming the view. Drop the view first with `DROP GRAPH ANALYTICAL VIEW`. The type is protected whichever of its names, or aliases, the view or the `DROP TYPE` uses.
+* `ALTER TYPE ... NAME` of a type a view lists renames it in the view's definition too, and the view is rebuilt from the renamed definition. Until the rebuild completes, queries take the ordinary path, as for a view just created.
+
+Before v26.11.1 both were accepted. The view kept serving a CSR that no longer matched the schema, and the next database open failed to build it and left it unbuilt (issue #10368).
 
 *Listing views*
 
@@ -241,6 +252,8 @@ with the view still reporting itself READY and not stale (issue #8378). Rebuild 
 while writes were running if its answers must match the graph exactly.
 When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
 
+Until then the overlay costs whole-graph reads (the Cypher count operators, the `algo.*` procedures) one copy of the adjacency per committed change, made on the first read after the change: the overlay applied to the base CSR, kept with that snapshot for every later read. Before v26.11.1 a view with any overlay sent those reads down the per-vertex path instead (a 2-hop count measured about a quarter slower), from the first committed edge until the compaction (issue #10411).
+
 *Lightweight edges and bulk loads.* A <<lightweight-edges,lightweight edge>> is tracked like any other edge in every
 mode: its creation and its deletion reach the overlay in *SYNCHRONOUS* and *ASYNCHRONOUS* modes, and mark an *OFF* view
 STALE. Each copy of a <<lightweight-edges,duplicated lightweight edge>> counts as an edge of its own, and a
@@ -251,6 +264,8 @@ batch endpoint and the gRPC batch load) are written in bulk, without an event pe
 the batch closes: *OFF* goes STALE, and *SYNCHRONOUS* and *ASYNCHRONOUS* rebuild rather than absorbing millions
 of edges into the overlay. While that rebuild runs the view is not READY, so queries take the ordinary path and never
 answer without the load. During the batch itself the view still serves what it held before the batch started.
+
+NOTE: Before v26.11.1, deleting a vertex that carried a lightweight self-loop reported the self-loop deleted twice, once from each of the vertex's edge lists. A view counted both reports, so its edge count went one lower per such self-loop, down to negative numbers (issue #10369). A vertex delete now reports each self-loop once, record-backed or lightweight, so a delete listener or trigger hears of it once. Rebuild a view that served such deletes on an earlier version.
 
 NOTE: Before 26.10.2 a view never learned about a lightweight edge created after its build, nor about any edge written
 by `GraphBatch`: a *SYNCHRONOUS* view answered as if those edges did not exist, and a transaction or batch that touched
@@ -400,6 +415,8 @@ While a view is holding pending changes the whole-graph procedures also stop usi
 Those calls still run off the view's adjacency, single-threaded rather than parallel, and the compaction that folds the overlay back into the base graph (by default after 10,000 pending edges) restores the parallel path.
 
 Since v26.11.1, each `algo.*` call, and each SQL `shortestPath()` or `bellmanFord()` call, reads one fixed snapshot of the view from start to end, including the rows streamed after the call returns. A rebuild or compaction that completes during the call does not affect it. Before, a rebuild that landed mid-call numbered the vertices afresh while the call was still reading. One row could then come back with a null node, or a row could name the wrong vertex (issue #10350). A long call keeps the snapshot it started on in memory until it ends.
+
+The same holds for a whole statement: every part of a Cypher query (its `MATCH` operators, count push-downs, `CALL` and `COUNT` sub-queries) and of a SQL `SELECT`, `MATCH` or `TRAVERSE` statement (its `MATCH` patterns, `out()`/`in()`/`both()`, `astar()`) reads the snapshot the statement first read, and so does each Gremlin traversal. Before v26.11.1 the Cypher `MATCH` operators read whichever snapshot the view served at each call: a rebuild while the rows streamed made the later rows name other vertices, or, for a fused chain of hops, failed the query with "was rebuilt while the query walked it" (issue #10415). Each statement of a script takes its own snapshot, so a statement that follows a `COMMIT` reads what was committed.
 
 [[gav-cch]]
 ==== Shortest Paths with Contraction Hierarchies (CCH)
