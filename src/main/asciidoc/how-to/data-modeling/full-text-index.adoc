@@ -795,6 +795,9 @@ This holds once every node of the cluster advertises the capability to read that
 The first BM25 query of a session checks them with a cheap live count and, if they disagree (after a crash, for example), recomputes them with a scan of the type.
 The result of that repair is kept: it is written with the schema, at the next schema save or when the database closes, so it is paid once and not again after every clean restart.
 After a crash, or a process that is killed, the pages are restored from the log but the counters can lag them, because the counters are written at a clean close and at schema saves, not by the log. The recovery therefore marks every BM25 index for a full recompute, which its first search runs, so both the document count and the total length are repaired _(since v26.11.1: before, only a difference in the document count was noticed)_.
+The total length cannot be compared with the live data without analyzing the whole type, so the counters are saved with what that total depends on: the index analyzer that measured the lengths, and the rule that counts the tokens.
+When the analyzer the index uses now is not the one that measured them (the definition in `schema.json` was edited, say), the first search recomputes them even when the number of documents still agrees, and logs a warning that names both analyzers _(since v26.11.1: before, such a corpus kept the old lengths, and so the old average document length, for good)_.
+Counters saved by a version that did not record the analyzer are trusted as they are, and the next schema save records it.
 On an HA cluster that write is local to the node: the files of a follower and of the leader can hold different counters until the next `statsOnly` rebuild on the leader, which every node adopts.
 The warning that announces it names the logical index and the exact statement to run, for example `+REBUILD INDEX `Article[content]` WITH statsOnly = true+`.
 
@@ -805,7 +808,7 @@ To look at the counters without triggering the repair, read the index from the s
 SELECT bm25 FROM schema:index:`Article[content]`
 ----
 
-`bm25` holds `totalDocs`, `sumDocLength`, `avgDocLength`, `countersValid`, `staleCheckDone` (whether the session's drift check has run), `scans` (full-type scans published into the counters) and `epoch` (the number of explicit recomputes).
+`bm25` holds `totalDocs`, `sumDocLength`, `avgDocLength`, `countersValid`, `staleCheckDone` (whether the session's drift check has run), `scans` (full-type scans published into the counters), `epoch` (the number of explicit recomputes), `measuredWith` (the analyzer, and the version of the token-counting rule, the total length was measured with) and `measuredWithCurrentAnalyzer` (`false` when the index analyzes with another one, so the next search recomputes the counters).
 
 For an exact repair without a full reindex, run:
 
