@@ -255,6 +255,8 @@ When the overlay accumulates too many changes (configurable threshold, default 1
 
 Until then the overlay costs whole-graph reads (the Cypher count operators, the `algo.*` procedures) one copy of the adjacency per committed change, made on the first read after the change: the overlay applied to the base CSR, kept with that snapshot for every later read. Before v26.11.1 a view with any overlay sent those reads down the per-vertex path instead (a 2-hop count measured about a quarter slower), from the first committed edge until the compaction (issue #10411).
 
+The copy is made for the reads that pay for it. A read that starts from a handful of vertices - a 2-hop count from one indexed vertex visits some 64 adjacency entries - does not copy the adjacency of the whole graph for itself: a commit replaces the snapshot, so the copy would serve no second read. Such reads walk the vertices one by one, as they did before the overlay, and the copy is made by the read that brings the entries the reads of the snapshot have visited to what the copy costs (a whole-graph read does it at once; point reads do it only when no commit comes first). Since v26.11.1 point reads while writes are committed take about as long as before the copy existed, where they had become three to six times slower at 20 to 100 commits per second (issue #10471).
+
 *Lightweight edges and bulk loads.* A <<lightweight-edges,lightweight edge>> is tracked like any other edge in every
 mode: its creation and its deletion reach the overlay in *SYNCHRONOUS* and *ASYNCHRONOUS* modes, and mark an *OFF* view
 STALE. Each copy of a <<lightweight-edges,duplicated lightweight edge>> counts as an edge of its own, and a

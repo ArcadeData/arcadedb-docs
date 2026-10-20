@@ -156,7 +156,7 @@ discover schemas, tables, columns and types, typically via
 including a client's own `CASE` expressions) rather than by matching one tool's exact spelling. This means the
 same question is answered the same way whichever Postgres client sends it, rather than only for a short list
 of tools this plugin happened to be tested against. A catalog query in a shape the server does not recognize, or
-over a catalog relation it does not model (`pg_index`, `pg_proc`, `pg_constraint`, `information_schema.table_constraints`
+over a catalog relation it does not model (`pg_proc`, `pg_trigger`, `pg_extension`, `information_schema.routines`
 and so on), fails with SQLSTATE `0A000` (`feature_not_supported`) whose message names the relation, _since v26.11.1_.
 Before, it returned an empty result set, which a client reads as an empty catalog: an ungrouped
 `SELECT count(*) FROM pg_proc WHERE ...` came back with no row at all where PostgreSQL always sends one, and
@@ -250,9 +250,42 @@ have them: `numeric_precision` (16, 32 and 64 for the integers, 24 for `real`, 5
 `character_octet_length` (2^30 for a text column with no declared length). `numeric_precision_radix` is `NULL` for a type
 that is not a number, where it used to answer 2.
 
-_Since v26.11.1_, `pg_class.relhasindex` and `pg_tables.hasindexes` are `false` for every type, because ArcadeDB's
-indexes are not reported through `pg_index` yet. `psql`'s `\d` reads the flag before it lists a table's indexes, so a
-table with an index is described without an `Indexes:` section instead of being sent into a refused query.
+[[postgres-catalog-indexes]]
+_Since v26.11.1_, the indexes of the database are in the catalog, so `psql`'s `\d <table>` prints the `Indexes:` section,
+`\d <index>` describes an index, `\di` lists them, and the index queries of psqlodbc and of the GUI tools are answered:
+
+* `pg_index` has a row per index of a type, `pg_class` a row of kind `i` for it, `pg_attribute` a row per key column,
+  `pg_indexes` the statement that creates it (also printed by `pg_get_indexdef()`), and `pg_class.relhasindex` and
+  `pg_tables.hasindexes` are `true` for the types that have one. An index is listed under the name ArcadeDB gives it
+  (`Person[name]`) on the type that declares it, not on its sub-types, and its access method is the family it belongs to in
+  PostgreSQL's terms: `btree` for an LSM tree, `hash`, `gin` for a full-text index, `gist` for a geospatial one and `hnsw`
+  for the vector indexes.
+* ArcadeDB declares uniqueness with a unique index and has nothing else that could be the constraint, so each unique index
+  is also the unique constraint of the same name: it is in `pg_constraint` (kind `u`), in
+  `information_schema.table_constraints` and `information_schema.key_column_usage`, and `psql` prints it as
+  `UNIQUE CONSTRAINT`. There is no primary key, foreign key or check constraint in ArcadeDB, so none is reported and
+  `SQLPrimaryKeys` returns no row.
+* `pg_inherits` has a row per super-type of a type, which is what `\d` prints as `Inherits:` and `Child tables:`.
+  `pg_policy`, `pg_statistic_ext`, `pg_publication`, `pg_publication_rel` and `pg_publication_namespace` have no row:
+  ArcadeDB has no row-level security policy, extended statistics object or publication. `psql`'s `\d` asks about all of
+  them for every table, and it used to fail on the first one it was refused.
+* `indkey`, `indcollation`, `indclass` and `indoption` are read as text, the values separated by a space, and the first can
+  be subscripted from 0 (`indkey[0]`), as PostgreSQL's `int2vector` is. The collations and operator classes have no
+  equivalent here and are 0.
+* A statement may read one relation more than once - `pg_class` as the table and as each of its indexes, `pg_attribute` as
+  a column of the table and of the index - and an outer join on these relations keeps the rows nothing matches, reading
+  `NULL`. The conditions are evaluated as soon as the relations they read are bound, and a condition equating a column with
+  something already bound finds the rows by it, so a table's indexes are found without reading every index of the
+  database. A catalog statement that reads one of the other relations twice is still answered the way it was.
+
+The PostgreSQL JDBC driver's `DatabaseMetaData.getIndexInfo()` and `getPrimaryKeys()` - what Hibernate, Flyway, Liquibase
+and BI tools call - are answered too. They list an index's key columns with the set-returning function
+`information_schema._pg_expandarray()` (a row for each element of the array, the calls of one row in step) and read its
+members as `(expression).n`; the catalog reads those, SQL's `trim(both '"' from ...)` and the bitwise `&` the driver
+uses to find a descending key. `getPrimaryKeys()` returns no row, as ArcadeDB has no primary key. A set-returning call
+under `GROUP BY` or an aggregate is not read.
+
+A text compared with a flag is read as the boolean it spells (`indisprimary = 't'`).
 
 [[postgres-copy-to-stdout]]
 ===== COPY ... TO STDOUT
@@ -522,7 +555,7 @@ the same case: `42P07` (`duplicate_table`) for a type, an index or a view, `4270
 NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.
 Most of these queries - the ones asking about schemas, tables, columns and a few other well-known catalogs -
 are now answered generically (see above), but a tool asking about a `pg_catalog` object with no ArcadeDB
-equivalent (indexes, foreign keys, triggers, and similar) gets an error with SQLSTATE `0A000` for that specific
+equivalent (functions, triggers, extensions, and similar) gets an error with SQLSTATE `0A000` for that specific
 question, since v26.11.1, instead of an empty result that reads as an empty catalog.
 See tested <<compatible-tools,compatible tools>> below.
 If the tool that you use to work with Postgres is not compatible with ArcadeDB, please https://github.com/ArcadeData/arcadedb/issues[open an issue].
