@@ -366,6 +366,12 @@ The server answers a HTTP request with a response.
 This response can have a body, which will always be in the JSON format.
 Generally, a successful response (HTTP status codes 2xx) contains a `result` field, while an erroneous request (HTTP status code 4xx) has an `error` field, and a server error (HTTP status code 5xx), in addition to the `error` field, provides a `detail` and an `exception` field.
 
+A request body that is sent but cannot be parsed as JSON (a truncated object, a scalar such as `123`, text that is not JSON) is refused with
+a `400` and `"error": "Invalid JSON payload"`, whichever route it was sent to. The `detail` names where the parser stopped, for example
+`End of input at line 1 column 13 path $.command`; it never repeats the body. _(Since v26.11.1: before, a body that could not be parsed was
+treated by most routes as if no body had been sent, and `POST /api/v1/server` answered a `500`.)_ A blank body is no body, and is not
+refused. The MCP endpoint is the exception: it answers the JSON-RPC parse error `-32700` over HTTP `200`.
+
 [[http-request-replay]]
 ==== Retrying Requests Safely (`X-Request-Id`)
 
