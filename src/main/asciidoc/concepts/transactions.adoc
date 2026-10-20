@@ -327,8 +327,9 @@ A statement that runs on its own, with no transaction begun, is rolled back whol
 A `sqlscript` whose writes are all inside a `BEGIN ... COMMIT RETRY n ELSE ... AND CONTINUE | FAIL` block handles its own failures and is not affected; a write outside such a block is covered.
 A Gremlin traversal runs while its result is read, so it is covered at that point.
 A statement that a function or procedure runs through the database, and whose failure the outer statement catches, marks the transaction too.
-An openCypher statement whose existence-constraint check takes back every record it created leaves the transaction usable too, as nothing of the statement remains.
-_(Since v26.11.1: earlier versions committed the rows written before the error. openCypher, `sqlscript` and Gremlin are covered since issue #10379.)_
+An openCypher statement whose existence-constraint check takes back every record it created leaves the transaction usable too, as nothing of the statement remains: that includes the edges it connected to those records, and the empty edge lists they leave on vertices that existed before. An edge between two existing records, or a property set on one, is a write that stays, and the commit is refused.
+An update of a record that the same transaction has already updated, and that a constraint or a before-update listener refuses, is refused the same way, because the refused values stay on the copy of the record the transaction writes at commit: the statement fails (or, when a listener returns `false` to skip the record, completes) and `commit()` throws.
+_(Since v26.11.1: earlier versions committed the rows written before the error. openCypher, `sqlscript` and Gremlin are covered since issue #10379, and the refused update of a record already updated since issue #10482.)_
 
 ==== Nested transactions and propagation
 
