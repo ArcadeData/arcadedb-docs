@@ -179,8 +179,16 @@ because each sample is appended in its own shard transaction (see _Appends and T
 and Prometheus remote write the sample that violates it is dropped alone and named in `unreadableValues`
 (`<measurement>.<column> (tag|field|timestamp): <reason>`, the reason naming the constraint and never the value); the JSONL
 import applies its row-error policy. As for a document type, a constraint is refused when a sample already stored violates it
-(`Cannot set MAX 10: the sample at timestamp ... violates it`). A sample cannot be deleted or updated (see _Samples Are
-Immutable_), so the remedy is a new TIMESERIES type that declares the constraint, filled with the conforming samples:
+(`Cannot set MAX 10: the sample at timestamp ... violates it`). A sample cannot be updated, but it can be deleted by its time and
+its tags (see _Deleting Samples_), so the remedy is to delete the sample the message names and declare the constraint again:
+
+[source,sql]
+----
+DELETE FROM SensorReading WHERE ts = 1708430400000 AND sensor_id = 'sensor-A'
+ALTER PROPERTY SensorReading.temperature MAX 150
+----
+
+Or, to keep the old type as it is, a new TIMESERIES type that declares the constraint, filled with the conforming samples:
 
 [source,sql]
 ----
@@ -240,16 +248,61 @@ DROP TIMESERIES TYPE SensorReading
 DROP TIMESERIES TYPE SensorReading IF EXISTS
 ----
 
-==== Samples Are Immutable
+[[timeseries-deleting-samples]]
+==== Deleting Samples
 
-A sample cannot be deleted or updated once written: `DELETE FROM`, `UPDATE` and `TRUNCATE TYPE` on a TIMESERIES type are refused
-(`Cannot DELETE the samples of the TIMESERIES type 'SensorReading': a sample cannot be deleted or updated once written ...`).
-Samples leave a type in three ways:
+A sample is never updated once written: `UPDATE` on a TIMESERIES type is refused (`Cannot UPDATE the samples of the TIMESERIES
+type 'SensorReading': a sample cannot be updated once written ...`). To change a sample, delete it and insert it again. Samples
+leave a type in four ways:
 
+* `DELETE FROM` removes the samples in a time range, optionally of some series only;
+* `TRUNCATE TYPE` removes all of them and keeps the type;
 * the `RETENTION` of the type removes the samples older than it;
-* `DROP TIMESERIES TYPE` removes all of them, with the type;
-* to keep a subset, copy it into a new TIMESERIES type with `INSERT INTO <new type> FROM SELECT ... FROM <type> WHERE ...` and
-drop the old one.
+* `DROP TIMESERIES TYPE` removes all of them, with the type.
+
+[source,sql]
+----
+-- every sample before a date
+DELETE FROM SensorReading WHERE ts < '2024-01-01 00:00:00'
+
+-- one series, in a time range
+DELETE FROM SensorReading WHERE sensor_id = 'sensor-A' AND ts >= '2024-03-01 00:00:00' AND ts < '2024-03-02 00:00:00'
+
+-- one sample
+DELETE FROM SensorReading WHERE ts = 1708430400000 AND sensor_id = 'sensor-A'
+
+-- every sample, keeping the type
+TRUNCATE TYPE SensorReading
+----
+
+`DELETE` answers `{count: n}`, the number of samples it removed, and `TRUNCATE TYPE` the same `count` beside its usual result. The
+`WHERE` names the samples exactly, so it is a time range on the timestamp column (`<`, `<=`, `>`, `>=`, `=`, `BETWEEN`) and
+equalities on `TAG` columns, joined by `AND`. A predicate on a `FIELD` column, an `OR`, a `LIMIT`, a `BATCH` and `RETURN BEFORE`
+are refused with an error and delete nothing, rather than delete more than the statement says. `EXPLAIN` shows the range and the
+tags the statement takes. Deleting what is not there deletes nothing and rewrites nothing.
+
+A sealed block that lies wholly inside the range is dropped without being read, so deleting a stretch of old data costs about what
+a retention pass costs. A block the range only crosses is rebuilt from the samples that stay, and so are the mutable pages of the
+shard; the statistics that answer `count`, `sum`, `min` and `max` without reading a block are recomputed with it.
+
+[IMPORTANT]
+====
+A delete is not part of the transaction it runs in, like the append of an `INSERT` (see _Appends and Transactions_). The samples
+are gone, durably, when the statement returns, and a `ROLLBACK` does not bring them back. The statement needs the `deleteRecord`
+permission on the type.
+====
+
+Readers are held off a shard while its files are rewritten, as they are during a retention pass. A long read that was scanning
+blocks the delete removed fails with a retryable error (HTTP `503`) instead of returning an answer that mixes the old blocks and
+the new: run it again. Under HA the delete runs on the leader and ships the rewritten pages and sealed blocks of every shard it
+changed in one unit, as a compaction does; while another maintenance pass holds the replication session it is retried for a few
+seconds and then refused with a retryable error that says nothing was deleted. A statement that failed half way can be run again.
+
+[NOTE]
+====
+A delete does not recompute a <<timeseries-continuous-aggregates,continuous aggregate>> over the type: the buckets it already
+holds keep the samples that were deleted until they are rebuilt.
+====
 
 A `DELETE` or `UPDATE` whose source is a subquery writes to the records that subquery returns, or to the record a projected
 `@rid` names (`DELETE FROM (SELECT @rid FROM Person WHERE ...)`); any other row, such as a sample or a projection
@@ -258,7 +311,8 @@ A `DELETE` or `UPDATE` whose source is a subquery writes to the records that sub
 [NOTE]
 ====
 Before v26.11.1 `DELETE FROM` a TIMESERIES type reported the matching samples as deleted and kept them, `UPDATE` reported
-`count: 0`, and `TRUNCATE TYPE` reported success: none of them removed or changed a sample.
+`count: 0`, and `TRUNCATE TYPE` reported success: none of them removed or changed a sample. From v26.11.1 `UPDATE` is refused,
+and `DELETE FROM` (by time range and tags) and `TRUNCATE TYPE` remove the samples.
 ====
 
 ==== Ingesting Data
@@ -455,6 +509,26 @@ gRPC store them as that count. _(Since v26.11.1)_ `INSERT` refuses a value such 
 `CommandExecutionException` naming the column, like any other value it refuses, where it used to fail with a bare
 `IllegalArgumentException`.
 
+[[timeseries-temporal-surfaces]]
+The same literal, per column type and surface (_since v26.11.1_, pinned by a test that runs every cell). `1700000000000` is
+2023-11-14 22:13:20 UTC in epoch milliseconds, and `1700000000` the same instant in seconds:
+
+[%header,cols="30%,35%,35%"]
+|===
+| Literal in a column | SQL `INSERT` | Line protocol, gRPC (the wire)
+| `1700000000000` (a number) in `DATETIME` | the instant 2023-11-14 22:13:20 | the same: a count in milliseconds
+| `1700000000` (a number) in `DATETIME_SECOND` | the count 1700000, the instant 1970-01-20 (a number is milliseconds) | the count 1700000000, the instant 2023-11-14 22:13:20 (a count in seconds)
+| `1700000000000` (a number) in `DATETIME_MICROS`, `DATETIME_NANOS` | the instant 2023-11-14 22:13:20 | the count 1700000000000, the instant 1970-01-20 (microseconds) or 1970-01-01 00:28:20 (nanoseconds)
+| `1700000000000` (a number) in `DATE` | refused: no date is that many days away | stored: a count of days no date can stand for
+| `'1700000000000'`, `'0'` (digits in quotes) in a `DATETIME` family column | refused: it is no date | stored as that count; a line protocol tag has no type, so a `DATETIME` tag can only arrive as text of digits
+| `'19675'` (digits in quotes) in `DATE` | the date 2023-11-14, read as days | the same
+| `'2023-11-14 22:13:20'` | the instant, in the column's precision | the same instant
+| `'not a date'`, `true` | refused | refused
+|===
+
+An operator who writes one measurement from both places should write it the same way from both: an ISO date in text, or a number
+in the unit the surface reads (milliseconds in SQL, the column's unit on the wire). The refusal of SQL names the rule.
+
 NOTE: The timestamp column of a TimeSeries type is stored as a number, so `INSERT` does not accept an ISO-8601 string for it (`Cannot convert type String to LONG`): write an epoch value (as in the `CONTENT` example, milliseconds for a type with `PRECISION MILLISECOND`) or build it with the `date()` function, which interprets the text in the server's time zone. ISO-8601 strings are accepted in `WHERE` conditions on the timestamp column.
 
 ===== Java Embedded API
@@ -475,6 +549,14 @@ database.transaction(() -> {
       new Object[] { sensorIds, temperatures });
 });
 ----
+
+`TimeSeriesEngine.appendSamples()` and `appendBatch()` are the engine's own API: they store the values as given, and are for
+data the application has already checked. `database.async().appendSamples()` is the checked one. _(Since v26.11.1)_ It converts
+every value as `INSERT` does and holds it to the constraints of the type's columns (`MANDATORY`, `NOTNULL`, `MIN`, `MAX`,
+`REGEXP`) before it returns, on the calling thread: a value no column can store, or a sample a constraint refuses, raises a
+`ValidationException` that names the column and the reason, and the whole batch is refused, with nothing appended. Before, such a
+sample was stored (and then could not be removed, or declared against, when the constraint was declared again), or the batch was
+lost inside the async worker with `waitCompletion()` returning normally.
 
 [[timeseries-appends-and-transactions]]
 ===== Appends and Transactions
@@ -1091,6 +1173,7 @@ The endpoint accepts the standard Prometheus `remote_read` Protobuf query (snapp
 
 _(Since v26.10.2)_ Like remote write, the endpoint reads the `proto=` parameter of the `Content-Type` header and answers `415` when it names a message other than `prometheus.ReadRequest`, and a malformed protobuf body is answered `400` instead of `500`.
 
+[[timeseries-continuous-aggregates]]
 ==== Continuous Aggregates
 
 Continuous aggregates are pre-computed time-bucketed rollups that are automatically refreshed when new data is inserted.

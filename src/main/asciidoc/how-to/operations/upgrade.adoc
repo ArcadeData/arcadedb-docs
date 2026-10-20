@@ -10,6 +10,33 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - `DELETE FROM` and `TRUNCATE TYPE` remove the samples of a TIMESERIES type
+
+`DELETE FROM <timeseries type> WHERE <time range> [AND <tag> = <value> ...]` and `TRUNCATE TYPE <timeseries type>` now remove samples, from the mutable pages and the sealed blocks of every shard, replicated under HA as a compaction is (issue #10342). Before, #10336 refused them, and before that they reported rows deleted or success and kept every sample. A `WHERE` that is not exactly a time range and tag equalities (a predicate on a `FIELD` column, an `OR`), a `LIMIT`, a `BATCH` and `RETURN BEFORE` are refused. `UPDATE` stays refused. The refusal of `ALTER PROPERTY ... MAX`/`MIN`/`REGEXP`/`MANDATORY` over a stored sample that violates it now names the `DELETE` that removes the sample.
+
+*Impact:* a delete is not part of the transaction it runs in, like the append of an `INSERT`: the samples are gone when it returns and a `ROLLBACK` does not bring them back. It needs the `deleteRecord` permission on the type. A read that straddles a delete fails with the retryable error a downsample gives (HTTP `503`). A delete does not recompute a continuous aggregate over the type.
+
+*Action:* none for installations that did not delete. See <<timeseries-deleting-samples,Deleting Samples>>.
+
+[discrete]
+====== 26.11.1 - `database.async().appendSamples()` refuses what the other ingestion surfaces refuse
+
+The embedded async API converts every value as `INSERT` does and holds it to the `MANDATORY`, `NOTNULL`, `MIN`, `MAX` and `REGEXP` constraints of the type's columns before it returns, on the calling thread (issue #10381). A value no column can store, or a sample a constraint refuses, raises a `ValidationException` naming the column, and the whole batch is refused. Before, such a sample was stored (and then blocked the same constraint from being declared again), and a value no column could store was lost inside the async worker while `waitCompletion()` returned normally.
+
+*Impact:* application code that fed `appendSamples()` values a constraint refuses now fails at the call. Valid batches behave as before, including text for a numeric column, which is converted.
+
+*Action:* handle the `ValidationException`, or fix the values. See <<timeseries-deleting-samples,Deleting Samples>> for removing a sample that was stored before.
+
+[discrete]
+====== 26.11.1 - A declared `LIST OF` / `MAP OF` property survives a JSONL export and import
+
+`EXPORT DATABASE` and `IMPORT DATABASE` in the `jsonl` format now round-trip a declared `LIST OF` or `MAP OF` property of any element type (issue #10391). Before, a declared `LIST OF DATE`, `MAP OF DATE`, `LIST OF BINARY`, `MAP OF BINARY`, `MAP OF DOUBLE` or `MAP OF FLOAT` holding a non-finite number aborted the import of the whole database, and a `MAP OF DECIMAL` lost the scale of its values.
+
+*Impact:* the export of such a property carries the type tree (`y`) it did not carry before, so the file is slightly larger. Files exported by earlier versions import where their data allows (see <<sql-export-jsonl-value-fidelity,the JSONL round trip note>>).
+
+*Action:* none.
+
+[discrete]
 ====== 26.11.1 - gRPC `BeginTransaction` refuses `SERIALIZABLE`
 
 A gRPC `BeginTransaction` that asks for `SERIALIZABLE` isolation is now refused with `INVALID_ARGUMENT`, as is an isolation value the server does not know, a newer client's enum constant (issue #10386). Before, the server began the transaction at `REPEATABLE_READ` (or, for an unknown value, at `READ_COMMITTED`) and answered success, so a caller that needed write-skew prevention was told its transaction started and got a weaker guarantee. HTTP, SQL, openCypher and PostgreSQL already refused a level the engine cannot provide, and SQL `BEGIN ISOLATION` and openCypher `START TRANSACTION ISOLATION` now say so in the same words as HTTP: `Invalid isolationLevel 'SERIALIZABLE': accepted values are [READ_COMMITTED, REPEATABLE_READ]` (SQL raised the JVM's `No enum constant ...`).
