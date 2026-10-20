@@ -22,6 +22,11 @@ NOTE: _(Since v26.10.2)_ a value outside the range its precision can represent i
 A datetime stored inside a `LIST` or a `MAP` is returned by the HTTP API as a formatted string that keeps its full precision (for example `"2026-10-03 12:34:56.123457"`), exactly like a scalar datetime property. Before 26.10.1 list items were returned as epoch milliseconds, and map values lost their fractional seconds. _(Available since v26.10.1)_
 
 [discrete]
+#### Datetimes in the JSON of a Record
+
+`record.toJSON()` writes a `DATETIME` and a `DATETIME_SECOND` property as a number of epoch milliseconds, and a `DATETIME_MICROS` and a `DATETIME_NANOS` property as formatted text that keeps all its digits (for example `"2020-01-02 03:04:05.123456789"`), and `fromJSON()` of that text gives the value back for every precision. A number is epoch milliseconds whichever the precision of the property is, as it is in SQL and over HTTP. Before 26.11.1 (issue #10486) `toJSON()` wrote a `DATETIME_SECOND`, `DATETIME_MICROS` or `DATETIME_NANOS` property as a count in its own unit, which `fromJSON()` read as milliseconds, so a 2020 timestamp came back in 1970, in the year 51972 or in the year 50004715; the remote client sends a record as this JSON, so it stored such a property wrong on the server too. A reader of the JSON that took those counts as seconds, microseconds or nanoseconds, for example a WebSocket subscriber of the change events, must read the milliseconds and the text instead. _(Available since v26.11.1)_
+
+[discrete]
 #### Precision on Undeclared Properties
 
 If a property is not declared in the schema, ArcadeDB stores every datetime at the precision of the value itself, so a microsecond value keeps its microseconds without any declaration.

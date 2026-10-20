@@ -27,6 +27,26 @@ The embedded async API converts every value as `INSERT` does and holds it to the
 
 *Action:* handle the `ValidationException`, or fix the values. See <<timeseries-deleting-samples,Deleting Samples>> for removing a sample that was stored before.
 
+The form that takes a `TimeSeriesBatch` is held to the same rules (issue #10487): a `TAG` or `STRING` text of more than 256 UTF-8 bytes is refused on the calling thread with the whole batch, where it used to be lost inside the worker. `TimeSeriesBatch.setValue()` converts as `INSERT` does and raises an `IllegalArgumentException` for a value its column cannot store, where it stored a `Long` past the `INTEGER` range modulo 2^32 and any text of a `BOOLEAN` column as `false`. The typed setters (`setLong()`, `setString()`, ...) are unchanged.
+
+[discrete]
+====== 26.11.1 - SQL `split()` keeps the empty pieces at the end of the list
+
+SQL `split()`, the `split()` function and `text.split()` answer the same list as the openCypher `split()` (issue #10485): `'a,'.split(',')` is `['a', '']` and `','.split(',')` is `['', '']`, where the empty pieces at the end were dropped (`['a']` and `[]`). An empty delimiter splits a string into its characters, a character outside the Basic Multilingual Plane (an emoji) being one, and `replace()` with an empty search puts the replacement between characters and never inside one.
+
+*Impact:* a query that counted the pieces of a text ending with the delimiter, or compared the last one, sees one more piece.
+
+*Action:* remove the empty last piece in the query if it is not wanted, for example by trimming the delimiter from the end of the text before splitting it.
+
+[discrete]
+====== 26.11.1 - The JSON of a record writes a `DATETIME_MICROS` and a `DATETIME_NANOS` property as text
+
+`record.toJSON()` wrote a `DATETIME_SECOND`, `DATETIME_MICROS` or `DATETIME_NANOS` property as a count of seconds, microseconds or nanoseconds, which `fromJSON()` and the server read as milliseconds (issue #10486). It now writes epoch milliseconds for a `DATETIME_SECOND` property, as for `DATETIME`, and the text with all its digits (for example `"2020-01-02 03:04:05.123456789"`) for `DATETIME_MICROS` and `DATETIME_NANOS`, which milliseconds would truncate. The remote client sends a record as this JSON, so it now stores those properties right on the server.
+
+*Impact:* a reader of `toJSON()` (the change events of a WebSocket subscription carry it) that took those numbers as seconds, microseconds or nanoseconds gets milliseconds, or text, instead.
+
+*Action:* read a number as epoch milliseconds, and parse the text of a `DATETIME_MICROS` or `DATETIME_NANOS` property.
+
 [discrete]
 ====== 26.11.1 - A declared `LIST OF` / `MAP OF` property survives a JSONL export and import
 

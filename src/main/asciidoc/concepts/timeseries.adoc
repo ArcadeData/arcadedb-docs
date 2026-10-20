@@ -578,6 +578,16 @@ every value as `INSERT` does and holds it to the constraints of the type's colum
 sample was stored (and then could not be removed, or declared against, when the constraint was declared again), or the batch was
 lost inside the async worker with `waitCompletion()` returning normally.
 
+The form that takes a `TimeSeriesBatch` (`database.async().appendSamples(type, batch)`) is checked the same way. _(Since v26.11.1)_
+A `TAG` or `STRING` text of more than 256 UTF-8 bytes, which a row cannot hold, is refused on the calling thread with a
+`ValidationException` that names the column and the limit, and the whole batch is refused; before, the call returned and the whole batch,
+the conforming rows included, was lost inside the async worker. The typed setters of a batch (`setLong()`, `setDouble()`, ...) store the
+primitive they are given. `TimeSeriesBatch.setValue()`, for a value you hold as an `Object`, converts it as `INSERT` does and raises an
+`IllegalArgumentException` naming the column for a value the column cannot store: a number past the range of an `INTEGER`, `SHORT` or
+`BYTE` column, text that is not `true` or `false` for a `BOOLEAN` column, text that is not a number for a numeric column, a text over the
+limit. Before, a `Long` past the `INTEGER` range was stored modulo 2^32, any text for a `BOOLEAN` column was stored as `false`, and numeric
+text failed with a bare `ClassCastException`.
+
 [[timeseries-appends-and-transactions]]
 ===== Appends and Transactions
 
