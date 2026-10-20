@@ -309,8 +309,11 @@ Readers are held off a shard while its files are rewritten, as they are during a
 blocks the delete removed fails with a retryable error (HTTP `503`) instead of returning an answer that mixes the old blocks and
 the new: run it again. Under HA the delete runs on the leader and ships the rewritten pages and sealed blocks of every shard it
 changed in one unit, as a compaction does; while another maintenance pass holds the replication session it is retried for a few
-seconds and then refused with a retryable error that says nothing was deleted. A statement that failed half way can be run again;
-under HA the shards it got through are published before the failure is reported, so the followers hold what the leader holds. A
+seconds and then refused with a retryable error that says nothing was deleted. A statement that failed half way can be run again
+(a crash between the two layers of a shard, the sealed blocks and the mutable pages, leaves the same state, and the count that the
+interrupted statement would have returned is lost); under HA the shards it got through are published before the failure is
+reported, so the followers hold what the leader holds. The mutable pages are compacted in place, row by row, whatever their number,
+so a delete holds no more memory than one row. A
 `DELETE` with a tag filter decodes every sealed block that overlaps its range, and the shard stays held, as for a retention pass,
 for as long as that takes.
 
