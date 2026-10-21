@@ -375,6 +375,12 @@ refused. The routes whose body is not JSON keep their format: the time series li
 `remote_write`, and the batch import. The MCP endpoint is the exception to the refusal: it answers the JSON-RPC parse error `-32700` over
 HTTP `200`.
 
+A route that answers `GET` also answers `HEAD`, with the status and the headers of the `GET` and no body, as RFC 9110 requires, so a
+container healthcheck such as `wget --spider` works against any of them. A request with a method the route does not answer is refused
+with a `405` whose `Allow` header names the methods it does answer, for example `Allow: GET, HEAD` on `/api/v1/databases`. _(Since
+v26.11.1: before, only `/api/v1/ready` and `/api/v1/health` answered `HEAD`, and a `405` from a core route carried no `Allow` header,
+issue #10531.)_
+
 [[http-request-replay]]
 ==== Retrying Requests Safely (`X-Request-Id`)
 
@@ -638,8 +644,14 @@ hosts many databases: it starts without opening any of them, and each one is ope
 A database closed with the `close database` server command is the exception: it was closed on purpose, for a restore of its
 files or a cold backup, so an HTTP request does not reopen it. It stays closed until `open database` (or a restore, an import
 or a drop of that name). The server remembers this in memory only and for the node that received the command: after a restart
-the database is opened again, at start or on its first request, and the Postgres, BOLT and gRPC protocols still open it on
-demand.
+the database is opened again, at start or on its first request.
+
+The same rule holds for the other protocols. A database that a `close database` command closed, or that an `overwrite` restore of
+its name is about to replace, is not opened by a Postgres, BOLT, gRPC, Redis or MongoDB connection, or by an MCP or Gremlin request,
+that names it: the client is told that the database is not available, as an HTTP request is. _(Since v26.11.1: before, these protocols
+opened it, so a cold backup copied a database that was open and being written to, and the writes a client made during an `overwrite`
+restore were acknowledged and then discarded when the restored copy replaced the database, issue #10533.)_ A database that is already
+open is served as before.
 
 NOTE: An opened database stays open until the server stops or `close database` closes it, and there is no limit on how many
 the requests can open: each one holds its data files, its caches and, once written, a WAL file (since v26.11.1 a database
