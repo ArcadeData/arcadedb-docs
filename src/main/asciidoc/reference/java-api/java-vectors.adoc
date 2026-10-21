@@ -696,7 +696,7 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 
 Binary quantization (1 bit per dimension). Provides 32x memory reduction for extreme compression scenarios.
 
-Each vector is stored as one bit per dimension (at or above the vector's own median, or below it). The graph is searched on the sign pattern, which for COSINE is a Hamming distance, and a search then fetches four times the requested neighbours and reranks them with the similarity function on the vectors the records store, so every BINARY query pays up to `4 * k` record reads and the distances it returns are exact. Candidates whose record is gone or carries no usable vector are dropped, so a query can return fewer than `k` rows. Since 26.10.2 the grouped search (`groupBy`) is reranked too: it collects four times the groups and four times the members per group, reranks them on the stored vectors, and only then applies `limit`, `groupSize` and `maxDistance`, so its recall and its distances match the ungrouped search. The PQ-approximate search is not reranked. An index created before 26.10.1 keeps its graph until it is rebuilt (`REBUILD INDEX`), which is recommended to get the full recall.
+Each vector is stored as one bit per dimension (at or above the vector's own median, or below it). The graph is searched on the sign pattern, which for COSINE is a Hamming distance, and a search then fetches four times the requested neighbours and reranks them with the similarity function on the vectors the records store, so every BINARY query pays up to `4 * k` record reads and the distances it returns are exact. Candidates whose record is gone or carries no usable vector are dropped, so a query can return fewer than `k` rows. Since 26.10.2 the grouped search (`groupBy`) is reranked too: it collects four times the groups and four times the members per group, reranks them on the stored vectors, and only then applies `limit`, `groupSize` and `maxDistance`, so its recall and its distances match the ungrouped search. An index created before 26.10.1 keeps its graph until it is rebuilt (`REBUILD INDEX`), which is recommended to get the full recall.
 
 [source,sql]
 ----
@@ -706,6 +706,25 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
   "quantization": "BINARY"  -- Use when memory is severely constrained
 };
 ----
+
+*PRODUCT Quantization*
+
+Product quantization (PQ) keeps a compact code per vector in memory (the `.vecpq` file). Since 26.11.1 a search of a PRODUCT index through SQL (`vector.neighbors`), openCypher (`db.index.vector.queryNodes`) or the fluent select walks the graph on the PQ codes, keeps `k * rerankOversample` candidates (the `rerankOversample` index setting, default 10; the `rerank` option of `vector.neighbors` per query) and scores them on the stored vectors, so the distances it returns are exact and its recall is close to a NONE index, at the cost of up to that many record reads per query. Before 26.11.1 these searches scored every visited node on the stored vectors and did not use the PQ codes.
+
+The PQ-approximate Java API, `LSMVectorIndex.findNeighborsFromVectorApproximate(query, k)` and the select `approximate(true)`, returns the PQ scores as they are, with no record read and no re-rank: its recall@10 is about 0.72 on SIFT-1M with 32 subspaces whatever the beam, and the distances are PQ estimates. To re-rank, call `findNeighborsFromVectorApproximate(query, k, efSearch, rerankOversample)` or add `.rerank()` (default 10 candidates per neighbor) or `.rerank(n)` to the select; the distances are then exact.
+
+[source,sql]
+----
+CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
+  "dimensions": 384,
+  "similarity": "COSINE",
+  "quantization": "PRODUCT",
+  "rerankOversample": 10,   -- 0 = PQ scores alone, no stored vector read
+  "pqTrainingLimit": 128000 -- vectors (a random sample) the codebook is trained on
+};
+----
+
+The graph file does not store the PQ codes of each node's neighbors (jvector FusedPQ) unless `"fusedPQ": true`; it then grows to several times the size of a NONE graph file, and pays off only when the PQ codes cannot stay in memory.
 
 ====== Performance and Accuracy Comparison
 
