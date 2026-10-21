@@ -320,8 +320,11 @@ pass ships it, so the cost of a small delete on a shard with a very large sealed
 
 [NOTE]
 ====
-A delete does not recompute a <<timeseries-continuous-aggregates,continuous aggregate>> over the type: the buckets it already
-holds keep the samples that were deleted until they are rebuilt.
+A delete (`DELETE FROM` and `TRUNCATE TYPE`) marks the time range it removed samples from on every
+<<timeseries-continuous-aggregates,continuous aggregate>> over the type, and the aggregates are refreshed when the statement
+ends (when the transaction commits, if one is open), so the buckets they hold stop reflecting the samples that were deleted.
+_(Since v26.11.1, issue #10428.)_ Before, the buckets behind the watermark kept the deleted samples for good. The `RETENTION` of
+the type does not: an aggregate outlives the raw samples it summarized.
 ====
 
 A `DELETE` or `UPDATE` whose source is a subquery writes to the records that subquery returns, or to the record a projected
@@ -1248,6 +1251,8 @@ This returns name, query, source type, bucket column, bucket interval, watermark
 The watermark is the bucket boundary of the newest row the last refresh produced.
 Each refresh deletes the backing rows at or after it and recomputes them from the source, so the incomplete bucket that was open when the previous refresh ran is always rebuilt rather than duplicated.
 A defining query may carry its own `WHERE` clause, including a disjunction: the watermark filter is added as a separate conjunct around it, so `WHERE a OR b` keeps meaning `ts >= watermark AND (a OR b)`.
+
+The watermark only reaches forward, so a bucket behind it is not recomputed by the refresh that follows an insert. `DELETE FROM` and `TRUNCATE TYPE` on the source type make up for it: they record, on every aggregate over the type, the time range they removed samples from, and the next refresh recomputes the buckets that range reaches and only those. The buckets behind the range, and the ones between it and the watermark, are not touched. The record is part of the definition of the aggregate in the schema, so it survives a restart, and under HA it is shipped to the followers in the replication unit of the delete. A bucket is found among the rows the aggregate holds, so the grid of the aggregate (an `origin`, an `offset` or a `timezone` given to `ts.timeBucket()`) needs no special care. A delete that removes nothing records nothing. A sample written with a timestamp behind the watermark, and the `RETENTION` of the source type, do not change the buckets that are already computed.
 
 Renaming the source type (`ALTER TYPE SensorReading NAME Readings`) carries the aggregate with it: its stored source type and the `FROM` of its defining query are rewritten, so it keeps refreshing and `DROP TYPE` keeps refusing to drop the source. The *backing* type of an aggregate is named after the aggregate and cannot be renamed. _(Since v26.11.1.)_
 
