@@ -307,6 +307,8 @@ NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a materialized view, a c
 
 NOTE: A database written by a version affected by issue #8169 can still contain a type that was dropped but came back after a restart with no buckets: inserting into it fails with `Cannot retrieve a bucket for type ... because there are no buckets associated`. Since v26.10.1 the database logs a warning at open naming every type that has no buckets and no subtypes, and `DROP TYPE <name>` removes such a type permanently.
 
+NOTE: `DROP TYPE`, `ALTER TYPE ... BUCKET -` and `ALTER TYPE ... SUPERTYPE -` ask what can refuse them before they change anything, and take the locks of the index files they delete once, up front. A file that cannot be deleted (it is not a regular file, or its directory cannot be written), an index that names a type that does not exist, or a lock another thread holds refuses the statement with the schema as it was (`Nothing was changed`; a lock refusal is retryable). It is a pre-check, not a guarantee: a disk error on one of the deletes after it passed is not undone, and leaves the statement part way. _(Since v26.11.1, issue #10421. Before, a refusal part way left the sub types unlinked and the indexes before it dropped, and saved that.)_
+
 [[sql-if-exists-result]]
 [NOTE]
 ====
