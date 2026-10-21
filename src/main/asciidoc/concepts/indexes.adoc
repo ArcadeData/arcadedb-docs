@@ -310,6 +310,18 @@ NOTE: A `MAP` value indexed as a whole (without `BY KEY`/`BY VALUE`) is ordered 
 
 Unique and non-unique modes are available for the scalar and composite cases. For the exact SQL command syntax, see <<sql-create-index,`CREATE INDEX`>>; to drop or rebuild after a schema change, see <<sql-drop-index,`DROP INDEX`>> and <<sql-rebuild-index,`REBUILD INDEX`>>; to force a compaction on demand (for example after a bulk load), see <<sql-compact-index,`COMPACT INDEX`>>.
 
+[[index-lookup-foreign-values]]
+==== Looking up a value the property cannot hold
+
+A lookup with a value of a kind the indexed property cannot hold (a date for a `BOOLEAN`, a list or a map for a number, a `BOOLEAN` for a `DATE`) matches nothing, with or without the index:
+
+* an equality or an `IN` answers no rows;
+* a range (`>`, `>=`, `<`, `<=`) through the index answers no rows. The plain scan orders a few of those kinds across kinds by what they convert to (a date against a `DECIMAL` by its epoch number), so it may answer rows where the index declines; the index never answers a row the scan does not.
+
+An openCypher `IN` whose right side is one value, `n.p IN $ids`, has to be a list: a string, a boolean or a map is refused with `IN requires a list on the right side`, whether or not the property is indexed. A list literal (`n.p IN [$a, $b]`) takes each item as one value.
+
+NOTE: Before v26.11.1 (issue #10541) the index answered these lookups differently from the scan: an equality or an `IN` on an indexed `BOOLEAN`, `DECIMAL` or `DATE` property raised a `ClassCastException` or "Comparison between type N and N not supported", a range with such a value on an indexed `INTEGER`, `LONG` or `DOUBLE` property answered every row of the type, and an openCypher `IN` over a parameter that was not a list answered no rows instead of being refused. A query that relied on any of them now gets the answer it would get without the index.
+
 ==== See also
 
 * <<schema-indexes,Indexes in the Schema concepts page>> -- the one-paragraph entry point with cross-refs.
