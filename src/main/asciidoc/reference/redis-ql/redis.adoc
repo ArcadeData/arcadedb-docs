@@ -254,6 +254,19 @@ address. `terminate query`, `TERMINATE TRANSACTIONS` or the Studio <<studio-serv
 tab stop it, and the client receives an `ERR` error saying that it was terminated. *root* sees and stops every
 command, any other user only their own.
 
+Since v26.11.1 the commands on keys held in memory (`GET`, `SET`, `GETDEL`, `EXISTS`, `INCR`, `INCRBY`,
+`INCRBYFLOAT`, `DECR`, `DECRBY`) are neither listed nor held by the <<query-admission-gate,query admission
+control>>: each is a single in-memory map operation, done before a listing could show it. They are no longer refused
+with `TRYAGAIN` when the server is busy. The commands that read or write records (`HSET`, `HGET`, `HMGET`, `HEXISTS`,
+`HDEL`) are still listed and gated.
+
+[[redis-pipelining]]
+===== Pipelining
+
+Since v26.11.1 the replies to pipelined commands are sent together, when the client has no more commands waiting, instead
+of one network write per reply. A client that pipelines (most Redis clients can) gets several times the throughput of
+one that waits for each reply.
+
 [[redis-ha-leader-refusal]]
 ===== Writes refused by an HA replica
 

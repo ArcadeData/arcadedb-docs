@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - Redis commands on in-memory keys are no longer refused with `TRYAGAIN`
+
+`GET`, `SET`, `GETDEL`, `EXISTS`, `INCR`, `INCRBY`, `INCRBYFLOAT`, `DECR` and `DECRBY` no longer wait for the query admission control, and are no longer listed by `list queries` / `SHOW TRANSACTIONS` (issue #10499). Each is a single in-memory map operation.
+
+*Impact:* when the server is busy these commands are answered instead of refused with `TRYAGAIN`. A client that used `TRYAGAIN` on them as a back-pressure signal no longer receives it. The commands that read or write records (`HSET`, `HGET`...) are still gated.
+
+*Action:* none for most installations.
+
+[discrete]
 ====== 26.11.1 - `-Darcadedb.profile=low-ram` keeps its 16MB page cache
 
 The profile given as a `-D` system property or as an environment variable (the way `server.sh`, the Docker image and Kubernetes configure it) set every one of its settings except `arcadedb.maxPageRAM`: the page cache stayed at its computed default, a quarter of the heap (issue #10446). Any other setting the profile lists that also has a computed default, such as `arcadedb.server.httpsIoThreads` or `arcadedb.timeSeriesDecodedBlockCacheRAM`, lost its profile value too on a machine where the computed default differs. The first embedded database of a JVM also logged `Configuration profile PARTIALLY applied` for a profile that was set before any database was open.

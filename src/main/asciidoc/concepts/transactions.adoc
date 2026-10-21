@@ -229,6 +229,28 @@ already on disk. A file with page writes only is forced with `fdatasync`, which 
 an append. A created or renamed file is forced with a full `fsync`, followed by an fsync of its directory, so its
 directory entry survives a power loss too. If an fsync fails, the WAL is kept, and the next pass retries the fsync.
 If a clean close cannot complete it, the WAL and the lock file stay on disk, and the next open runs recovery.
+Since v26.11.1 the same happens on the close of a database fenced for recovery (after a commit failed past its WAL
+write): its WAL is always kept, so the reopen replays it.
+
+[[wal-group-commit]]
+===== Group commit
+
+Since v26.11.1, with `arcadedb.txWalFlush` set to `1` or `2`, the setting `arcadedb.txWalGroupCommit=true` lets
+concurrent commits share one WAL flush instead of each flushing on its own. A commit still returns only once its WAL is
+on disk, but it no longer holds the locks of the files it wrote while the disk flushes, so the commits that arrive
+meanwhile are flushed together. On an Apple silicon laptop, 50 clients writing into the same type went from about 295
+to about 1,200 commits per second with `txWalFlush=2`. A single writer sees no difference.
+
+It is off by default. What changes when it is on:
+
+* A committed transaction becomes visible to other transactions a few milliseconds before its WAL is flushed, as with
+  `txWalFlush=0`. After a power loss in that window, the transaction is lost: its writer got an error or no answer, but
+  another reader may have seen it.
+* A data page is never written to disk before the WAL that describes it is flushed.
+* If the shared flush fails, the commits waiting for it fail and the database is fenced: close and reopen it to run
+  recovery.
+* It applies to databases that are not replicated (embedded, or served by a single server) with the default
+  asynchronous page flush. The commits of an HA cluster are not affected.
 
 [[wal-files-on-demand]]
 ===== WAL files opened on demand
