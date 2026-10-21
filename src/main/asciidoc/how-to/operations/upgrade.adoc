@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - `-Darcadedb.profile=low-ram` keeps its 16MB page cache
+
+The profile given as a `-D` system property or as an environment variable (the way `server.sh`, the Docker image and Kubernetes configure it) set every one of its settings except `arcadedb.maxPageRAM`: the page cache stayed at its computed default, a quarter of the heap (issue #10446). Any other setting the profile lists that also has a computed default, such as `arcadedb.server.httpsIoThreads` or `arcadedb.timeSeriesDecodedBlockCacheRAM`, lost its profile value too on a machine where the computed default differs. The first embedded database of a JVM also logged `Configuration profile PARTIALLY applied` for a profile that was set before any database was open.
+
+*Impact:* a server started with the `low-ram` profile and no explicit `arcadedb.maxPageRAM` now has a page cache of 16MB instead of a quarter of the heap, as the profile always documented. A database larger than 16MB is read from disk more often.
+
+*Action:* none if the profile was chosen to save memory. If the larger page cache was relied upon, set `arcadedb.maxPageRAM` explicitly, which wins over the profile. See <<ram-config,RAM Configuration>>.
+
+[discrete]
 ====== 26.11.1 - An update of a record the transaction already updated, refused by a constraint or a listener, makes the commit fail
 
 When a transaction updates a record and a later statement updates it again, a `MAX`, `MIN`, `REGEXP` or other constraint (or a before-update listener that throws) can refuse the second update after its values were set on the copy of the record the transaction writes at commit. That copy kept the refused values and the commit stored them (issue #10482). The statement still fails with the constraint's error, and `commit()` now throws a `TransactionException` ("Transaction cannot be committed: a statement failed after part of its records were written ..."), like any other statement that fails after writing. A before-update listener that returns `false` to skip the record, which was a silent veto, now makes the commit fail too when the record was already updated by the transaction, since the skipped values would otherwise be committed.
