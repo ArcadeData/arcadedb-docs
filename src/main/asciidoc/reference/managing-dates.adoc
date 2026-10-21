@@ -153,6 +153,8 @@ How an offset in the string is treated depends on the type the value is stored a
 
 NOTE: Before 26.11.1 a string with an offset was stored with the offset dropped (`13:45:10+01:00` as `13:45:10`) while the same instant typed as an `OffsetDateTime` was converted to UTC, so a client writing over HTTP or SQL and one writing over Bolt stored values hours apart. Values written before are not changed; rewrite them if they came from a client in another time zone. The `date()` function and the `.asDatetime()` method read a string the same way.
 
+The database's own time zone (`setZoneId()`) plays no part in where an instant is stored: the same rule holds on every write path, the bulk ones included (`GraphBatch`, the gRPC service, a TimeSeries column). _(Since v26.11.1)_ the conversion the gRPC service and the other callers of `DateUtils.dateTimeToTimestamp` apply to a string no longer moves an offset onto the database's zone first; before, in a database whose zone was not UTC, a string such as `2020-01-02T03:04:05+02:00` was stored hours away from the same instant written through SQL, and `2020-01-02T03:04:05Z` shifted by the zone's offset. A UTC database stores the same value as before.
+
 A string that matches *none* of these is rejected: the `INSERT` or `UPDATE` fails with an error naming the property. It is never stored as `NULL`. The same applies to the `date()` function and the `.asDatetime()` method when called without an explicit format, except that `date()` keeps its documented `NULL` answer for a value it cannot read.
 
 NOTE: Before 26.10.1 an unparsable date string was silently stored as `NULL` and the write reported success.

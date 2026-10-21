@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - A DATETIME string with an offset is stored as the UTC wall clock on every path, whatever the database time zone
+
+The conversion the gRPC service and the other callers of `DateUtils.dateTimeToTimestamp` apply to a string moved the instant onto the database's time zone before storing it as a UTC wall clock, so a database whose zone is not UTC stored `2020-01-02T03:04:05+02:00` hours away from the same instant written through SQL, and `2020-01-02T03:04:05Z` shifted by the zone's offset (issue #10498). Every path now stores the UTC wall clock of the instant, as SQL, HTTP and Bolt already did.
+
+*Impact:* none for a database whose zone is UTC. In a database with another zone, a `DATETIME` written from a string with an offset or a `Z` through the gRPC service (or another bulk path) before the upgrade holds a value shifted by the zone's offset; values written after the upgrade are right. Stored values are not changed.
+
+*Action:* none for a UTC database. Otherwise rewrite the values loaded that way, by reloading them or by correcting them with an `UPDATE` on the records those loads wrote. See <<managing-dates,Managing Dates>>.
+
+[discrete]
 ====== 26.11.1 - Redis commands on in-memory keys are no longer refused with `TRYAGAIN`
 
 `GET`, `SET`, `GETDEL`, `EXISTS`, `INCR`, `INCRBY`, `INCRBYFLOAT`, `DECR` and `DECRBY` no longer wait for the query admission control, and are no longer listed by `list queries` / `SHOW TRANSACTIONS` (issue #10499). Each is a single in-memory map operation.

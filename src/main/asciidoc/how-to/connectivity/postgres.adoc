@@ -161,13 +161,20 @@ and so on), fails with SQLSTATE `0A000` (`feature_not_supported`) whose message 
 Before, it returned an empty result set, which a client reads as an empty catalog: an ungrouped
 `SELECT count(*) FROM pg_proc WHERE ...` came back with no row at all where PostgreSQL always sends one, and
 `psql`'s `\di`, psqlodbc's `SQLPrimaryKeys` and `SQLStatistics` reported nothing. A refusal a client can see is
-recoverable; a wrong empty answer is not. The connection stays usable after the error. Two kinds of statement keep the
+recoverable; a wrong empty answer is not. The connection stays usable after the error. One kind of statement keeps the
 empty result, on purpose: a statement that names `pg_catalog` but reads no catalog relation, such as
-`SELECT pg_catalog.set_config(...)`, the session probes `pg_dump` sends; and a _type lookup_, a query that reads `pg_type`
-and nothing beyond the relations a driver joins to it (`pg_namespace`, `pg_class`, `pg_attribute`, `pg_range`, `pg_enum`)
-and computes no aggregate, such as the ones the PostgreSQL JDBC driver sends to name a type it does not know. This
-server's `pg_type` is the closed set of types it can produce, so "no such type" is the answer those drivers are built to
-handle.
+`SELECT pg_catalog.set_config(...)`, the session probes `pg_dump` sends.
+
+_Since v26.11.1_, the _type lookups_ a driver sends to name a type it has not met are answered like any other catalog
+query, from the types this protocol can produce, with the values the driver bound: the OID of a type name, the array
+type of an element type, the element of an array type, the name of an OID and whether its schema is on the search
+path. A name or an OID this server does not have is an empty answer, which is what those drivers are built to handle;
+one it has is no longer reported as missing. The evaluator behind them reads the constructs those lookups are written
+with, so a differently spelled lookup, or another client's, is answered too: a table function in `FROM`
+(`generate_series(start, stop [, step])` and `unnest(array)`), `USING (column)`, `= ANY(array)` and
+`<> ALL(array)`, a derived table joined to other relations, and one relation read through two aliases
+(`pg_type t JOIN pg_type arr ON arr.oid = t.typarray`). A series is charged to the work budget of the statement before
+it is built, so a lookup cannot ask for a billion rows. `pg_range` and `pg_enum` are modelled, and have no row.
 
 The emulated schema list always contains exactly one schema, named after the connected database - matching
 `SELECT current_schema()` - because a PostgreSQL connection is bound to one database and sees the schemas
