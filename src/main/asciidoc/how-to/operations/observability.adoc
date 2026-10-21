@@ -146,6 +146,7 @@ segment, and the timer is also recorded for requests answered `401`, so echoing 
 register one permanent series per invented name. Requests against a non-existent database are therefore
 grouped under `db="unknown"` rather than appearing one series per name.
 
+[[engine-gauges]]
 ====== Engine gauges
 
 `EngineMetricsBinder` bridges the internal engine `Profiler` into Micrometer gauges (engine-wide aggregates, refreshed from a one-second-memoized snapshot):
@@ -165,7 +166,16 @@ grouped under `db="unknown"` rather than appearing one series per name.
 | `arcadedb.engine.async.workers.retiring` | Asynchronous workers a lowered parallel level retired and that are still draining
 | `arcadedb.engine.graph.light.edge.census.fallbacks` | Lightweight-edge lists the census could not count, whose edges each walk the list alone
 | `arcadedb.engine.bucket.recount.publishes.refused` | Bucket `count()` recomputes not cached because a replicated apply ran under the scan _(Since v26.10.2)_
+| `arcadedb.engine.wal.group.commits` / `.wal.group.commit.syncs` | Commits that shared a WAL flush, and the shared flushes (<<wal-group-commit,group commit>>) _(Since v26.11.1)_
+| `arcadedb.engine.commit.lock.holds` / `.commit.lock.hold.seconds` | Releases of the locks a commit takes on the files it writes, and the total time they were held _(Since v26.11.1)_
+| `arcadedb.engine.commit.lock.handoffs` / `.commit.lock.handoff.seconds` | Those locks passed to a waiting commit, and the total time from the release to that commit running _(Since v26.11.1)_
 |===
+
+The `commit.lock.*` and `wal.group.*` counters are read as averages. `rate(...hold.seconds) / rate(...holds)` is how long
+a commit keeps the files it writes locked, and with many clients writing into the same type it is what limits the commits
+per second: about 30 microseconds is normal, milliseconds mean the commits are waiting for the disk while they hold the
+locks (`arcadedb.txWalFlush` set to 1 or 2 without group commit). `rate(wal.group.commits) / rate(wal.group.commit.syncs)`
+is how many commits each disk flush served. The same counters are listed in Studio's server page.
 
 The two `async.*` metrics describe the asynchronous executor and are worth reading together with the throughput of your ingestion.
 

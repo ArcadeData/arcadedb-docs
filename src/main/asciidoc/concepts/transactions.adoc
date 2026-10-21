@@ -237,9 +237,11 @@ write): its WAL is always kept, so the reopen replays it.
 
 Since v26.11.1, with `arcadedb.txWalFlush` set to `1` or `2`, the setting `arcadedb.txWalGroupCommit=true` lets
 concurrent commits share one WAL flush instead of each flushing on its own. A commit still returns only once its WAL is
-on disk, but it no longer holds the locks of the files it wrote while the disk flushes, so the commits that arrive
-meanwhile are flushed together. On an Apple silicon laptop, 50 clients writing into the same type went from about 295
-to about 1,200 commits per second with `txWalFlush=2`. A single writer sees no difference.
+on disk, but it no longer holds the locks of the files it wrote while its WAL is written and flushed, so the commits that
+arrive meanwhile are written and flushed together. On an Apple silicon laptop, 50 clients writing into the same type went
+from about 230 to about 4,000 commits per second with `txWalFlush=2`. A single writer sees no difference. The
+<<engine-gauges,engine metrics>> `wal.group.*` and `commit.lock.*` show how many commits each flush served and how long
+a commit holds its locks.
 
 It is off by default. What changes when it is on:
 
