@@ -1036,6 +1036,41 @@ The single-column `TimeSeriesEngine.aggregate` and `TimeSeriesSealedStore.aggreg
 columns a third way, were removed in the same release. Use `aggregateMulti` with a one-element list.
 ====
 
+[[timeseries-query-languages]]
+==== Query Languages
+
+A sample of a TimeSeries type is not a vertex, an edge or a record with an identity, so the languages that read the graph model do not see it as one. What each language does over a TimeSeries type:
+
+[%header,cols="18%,22%,60%"]
+|===
+| Language | Reads the samples | Notes
+
+| SQL
+| Yes
+| Every statement on this page.
+
+| PromQL
+| Yes
+| See <<timeseries-promql,PromQL Query Language>>.
+
+| MongoDB QL
+| Yes
+| `find`, `count` and `insert`, and `deleteMany` by time range and tag equality. The timestamp is a date to a MongoDB client: `find` returns it as one and, as MongoDB does, does not match a number against it, so filter it with a date. A `deleteMany` whose filter compares the timestamp with a number is refused with an error, since it would remove samples that `find` and `count` with the same filter show none of. A `deleteOne`, an update and an upsert are refused too.
+
+| GraphQL
+| Yes, through a query field
+| The query field of the type answers the samples, with filters. A `@relationship` that names a TimeSeries type is refused with an error naming the type, instead of answering an empty list.
+
+| Cypher
+| No: refused with an error
+| A pattern that names a TimeSeries type (a node label, a relationship type, a dynamic label, in a read or a write clause) fails with an error naming the type, instead of answering that there is no data. Patterns over the graph types are unaffected. Read the samples with SQL.
+
+| Gremlin
+| No: refused with an error
+| A traversal that asks for the label or the edge label of a TimeSeries type (`hasLabel`, `out`, `outE`, `both`, ...) fails with an error naming the type, instead of answering that there is no data. A negation of the label (`hasLabel(neq(...))`) is answered, since no vertex carries it. Read the samples with SQL.
+|===
+
+[[timeseries-promql]]
 ==== PromQL Query Language
 
 ArcadeDB includes a native PromQL parser and evaluator, providing Prometheus-compatible query capabilities without requiring an external Prometheus server.
@@ -1544,7 +1579,7 @@ Findings appear in `warnings` with the offending type named in `corruptedTimeSer
 | TimeSeries only (SQL)
 
 | Query Languages
-| SQL, PromQL, Cypher, Gremlin, GraphQL, MongoDB QL
+| SQL, PromQL, MongoDB QL, GraphQL (query fields). Cypher and Gremlin refuse a TimeSeries type with an error, see <<timeseries-query-languages,Query Languages>>
 | SQL, InfluxQL
 | Full PostgreSQL SQL
 | PromQL

@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - The HTTP server's IO thread count is `arcadedb.server.httpIoThreads`
+
+The setting that sets the number of IO threads of the HTTP server was keyed `arcadedb.server.httpsIoThreads`, which read as the HTTPS-only setting declared beside it, so the natural spelling `-Darcadedb.server.httpIoThreads` was ignored without a word (issue #10599). Its key is now `arcadedb.server.httpIoThreads`. The old key is still read from a system property, an environment variable, the server configuration file and the settings commands, and the first use of it is reported in the log.
+
+*Impact:* none for a deployment that set the old key. A deployment that set `arcadedb.server.httpIoThreads` before, and saw no effect, now gets the value it asked for. When both are given, the new key wins.
+
+*Action:* none. Switch to the new key when convenient, the old one may be removed in a later release. See <<settings-server-level,server settings>>.
+
+[discrete]
+====== 26.11.1 - A MongoDB `deleteMany` over a TIMESERIES type no longer accepts a number for the timestamp
+
+`find` and `count` over a TIMESERIES type hand the timestamp to a MongoDB client as a date and, as MongoDB does, do not match a number against it. A `deleteMany` with a number on the timestamp (`{ts: 1792396800000}`, `{ts: {$gte: <number>, $lt: <number>}}`) was accepted and removed the samples at those epoch milliseconds, so the usual preview with `find` or `count` and then delete of the same filter removed samples the preview had shown none of (issue #10598). It is now refused with an error that names the type and asks for a date.
+
+*Impact:* a client that deleted time-series samples by a number of milliseconds gets an error instead of a deletion. Nothing is removed by a refused delete.
+
+*Action:* compare the timestamp with a date (a `Date`, a `datetime`, a BSON date): `deleteMany({ts: {$gte: ISODate("2026-10-19T08:00:00Z")}})`. See <<timeseries-query-languages,Query Languages>>.
+
+[discrete]
 ====== 26.11.1 - A DATETIME string with an offset is stored as the UTC wall clock on every path, whatever the database time zone
 
 The conversion the gRPC service and the other callers of `DateUtils.dateTimeToTimestamp` apply to a string moved the instant onto the database's time zone before storing it as a UTC wall clock, so a database whose zone is not UTC stored `2020-01-02T03:04:05+02:00` hours away from the same instant written through SQL, and `2020-01-02T03:04:05Z` shifted by the zone's offset (issue #10498). Every path now stores the UTC wall clock of the instant, as SQL, HTTP and Bolt already did.
@@ -39,7 +57,7 @@ A database that exists but cannot serve now (an `overwrite` restore holds its na
 [discrete]
 ====== 26.11.1 - `-Darcadedb.profile=low-ram` keeps its 16MB page cache
 
-The profile given as a `-D` system property or as an environment variable (the way `server.sh`, the Docker image and Kubernetes configure it) set every one of its settings except `arcadedb.maxPageRAM`: the page cache stayed at its computed default, a quarter of the heap (issue #10446). Any other setting the profile lists that also has a computed default, such as `arcadedb.server.httpsIoThreads` or `arcadedb.timeSeriesDecodedBlockCacheRAM`, lost its profile value too on a machine where the computed default differs. The first embedded database of a JVM also logged `Configuration profile PARTIALLY applied` for a profile that was set before any database was open.
+The profile given as a `-D` system property or as an environment variable (the way `server.sh`, the Docker image and Kubernetes configure it) set every one of its settings except `arcadedb.maxPageRAM`: the page cache stayed at its computed default, a quarter of the heap (issue #10446). Any other setting the profile lists that also has a computed default, such as `arcadedb.server.httpIoThreads` or `arcadedb.timeSeriesDecodedBlockCacheRAM`, lost its profile value too on a machine where the computed default differs. The first embedded database of a JVM also logged `Configuration profile PARTIALLY applied` for a profile that was set before any database was open.
 
 *Impact:* a server started with the `low-ram` profile and no explicit `arcadedb.maxPageRAM` now has a page cache of 16MB instead of a quarter of the heap, as the profile always documented. A database larger than 16MB is read from disk more often.
 
