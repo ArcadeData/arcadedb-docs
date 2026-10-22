@@ -302,7 +302,9 @@ A persisted CSR that plausibly applies is not read from disk during `open()`. Re
 * a query that actually needs the view's data; or
 * an explicit call to the view's `awaitReady()` method.
 
-Either trigger re-verifies the freshness certificate from scratch at that point (not the one implied at `open()` time), so a commit that lands after `open()` but before the first query is still caught correctly and falls back to a rebuild rather than serving stale data. A session that opens and closes a database without ever touching the view now costs what the no-view baseline costs, not what a restore costs - `close()` does not wait for a restore that was never triggered either.
+Reading the state of the view is an explicit wait too, so `SELECT FROM schema:graphAnalyticalViews` (and `GraphAnalyticalView.getStats()`) starts the restore and returns at once. Polling the row until `status` is `READY` therefore ends with the counts of the view, `nodeCount` and `edgeCount`, in the row; while the restore runs the row reads `BUILDING`. Before v26.11.1 the row of a view whose restore had not been triggered yet read `READY` with `nodeCount = 0` and `edgeCount = 0`, for as long as no query used the view (issue #10575).
+
+Each of these re-verifies the freshness certificate from scratch at that point (not the one implied at `open()` time), so a commit that lands after `open()` but before the first query is still caught correctly and falls back to a rebuild rather than serving stale data. A session that opens and closes a database without ever touching the view now costs what the no-view baseline costs, not what a restore costs - `close()` does not wait for a restore that was never triggered either.
 
 Since v26.10.2 a query that looks a view up while its restore is in flight (for example the first count push-down, `MATCH` or `shortestPath()` after a reopen) waits for the restore instead of taking the slower record path. The wait is bounded by the `arcadedb.gavQueryRestoreAwaitTimeout` <<arcadedb-settings,database-level setting>> (default `5000` ms, `0` disables the wait).
 
