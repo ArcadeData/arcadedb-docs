@@ -28,6 +28,15 @@ The conversion the gRPC service and the other callers of `DateUtils.dateTimeToTi
 *Action:* none for most installations.
 
 [discrete]
+====== 26.11.1 - A database that a restore holds or a `close database` closed is answered as unavailable on every protocol
+
+A database that exists but cannot serve now (an `overwrite` restore holds its name, a `close database` closed it, it is being dropped) used to reach a Redis or MongoDB client as a generic server error, and a Redis write to `<database>.<key>` was kept as a plain key of the connection and acknowledged with `OK` (issue #10553). Every protocol now answers that the database is not available: `LOADING` for Redis, error `365 TemporarilyUnavailable` for MongoDB, `UNAVAILABLE` for gRPC, `57P03` for Postgres, `DatabaseUnavailable` for BOLT. A name that is not a database keeps its answer.
+
+*Impact:* a client that treated the old Redis or MongoDB error as a server fault now sees a retryable "not available" and can try again later. A Redis write to a held database is refused, where it used to be acknowledged and lost once the database came back.
+
+*Action:* none for most installations. See <<http-open-on-demand,Opening a database on demand>>.
+
+[discrete]
 ====== 26.11.1 - `-Darcadedb.profile=low-ram` keeps its 16MB page cache
 
 The profile given as a `-D` system property or as an environment variable (the way `server.sh`, the Docker image and Kubernetes configure it) set every one of its settings except `arcadedb.maxPageRAM`: the page cache stayed at its computed default, a quarter of the heap (issue #10446). Any other setting the profile lists that also has a computed default, such as `arcadedb.server.httpsIoThreads` or `arcadedb.timeSeriesDecodedBlockCacheRAM`, lost its profile value too on a machine where the computed default differs. The first embedded database of a JVM also logged `Configuration profile PARTIALLY applied` for a profile that was set before any database was open.
