@@ -345,17 +345,30 @@ The order of the two operations does not matter.
 
 ==== A statement that fails halfway
 
-ArcadeDB has no savepoints, so a statement that fails inside a transaction cannot be taken back on its own.
-A statement that fails having written nothing leaves the transaction usable, and so does a single-row refusal (a duplicated key, a failed validation), because the refused record retracts itself.
-A multi-row statement in any language (`INSERT`, `UPDATE` or `DELETE` in SQL, `SET`, `CREATE` or `DELETE` in openCypher, including the ones Bolt runs inside `BEGIN`, or a `sqlscript`) that fails after part of its records were written marks the transaction rollback-only: `commit()` throws a `TransactionException` ("Transaction cannot be committed: a statement failed after part of its records were written ...") and nothing of the transaction is published, so a caller that catches the error and goes on can never commit half a statement.
+A statement that fails inside a transaction you keep is taken back on its own, and the transaction goes on as if the statement had never run, the way SQLite undoes a failed statement.
+Take a multi-row `INSERT INTO T (id, k) VALUES (1, 7), (2, 7)` on a unique `k`: the first row is written, the second is refused, and your code catches the error.
+Nothing of the first row remains: not the record, not its entries in the unique and plain indexes (vector and full-text ones included), not the edges and the edge lists of both vertices when the statement was a `CREATE EDGE`, not the record counters.
+A record an earlier statement of the transaction updated, and the failed one changed again, holds again what the earlier statement gave it.
+`commit()` then publishes the rest of the transaction.
+This is true of a statement in any language: `INSERT`, `UPDATE`, `DELETE` and `CREATE EDGE` in SQL, `SET`, `CREATE` and `DELETE` in openCypher (including the ones Bolt runs inside `BEGIN`), and a `sqlscript`.
+
+A statement that runs on its own, with no transaction begun, is rolled back whole as before, and pays nothing for the feature.
+A `sqlscript` whose writes are all inside a `BEGIN ... COMMIT RETRY n ELSE ... AND CONTINUE | FAIL` block handles its own failures and is not affected.
+The events a statement already fired (listeners, triggers, whatever an external system was told) cannot be taken back.
+
+When the engine cannot take a statement back exactly, it does not take it back at all, and the transaction can no longer be committed: `commit()` throws a `TransactionException` ("Transaction cannot be committed: a statement failed after part of its records were written ..., and could not be taken back: ...") that names the reason, and nothing of the transaction is published.
 Roll the transaction back and retry it, or issue the rows as separate statements.
-A statement that runs on its own, with no transaction begun, is rolled back whole.
-A `sqlscript` whose writes are all inside a `BEGIN ... COMMIT RETRY n ELSE ... AND CONTINUE | FAIL` block handles its own failures and is not affected; a write outside such a block is covered.
-A Gremlin traversal runs while its result is read, so it is covered at that point.
-A statement that a function or procedure runs through the database, and whose failure the outer statement catches, marks the transaction too.
-An openCypher statement whose existence-constraint check takes back every record it created leaves the transaction usable too, as nothing of the statement remains: that includes the edges it connected to those records, and the empty edge lists they leave on vertices that existed before. An edge between two existing records, or a property set on one, is a write that stays, and the commit is refused.
-An update of a record that the same transaction has already updated, and that a constraint or a before-update listener refuses, is refused the same way, because the refused values stay on the copy of the record the transaction writes at commit: the statement fails (or, when a listener returns `false` to skip the record, completes) and `commit()` throws.
-_(Since v26.11.1: earlier versions committed the rows written before the error. openCypher, `sqlscript` and Gremlin are covered since issue #10379, and the refused update of a record already updated since issue #10482.)_
+That is the case for:
+
+* a statement that changed more than `arcadedb.txStatementSavepointMaxEntries` entries of the transaction (100,000 by default), so that a bulk load pays no memory for a journal it could not use. Set it to `0` to turn statement savepoints off;
+* a statement that changed records a Graph Analytical View follows, or that dropped a file;
+* a statement that changed again a record with an `EXTERNAL` property that an earlier statement updated;
+* a statement that a function or a trigger runs through the database, when it fails after writing and the outer statement catches the failure and carries on: the outer statement succeeded, so there is nothing to take back to;
+* a Gremlin traversal, which runs while its result is read, after the call has returned, and so is covered at that point by refusing the commit.
+
+An update of a record that the same transaction already updated, which a before-update listener refuses by returning `false` (skipping the record) instead of throwing, is refused the same way: no statement fails, so there is nothing to take back, and the refused values stay on the copy of the record the transaction writes at commit.
+
+_(Since v26.11.1: earlier versions committed the rows written before the error. Issue #10194 refused the commit of such a transaction, in every language since issue #10379; statement savepoints, issue #10346, take the statement back instead.)_
 
 ==== Nested transactions and propagation
 
