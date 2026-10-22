@@ -99,6 +99,8 @@ NOTE: A unique index does not regard derived types or embedded documents of the 
 
 NOTE: While `CREATE INDEX` is still building the index, queries do not use it: `SELECT`, `database.select()` and Cypher scan the type instead, so their results are complete, and `lookupByKey()` answers as if the index did not exist yet. Queries use the index as soon as the command completes. Since 26.10.2.
 
+NOTE: A transaction that began before the index was created, in another session or as an outer transaction of the caller, and wrote to the indexed type, does not hold up `CREATE INDEX` and is not left out of the index: the build indexes the committed state, and that transaction queues the entries of the new index for what it wrote when it commits, as if the index had existed when it saved the records. A `UNIQUE` index refuses that commit with a `DuplicatedKeyException` if another record took the key in the meantime. Since 26.11.1; before, such a record was missing from every index-backed query and a `UNIQUE` index accepted a duplicate of its key.
+
 ____
 
 You can use list key types when creating manual composite indexes, but bear in mind that such indexes are not yet fully supported.
@@ -645,6 +647,13 @@ DROP INDEX <index-name> [ IF EXISTS ]
 ----
 
 * *`&lt;index-name&gt;`* Defines the name of the index.
+
+An index on a type with several buckets is one file per bucket. The statement checks that every one of them can be deleted, and takes
+their locks, before it drops the first: if one cannot be deleted (a file that is not a regular file, a directory that cannot be
+written) it is refused with `Nothing was changed` and the index stays whole. The same holds for `DROP PROPERTY ... FORCE`,
+`TRUNCATE TYPE`, `REBUILD INDEX` and the other statements that drop indexes, which drop all of theirs or none. Since 26.11.1; before,
+the files before the refusing one were already dropped and the index answered 0 rows for the records of their buckets, even after a
+restart.
 
 *Examples*
 

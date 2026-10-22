@@ -37,6 +37,24 @@ The conversion the gRPC service and the other callers of `DateUtils.dateTimeToTi
 *Action:* none for a UTC database. Otherwise rewrite the values loaded that way, by reloading them or by correcting them with an `UPDATE` on the records those loads wrote. See <<managing-dates,Managing Dates>>.
 
 [discrete]
+====== 26.11.1 - A pattern named in asDateTime(), date() and date.parse() converts the offset of the text, and the time zone argument of date() is used
+
+`'2020-01-02T03:04:05+02:00'.asDateTime("yyyy-MM-dd'T'HH:mm:ssXXX")` and `date('2020-01-02T03:04:05+02:00', "yyyy-MM-dd'T'HH:mm:ssXXX")` answered `2020-01-02T03:04:05`, the offset the pattern had read dropped, where the same text read with the schema's own pattern, a bound parameter or an `OffsetDateTime` gave `2020-01-02T01:04:05` (issue #10596). A named pattern is now read under the same rule: the instant the text names is the UTC wall clock. The third argument of `date()`, which was ignored, is the zone a text that names none was written in. `date.parse()` and `date.fields()` read the offset of the text, and so does the `datetimeFormat` of the importer.
+
+*Impact:* a query or an import that names a pattern with an offset or zone field and a text with a non-zero offset gets the converted value, two hours earlier in the example; one that passes a time zone to `date()` for a text without an offset gets the instant of that zone in UTC. Stored values are not changed.
+
+*Action:* none if the converted value is what the query meant. To keep the wall clock written, drop the offset from the text, or read it with a pattern that has no offset field. See <<managing-dates,Managing Dates>>.
+
+[discrete]
+====== 26.11.1 - SQL equality on a list or a map compares the elements as it compares two scalars
+
+`[<Date>] = v`, where `v` holds the `LocalDateTime` of the same instant, was false and `<>` was true; a `Timestamp` on the left of `=` was never equal to the same instant (issue #10595). Two values `=` reports equal are now equal as the elements of a list or a map too, for `=`, `<>`, `IN` and `CONTAINS`.
+
+*Impact:* a filter on a list or map property compared with a parameter that holds the same instants in another Java class (`Date`, `Instant`, `Calendar`, `Timestamp`) now matches the row. A list of one kind compared with a list of another that converts matches as the scalars do: `[1] = ['1']` is true, as `1 = '1'` is.
+
+*Action:* none. Compare with a typed parameter if a list of strings must not equal a list of numbers.
+
+[discrete]
 ====== 26.11.1 - Redis commands on in-memory keys are no longer refused with `TRYAGAIN`
 
 `GET`, `SET`, `GETDEL`, `EXISTS`, `INCR`, `INCRBY`, `INCRBYFLOAT`, `DECR` and `DECRBY` no longer wait for the query admission control, and are no longer listed by `list queries` / `SHOW TRANSACTIONS` (issue #10499). Each is a single in-memory map operation.
