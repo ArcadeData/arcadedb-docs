@@ -1201,10 +1201,12 @@ ArcadeDB provides built-in procedures for performing approximate nearest neighbo
 |===
 | Procedure | Description
 | `db.index.vector.queryNodes(indexSpec, k, vector)` | Neo4j-compatible vector search. Returns `node` (the document) and `score` (in [0, 1], higher is better, as in Neo4j: `(1 + cosine) / 2` for COSINE and DOT_PRODUCT, `1 / (1 + d^2)` for EUCLIDEAN). On a `PRODUCT` index it walks on the PQ codes and re-ranks `rerankOversample` (index setting, default 10) candidates per neighbor on the stored vectors since 26.11.1, so the score is exact
-| `vector.neighbors(indexSpec, vector, k)` | ArcadeDB-native vector search. Returns document properties and `distance` (lower is better)
+| `vector.neighbors(indexSpec, vector, k [, options])` | ArcadeDB-native vector search. Returns document properties and `distance` (lower is better). It takes the options of the SQL <<vector-neighbors-ext,vector.neighbors()>>, among them `where` (since 26.11.1) and `filter`, which filter before the search takes its `k`
 |===
 
 NOTE: The `indexSpec` parameter uses ArcadeDB's `'Type[property]'` format (e.g., `'Document[embedding]'`).
+
+NOTE: `db.index.vector.queryNodes()` has no filter argument. A `WHERE` after its `YIELD` runs on the `k` nodes the search returned, so when most of the nearest neighbors fail the condition (the rows of another tenant, for example) it leaves fewer than `k` rows, or none. To filter before the search takes its `k`, call `vector.neighbors()` with the `where` option (since 26.11.1) or the `filter` option, as in the `where` example below.
 
 *Examples:*
 
@@ -1218,6 +1220,12 @@ ORDER BY score DESC
 
 // ArcadeDB-native syntax — returns properties and distance
 CALL vector.neighbors('Document[embedding]', $queryVector, 10)
+YIELD name, distance
+RETURN name, distance
+ORDER BY distance
+
+// Filter inside the search: the 10 nearest rows of one tenant, however many rows the other tenants hold
+CALL vector.neighbors('Document[embedding]', $queryVector, 10, { where: { tenantId: 'acme' } })
 YIELD name, distance
 RETURN name, distance
 ORDER BY distance
