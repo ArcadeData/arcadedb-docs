@@ -64,21 +64,21 @@ Quantization reduces memory usage by compressing vector components at the cost o
 | Type | Memory Reduction | Speed | Recall | Use Case
 
 | **NONE** | Baseline | Baseline | 100% | Small datasets (< 10K vectors), maximum accuracy
-| **INT8** (recommended) | 4x (75% savings) | 10-15% faster | 95-98% | Best balance of speed and accuracy for most workloads
-| **BINARY** | 32x (97% savings) | 15-20% faster | 85-92% | Massive datasets, approximate search with reranking
+| **INT8** (recommended) | 4x (75% savings) | Lower latency than NONE; the gain depends on the data and the recall target (see <<quantization-performance>>) | 95-98% | Best balance of speed and accuracy for most workloads
+| **BINARY** | 32x (97% savings) | Lower latency than NONE; the gain depends on the data and the recall target (see <<quantization-performance>>) | 85-92% | Massive datasets, approximate search with reranking
 | **PRODUCT** | 16-64x for the PQ codes in memory (the stored vectors are still read to re-rank) | Search walks on the PQ codes, then re-ranks on the stored vectors | Close to NONE with the default re-rank | Very large datasets (100K+), enables zero-disk-I/O graph construction. INT8 is the better default unless the PQ codes are what you need
 |===
 
-TIP: **Use INT8 quantization for most use cases.** It provides 4x memory savings with minimal accuracy loss and significantly faster search. Only use NONE for very small datasets where maximum precision matters.
+TIP: **Use INT8 quantization for most use cases.** It provides 4x memory savings with minimal accuracy loss and usually lower search latency (see <<quantization-performance>>). Only use NONE for very small datasets where maximum precision matters.
 
 [[quantization-performance]]
-===== Why INT8 is faster
+===== Why INT8 can be faster
 
-Quantization doesn't just save memory -- it fundamentally changes how vectors are read during search.
+Quantization doesn't just save memory -- it changes how vectors are read during search.
 
 Without quantization (`NONE`), each node visited during graph traversal requires a full document lookup: read the record from disk, deserialize it, and extract the vector property. With INT8, vectors are stored in compact contiguous index pages and read directly -- no document deserialization needed.
 
-In benchmarks with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2` embedding model), INT8 reduces search latency by **2.5x** compared to NONE:
+One benchmark with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2` embedding model) measured these latencies. It is a single setup, not a general figure: how much lower INT8 latency is than NONE depends on the data, on whether the NONE vectors are served from memory or read from documents, and on the recall target, so measure it on your own data before you rely on it:
 
 [cols="1,1,1,1"]
 |===
@@ -88,7 +88,7 @@ In benchmarks with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2`
 | **INT8** | **1.59 ms** | **1.94 ms** | Index pages (sequential I/O)
 |===
 
-The difference becomes even more significant under memory pressure. With NONE quantization, vector data is 4x larger, evicting more data from memory caches and forcing real disk I/O. INT8 keeps the working set small enough to stay in memory even with constrained resources.
+The difference can be larger under memory pressure. With NONE quantization, vector data is 4x larger, evicting more data from memory caches and forcing real disk I/O. INT8 keeps the working set small enough to stay in memory even with constrained resources.
 
 Quantization is transparent -- queries work identically regardless of quantization setting. The index automatically quantizes on insert and dequantizes on retrieval.
 
@@ -110,11 +110,11 @@ NOTE: A rebuild replaces the graph and its PQ codes a moment apart. Before v26.1
 .Memory and performance example: 100K vectors with 384 dimensions
 [cols="1,1,1"]
 |===
-| Quantization | Vector memory | Search speed
+| Quantization | Vector memory | Search latency
 
 | NONE | 156 MB | Baseline
-| INT8 | 39 MB | ~2.5x faster
-| BINARY | 5 MB | ~3x faster (lower recall)
+| INT8 | 39 MB | Lower than NONE; depends on the data and the recall target
+| BINARY | 5 MB | Lower than NONE, with lower recall; depends on the data and the rerank
 |===
 
 [[vector-encoding]]
@@ -205,7 +205,7 @@ To migrate an existing populated type to external storage in one step, use `ALTE
 | `similarity` | `COSINE` | Distance metric: COSINE, DOT_PRODUCT, or EUCLIDEAN
 | `encoding` | `FLOAT32` | Wire / document-storage encoding: FLOAT32 (`ARRAY_OF_FLOATS` property) or INT8 (`BINARY` property, byte per dim, 4x smaller payload). See <<vector-encoding,Vector Encoding>>.
 | `quantization` | `NONE` | Index-internal compression: NONE, INT8, BINARY, or PRODUCT. INT8 is recommended for most use cases.
-| `efSearch` | adaptive | Search beam width at query time. Controls recall vs speed trade-off. See <<adaptive-efsearch>>.
+| `efSearch` | sized from the graph | Search beam width at query time. Controls recall vs speed trade-off. See <<adaptive-efsearch>>.
 | `rerankOversample` | 10 | `PRODUCT` only: candidates per requested neighbor that a search re-ranks on the stored vectors, which makes the returned distances exact. `0` returns the PQ scores alone, without reading a stored vector. A query overrides it with the `rerank` option of `vector.neighbors`. See <<product-quantization-search>>. Since 26.11.1.
 | `pqTrainingLimit` | 128000 | `PRODUCT` only: vectors (a random sample) the PQ codebook is trained on, at most 128000.
 | `fusedPQ` | false | `PRODUCT` only: store the PQ codes of each node's neighbors in the graph file (jvector FusedPQ). Makes the graph file several times larger; useful only when the PQ codes cannot stay in memory. Since 26.11.1.
@@ -222,8 +222,8 @@ To migrate an existing populated type to external storage in one step, use `ALTE
 A rebuild of the graph is always a full one -- there is no incremental update, so any rebuild reindexes every
 vector currently in the index, not just the ones written since the last build. `close()` normally rebuilds and
 persists the graph before shutting down, so a later reopen finds a ready-to-search graph rather than rebuilding on
-first open. For an index of 1,000 vectors or more (the same threshold `efSearch`'s adaptive strategy and
-mutation-triggered rebuilds use), a session that closes with unpersisted writes pending instead defers that
+first open. For an index of 1,000 vectors or more (the same threshold mutation-triggered
+rebuilds use), a session that closes with unpersisted writes pending instead defers that
 rebuild rather than blocking `close()` on it: the vectors themselves are already durably persisted independently
 of the graph, so nothing is lost, but the graph's on-disk topology is left stale or absent. The deferred rebuild
 then runs the next time that index is actually searched, after any reopen. A session that closes and never
@@ -441,18 +441,16 @@ so `CHECK DATABASE FIX` (or `REBUILD INDEX <name>`) rebuilds it and lifts the re
 ====
 
 [[adaptive-efsearch]]
-==== efSearch and Adaptive Search
+==== efSearch and the Default Beam
 
-The `efSearch` parameter controls how many candidate nodes the search explores in the vector graph. Higher values find more accurate results but take longer.
+The `efSearch` parameter is the beam width of the graph search: how many candidate nodes the search keeps while it walks the vector graph. Higher values find more accurate results but take longer. The beam is never narrower than `k`.
 
-When `efSearch` is not explicitly set (either on the index or per-query), ArcadeDB uses an **adaptive two-pass strategy**:
+When `efSearch` is not set (neither on the index nor per query), ArcadeDB sizes the beam from the graph and runs the search once:
 
-1. **First pass** -- Uses a moderate beam width (`2 × k`), which is sufficient for most queries on well-clustered data.
-2. **Second pass** -- If the first pass returns insufficient results, the search automatically widens the beam to `10 × k`.
+1. For a graph under 10,000 nodes the beam is `max(k, 100)`.
+2. For a larger graph the beam is `max(2 × k, 20)`. This is a deliberately narrow beam that favours latency over recall.
 
-For small indexes (< 10K vectors), the full default efSearch is always used since the cost is negligible.
-
-This adaptive behavior gives you fast queries on easy lookups while still maintaining recall on harder queries -- without requiring any tuning.
+There is no second pass that widens the beam when a search comes up short: a wider beam would visit the same nodes. A search that still returns fewer than `k` results is topped up by a brute-force scan instead. The default beam does not adapt to hard queries, so on a graph of 10,000 nodes or more, set `efSearch` explicitly when recall matters (see below). A larger value trades latency for recall.
 
 ===== Setting efSearch
 
@@ -483,9 +481,9 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
 }
 ----
 
-*Adaptive* (default) -- when neither per-query nor per-index efSearch is specified, the adaptive strategy described above is used.
+*Default beam* -- when neither per-query nor per-index efSearch is specified, the beam is sized from the graph as described above.
 
-TIP: For most workloads, the adaptive default works well. Only set efSearch explicitly if you need consistently high recall regardless of query difficulty, or if you have strict latency requirements.
+TIP: The default beam is narrow on a graph of 10,000 nodes or more. If recall matters, set efSearch explicitly and raise it until the recall you measure on your own queries is enough; set it low only if you have strict latency requirements.
 
 ==== Filtered Search
 
