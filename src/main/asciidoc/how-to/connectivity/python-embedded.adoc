@@ -1,7 +1,12 @@
 [[python-embedded]]
 ==== Python -- Embedded Bindings
 
-`arcadedb-embedded` runs the ArcadeDB engine inside your Python process. Calls cross into the engine through https://jpype.readthedocs.io/[JPype], so there is no network hop and no server to start. The wheel bundles its own Java runtime: you do not install Java.
+The embedded bindings run the ArcadeDB engine inside your Python process, so there is no network hop and no server to start. They ship as two packages, and both import as `arcadedb`:
+
+* `arcadedb`, the default: the engine built as a GraalVM native-image library. It needs no Java and no JPype, starts fast and holds little memory.
+* `arcadedb-jvm`: the engine on a Java runtime that the wheel bundles, reached through https://jpype.readthedocs.io/[JPype]. Pick it for heavy, long-running loads, where the JIT compiler pays off, or when you need the Java-object APIs.
+
+Install one of them, not both. With both installed, `import arcadedb` raises an `ImportError` that names the two.
 
 The bindings live in the https://github.com/ArcadeData/arcadedb-python[ArcadeData/arcadedb-python] repository. This page covers the first steps; the repository holds the full guides and the API reference.
 
@@ -9,25 +14,27 @@ The bindings live in the https://github.com/ArcadeData/arcadedb-python[ArcadeDat
 
 [source,shell]
 ----
-pip install arcadedb-embedded
+pip install arcadedb
 ----
 
 Or with https://docs.astral.sh/uv/[uv]:
 
 [source,shell]
 ----
-uv add arcadedb-embedded
+uv add arcadedb
 ----
 
-Python 3.11 to 3.14 is what the wheels' CI runs. Wheels exist for Linux (x86_64 and ARM64), macOS on Apple Silicon, and Windows (x86_64).
+For the JVM build, install `arcadedb-jvm` instead.
 
-There is a second package, `arcadedb-embedded-native`, which is a *preview*. It is the same engine built as a GraalVM native-image library: no JVM and no JPype. It installs beside `arcadedb-embedded`. Both builds are published for now, with the JVM build as the default. The plan is to converge on the native build once it matches the JVM build on the workloads that matter; then one package, `arcadedb`, will ship the native build only. Check the preview's PyPI page for its current status before you rely on it.
+Both packages support Python 3.11 to 3.14, and `arcadedb` also supports 3.15. Wheels exist for Linux x86_64 and ARM64 (glibc 2.28 or later), macOS on Apple Silicon, and Windows x86_64.
+
+NOTE: The first release under these names is 26.11.1. Until it ships, PyPI holds pre-releases (`26.11.1.devN`), which a plain install picks up. The packages were formerly `arcadedb-embedded` (now `arcadedb-jvm`, the same build) and `arcadedb-embedded-native` (now `arcadedb`). A last `arcadedb-embedded` release will install `arcadedb`.
 
 ===== Open a database and query it
 
 [source,python]
 ----
-import arcadedb_embedded as arcadedb
+import arcadedb
 
 with arcadedb.create_database("./mydb") as db:
     db.command("sql", "CREATE VERTEX TYPE Person")
@@ -87,7 +94,7 @@ NOTE: *Writes need a transaction.* `INSERT`, `UPDATE` and `DELETE` go inside `wi
 | One per call
 
 | Setup
-| `pip install arcadedb-embedded`
+| `pip install arcadedb`
 | A running server, plus `pip install arcadedb-driver`
 |===
 
@@ -99,6 +106,6 @@ The two meet in one case. The bindings can start an in-process HTTP server (`arc
 
 ===== Where to go next
 
-* https://github.com/ArcadeData/arcadedb-python[Bindings repository] -- guides for vectors, graphs, time series, import and server mode, plus the API reference and examples.
-* xref:how-to/connectivity/drivers/native-drivers.adoc[Native drivers] -- the HTTP and gRPC clients, if you would rather talk to a server.
-* xref:tutorials/python-quickstart.adoc[Python quickstart] -- the PostgreSQL wire protocol route.
+* https://github.com/ArcadeData/arcadedb-python[Bindings repository]: guides for vectors, graphs, time series, import and server mode, plus the API reference and examples.
+* xref:how-to/connectivity/drivers/native-drivers.adoc[Native drivers]: the HTTP and gRPC clients, if you would rather talk to a server.
+* xref:tutorials/python-quickstart.adoc[Python quickstart]: the PostgreSQL wire protocol route.
