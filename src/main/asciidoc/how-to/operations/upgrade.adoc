@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - Function options refuse a value of the wrong kind
+
+A boolean option of a function's options map (`parallel`, `tieBreaker` and `emptyIfMaxDepth` of `astar()` and `dijkstra()`, `edge` of `shortestPath()`, and every other boolean option read through the same option reader) read any value other than a boolean or `'true'` as `false`, so a typo such as `'ture'`, `'yes'` or `1` silently ran another query. It now accepts only a boolean or the strings `'true'` and `'false'` (in any case), and refuses any other value with an error that names the option (issue #10788). `maxDepth` must be a non-negative whole number: `2.5`, `'abc'` and `-1` are refused the same way. For `shortestPath()`, `maxDepth: null` now means no bound, where it was read as 0.
+
+*Impact:* a query that passed such a value fails where it used to answer.
+
+*Action:* pass `true` or `false`, and a whole `maxDepth`. See <<astar,astar()>>, <<algo-dijkstra-sql,dijkstra()>> and <<algo-shortest-path-sql,shortestPath()>>.
+
+[discrete]
+====== 26.11.1 - The default-named indexes of a renamed type answer to the new name
+
+After `ALTER TYPE Foo NAME Bar`, the index `Foo[a]` was listed as `Bar[a]` but resolved only by `Foo[a]`, so `DROP INDEX` and `REBUILD INDEX` with the listed name failed, and an index created with a name of its own lost it to the default name. A default-named index now answers to `Bar[a]` at once and no longer to `Foo[a]`, and an index with a name of its own keeps it across the rename and a restart (issue #10751).
+
+*Impact:* a script that reached a renamed type's index by its old name fails, since that name no longer resolves.
+
+*Action:* use the name the schema lists. See <<sql-alter-type,ALTER TYPE>>.
+
+[discrete]
 ====== 26.11.1 - SQL refuses positional values that do not match the placeholders
 
 A call that binds positional values (`query`/`command` with `Object...` for `sql` and `sqlscript`, the HTTP `params` given as a JSON array or as an object keyed `"0"`, `"1"`, ..., and the remote Java client) dropped a value no placeholder read and bound a placeholder with no value to `null`, without a word. A list spread into several values for one `IN ?` answered fewer rows than the caller meant. The values are now counted against the placeholders before the statement runs, and a mismatch is refused with a `CommandSQLParsingException` (HTTP 400) that names both counts (issue #10721). Each `?` and each positionally bound `:name` takes exactly one value, a script counts the placeholders of all its statements, and a Postgres-style `$N` may leave lower positions unread. Values bound by name (a map) are not counted.

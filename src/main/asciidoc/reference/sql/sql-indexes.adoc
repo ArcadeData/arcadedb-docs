@@ -562,6 +562,10 @@ NOTE: During the rebuild, any idempotent queries made against the index, skip th
 that queries run slower during this operation. Non-idempotent commands, such as <<sql-insert-command,`INSERT`>>, <<sql-update,`UPDATE`>>,
 and <<sql-delete,`DELETE`>> are blocked waiting until the indexes are rebuilt.
 
+NOTE: An index declared on a super type also covers the buckets of its sub types. `REBUILD INDEX *` (and `CHECK DATABASE ... FIX`)
+rebuilds the part on a sub type's bucket under the index the super type declares. Since 26.11.1; before, the rebuild could detach the
+super type's own buckets from the index.
+
 NOTE: During normal operations an index rebuild is not necessary. Rebuild an index only if it breaks.
 
 NOTE: If the rebuild fails (for example because a stored record has a null key and the index null strategy is `ERROR`), the statement reports the error and the index is put back as it was, with its unique constraint. If the original null strategy cannot be applied to the stored data, the index is restored with `SKIP` and the original strategy is set in memory only, so after a restart it uses `SKIP` again. Since 26.10.1.
@@ -647,6 +651,7 @@ DROP INDEX <index-name> [ IF EXISTS ]
 ----
 
 * *`&lt;index-name&gt;`* Defines the name of the index.
+Use `*` to drop all the indexes of the database.
 
 An index on a type with several buckets is one file per bucket. The statement checks that every one of them can be deleted, and takes
 their locks, before it drops the first: if one cannot be deleted (a file that is not a regular file, a directory that cannot be
@@ -654,6 +659,11 @@ written) it is refused with `Nothing was changed` and the index stays whole. The
 `TRUNCATE TYPE`, `REBUILD INDEX` and the other statements that drop indexes, which drop all of theirs or none. Since 26.11.1; before,
 the files before the refusing one were already dropped and the index answered 0 rows for the records of their buckets, even after a
 restart.
+
+`DROP INDEX *` is one statement too: it checks the files of every index before it drops the first, so when one cannot be deleted no
+index is dropped. It returns one row per index dropped (the per-bucket indexes included), with the name in `indexName` (the same name is also in `bucketName`, kept for
+compatibility). Since 26.11.1; before, it dropped the indexes one at a time, so a refusal left the indexes before it dropped, and the
+rows carried the name in `bucketName` only.
 
 *Examples*
 
