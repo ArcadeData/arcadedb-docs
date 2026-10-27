@@ -1105,7 +1105,11 @@ This methods wraps a call to the method <<transaction-retries,transaction with r
 Executes a transaction block as a callback or a clojure.
 Before calling the callback in `TransactionScope`, the transaction is begun and after the end of the callback, the transaction is committed.
 In case of any exceptions, the transaction is rolled back.
-In case a `NeedRetryException` exceptions is thrown, the transaction is repeated up to `retries` times
+In case a `NeedRetryException` exceptions is thrown (a `ConcurrentModificationException`, a `LockTimeoutException` from
+the commit's file locks, and the rest of that family), the transaction is repeated up to `retries` times. A
+`DuplicatedKeyException` is retried once: a genuine duplicate fails the same way on every attempt, and only a concurrent
+insert that committed between two attempts, as in an upsert that lost the race, can turn it into a success. The same
+rules apply to <<async-transaction,`async().transaction()`>> and to SQL <<sql-script-commit,`COMMIT RETRY`>> _(since v26.11.1)_.
 
 NOTE: _(Since v26.10.2)_ A `NeedRetryException` whose `isRetryableOnThisNode()` returns `false` is rethrown on the first
 attempt. That is a refusal that would repeat on every attempt against this node: a `ServerIsNotTheLeaderException`

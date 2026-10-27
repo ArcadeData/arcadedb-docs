@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - A plain `CHECK DATABASE FIX` relinks orphan edge records
+
+An orphan edge record, whose `@out` and `@in` are live vertices but that no vertex's edge list references, is reported as `ORPHAN RECORD` under `unreachableEdgeRecords`. A plain `CHECK DATABASE FIX` left it untouched, and only `FIX DELETE ORPHANS` repaired it, by deleting it. It now relinks it into the outgoing list of its `@out` vertex and, for a bidirectional edge type, the incoming list of its `@in` vertex (issue #10741). The result counts them under `relinkedOrphanEdgeRecords`. The usual source is a `GraphBatch` whose process died before `close()`, and `CHECK DATABASE FIX` is now the supported recovery for it.
+
+*Impact:* edges that no traversal reached before the repair are traversed after it, and counted by every query that walks those vertices.
+
+*Action:* none if those edges are wanted. To remove them instead, run `CHECK DATABASE FIX DELETE ORPHANS`, which takes precedence. See <<sql-check-database,CHECK DATABASE>> and <<java-batch-importer,GraphBatch>>.
+
+[discrete]
+====== 26.11.1 - `count(*)` repeats inside a `REPEATABLE_READ` transaction
+
+`count(*)` on a type and `countType()` followed the commits of other transactions at every isolation level, so inside one `REPEATABLE_READ` transaction two counts could differ, and a count could disagree with a scan. Under `REPEATABLE_READ` the committed counter of each bucket is now read at the first count of the transaction and kept, plus the transaction's own inserts and deletes (issue #10712). `READ_COMMITTED` is unchanged.
+
+*Impact:* a `REPEATABLE_READ` transaction that polled `count(*)` to watch other transactions' inserts no longer sees them change.
+
+*Action:* poll with separate transactions, or at `READ_COMMITTED`. See <<isolation,Isolation>>.
+
+[discrete]
 ====== 26.11.1 - The HTTP server's IO thread count is `arcadedb.server.httpIoThreads`
 
 The setting that sets the number of IO threads of the HTTP server was keyed `arcadedb.server.httpsIoThreads`, which read as the HTTPS-only setting declared beside it, so the natural spelling `-Darcadedb.server.httpIoThreads` was ignored without a word (issue #10599). Its key is now `arcadedb.server.httpIoThreads`. The old key is still read from a system property, an environment variable, the server configuration file and the settings commands, and the first use of it is reported in the log.
