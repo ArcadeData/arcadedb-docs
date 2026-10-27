@@ -188,6 +188,10 @@ edge type, into the incoming list of its `@in` vertex. The relinked records are 
 adjacency entries written under `reconnectedEdges`. `FIX DELETE ORPHANS` deletes them instead, and takes precedence when given.
 Without `FIX` the warning suggests both: `CHECK DATABASE FIX` to relink the edge, or `CHECK DATABASE FIX DELETE ORPHANS` to remove
 it. Before v26.11.1 a plain `FIX` left orphan edge records untouched, and `DELETE ORPHANS` was the only repair.
+One run relinks a bounded number of orphans to cap its memory; what it leaves is counted under `orphanEdgeRecordsLeftToRelink`,
+and the next `FIX` relinks it. A `GraphBatch` flush that failed inside a live process deletes the records it wrote, and logs
+the RID of any it could not delete: delete those before a `FIX`, which would otherwise relink edges the caller was told were not
+created.
 
 The usual cause is a <<java-batch-importer,GraphBatch>> whose process died (`kill -9`, an OOM kill, a power loss) before `close()`:
 the edge records its flushes committed are on disk, but the vertices' head-chunk pointers are only written at `close()`.
@@ -345,6 +349,9 @@ The command returns the integrity check report in one record with the fields:
 | `relinkedOrphanEdgeRecords` | _since v26.11.1_, how many of those records a plain `FIX` relinked into their vertices' edge
                                 lists. The adjacency entries it wrote are counted in `reconnectedEdges` as well. Zero under
                                 `FIX DELETE ORPHANS`, which deletes them instead.
+| `orphanEdgeRecordsLeftToRelink` | _since v26.11.1_, how many orphan edge records a `FIX` run left for the next one. A run
+                                    relinks at most what a tenth of the heap can plan (never fewer than 100,000), so a very
+                                    large interrupted load is repaired by running `CHECK DATABASE FIX` again until it is zero.
 | `orphanedEdgeSegments` | number of unreachable edge-list segments found in the dedicated edge-list buckets
                            (garbage left behind by repaired adjacency lists). Only present on a full-scope `FIX`.
 | `orphanedEdgeSegmentsReclaimed` | number of orphaned edge-list segments actually deleted by the `FIX`. Only present on a full-scope `FIX`.
