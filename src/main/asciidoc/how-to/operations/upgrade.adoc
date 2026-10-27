@@ -100,6 +100,15 @@ A database that exists but cannot serve now (an `overwrite` restore holds its na
 *Action:* none for most installations. See <<http-open-on-demand,Opening a database on demand>>.
 
 [discrete]
+====== 26.11.1 - A name that is not a database is the client's error, not a server fault
+
+A client that names a database the server does not have (a typo in the connection's database, or a database dropped while a connection still names it) used to be answered as a server fault by every protocol but HTTP and BOLT: SQLSTATE `XX000` for a statement on Postgres (`HV00Q` when the connection opened), status `INTERNAL` for gRPC, its admin calls included, an uncoded "Unknown error" for MongoDB, and the server logged it with a stack trace (issue #10795). It is now answered as the client's to correct: SQLSTATE `3D000` invalid_catalog_name for Postgres, the code PostgreSQL itself gives, status `NOT_FOUND` for gRPC (the Java gRPC client raises a `DatabaseNotFoundException`), error `26 NamespaceNotFound` for MongoDB, `Neo.ClientError.Database.DatabaseNotFound` for BOLT also when the database is lost under a statement, and `ERR Database '<name>' not found` for Redis, the reply its `SELECT` already gave. HTTP keeps its `404`.
+
+*Impact:* a Postgres client that matched `HV00Q` to detect a missing database now receives `3D000`. A gRPC client that read `INTERNAL` as a server fault now receives `NOT_FOUND`, and does not retry a request that can never succeed.
+
+*Action:* update any client code that matched the old codes.
+
+[discrete]
 ====== 26.11.1 - `-Darcadedb.profile=low-ram` keeps its 16MB page cache
 
 The profile given as a `-D` system property or as an environment variable (the way `server.sh`, the Docker image and Kubernetes configure it) set every one of its settings except `arcadedb.maxPageRAM`: the page cache stayed at its computed default, a quarter of the heap (issue #10446). Any other setting the profile lists that also has a computed default, such as `arcadedb.server.httpIoThreads` or `arcadedb.timeSeriesDecodedBlockCacheRAM`, lost its profile value too on a machine where the computed default differs. The first embedded database of a JVM also logged `Configuration profile PARTIALLY applied` for a profile that was set before any database was open.
