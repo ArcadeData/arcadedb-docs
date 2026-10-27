@@ -1429,7 +1429,7 @@ Where:
 - `language` is the query language used.
 is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
 - `command` the command to execute in encoded format
-- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
+- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 
 When using the `GET` variant the query needs to be URL encoded.
 
@@ -1558,7 +1558,7 @@ The payload, as a JSON, accepts the following parameters:
 - `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
 The completion of the command is noted in the log, yet no results of the command can be returned.
 - `limit` (optional) is the maximum number of results to return
-- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
+- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 - `retries` (optional), is the number of times the command (transaction) is retried. When omitted it follows the
 `arcadedb.txRetries` <<setting-database,database setting>> (3 by default), the same attempt count the embedded and
 the remote Java APIs take it from; up to v26.9.0 it was hard-coded to 1, so nothing was ever retried.
@@ -1681,6 +1681,30 @@ The gRPC service carries the same counters in the write-result summary of `Execu
 ==== Numbers and arrays in `params`
 
 Parameters keep the numbers as written: an integer beyond the `long` range, or a decimal with more than 17 significant digits, is read as a `DECIMAL` (`BigDecimal`) instead of being wrapped or rounded to a double. A number token with more than 1000 characters or an exponent beyond 1000 is refused with `400`. A JSON array given as a parameter is a list, as when the statement runs embedded: written to a `LIST` property it is stored as that list, and `[0.1, 3.141592653589793]` keeps both doubles. _(Since v26.10.1: before, such integers wrapped around and arrays with a fraction were narrowed to float32.)_
+
+[[http-positional-params]]
+===== Positional parameters
+
+`params` given as a JSON array (or as an object keyed `"0"`, `"1"`, ...) binds its values by position. With SQL their
+number must match the placeholders of the statement: each `?`, and each `:name` bound positionally, takes exactly one
+value (send `null` explicitly to bind a null), and in a `sqlscript` the placeholders of all its statements are counted
+together. A Postgres-style `$N` reads the value at position `N` and may leave lower positions unread. A request that
+does not match is refused with `400` before the statement runs (`CommandSQLParsingException`, the message names both
+counts). A list meant for one placeholder is one value, a nested array:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/query/school \
+       -d '{"language": "sql", "command": "select from Class where name in ?", "params": [["English", "Math"]]}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Named parameters (a JSON object with names as keys) are not counted. See also
+<<sql-positional-parameter-count,the Java API>>.
+
+NOTE: _(since v26.11.1)_ Before, a surplus value was silently dropped (`"params": ["English", "Math"]` with
+`where name in ?` answered only the `English` rows) and a missing value was bound to `null`.
 
 [[vector-http-typed-markers]]
 ===== Typed parameter markers (`$bytes`, `$int8`)

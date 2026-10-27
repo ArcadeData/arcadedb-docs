@@ -393,6 +393,24 @@ If the language supports prepared statements (SQL does), you can specify paramet
 
 It returns a `Resultset` object where the result can be iterated.
 
+[[sql-positional-parameter-count]]
+With SQL, the number of positional values must match the placeholders of the statement: each `?`, and each `:name`
+bound positionally, takes exactly one value (pass `null` explicitly to bind a null). In a `sqlscript` the placeholders
+of all its statements are counted together. A Postgres-style `$N` reads the value at position `N` and may leave lower
+positions unread. A call that does not match is refused before the statement runs with a `CommandSQLParsingException`
+whose message names both counts. A list meant for one placeholder, as in `WHERE @rid IN ?`, is passed as one value: a
+`List` or a Java array (`RID[]`, `int[]`, ...), which `IN ?` reads as the list of its elements. A parameter map (named
+parameters) is not counted. The same rule applies to `command()` and to the remote Java client.
+
+[source,java]
+----
+db.query("sql", "select from V where @rid in ?", List.of(rid1, rid2)); // one placeholder, one value
+db.query("sql", "select from V where @rid in ?", rid1, rid2);          // refused: 1 placeholder, 2 values
+----
+
+NOTE: _(since v26.11.1)_ Before, a surplus value was silently dropped (so `where @rid in ?` with two RIDs spread as
+two values answered one row) and a missing value was bound to `null`.
+
 Examples:
 
 Simple query:
@@ -481,7 +499,8 @@ Where:
 Only "SQL" is supported
 - `command`              is the command to execute.
 If the language supports prepared statements (SQL does), you can specify parameters by using `?` for positional replacement or by name by using `:<arg-name>`
-- `positionalParameters` optional variable array of parameters to execute with the query
+- `positionalParameters` optional variable array of parameters to execute with the query.
+With SQL their number must match the placeholders of the statement, see <<sql-positional-parameter-count,positional parameter count>> _(since v26.11.1)_
 
 It returns a `Resultset` object where the result can be iterated.
 

@@ -189,6 +189,16 @@ type Query {
 ResultSet resultSet = database.query("graphql", "{ books( where: \"name = 'Mr. brain'\" ) { name } }");
 ----
 
+When the field has other arguments, the `where` condition is one parenthesised operand of the `AND` that joins it to
+them, so `books(name: "Target", where: "pages > 100 or pages < 10")` returns only the books named `Target`, whatever the
+order of the arguments. The value must therefore be a complete SQL condition on its own: a text that closes and reopens
+parentheses (`"pages > 100) or (true"`), or that adds clauses such as `ORDER BY` or `LIMIT`, is refused with a parsing
+error.
+
+NOTE: _(since v26.11.1)_ Before, the `where` text was appended to the other conditions without parentheses, so an `OR`
+in it escaped the other arguments (the example above also returned books with other names), and a text balancing its
+own parentheses could reshape the generated query.
+
 WARNING: The `where` value is SQL and is used exactly as written, so it must be authored in the query, never built
 from end-user input.
 For this reason it cannot be filled from a <<graphql-variables,variable>>.
