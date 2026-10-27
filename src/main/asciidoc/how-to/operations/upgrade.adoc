@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - SQL refuses positional values that do not match the placeholders
+
+A call that binds positional values (`query`/`command` with `Object...` for `sql` and `sqlscript`, the HTTP `params` given as a JSON array or as an object keyed `"0"`, `"1"`, ..., and the remote Java client) dropped a value no placeholder read and bound a placeholder with no value to `null`, without a word. A list spread into several values for one `IN ?` answered fewer rows than the caller meant. The values are now counted against the placeholders before the statement runs, and a mismatch is refused with a `CommandSQLParsingException` (HTTP 400) that names both counts (issue #10721). Each `?` and each positionally bound `:name` takes exactly one value, a script counts the placeholders of all its statements, and a Postgres-style `$N` may leave lower positions unread. Values bound by name (a map) are not counted.
+
+*Impact:* code that passed a surplus value, or relied on a missing value being bound to `null`, fails where it used to answer.
+
+*Action:* pass one value per placeholder, `null` included, and a list meant for one `IN ?` as one value (a `List` or a Java array). See <<http-positional-params,positional parameters over HTTP>>.
+
+[discrete]
 ====== 26.11.1 - A plain `CHECK DATABASE FIX` relinks orphan edge records
 
 An orphan edge record, whose `@out` and `@in` are live vertices but that no vertex's edge list references, is reported as `ORPHAN RECORD` under `unreachableEdgeRecords`. A plain `CHECK DATABASE FIX` left it untouched, and only `FIX DELETE ORPHANS` repaired it, by deleting it. It now relinks it into the outgoing list of its `@out` vertex and, for a bidirectional edge type, the incoming list of its `@in` vertex (issue #10741). The result counts them under `relinkedOrphanEdgeRecords`. The usual source is a `GraphBatch` whose process died before `close()`, and `CHECK DATABASE FIX` is now the supported recovery for it.
