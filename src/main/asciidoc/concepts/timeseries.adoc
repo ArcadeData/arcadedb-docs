@@ -1288,7 +1288,19 @@ This returns name, query, source type, bucket column, bucket interval, watermark
 `watermarkSet` tells a watermark of `0` that has actually been reached -- an aggregate whose newest bucket is the epoch -- apart from an aggregate that has never been refreshed, which reports `0` as well.
 
 The watermark is the bucket boundary of the newest row the last refresh produced.
-Each refresh deletes the backing rows at or after it and recomputes them from the source, so the incomplete bucket that was open when the previous refresh ran is always rebuilt rather than duplicated.
+Each refresh recomputes the buckets at or after it from the source and replaces the backing rows of those buckets, so the incomplete bucket that was open when the previous refresh ran is always rebuilt rather than duplicated.
+A recomputed row is written over the row of its own bucket, in place, rather than deleted and inserted again.
+
+The backing type is indexed on its bucket column (a `DATETIME` property with a `NOTUNIQUE` index), so a refresh reads only the rows of the buckets it replaces and the same index serves a range query on the aggregate (`SELECT FROM hourly_temps WHERE hour >= ...`). _(Since v26.11.1.)_
+An aggregate created by an earlier version has no such index, and its refresh reads every row the aggregate holds: with 100,000 rows that is about 400 times the cost of the `INSERT` that triggers it. The database names each one in a warning when it opens, with the statements that index it, for example:
+
+[source,sql]
+----
+CREATE PROPERTY `hourly_temps`.`hour` DATETIME;
+CREATE INDEX ON `hourly_temps` (`hour`) NOTUNIQUE
+----
+
+An index the bucket column leads (`(hour, sensor_id)`) serves as well.
 A defining query may carry its own `WHERE` clause, including a disjunction: the watermark filter is added as a separate conjunct around it, so `WHERE a OR b` keeps meaning `ts >= watermark AND (a OR b)`.
 
 The watermark only reaches forward, so a bucket behind it is not recomputed by the refresh that follows an insert. `DELETE FROM` and `TRUNCATE TYPE` on the source type make up for it: they record, on every aggregate over the type, the time range they removed samples from, and the next refresh recomputes the buckets that range reaches and only those. The buckets behind the range, and the ones between it and the watermark, are not touched. The record is part of the definition of the aggregate in the schema, so it survives a restart, and under HA it is shipped to the followers in the replication unit of the delete. A bucket is found among the rows the aggregate holds, so the grid of the aggregate (an `origin`, an `offset` or a `timezone` given to `ts.timeBucket()`) needs no special care. A delete that removes nothing records nothing. Deletes that come before the next refresh runs are merged into one range, so two deletes far apart in time recompute the buckets between them too. A sample written with a timestamp behind the watermark, and the `RETENTION` of the source type, do not change the buckets that are already computed.
