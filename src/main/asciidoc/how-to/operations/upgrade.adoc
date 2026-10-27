@@ -201,11 +201,29 @@ A gRPC `BeginTransaction` that asks for `SERIALIZABLE` isolation is now refused 
 *Action:* ask for `REPEATABLE_READ`, the strongest level the engine provides. See <<transactions,Transactions>>.
 
 [discrete]
+====== 26.11.1 - A database an `overwrite` restore replaces refuses writes until the restore ends
+
+While `restore backup ... overwrite` downloads and extracts the backup, the database it replaces stays open for reads and refuses every write, on every protocol, including connections and transactions opened before the restore started (issue #10689). The write is answered as "not available": `57P03` for Postgres, `DatabaseUnavailable` for BOLT, `UNAVAILABLE` for gRPC. A database setting change is refused the same way. The restore first waits for the commits already running. Before, such writes were acknowledged and then lost when the restored copy replaced the database.
+
+*Impact:* an application writing to a database while it is restored now gets an error instead of a success that is silently lost. Reads are unchanged until the swap. When the restore fails, writes are accepted again.
+
+*Action:* none for most installations. Retry the writes after the restore ends.
+
+[discrete]
+====== 26.11.1 - BOLT: a message sent out of turn fails the connection until `RESET`
+
+A BOLT connection that receives a message its current state does not allow, for example a second `HELLO` on an authenticated connection, now answers with a protocol error and moves to the failed state, as it already did for `RUN`, `PULL` or `COMMIT` sent out of turn (issue #10771). Until the client sends `RESET`, every request is answered `IGNORED`, `HELLO` and `LOGON` included. Before, `HELLO` and `LOGON` answered the error but left the connection serving, and answered an error instead of `IGNORED` on a failed connection.
+
+*Impact:* none for the Neo4j drivers, which never send these messages out of turn. A hand-written client that did must send `RESET` after the error.
+
+*Action:* none for most installations.
+
+[discrete]
 ====== 26.11.1 - Postgres, Bolt, gRPC, Redis, MongoDB, MCP and Gremlin clients no longer open a database a restore holds or `close database` closed
 
 These protocols resolved the database a client names through the server's own entry point, which sees past the marks an operator puts on a name, so a connection could open the copy an `overwrite` restore was about to replace, or a database closed for a cold backup (issue #10533). They now resolve it through the entry point HTTP uses, and the client is told that the database is not available.
 
-*Impact:* a connection that names such a database while the restore runs, or after `close database` and before `open database`, is refused instead of opening it. A database that is already open is served as before, and a restore that targets a name nobody has open no longer loses the writes a client made to the copy it replaces.
+*Impact:* a connection that names such a database while the restore runs, or after `close database` and before `open database`, is refused instead of opening it. A database that is already open is served for reads as before and refuses writes while the restore runs (see the note above), and a restore that targets a name nobody has open no longer loses the writes a client made to the copy it replaces.
 
 *Action:* none for most installations. Retry the connection once the restore ends, or run `open database` after the cold backup.
 

@@ -654,7 +654,10 @@ an engine error category of its own, `UNAVAILABLE`, so that none of them reports
 database is held is refused the same way, and not kept as a plain key of the connection. _(Since v26.11.1: before, these protocols
 opened it, so a cold backup copied a database that was open and being written to, and the writes a client made during an `overwrite`
 restore were acknowledged and then discarded when the restored copy replaced the database, issue #10533.)_ A database that is already
-open is served as before. A name that is not a database at all is the client's to correct, and every protocol says so rather than
+open keeps serving reads while an `overwrite` restore replaces it, and refuses every write until the restore ends, on every protocol
+and also on a connection opened before the restore started: the write is answered as "not available", with the codes above, and a
+database setting change is refused the same way. The restore first waits for the commits already running. _(Since v26.11.1: before,
+those writes were acknowledged and then lost with the database the restore replaced, issue #10689.)_ A name that is not a database at all is the client's to correct, and every protocol says so rather than
 reporting a server fault: SQLSTATE `3D000` for Postgres, status `NOT_FOUND` for gRPC, `Neo.ClientError.Database.DatabaseNotFound`
 for BOLT, error `26 NamespaceNotFound` for MongoDB, `ERR Database '<name>' not found` for Redis, `404` for HTTP (an engine error
 category of its own, `DATABASE_NOT_FOUND`, since v26.11.1, issue #10795). A connection that keeps naming a database across a
