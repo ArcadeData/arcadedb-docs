@@ -513,6 +513,71 @@ SELECT vector.dequantizebinary(vector.quantizebinary([0.1, 0.5, 0.9]))
 
 ===== Scoring and Fusion
 
+[[vector-fuse-ext]]
+====== vector.fuse()
+
+Fuses the ranked rows of two or more sources into one ranking, server-side. See <<hybrid-search,Hybrid Search with `vector.fuse`>> for the strategies and worked examples.
+
+*Syntax:* `vector.fuse(<source1>, <source2>, ... [, { <option>: <value>, ... }])`
+
+*Parameters:*
+
+* `source` - At least two. Each is a list of rows carrying a `@rid`: the output of `vector.neighbors` or `vector.sparseNeighbors`, a sub-SELECT such as `(SELECT @rid, $score FROM Doc WHERE SEARCH_INDEX('Doc[content]', :q) = true LIMIT 100)`, or `SEARCH_INDEX('Doc[content]', :q)` passed directly.
+
+*Options map:*
+
+[%header,cols="1,1,3"]
+|===
+| Key | Type | Description
+| `fusion` | String | `RRF` (default), `DBSF` or `LINEAR`.
+| `k` | Integer | RRF constant. Defaults to `60`.
+| `weights` | List of numbers | One weight per source. Defaults to `1.0` for each.
+| `groupBy` | String | Keeps at most `groupSize` rows per value of this property.
+| `groupSize` | Integer | Rows per group when `groupBy` is set. Defaults to `1`.
+| `limit` | Integer | Maximum number of rows returned. Defaults to no limit: every fused candidate is returned, and loaded.
+|===
+
+*Returns:* List - One row per fused record, with its properties and the fused `score`, best first.
+
+Every row of every source is fused, and without `limit` every fused candidate is then loaded, so the cost grows with the number of rows the sources produce.
+A full-text leg without a `LIMIT` produces one row per match, so the query gets slower as the full-text match count grows, whatever `k` the other legs use.
+Bound both, as shown in <<hybrid-search-bounded,Bounding the cost of a full-text leg>>.
+
+Since 26.11.1, `SEARCH_INDEX(...)` passed directly as a source carries the score of each match, so `fusion: 'DBSF'` and `'LINEAR'` accept a full-text leg written that way (before, they refused it for lack of a score).
+
+'''
+
+[[vector-rerank-ext]]
+====== vector.rerank()
+
+Re-scores the candidates of a first, cheaper search on full-precision vectors and returns the best `k`: the "prefetch and rerank" pattern.
+The first stage can use a lossy index (`BINARY`, `PRODUCT`, sparse, full-text) with a high over-fetch, since the rerank corrects its ranking.
+
+*Syntax:* `vector.rerank(<source>, <query-vector>, <embedding-property>, <k>)`
+
+*Parameters:*
+
+* `source` - The candidate rows: the output of `vector.neighbors`, `vector.fuse`, or a sub-SELECT returning records.
+* `query-vector` - The full-precision query vector.
+* `embedding-property` - The property holding each candidate's full-precision vector. A candidate without it, or whose record no longer exists, is skipped. A vector whose dimension differs from the query's is an error.
+* `k` - Number of rows to return.
+
+*Returns:* List - The `k` candidates with the highest cosine similarity to the query vector, as a `score`, best first.
+
+[source,sql]
+----
+SELECT expand(`vector.rerank`(
+    `vector.neighbors`('Doc[binary_embedding]', :qBinary, 1000),
+    :qFull,
+    'embedding',
+    100))
+----
+
+Since 26.11.1, a candidate row that already carries its record (the rows of `vector.fuse`, `vector.neighbors` and a plain `SELECT` do) is scored on that record without being reloaded, and only the best `k` candidates are kept while scanning.
+The cost still includes reading the embedding of every candidate, so bound the source (`k` of `vector.neighbors`, `limit` of `vector.fuse`) to the number of candidates worth re-scoring.
+
+'''
+
 [[vector-hybridscore-ext]]
 ====== vector.hybridscore()
 

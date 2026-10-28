@@ -37,6 +37,35 @@ The two architectures use different base images: the `linux/amd64` binary is ful
 The archive contains a single executable with the same name as the archive, minus the extension (`.exe` on Windows).
 Studio and the configuration templates are embedded in it.
 
+[[native-image-cpu-requirements]]
+===== CPU Requirements
+
+A native binary is compiled for one CPU baseline and starts only on a CPU that has every feature of it.
+The published images and release archives use the GraalVM defaults:
+
+[%header,cols="2,1,3,3"]
+|===
+| Architecture | Baseline | Required CPU features | Excludes, for example
+| amd64 (Linux, Windows) | `x86-64-v3` | AVX, AVX2, BMI1, BMI2, FMA, F16C, LZCNT, MOVBE | Intel before Haswell (2013), AMD before Excavator, Atom, Celeron and Pentium parts without AVX, and VMs whose CPU model hides AVX2 (the QEMU default `qemu64`, the Proxmox defaults `x86-64-v2-AES` and `kvm64`)
+| arm64 (Linux, macOS Apple Silicon) | `armv8.1-a` | ASIMD, CRC32, LSE atomics | ARMv8.0 cores such as the Cortex-A53 and A72 (Raspberry Pi 3 and 4)
+|===
+
+On an older CPU the binary exits as soon as it starts, with:
+
+----
+The current machine does not support all of the following CPU features that are required by the image: [...].
+Please rebuild the executable with an appropriate setting of the -march option.
+----
+
+To check a Linux amd64 host, run `/lib64/ld-linux-x86-64.so.2 --help`: on glibc 2.33 and later it lists `x86-64-v3 (supported, searched)` when the CPU qualifies.
+Otherwise look for the `avx2`, `bmi2` and `fma` flags in `/proc/cpuinfo`.
+In a VM, expose the host CPU (`-cpu host` in QEMU, CPU type `host` in Proxmox) or a model that supports `x86-64-v3`.
+
+If the CPU does not qualify, either:
+
+* run the JVM image (`arcadedata/arcadedb:<version>`) or the JVM distribution, whose JIT compiles for the CPU it runs on, or
+* build a native binary for a lower baseline with `-Dnative.march=compatibility`, which runs on any x86-64 or ARMv8 CPU (see <<native-image-build>>).
+
 ===== Running the Native Server
 
 Run the executable directly, passing settings as `-D` arguments exactly as you would pass them to the JVM:
@@ -112,6 +141,7 @@ Do not expose the native image's JavaScript surface to untrusted users in a shar
 The CA bundle copied into the Docker images serves only code paths that read the operating system's bundle explicitly; it does not change the trust anchors baked into the binary.
 * *Size.* The executable is large, around 907 MiB on macOS ARM64, because every classpath resource, including the Studio assets, is embedded in it.
 
+[[native-image-build]]
 ===== Building the Native Image Yourself
 
 Most users should download a published binary or image.
@@ -124,6 +154,19 @@ Two scripts in the ArcadeDB source tree build one.
 ./native/scripts/build-native.sh               # binary for the current platform
 ./native/scripts/build-native-docker.sh        # Linux Docker image for the current architecture
 ----
+
+By default the build targets the baseline of the published binaries (see <<native-image-cpu-requirements>>).
+To build for an older CPU, lower it: `compatibility` runs on any x86-64 or ARMv8 CPU, and `x86-64-v2` (amd64 only) needs SSE4.2 and POPCNT but no AVX.
+A lower baseline gives up the AVX2, FMA and BMI2 (or LSE) code of the default build.
+
+[source,bash]
+----
+./native/scripts/build-native.sh -- -Dnative.march=compatibility
+./native/scripts/build-native-docker.sh --march compatibility
+mvn -Pnative -pl native -am -DskipTests -Dnative.march=compatibility package
+----
+
+Do not distribute a binary built with `-march=native`: it requires every feature of the CPU that built it.
 
 Native Image cannot cross-compile: each build produces a binary for the platform it runs on, and `build-native-docker.sh` builds the Linux binary inside a container so it also works on macOS.
 The build is memory hungry. `build-native-docker.sh` requires a Docker VM with about 16 GiB of memory, and for a local `build-native.sh` you can set the builder heap with `NATIVE_IMAGE_OPTIONS="-J-Xmx24g"` if the default runs out of memory.
