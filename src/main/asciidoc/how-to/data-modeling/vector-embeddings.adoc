@@ -38,7 +38,7 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 }
 ----
 
-INT8 quantization is recommended for all production workloads. It provides 2.5x faster search and 4x lower memory usage with negligible accuracy loss (see <<quantization-performance>>). Only omit quantization for very small datasets (< 10K vectors) where maximum precision matters.
+INT8 quantization is recommended for all production workloads. It provides 4x lower memory usage with negligible accuracy loss, and it reads vectors from index pages instead of documents, which usually lowers search latency; how much depends on the data and the recall target (see <<quantization-performance>>). Only omit quantization for very small datasets (< 10K vectors) where maximum precision matters.
 
 Production-ready index with additional tuning:
 
@@ -66,7 +66,7 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 
 ===== Quantization Trade-offs
 
-Use INT8 quantization for most use cases. It provides 4x memory savings with minimal accuracy loss and significantly faster ingestion and search:
+Use INT8 quantization for most use cases. It provides 4x memory savings with minimal accuracy loss and usually lower search latency (see <<quantization-performance>>):
 
 * **< 10K vectors**: `NONE` is fine, but `INT8` works well too
 * **10K - 1M vectors**: Use `INT8` (4x memory savings, < 2% accuracy loss) -- **recommended**
@@ -304,7 +304,7 @@ CREATE VERTEX Document SET content = 'Second document', embedding = [0.3, 0.4, .
 COMMIT
 ----
 
-TIP: For large bulk loads, increase `mutationsBeforeRebuild` to delay index rebuilds until after the load completes, then trigger a rebuild.
+TIP: For a large load through SQL or the record API, increase `mutationsBeforeRebuild` and `inactivityRebuildTimeoutMs` so the graph is not rebuilt part-way (a pause longer than `inactivityRebuildTimeoutMs`, 15 seconds by default, can trigger a rebuild whatever `mutationsBeforeRebuild` is), then run <<sql-rebuild-index,`REBUILD INDEX`>> once the load is finished, for example `+REBUILD INDEX `Document[embedding]`+`. `GraphBatch` loads need neither.
 
 NOTE: Since v26.10.1 a bulk load through `GraphBatch` - which is what `GraphImporter`, the `arcadedb-integration`
 importers and the HTTP batch endpoint use - needs none of that tuning. ArcadeDB holds the automatic graph rebuild off

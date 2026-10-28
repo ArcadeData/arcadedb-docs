@@ -355,7 +355,7 @@ this, so a later conflict on the same worker never re-applies those writes and n
 [[asynccreate]]
 ====== createRecord(record, newRecordCallback [,errorCallback])
 
-Create a record in async way. Once the record is created in the database, the callback will be executed.
+Create a record in async way. Once the record is applied to the worker's current batch, the callback will be executed. This is not yet durable: if a later operation in the same batch fails, the whole batch rolls back, and the record with it, even though the callback already fired. For a signal that fires only once the batch has committed, register <<asynconok,`onOk()`>> on the executor or call `waitCompletion()`.
 This method returns immediately.
 The result can be managed in the NewRecordCallback callback and errors in ErrorCallback callback.
 
@@ -385,7 +385,7 @@ database.async().createRecord(vertex,
 [[asyncupdate]]
 ====== updateRecord(record, updateRecordCallback [,errorCallback])
 
-Updates a record in async way. Once the record is updated in the database, the callback will be executed.
+Updates a record in async way. Once the update is applied to the worker's current batch, the callback will be executed. This is not yet durable: if a later operation in the same batch fails, the whole batch rolls back, and the update with it, even though the callback already fired. For a signal that fires only once the batch has committed, register <<asynconok,`onOk()`>> on the executor or call `waitCompletion()`.
 This method returns immediately.
 The result can be managed in the UpdatedRecordCallback callback and errors in ErrorCallback callback.
 
@@ -414,7 +414,7 @@ database.async().updateRecord(vertex,
 [[asyncdelete]]
 ====== deleteRecord(record, deleteRecordCallback [,errorCallback])
 
-Deletes a record in async way. Once the record is deleted from the database, the callback will be executed.
+Deletes a record in async way. Once the delete is applied to the worker's current batch, the callback will be executed. This is not yet durable: if a later operation in the same batch fails, the whole batch rolls back, and the delete with it, even though the callback already fired. For a signal that fires only once the batch has committed, register <<asynconok,`onOk()`>> on the executor or call `waitCompletion()`.
 This method returns immediately.
 The result can be managed in the DeletedRecordCallback callback and errors in ErrorCallback callback.
 
@@ -437,3 +437,31 @@ Example on inserting a vertex asynchronously.
 database.async().deleteRecord(vertex,
                               v -> { System.out.println("Record " + v.toJSON() + " updated") });
 ```
+
+'''
+
+[[asynconok]]
+====== onOk( okCallback )
+
+Registers a global callback that fires every time a worker's batch transaction has committed: at each `setCommitEvery()` boundary, when a durability setting (<<asyncdurability,`setTransactionUseWAL()` and `setTransactionSync()`>>) changes mid-batch, and when `waitCompletion()` commits the pending batches. This is the durability signal for `createRecord()`, `updateRecord()` and `deleteRecord()`: their own callbacks fire as soon as the write is applied to the worker's current batch, which a later failure in the same batch can still roll back.
+
+Syntax:
+
+```java
+void onOk(final OkCallback callback)
+```
+
+Example:
+
+```java
+final AtomicLong commits = new AtomicLong();
+database.async().onOk(() -> commits.incrementAndGet());
+
+database.async().createRecord(vertex,
+                              v -> { System.out.println("Record " + v.toJSON() + " applied, not yet durable"); });
+database.async().waitCompletion();
+```
+
+The callback is not tied to one record: it tells you a batch has committed, not which records were in it. Each worker commits on its own, so the callback runs on the committing worker's thread, possibly from several threads at once. It must be thread-safe and cheap, because a slow callback slows that worker down. A worker also calls it on shutdown even when it had nothing left to commit, so a call at shutdown is not proof that a particular write became durable at that moment.
+
+NOTE: "Committed" here means durable in the write-ahead log and safe to replay on the next open. With the default `setTransactionSync(NO)` there is no `fsync` at that point, so the write can still be lost to a power loss or an operating system crash (not to a JVM crash or restart). Set `setTransactionSync(YES_NOMETADATA)` or `YES_FULL` if you need that guarantee; the timing of this callback does not change with it.

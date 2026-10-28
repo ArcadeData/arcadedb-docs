@@ -95,6 +95,7 @@ NAV_STRUCTURE: list[dict] = [
                 # The group labels carry no URL because there is no per-language
                 # landing page to point them at (Java has one; Python, JS and Go do not).
                 ("Python", [
+                    ("how-to/connectivity/python-embedded.adoc", "Embedded bindings"),
                     ("how-to/connectivity/drivers/python-http.adoc", "Native driver — HTTP"),
                     ("how-to/connectivity/drivers/python-grpc.adoc", "Native driver — gRPC"),
                     ("tutorials/python-quickstart.adoc", "PostgreSQL protocol"),
