@@ -249,6 +249,12 @@ A subscription is not permanent. Starting from v26.9.1, the server re-checks on 
 user is still allowed to read the database: if that access is revoked, or the user is deleted, the subscription is
 dropped and the connection closed instead of continuing to stream.
 
+A subscription is to the database NAME. Starting from v26.11.1, it follows the database the server serves under that name: after
+`close database` and `open database`, a restore, an HA snapshot install, or a drop followed by a create of the same name, the
+existing subscribers receive the changes of the database opened again, with no new `subscribe`. While the database is closed,
+nothing is sent. Before v26.11.1 a subscription made before a `close database` stayed silent after the `open database`, and so did
+every new one, until the last subscriber of the name had left.
+
 A subscriber is also expected to keep reading. Events are sent asynchronously, so a client that stops consuming
 them accumulates unsent frames in the server's memory. Once more than `server.eventBusMaxPendingBytes` (16 MB by
 default) is outstanding towards one connection, that subscription is dropped and the connection closed. Set it to
