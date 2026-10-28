@@ -1,0 +1,106 @@
+[[python-embedded]]
+==== Python -- Embedded Bindings
+
+The embedded bindings run the ArcadeDB engine inside your Python process, so there is no network hop and no server to start. They ship as two packages, and both import as `arcadedb`:
+
+* `arcadedb`, the default: the engine built as a GraalVM native-image library. It needs no Java and no JPype, starts fast and holds little memory.
+* `arcadedb-jvm`: the engine on a Java runtime that the wheel bundles, reached through https://jpype.readthedocs.io/[JPype]. Pick it for heavy, long-running loads, where the JIT compiler pays off, or when you need the Java-object APIs.
+
+Install one of them, not both. With both installed, `import arcadedb` raises an `ImportError` that names the two.
+
+The bindings live in the https://github.com/ArcadeData/arcadedb-python[ArcadeData/arcadedb-python] repository. This page covers the first steps; the repository holds the full guides and the API reference.
+
+===== Install
+
+With https://docs.astral.sh/uv/[uv]:
+
+[source,shell]
+----
+uv add arcadedb
+----
+
+For the JVM build, install `arcadedb-jvm` instead.
+
+Both packages support Python 3.11 to 3.14, and `arcadedb` also supports 3.15. Wheels exist for Linux x86_64 and ARM64 (glibc 2.28 or later), macOS on Apple Silicon, and Windows x86_64.
+
+NOTE: The first release under these names is 26.11.1. Until it ships, PyPI holds pre-releases (`26.11.1.devN`), which a plain install picks up. The packages were formerly `arcadedb-embedded` (now `arcadedb-jvm`, the same build) and `arcadedb-embedded-native` (now `arcadedb`). A last `arcadedb-embedded` release will install `arcadedb`.
+
+===== Open a database and query it
+
+[source,python]
+----
+import arcadedb
+
+with arcadedb.create_database("./mydb") as db:
+    db.command("sql", "CREATE VERTEX TYPE Person")
+    db.command("sql", "CREATE PROPERTY Person.name STRING")
+    db.command("sql", "CREATE PROPERTY Person.age INTEGER")
+
+    with db.transaction():
+        db.command("sql", "INSERT INTO Person SET name = ?, age = ?", "Alice", 30)
+        db.command("sql", "INSERT INTO Person SET name = ?, age = ?", "Bob", 25)
+
+    for row in db.query("sql", "SELECT name, age FROM Person WHERE age > ?", 26):
+        print(row.get("name"), row.get("age"))
+----
+
+[source,text]
+----
+Alice 30
+----
+
+Reopen the same directory later with `arcadedb.open_database("./mydb")`. `create_database` raises if the path already holds a database. Pass `read_only=True` to `open_database` to refuse writes.
+
+Queries in other languages use the same two calls, for example openCypher:
+
+[source,python]
+----
+with arcadedb.open_database("./mydb") as db:
+    for row in db.query("opencypher", "MATCH (p:Person) RETURN p.name AS name ORDER BY name"):
+        print(row.get("name"))
+----
+
+[source,text]
+----
+Alice
+Bob
+----
+
+TIP: Schema, inserts and graph work are best written as SQL or openCypher through `db.command(...)` and `db.query(...)`. The bindings also expose wrapper objects for the rest of the Java API; the repository documents them.
+
+NOTE: *Writes need a transaction.* `INSERT`, `UPDATE` and `DELETE` go inside `with db.transaction():`. Schema statements apply immediately.
+
+===== Pick the embedded bindings or the HTTP driver
+
+[cols="1,2,2"]
+|===
+| | Embedded bindings | HTTP driver (`arcadedb-driver`)
+
+| Where the engine runs
+| In your Python process
+| In a separate ArcadeDB server
+
+| Who can reach the data
+| One process at a time: the database directory is locked while it is open
+| Any number of clients, local or remote
+
+| Network round trip
+| None
+| One per call
+
+| Setup
+| `uv add arcadedb`
+| A running server, plus `uv add arcadedb-driver`
+|===
+
+Choose the embedded bindings for a single script, a notebook, or an application with one Python process that owns its data. Several threads of one process can share a database.
+
+Choose the xref:how-to/connectivity/drivers/python-http.adoc[HTTP driver] when more than one process, another language, or a remote machine must reach the same database, or when the server must outlive your Python process.
+
+You can also combine the two. The bindings can start an in-process HTTP server (`arcadedb.create_server(...)`), so the process that owns the database keeps direct access while other clients connect over HTTP. That server lives and dies with your Python process. For a long-running service, run the regular ArcadeDB server instead.
+
+===== Where to go next
+
+* https://github.com/ArcadeData/arcadedb-python[Bindings repository]: guides for vectors, graphs, time series, import and server mode, plus the API reference and examples.
+* xref:how-to/connectivity/drivers/native-drivers.adoc[Native drivers]: the HTTP and gRPC clients, if you would rather talk to a server.
+* xref:tutorials/python-quickstart.adoc[Python quickstart]: the PostgreSQL wire protocol route.
