@@ -38,7 +38,7 @@ CREATE INDEX ON Document (embedding) LSM_VECTOR METADATA {
 };
 ----
 
-TIP: INT8 quantization is recommended for production use. It stores vectors in compact index pages instead of full documents, providing 2.5x faster search and 4x lower memory usage with negligible accuracy loss. See <<quantization-performance>> for benchmarks.
+TIP: INT8 quantization is recommended for production use. It stores vectors in compact index pages instead of full documents, providing 4x lower memory usage with negligible accuracy loss and usually lower search latency; the latency gain depends on the data and the recall target. See <<quantization-performance>>.
 
 ====== Configuring Similarity Functions
 
@@ -83,7 +83,7 @@ For large-scale deployments, tune performance parameters:
 CREATE INDEX ON VectorVertex (embedding) LSM_VECTOR METADATA {
   "dimensions": 1024,
   "similarity": "COSINE",
-  "quantization": "INT8",            -- 2.5x faster search, 4x less memory (recommended)
+  "quantization": "INT8",            -- 4x less memory, usually lower latency (recommended)
   "maxConnections": 32,              -- Higher values improve recall but increase memory
   "beamWidth": 200,                  -- Higher values improve accuracy but reduce speed
   "neighborOverflowFactor": 1.2,     -- Candidate neighbor pool multiplier (default: 1.2)
@@ -728,11 +728,11 @@ The graph file does not store the PQ codes of each node's neighbors (jvector Fus
 
 ====== Performance and Accuracy Comparison
 
-The table below shows benchmark results for 100,000 vectors with 384 dimensions using COSINE similarity:
+The table below compares memory and recall for 100,000 vectors with 384 dimensions using COSINE similarity. Search latency depends on the data and the recall target, so the table gives it relative to NONE only:
 
 [cols="2,1,1,1,1,2", options="header"]
 |===
-|Quantization |Memory Usage |Search Speed |Recall@10 |Recall@100 |Recommended Use Case
+|Quantization |Memory Usage |Search Latency |Recall@10 |Recall@100 |Recommended Use Case
 
 |*NONE* (baseline)
 |1.0x (156 MB)
@@ -743,14 +743,14 @@ The table below shows benchmark results for 100,000 vectors with 384 dimensions 
 
 |*INT8*
 |0.25x (39 MB)
-|10-15% faster
+|Lower than NONE
 |95-98%
 |98-99%
 |**Recommended for most production use cases**
 
 |*BINARY*
 |0.03x (5 MB)
-|15-20% faster
+|Lower than NONE
 |85-92%
 |90-95%
 |Memory severely constrained, approximate search acceptable
@@ -784,7 +784,7 @@ Where `bytesPerDim` = 4 (NONE), 1 (INT8), or 0.125 (BINARY)
 
 INT8 quantization is the **recommended default** for most production workloads. It provides:
 - 4x memory reduction
-- 10-15% faster searches (better CPU cache utilization)
+- Usually lower search latency, because vectors are read from compact index pages instead of documents (the gain depends on the data and the recall target)
 - 95-98% recall (excellent for most applications)
 - Transparent operation (no query changes needed)
 
