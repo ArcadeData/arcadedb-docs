@@ -73,6 +73,12 @@ Trailing fields are optional, so `host`, `host:raftPort`, `host:raftPort:httpPor
 
 TIP: Prefer the object form when an entry specifies a priority or an HTTPS port - it is far easier to read `db1:{raft:2434,http:2480,https:2490,priority:10}` than `db1:2434:2480:10:2490`.
 
+*IPv6 hosts*::
+In both forms an IPv6 host is written in brackets, and keeps them in every address derived from it: `[fd00::1]:2434:2480` or `[fd00::1]:{raft:2434,http:2480}`. An unbracketed IPv6 literal (`fd00::1:2434`) is refused, because its port cannot be told apart from the address. The Raft peer and the inbound gRPC peer allowlist read the host of an entry the same way, so both resolve `fd00::1` from either form. _(Since v26.11.1: the positional form used to split a bracketed host on its colons, giving the Raft peer a broken address while the allowlist resolved the right host.)_
+
+*Port validation*::
+Every port of an entry (`raft`, `http`, `https`, `bolt`, `grpc`) must be a number between 1 and 65535, and a node refuses to start on an entry that breaks this, naming the field and the entry: for example `Invalid raft port value 'abc' in peer address 'db1:abc'`. An empty field, such as a trailing `:`, is refused too. _(Since v26.11.1: a non-numeric or out-of-range port in the positional form was accepted, and failed later, when the peer was dialled, with a message naming the host instead of the port.)_
+
 The following two entries are equivalent:
 
 [source,shell]
@@ -942,7 +948,7 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/leave`
-|Gracefully remove this server from the cluster. If the local server is the leader, leadership is transferred first. This endpoint is used by the Kubernetes `preStop` hook.
+|Gracefully remove this server from the cluster. If the local server is the leader, leadership is transferred first. This endpoint is used by the Kubernetes `preStop` hook. Like `DELETE /api/v1/cluster/peer/{peerId}`, it is computed against the committed Raft configuration: while this server's Raft server is starting or restarting and cannot read it, both answer at once that the configuration cannot be read and to retry in a moment. _(Since v26.11.1: during that window both used the declared `arcadedb.ha.serverList` instead, and waited out `arcadedb.ha.membershipChangeTimeout` (90 s) before reporting a missing leader.)_
 
 |POST
 |`/api/v1/cluster/verify/{database}`
