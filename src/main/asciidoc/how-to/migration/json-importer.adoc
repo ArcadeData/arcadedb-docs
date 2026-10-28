@@ -4,6 +4,15 @@
 ArcadeDB is able to import data from JSON format.
 Thanks to the flexible mapping, it's possible to define the rules of conversion between the input json file and the graph.
 
+Without a `mapping`, a JSON source is imported as plain documents of the type set by `documentType` (default
+`Document`): a single top-level object becomes one document, and a top-level array becomes one document per object
+in it, each committed in its own transaction so that `onRowError = skip` can discard one without the others. An array
+entry that is not an object is refused, naming its position. Numbers keep their exact value: an integer is stored as a
+LONG (a DECIMAL when it does not fit a LONG) and any other number as a DOUBLE. _(Since v26.11.1: a top-level array was
+not recognised as JSON at all - a one-line array was imported as a CSV file holding nothing and the import reported
+success - and every number was stored as a DOUBLE, so `42` became `42.0` and `9007199254740993` became
+`9007199254740992`.)_
+
 Let's start from this simple JSON file to import as an example. The file contains a flat structure of records with a relationship of employee and manager:
 
 ```json
@@ -69,8 +78,9 @@ If the type doesn't exist, it's implicitly created during the import
 * `@id`: is the property that works as primary key. if not already defined, a unique index is created on the configured `@id` property
 * `@idType`: is the type of the primary key in the `@id` property.
 If not defined, the type is taken from the first value found.
-In case of numbers, the JSON parser always uses DOUBLE as a type.
-You can, for example, use LONG to force using LONG instead of DOUBLE
+A JSON number is read as the value it spells: an integer as LONG (or DECIMAL when it does not fit a LONG), any other
+number as DOUBLE. You can, for example, use `@idType` DOUBLE to force a DOUBLE key anyway _(Since v26.11.1: every
+number was read as a DOUBLE, so an integer key was declared DOUBLE and an integer above 2^53^ lost its last digits)_
 * `@cardinality`: if "no-duplicates", the edges are not created if there is an edge of the same type between the two vertices
 * `@strategy`: represents the strategy to use when the record with the configured `@id` already exists By default the existent record is used, but the "merge" strategy allows to merge the current record with the existent one.
 The current properties will overwrite the existent ones
@@ -153,8 +163,9 @@ If the type doesn't exist, it's implicitly created during the import
 * `@id`: is the property that works as primary key. if not already defined, a unique index is created on the configured `@id` property
 * `@idType`: is the type of the primary key in the `@id` property.
 If not defined, the type is taken from the first value found.
-In case of numbers, the JSON parser always uses DOUBLE as a type.
-You can, for example, use LONG to force using LONG instead of DOUBLE
+A JSON number is read as the value it spells: an integer as LONG (or DECIMAL when it does not fit a LONG), any other
+number as DOUBLE. You can, for example, use `@idType` DOUBLE to force a DOUBLE key anyway _(Since v26.11.1: every
+number was read as a DOUBLE, so an integer key was declared DOUBLE and an integer above 2^53^ lost its last digits)_
 * `@cardinality`: if "no-duplicates", the edges are not created if there is an edge of the same type between the two vertices
 * `@strategy`: represents the strategy to use when the record with the configured `@id` already exists By default the existent record is used, but the "merge" strategy allows to merge the current record with the existent one.
 The current properties will overwrite the existent ones
