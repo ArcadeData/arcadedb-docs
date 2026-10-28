@@ -170,6 +170,12 @@ Commit or roll back your own transaction first. If `close()` is refused, the bat
 
 The batch's relaxed WAL settings apply only to the batch's own transactions, never to the ones you run between batch calls.
 
+==== Recovering an Interrupted Batch
+
+Each flush commits the edge records it created, but the vertices' head-chunk pointers are only written at `close()`. If the process dies before `close()` (`kill -9`, an OOM kill, a power loss), the edges committed by the earlier flushes are on disk but not reachable by traversal: <<sql-check-database,`CHECK DATABASE`>> reports them as `ORPHAN RECORD` and counts them under `unreachableEdgeRecords`.
+
+_Since v26.11.1_ the supported recovery is `CHECK DATABASE FIX`. It relinks each of those edge records into the outgoing list of its `@out` vertex and, for a bidirectional edge type, into the incoming list of its `@in` vertex, so the committed edges become traversable without reloading them (`relinkedOrphanEdgeRecords` in the result). Edges still buffered in memory when the process died were never written and must be loaded again. Use `CHECK DATABASE FIX DELETE ORPHANS` instead to delete the committed edges and reload them all. Before v26.11.1 a plain `FIX` left those records untouched, and deleting them was the only repair.
+
 ==== Performance
 
 Benchmark results on a single machine (500K edges, 50K vertices):

@@ -260,6 +260,13 @@ database.async().transaction( database -> {
 
 The overload `transaction(block, retries, okCallback, errorCallback)` reports the outcome: `okCallback` once the transaction committed, `errorCallback` with what made it fail after the transaction was rolled back. That includes an `Error` thrown inside the block, such as an `OutOfMemoryError` or an `AssertionError` _(since v26.11.1; before, an `Error` was rolled back without calling `errorCallback`, so the submitter could not tell the transaction had failed)_.
 
+A failed attempt is retried up to `retries` times on the same rules as <<transaction-retries,`db.transaction()`>>: the whole
+`NeedRetryException` family (a `ConcurrentModificationException`, a `LockTimeoutException` from the commit's file locks, and
+so on), plus a `DuplicatedKeyException` once. A refusal bound to this node, such as an HA follower naming the leader, is not
+retried locally. Between two attempts the worker waits the same jittered exponential backoff as `db.transaction()`
+(`arcadedb.txRetryDelay` / `arcadedb.txRetryDelayBase`). _(Since v26.11.1; before, only a `ConcurrentModificationException`
+was retried, with no wait between attempts.)_
+
 '''
 
 [[asyncparallellevel]]
@@ -333,8 +340,10 @@ written with, never under the new one.
 
 Each async worker thread batches its writes and commits them together every `arcadedb.asyncTxBatchSize` operations
 (see <<arcadedb-settings,Settings>>). If that periodic commit conflicts with another worker writing the same data, it
-is now retried automatically (up to `arcadedb.txRetries` attempts) instead of being silently dropped. If every retry
-fails, the `onError()` callback of every command in that batch is invoked, so a genuine failure is always reported
+is now retried automatically (up to `arcadedb.txRetries` attempts) instead of being silently dropped. _Since v26.11.1_
+the retry covers the whole `NeedRetryException` family, such as a `LockTimeoutException` from the commit's file locks, and a
+`DuplicatedKeyException` once, like `db.transaction()`; before, only a `ConcurrentModificationException` was retried. A
+refusal bound to this node (an HA follower naming the leader) is not retried. If every retry fails, the `onError()` callback of every command in that batch is invoked, so a genuine failure is always reported
 rather than lost.
 
 A statement that commits part-way through on its own - `UPDATE`/`DELETE`/`MOVE VERTEX ... BATCH n`, `TRUNCATE TYPE`,

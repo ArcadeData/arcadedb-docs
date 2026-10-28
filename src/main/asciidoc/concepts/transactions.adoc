@@ -86,6 +86,19 @@ reading as it did. Updating the large record in that transaction fails with a re
 because the page the transaction holds predates the rewrite: retrying the transaction applies the update on the new version
 _(since v26.10.2)_.
 
+*Counts.* Under `REPEATABLE_READ`, `count(*)` on a type and `countType()` repeat inside the transaction too: the committed
+record counter of each bucket is read at the first count of the transaction and kept, plus the transaction's own inserts
+and deletes. Under `READ_COMMITTED` they still follow every commit. _(Since v26.11.1; before, a count followed the commits
+of other transactions at both levels and could disagree with a scan in the same transaction.)_
+
+*Neither level is a snapshot.* A page is pinned when the transaction first reads it, not when the transaction begins. A
+type scan reads its pages one after another, so at both levels it can observe part of a concurrent commit that spans
+several pages: the pages it reached before that commit show the old records, the ones it reached after show the new ones.
+For the same reason a count and a scan of the same type pin at different moments, and can disagree inside one
+`REPEATABLE_READ` transaction. A reader that needs one committed state of a whole type can take a
+<<sql-script-lock,`LOCK TYPE`>> on it in its transaction, which keeps the writers of that type out until the transaction
+ends.
+
 *Lost updates.* Under `READ_COMMITTED`, reading a record and then writing a value computed from it is protected against a
 concurrent change: if another transaction committed a change to the record after you read it, saving a property on it
 fails with a retryable `ConcurrentModificationException`, instead of silently overwriting that change. Retrying the
@@ -320,6 +333,12 @@ database.async().setTransactionSync(WALFile.FlushType.YES_NOMETADATA);
 `setUseWAL()` and `setAsyncFlush()` follow the same rule: on `Database` they apply to every thread, on
 `getTransaction()` to the calling thread only, and the thread's own setting wins. Until either is called, the
 `arcadedb.txWAL` and `arcadedb.txWalFlush` configuration applies.
+
+A transaction committed without the WAL has no record to replay, so a failure while its pages are being written (a full
+volume, an I/O error) cannot be repaired. _(Since v26.11.1)_ Such a failure fences the database, as one past the WAL
+append does, and the records the transaction created keep their identities: part of the transaction may be in the
+files, and a retry must not insert it again. Close and reopen the database, then run `CHECK DATABASE`. In 26.10.2 and
+earlier the commit was rolled back as if nothing had been written (issue #10768).
 
 NOTE: Before 26.10.1, `Database.setWALFlush()`, `setUseWAL()` and `setAsyncFlush()` changed only the calling thread's
 transactions, despite reading as database-wide. A multi-threaded application that called `setWALFlush(YES_FULL)` once

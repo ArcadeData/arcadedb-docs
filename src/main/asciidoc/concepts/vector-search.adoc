@@ -716,6 +716,13 @@ The index uses a posting-list inverted structure on the LSM-Tree backbone with c
 
 Both arrays must have the same length on every record. Weights must be non-negative; negative weights would corrupt the per-term upper bound used to prune during retrieval and are rejected at write time. All standard sparse models (BM25, SPLADE, BGE-M3, Cohere sparse) emit non-negative weights, so this is not a real constraint in practice.
 
+Dimension ids must be whole numbers in the integer range (`0` to `2147483647`). A declared `ARRAY_OF_INTEGERS` property converts what it is given on write, as every integer property does, so `[0, 2.5]` is stored and indexed as `[0, 2]`. A record stored before its property was declared keeps the list it was given: the index refuses such a record when its list holds a fractional id (`2.5`) or one past the integer range (`5000000000`), naming the record and the property, so building the index over existing rows fails on it instead of indexing a dimension the record does not hold. `2.0` is the dimension `2` and is accepted.
+
+[NOTE]
+====
+Up to v26.10.2 the index truncated such an id (`2.5` became dimension `2`, `5000000000` wrapped to `705032704`). Creating or rebuilding a sparse vector index over a type holding rows written that way now fails, naming the first such record: correct its list (or remove it) and run the build again. Deleting or updating a record indexed the old way keeps working, and retracts the postings it was indexed with.
+====
+
 ===== Schema setup
 
 [source,sql]

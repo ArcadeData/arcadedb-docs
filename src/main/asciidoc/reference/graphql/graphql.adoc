@@ -91,6 +91,9 @@ IMPORTANT: Submitting a type definition changes the GraphQL schema shared by eve
 Users without it get a security error on the command endpoint, and the read-only query endpoint refuses type definitions because they are not read-only.
 Plain GraphQL queries are not affected.
 
+_(Since v26.11.1)_ The type definitions of one command are applied together, before its query runs: a query running at the same time sees all of them or none of them.
+In 26.10.2 and earlier a query running while types were being defined could fail with `Target type not defined`, or with a `ConcurrentModificationException` on introspection (issue #10764).
+
 [[graphql-introspection-types]]
 ==== Introspection of database types
 
@@ -127,6 +130,10 @@ A sub-selection on a `LINK` property, or on a list of links, resolves the linked
 
 Without a sub-selection the same fields return the record ids (`"#28:0"`, `["#28:0"]`).
 _(Since v26.10.2)_ In 26.10.1 and earlier a sub-selection on a `LINK` property dropped the field from the response, and one on a list of links returned an empty list.
+
+Every selected field is in the response, with `null` when the record has no value for it, whether the field is a scalar or an object.
+A sub-selection on a scalar field, such as `{ books { name { first } } }` with `name: String`, is refused with an error naming the field.
+_(Since v26.11.1)_ In 26.10.2 and earlier an object field with no value (an unset `LINK`, for example) was left out of the response, and a sub-selection on a scalar field dropped the field without an error (issue #10762).
 
 ==== Query arguments
 
@@ -188,6 +195,16 @@ type Query {
 ----
 ResultSet resultSet = database.query("graphql", "{ books( where: \"name = 'Mr. brain'\" ) { name } }");
 ----
+
+When the field has other arguments, the `where` condition is one parenthesised operand of the `AND` that joins it to
+them, so `books(name: "Target", where: "pages > 100 or pages < 10")` returns only the books named `Target`, whatever the
+order of the arguments. The value must therefore be a complete SQL condition on its own: a text that closes and reopens
+parentheses (`"pages > 100) or (true"`), or that adds clauses such as `ORDER BY` or `LIMIT`, is refused with a parsing
+error.
+
+NOTE: _(since v26.11.1)_ Before, the `where` text was appended to the other conditions without parentheses, so an `OR`
+in it escaped the other arguments (the example above also returned books with other names), and a text balancing its
+own parentheses could reshape the generated query.
 
 WARNING: The `where` value is SQL and is used exactly as written, so it must be authored in the query, never built
 from end-user input.

@@ -61,6 +61,7 @@ The `schema:*` targets support `WHERE`, `ORDER BY`, `SKIP` and `LIMIT` like any 
 * *`ORDER BY`* Designates the field with which to order the result-set. Use the optional `ASC` and `DESC` operators, or `true` (= `ASC`) and `false` (= `DESC`), to define the
  direction of the order. The default is ascending. Additionally, if you are using a <<sql-projections,projection>>, you
  need to include the `ORDER BY` field in the projection. An aggregate function can be used in `ORDER BY` together with `GROUP BY`, for example `SELECT k, sum(v) FROM T GROUP BY k ORDER BY sum(v) DESC`, and the groups are sorted by the aggregate.
+ An `ARRAY_OF_*` value (such as `ARRAY_OF_INTEGERS`) is ordered element by element, as a list is _(since v26.11.1; before, arrays were ordered by their identity text)_.
 * *`GROUP BY`* and *`ORDER BY`* may contain comments between the two words (`ORDER /* by id */ BY id`), like anywhere else in the statement.
 * *Integer literals* can be written in decimal or hexadecimal (`0xFF`, or `0xFFL` for a long). A hexadecimal value above `2147483647` is a long, it is not read as a negative number.
 * *<<sql-select-unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
@@ -70,6 +71,15 @@ The `schema:*` targets support `WHERE`, `ORDER BY`, `SKIP` and `LIMIT` like any 
  timeout strategy, it defaults to `EXCEPTION`. These are the available timeout strategies:
 ** `RETURN` Truncate the result-set, returning the data collected up to the timeout.
 ** `EXCEPTION` Raises an exception.
+
+`DISTINCT`, `GROUP BY` and `count(DISTINCT ...)` key a temporal value as `=` reads it, the same rule openCypher grouping
+uses: a zone-less instant (a `DATETIME` / `LocalDateTime`, a `java.util.Date`, an `Instant`, a `Calendar`, a
+`java.sql.Timestamp`) is one group with the `ZONED_DATETIME` of the same instant in UTC, and an `OffsetDateTime` keys as
+its zoned form. A zoned datetime keeps its zone, so the same instant in two different zones stays two groups. The
+elements of a list key the same way.
+
+NOTE: _(since v26.11.1)_ Before, one instant stored as a `DATETIME` in one record and as a `ZONED_DATETIME` in another
+(possible in a schemaless property) landed in two groups, and counted twice in `count(DISTINCT ...)`.
 
 *Examples*
 

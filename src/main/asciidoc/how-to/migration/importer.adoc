@@ -105,6 +105,13 @@ data, which could make the file be recognised as the wrong format and fail to im
 recognised, the comment lines were still handed to the importer for every format except CSV and RDF, and could
 make XML and JSON imports fail.)_
 
+A JSON source is recognised by its first character that is not whitespace: `{` for an object, `[` for an array of
+records. A source whose name ends in `.json` or `.xml` but whose content does not begin like that format is refused,
+naming the extension, rather than analysed as delimited text; if the content is what you meant, set the format
+explicitly with `fileType` (or `documentsFileType` on the `documents` route). _(Since v26.11.1: a top-level JSON array
+was not recognised, so a one-line array was imported as a CSV file whose header was the whole array, creating nothing
+while reporting success, and a JSON document opening with whitespace was not recognised either.)_
+
 Example of loading the Discogs dataset in the database on path "/temp/discogs":
 
 [source,sql]
@@ -189,6 +196,19 @@ where it previously imported with the extra values silently dropped.)_
 If the analysis reads only rows it has to refuse, it cannot derive any property and the import fails saying so,
 naming the analysis limit when one is set - widening it is usually the fix.
 
+[[importer-column-types]]
+===== Column types of CSV and XML sources
+
+The analysis of a CSV or XML source declares a property `LONG` when every value of it is the canonical decimal text
+of an integer (`0`, `42`, `-12`), `DOUBLE` when every value is a plain decimal number (`1.5`, `-0.25`, `1e5`), and
+`STRING` otherwise. A value that only a programming language reads as a number keeps the column a `STRING`, so its
+text is stored as it is: a leading `+`, leading zeros (`007`, the ZIP code `02134`), a type suffix (`10D`, `3F`),
+hexadecimal (`0x1p3`), `NaN`, `Infinity`, surrounding whitespace, a dangling dot (`1.`), an integer too large for a
+`LONG` and a number too large for a `DOUBLE`. _(Since v26.11.1: those values were accepted as numbers, so `02134` was
+stored as `2134` and `10D` as `10.0`, with the original text kept nowhere. A column that relied on it - for example
+`+5`-style values - is now imported as `STRING`; create the property with the type you want before the import to
+convert it explicitly.)_
+
 ===== TimeSeries samples in a JSONL file
 
 The samples of a TimeSeries type are read back through the conversion every other way of writing to such a type shares
@@ -228,6 +248,7 @@ Below you can find all the supported settings for the Importer.
 |===
 | Setting | Default | Description
 | url | | url of the file to import
+| fileType | | The format of the `url` source (csv, json, jsonl, xml, graphml, graphson), when its content or extension is not enough to recognise it. The `url` counterpart of `documentsFileType` _(since v26.11.1)_
 | database | ./databases/imported | Path of the final imported database
 | forceDatabaseCreate|false | If true, the database is created brand new at every import
 | wal | false | Use the WAL (journal) for the importing. If the WAL is enabled the importing process will be much slower and will require much more RAM
@@ -248,7 +269,7 @@ Below you can find all the supported settings for the Importer.
 | mapping | null |
 | probeOnly | false | Only probe if url is reachable or file path is readable
 | documents| |url of the file to import containing documents only. This is useful when the database is split in separate files
-| documentsFileType| | The format of the file containing documents (csv, graphml, graphson). `graphml` and `graphson` require the optional `arcadedb-gremlin` module on the classpath; without it the import is refused _(since v26.10.1: it used to be read as generic XML and reported as successful, losing the graph)_
+| documentsFileType| | The format of the file containing documents (csv, json, jsonl, xml, graphml, graphson). `graphml` and `graphson` require the optional `arcadedb-gremlin` module on the classpath; without it the import is refused _(since v26.10.1: it used to be read as generic XML and reported as successful, losing the graph)_
 | documentsDelimiter| | Delimiter used to separate documents
 | documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
 | documentsSkipEntries| |Number of rows to skip from the documents file. When not set, the first line is skipped as the header for delimited text - unless you supplied `documentsHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
@@ -279,7 +300,8 @@ Below you can find all the supported settings for the Importer.
 | ef | 256 | Number of nearest neighbors to return (in layer search).
 | m | 16 | Maximum number of connections per layer in the HNSW index. Higher values improve recall but increase memory usage
 | vectorType | `float` | The data type of a vector element, for example 'float'.
-| idProperty | `"name"` | Name of the property that will be used as the unique identifier for vertices during import
+| vectorProperty | `"vector"` | Name of the property holding the vector of a Word2Vec or GloVe import. _(Since v26.11.1: it had no default, and an import that did not set it failed with a `NullPointerException`)_
+| idProperty | `"name"` | Name of the property that will be used as the unique identifier for vertices during import. A blank `idProperty` or `vectorProperty` is refused, naming the setting
 |===
 
 NOTE: The `probeOnly` setting can also be used to send a GET request to another service or HTTP API, for example to  report a previous import is finished.

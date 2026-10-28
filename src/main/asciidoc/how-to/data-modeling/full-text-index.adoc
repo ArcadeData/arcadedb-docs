@@ -800,6 +800,7 @@ When the analyzer the index uses now is not the one that measured them (the defi
 Counters saved by a version that did not record the analyzer are trusted as they are, and the next schema save records it.
 The analyzer is told by what it does, not only by its class name: the index measures a fixed set of sample texts with it, so a custom analyzer that changes behaviour under the same class name, or a Lucene upgrade that tokenizes differently, also triggers the recompute _(since v26.11.1: before, only a new class name was noticed)_.
 A total length or document count that a removal would drive below zero is a sign the counters were already wrong: it is counted, logged, and repaired by a recompute at the next search, rather than silently kept at zero.
+That pending recompute is saved with the counters, so a restart before the next search does not cancel it, and it is cleared only by a recompute that could be proven exact _(since v26.11.1: before, a restart in between kept the wrong total length for good)_.
 On an HA cluster that write is local to the node: the files of a follower and of the leader can hold different counters until the next `statsOnly` rebuild on the leader, which every node adopts.
 The warning that announces it names the logical index and the exact statement to run, for example `+REBUILD INDEX `Article[content]` WITH statsOnly = true+`.
 
@@ -810,7 +811,7 @@ To look at the counters without triggering the repair, read the index from the s
 SELECT bm25 FROM schema:index:`Article[content]`
 ----
 
-`bm25` holds `totalDocs`, `sumDocLength`, `avgDocLength`, `countersValid`, `staleCheckDone` (whether the session's drift check has run), `scans` (full-type scans published into the counters), `epoch` (the number of explicit recomputes), `measuredWith` (the analyzer the total length was measured with, with a fingerprint of how it counts tokens), `measuredWithCurrentAnalyzer` (`false` when the index analyzes with another one, or the same one now counts differently, so the next search recomputes the counters) and `clamps` (how many times a counter would have gone below zero since the database opened; anything above `0` means the counters were repaired).
+`bm25` holds `totalDocs`, `sumDocLength`, `avgDocLength`, `countersValid`, `staleCheckDone` (whether the session's drift check has run), `scans` (full-type scans published into the counters), `epoch` (the number of explicit recomputes), `measuredWith` (the analyzer the total length was measured with, with a fingerprint of how it counts tokens), `measuredWithCurrentAnalyzer` (`false` when the index analyzes with another one, or the same one now counts differently, so the next search recomputes the counters) `clamps` (how many times a counter would have gone below zero since the database opened; anything above `0` means the counters were repaired) and `rescanRequired` (`true` when the counters are known to be wrong and the next search recomputes them; unlike `clamps` it survives a restart).
 
 For an exact repair without a full reindex, run:
 

@@ -139,7 +139,7 @@ BEGIN [ISOLATION <READ_COMMITTED | REPEATABLE_READ>]
 By default a script runs inside an implicit `READ_COMMITTED` transaction. Use `BEGIN` only when you want to set a different isolation level, or to mark the start of a `BEGIN ... COMMIT RETRY` block.
 
 * `READ_COMMITTED` (default): each `SELECT` sees the latest committed data.
-* `REPEATABLE_READ`: subsequent reads of the same record return the same snapshot for the lifetime of the transaction.
+* `REPEATABLE_READ`: subsequent reads of the same record return the same content for the lifetime of the transaction, and so does `count(*)` on a type _(since v26.11.1)_. It is not a snapshot of the whole database: see <<isolation,Isolation>>, and <<sql-script-lock,`LOCK TYPE`>> for a reader that needs one committed state of a whole type.
 
 [source,sql]
 ----
@@ -159,7 +159,7 @@ COMMIT [RETRY <n> [ELSE { <statements> } [AND] (FAIL | CONTINUE)]]
 ----
 
 * Without arguments, `COMMIT` simply commits the current transaction.
-* `RETRY <n>` makes the server re-run the whole `BEGIN ... COMMIT` block on a retryable failure, up to `n` times. Retryable failures include `NeedRetryException` (concurrent modification, MVCC conflicts) and transient transaction-lock timeouts. Between attempts the server waits a random delay capped by `arcadedb.txRetryDelay` (default 100 ms).
+* `RETRY <n>` makes the server re-run the whole `BEGIN ... COMMIT` block on a retryable failure, up to `n` times. Retryable failures include `NeedRetryException` (concurrent modification, MVCC conflicts) and transient transaction-lock timeouts. A `DuplicatedKeyException` is retried once, as by the Java API's `db.transaction()`: for example an `UPSERT` that lost a race to a concurrent insert of the same key finds the committed record on the second attempt _(since v26.11.1)_. Between attempts the server waits a random delay capped by `arcadedb.txRetryDelay` (default 100 ms).
 * A refusal that holds on this server until something outside it changes is not retried: an HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader raises its `ServerIsNotTheLeaderException` on the first attempt, without running `ELSE` and without `AND CONTINUE` suppressing it, so the client can send the work to the leader. A refusal raised during an election, which names no leader, is still retried. _(Since v26.10.2)_ In 26.10.1 and earlier such a refusal was retried the full `<n>` times, and the `ELSE` block then ran.
 * `ELSE { ... }` is the fallback block executed when retries are exhausted.
 * `AND FAIL` (the default when `ELSE` is omitted) re-throws the original exception after the fallback runs.

@@ -111,6 +111,10 @@ options:
 
 `edgeTypeNames` and `vertexAxisNames` accept either a list (`['Road']`) or a comma-separated string (`'Road,Rail'`). Any other type is rejected with an error.
 
+The boolean options (`parallel`, `tieBreaker`, `emptyIfMaxDepth`) accept a boolean or the strings `'true'` and `'false'` (in any case), and `maxDepth` a non-negative whole number (a long, so `3000000000` is valid). Any other value, such as `'yes'`, `1` or `'ture'` for a boolean option, or `2.5`, `'abc'` or `-1` for `maxDepth`, is rejected with an error that names the option. _(Since v26.11.1. Before, a boolean option read any other value as `false`.)_
+
+Every key of the options map can be written unquoted, `parallel` included: `{ parallel: true }`. _(Since v26.11.1; before, `parallel` was a syntax error unless quoted, see <<sql-expressions,map literals>>.)_
+
 `maxDepth` is the number of edges a returned path may have, the same bound `shortestPath()` and the Cypher `*..n` use: the result is the cheapest path of at most `maxDepth` edges, which can be a dearer path than the cheapest one overall when that one is longer than the bound. When there is no such path the result is an empty list. A path is returned only when it runs from the source to the destination.
 
 [NOTE]
@@ -125,6 +129,8 @@ Before this rule `maxDepth` counted the vertices the search had examined, not th
 [source,sql]
 ----
 SELECT astar($current, #8:10, 'weight') FROM Vehicle
+
+SELECT astar($current, #8:10, 'weight', { direction: 'OUT', parallel: true, maxDepth: 20 }) FROM Vehicle
 ----
 
 See also: <<algo-astar,Graph Algorithms: A*>> for the Cypher procedure variant with geographic heuristics.
@@ -336,7 +342,7 @@ If `*` is used as field, then all record will be counted, otherwise only records
 
 Syntax: `count([DISTINCT] &lt;field&gt;)`
 
-With `DISTINCT` each distinct value is counted once, with or without `GROUP BY`. Numbers that are equal count once whatever their type or scale (`1` and `1.0`, `19.9` and `19.90`), as in `SELECT DISTINCT` and `GROUP BY`; a null is never counted. `DISTINCT` is accepted by the other aggregate functions too, e.g. `sum(DISTINCT &lt;field&gt;)` and `avg(DISTINCT &lt;field&gt;)`.
+With `DISTINCT` each distinct value is counted once, with or without `GROUP BY`. Numbers that are equal count once whatever their type or scale (`1` and `1.0`, `19.9` and `19.90`), as in `SELECT DISTINCT` and `GROUP BY`; a zone-less instant counts once with the UTC `ZONED_DATETIME` of the same instant, under the rule described in <<sql-select,`SELECT`>> _(since v26.11.1)_; a null is never counted. `DISTINCT` is accepted by the other aggregate functions too, e.g. `sum(DISTINCT &lt;field&gt;)` and `avg(DISTINCT &lt;field&gt;)`.
 
 *Examples*
 
@@ -863,6 +869,11 @@ SELECT map(name, roles.name) FROM User
 
 Returns the maximum value.
 If invoked with more than one parameter, the function doesn't aggregate, but returns the maximum value between all the arguments.
+A collection argument (a `LIST`, or an `ARRAY_OF_*` value such as `ARRAY_OF_INTEGERS`) is read as its elements, so `max()` answers its largest element; a `BINARY` value is one value.
+
+Values are ordered as `ORDER BY`, the indexes and the comparison operators order them: numbers by value whatever their type, a `BINARY` value by its unsigned bytes, a `MAP` by its entries, and two Java representations of one instant (for example a `DATETIME` and a `ZONED_DATETIME` of the same moment in a schemaless property) by that instant. An `EMBEDDED` document has no order and is refused with an error naming its type, as are two values of different kinds, such as a number and a string.
+
+NOTE: _(since v26.11.1)_ Before, `max()` and `min()` failed with "cannot compare a value of type byte[] with a value of type byte[]" (and likewise for maps and mixed temporal types) as soon as two rows reached them, and an `ARRAY_OF_*` value was compared as a whole instead of by its elements.
 
 Syntax: `max(&lt;field&gt; [,&lt;field-n&gt;]*)`
 
@@ -906,6 +917,8 @@ SELECT median(salary) FROM Account
 
 Returns the minimum value.
 If invoked with more than one parameter, the function doesn't aggregate but returns the minimum value between all the arguments.
+A collection argument (a `LIST`, or an `ARRAY_OF_*` value) is read as its elements, so `min()` answers its smallest element.
+Values are ordered as described for <<max,max()>>, the order of `ORDER BY` _(since v26.11.1)_.
 
 Syntax: `min(&lt;field&gt; [, &lt;field-n&gt;]*)`
 
@@ -1160,7 +1173,8 @@ Where:
   This can also be a list of edge class names (eg. `[&quot;edgeType1&quot;, &quot;edgeType2&quot;]`)
 - `additionalParams`, optional, here you can pass a map of additional parameters (Map&lt;String, Object&gt; in Java, JSON from SQL).
   Currently allowed parameters are
-- 'maxDepth': integer, maximum depth for paths (ignore path longer that 'maxDepth')
+- 'maxDepth': integer, maximum depth for paths (ignore path longer that 'maxDepth'). It must be a non-negative whole number, and `null` means no bound _(since v26.11.1; before, `null` was read as 0)_
+- 'edge': boolean, include the edges in the result. A boolean or the strings `'true'` and `'false'`; any other value is rejected with an error _(since v26.11.1; before, it was read as `false`)_
 
 *Examples*
 

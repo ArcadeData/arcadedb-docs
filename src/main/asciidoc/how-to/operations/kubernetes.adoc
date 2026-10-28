@@ -917,6 +917,7 @@ arcadedb.ha.serverList=my-arcadedb-0.my-arcadedb.arcadedb.svc.cluster.local:2434
 *Auto-join on scale-up*::
 When `arcadedb.ha.k8s=true` and a new pod starts without an existing Raft storage directory, the server automatically joins the existing cluster via the Raft `SetConfiguration(ADD)` admin API.
 This enables zero-downtime scale-up: `helm upgrade --set replicaCount=N` (or `kubectl scale statefulset`) adds new pods that join the existing cluster without restarting any existing peer.
+The same probe runs on every pod start as a membership self-check: a pod the cluster dropped while it was down re-adds itself. Membership is read from the Raft *leader's* configuration only. A peer that answers as a follower points the probe at the leader it follows, and while no peer answers as the leader (the cluster is still electing) the probe keeps retrying instead of trusting a follower, whose configuration can predate the pod's removal. _(Since v26.11.1: the first peer to answer decided, so a pod removed from the cluster could be told it was still a member by a follower that was behind, and then stayed out of the cluster until restarted.)_
 
 *Auto-leave on scale-down*::
 The chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so the terminating pod cleanly transfers leadership (if it holds it) and removes itself from the Raft group before shutdown.

@@ -181,6 +181,22 @@ not delete anything: every edge record stores its own endpoint identities, so th
 records. After the rebuild, a full-scope `FIX` (no `TYPE`/`BUCKET` filter) also reclaims the orphaned edge-list segments the old,
 unreachable chains left on disk.
 
+The reverse shape is an *orphan edge record*: an edge record whose `@out` and `@in` are live vertices, but that no vertex's edge
+list references, so no traversal reaches it. It is reported as `ORPHAN RECORD` and counted under `unreachableEdgeRecords`.
+_Since v26.11.1_ a plain `FIX` relinks it: the edge goes back into the outgoing list of its `@out` vertex and, for a bidirectional
+edge type, into the incoming list of its `@in` vertex. The relinked records are counted under `relinkedOrphanEdgeRecords`, and the
+adjacency entries written under `reconnectedEdges`. `FIX DELETE ORPHANS` deletes them instead, and takes precedence when given.
+Without `FIX` the warning suggests both: `CHECK DATABASE FIX` to relink the edge, or `CHECK DATABASE FIX DELETE ORPHANS` to remove
+it. Before v26.11.1 a plain `FIX` left orphan edge records untouched, and `DELETE ORPHANS` was the only repair.
+One run relinks a bounded number of orphans to cap its memory; what it leaves is counted under `orphanEdgeRecordsLeftToRelink`,
+and the next `FIX` relinks it. A `GraphBatch` flush that failed inside a live process deletes the records it wrote, and logs
+the RID of any it could not delete: delete those before a `FIX`, which would otherwise relink edges the caller was told were not
+created.
+
+The usual cause is a <<java-batch-importer,GraphBatch>> whose process died (`kill -9`, an OOM kill, a power loss) before `close()`:
+the edge records its flushes committed are on disk, but the vertices' head-chunk pointers are only written at `close()`.
+`CHECK DATABASE FIX` makes those committed edges traversable without reloading them.
+
 A <<lightweight-edges,lightweight edge>> has no record to be rebuilt from. _Since v26.11.1_ the rebuild carries the lightweight
 entries of the part of the dropped list it can still read over into the new one (`salvagedLightEdges`), and rebuilds the
 lightweight edges of a bidirectional type stored in the unreadable part from their copy in the other endpoint's list
@@ -245,8 +261,9 @@ The optional clauses must appear in the order shown above.
 * *`FIX`* Optional, if used auto fix the issue found with the check
 * *`DELETE ORPHANS`* Optional, requires `FIX`. Removes orphan edge records: edge records whose endpoints are valid
  vertices but which no vertex's edge list references. A clause of its own because the same shape is also produced by a
- vertex that merely lost its head-chunk pointer, whose edges are still recoverable. Without it the finding is still
- reported, under `unreachableEdgeRecords`
+ vertex that merely lost its head-chunk pointer, whose edges are still recoverable. Without it a `FIX` relinks those
+ records into their vertices' edge lists instead _(since v26.11.1; before, it left them untouched)_, and without `FIX`
+ the finding is only reported, under `unreachableEdgeRecords`
 * *`DELETE INVALID RECORDS`* Optional, requires `FIX`, _since v26.10.1_. Removes the records that do not satisfy their
  own type's existence constraints. A clause of its own because `ALTER PROPERTY ... MANDATORY TRUE` on a type that
  already holds records makes every one of them a finding while they hold real data - see
@@ -327,6 +344,14 @@ The command returns the integrity check report in one record with the fields:
 | `unsalvageableEdgeLists` | _since v26.11.1_, rebuilt edge lists that could not be read in full. A lightweight edge of a
                              unidirectional type stored in the unreadable part had no other copy and is lost; the warning
                              names the vertex and the direction.
+| `unreachableEdgeRecords` | orphan edge records: edge records whose endpoints are live vertices but that no vertex's edge
+                             list references. Each one is also reported as `ORPHAN RECORD` in `warnings`.
+| `relinkedOrphanEdgeRecords` | _since v26.11.1_, how many of those records a plain `FIX` relinked into their vertices' edge
+                                lists. The adjacency entries it wrote are counted in `reconnectedEdges` as well. Zero under
+                                `FIX DELETE ORPHANS`, which deletes them instead.
+| `orphanEdgeRecordsLeftToRelink` | _since v26.11.1_, how many orphan edge records a `FIX` run left for the next one. A run
+                                    relinks at most what a tenth of the heap can plan (never fewer than 100,000), so a very
+                                    large interrupted load is repaired by running `CHECK DATABASE FIX` again until it is zero.
 | `orphanedEdgeSegments` | number of unreachable edge-list segments found in the dedicated edge-list buckets
                            (garbage left behind by repaired adjacency lists). Only present on a full-scope `FIX`.
 | `orphanedEdgeSegmentsReclaimed` | number of orphaned edge-list segments actually deleted by the `FIX`. Only present on a full-scope `FIX`.

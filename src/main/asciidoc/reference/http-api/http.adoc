@@ -249,6 +249,12 @@ A subscription is not permanent. Starting from v26.9.1, the server re-checks on 
 user is still allowed to read the database: if that access is revoked, or the user is deleted, the subscription is
 dropped and the connection closed instead of continuing to stream.
 
+A subscription is to the database NAME. Starting from v26.11.1, it follows the database the server serves under that name: after
+`close database` and `open database`, a restore, an HA snapshot install, or a drop followed by a create of the same name, the
+existing subscribers receive the changes of the database opened again, with no new `subscribe`. While the database is closed,
+nothing is sent. Before v26.11.1 a subscription made before a `close database` stayed silent after the `open database`, and so did
+every new one, until the last subscriber of the name had left.
+
 A subscriber is also expected to keep reading. Events are sent asynchronously, so a client that stops consuming
 them accumulates unsent frames in the server's memory. Once more than `server.eventBusMaxPendingBytes` (16 MB by
 default) is outstanding towards one connection, that subscription is dropped and the connection closed. Set it to
@@ -654,7 +660,15 @@ an engine error category of its own, `UNAVAILABLE`, so that none of them reports
 database is held is refused the same way, and not kept as a plain key of the connection. _(Since v26.11.1: before, these protocols
 opened it, so a cold backup copied a database that was open and being written to, and the writes a client made during an `overwrite`
 restore were acknowledged and then discarded when the restored copy replaced the database, issue #10533.)_ A database that is already
-open is served as before.
+open keeps serving reads while an `overwrite` restore replaces it, and refuses every write until the restore ends, on every protocol
+and also on a connection opened before the restore started: the write is answered as "not available", with the codes above, and a
+database setting change is refused the same way. The restore first waits for the commits already running. _(Since v26.11.1: before,
+those writes were acknowledged and then lost with the database the restore replaced, issue #10689.)_ A name that is not a database at all is the client's to correct, and every protocol says so rather than
+reporting a server fault: SQLSTATE `3D000` for Postgres, status `NOT_FOUND` for gRPC, `Neo.ClientError.Database.DatabaseNotFound`
+for BOLT, error `26 NamespaceNotFound` for MongoDB, `ERR Database '<name>' not found` for Redis, `404` for HTTP (an engine error
+category of its own, `DATABASE_NOT_FOUND`, since v26.11.1, issue #10795). A connection that keeps naming a database across a
+`close database` + `open database`, a `drop database` + `create database` or an `overwrite` restore is served by the new database
+as soon as it is there (issue #10794).
 
 NOTE: An opened database stays open until the server stops or `close database` closes it, and there is no limit on how many
 the requests can open: each one holds its data files, its caches and, once written, a WAL file (since v26.11.1 a database
@@ -1429,7 +1443,7 @@ Where:
 - `language` is the query language used.
 is the query language used, between "sql", "sqlscript", "graphql", "cypher", "gremlin", "mongo" and any other language supported by ArcadeDB and available at runtime.
 - `command` the command to execute in encoded format
-- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
+- `params` (optional), is the map of parameters to pass to the query engine via the POST body, where parameters are introduced with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 
 When using the `GET` variant the query needs to be URL encoded.
 
@@ -1558,7 +1572,7 @@ The payload, as a JSON, accepts the following parameters:
 - `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
 The completion of the command is noted in the log, yet no results of the command can be returned.
 - `limit` (optional) is the maximum number of results to return
-- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
+- `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 - `retries` (optional), is the number of times the command (transaction) is retried. When omitted it follows the
 `arcadedb.txRetries` <<setting-database,database setting>> (3 by default), the same attempt count the embedded and
 the remote Java APIs take it from; up to v26.9.0 it was hard-coded to 1, so nothing was ever retried.
@@ -1681,6 +1695,30 @@ The gRPC service carries the same counters in the write-result summary of `Execu
 ==== Numbers and arrays in `params`
 
 Parameters keep the numbers as written: an integer beyond the `long` range, or a decimal with more than 17 significant digits, is read as a `DECIMAL` (`BigDecimal`) instead of being wrapped or rounded to a double. A number token with more than 1000 characters or an exponent beyond 1000 is refused with `400`. A JSON array given as a parameter is a list, as when the statement runs embedded: written to a `LIST` property it is stored as that list, and `[0.1, 3.141592653589793]` keeps both doubles. _(Since v26.10.1: before, such integers wrapped around and arrays with a fraction were narrowed to float32.)_
+
+[[http-positional-params]]
+===== Positional parameters
+
+`params` given as a JSON array (or as an object keyed `"0"`, `"1"`, ...) binds its values by position. With SQL their
+number must match the placeholders of the statement: each `?`, and each `:name` bound positionally, takes exactly one
+value (send `null` explicitly to bind a null), and in a `sqlscript` the placeholders of all its statements are counted
+together. A Postgres-style `$N` reads the value at position `N` and may leave lower positions unread. A request that
+does not match is refused with `400` before the statement runs (`CommandSQLParsingException`, the message names both
+counts). A list meant for one placeholder is one value, a nested array:
+
+[source,shell]
+----
+$ curl -X POST http://localhost:2480/api/v1/query/school \
+       -d '{"language": "sql", "command": "select from Class where name in ?", "params": [["English", "Math"]]}' \
+       -H "Content-Type: application/json" \
+       --user root:arcadedb-password
+----
+
+Named parameters (a JSON object with names as keys) are not counted. See also
+<<sql-positional-parameter-count,the Java API>>.
+
+NOTE: _(since v26.11.1)_ Before, a surplus value was silently dropped (`"params": ["English", "Math"]` with
+`where name in ?` answered only the `English` rows) and a missing value was bound to `null`.
 
 [[vector-http-typed-markers]]
 ===== Typed parameter markers (`$bytes`, `$int8`)
@@ -2232,7 +2270,7 @@ Responses:
 
 WARNING: A `413`, `503` or `504` does NOT mean that nothing was applied. A batch that is cut short may be partially applied: the server log carries the counts, but the HTTP answer does not. A client that reads such an error as "rejected, nothing applied" and resends the whole payload after raising the limit or splitting it creates duplicates, unless the payload is idempotent (for example `@id`-keyed upserts). Deduplicate on the client side, or reload into a clean target database.
 
-IMPORTANT: This endpoint is NOT atomic by design. The underlying GraphBatch commits internally in chunks for maximum throughput. The response tells you exactly how many records were committed. Treat it as a bulk-loading operation, not a transactional one.
+IMPORTANT: This endpoint is NOT atomic by design. The underlying GraphBatch commits internally in chunks for maximum throughput. The response tells you exactly how many records were committed. Treat it as a bulk-loading operation, not a transactional one. If the server dies during the load, the edges already committed are not traversable until `CHECK DATABASE FIX` relinks them _(since v26.11.1)_, see <<java-batch-importer,GraphBatch>>.
 
 TIP: For maximum throughput, group vertices by type in the input. The endpoint batches consecutive same-type vertices into a single `createVertices()` call. Interleaving types forces smaller, less efficient batches.
 

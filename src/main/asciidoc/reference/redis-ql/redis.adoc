@@ -97,10 +97,27 @@ In the `redis` query language `GET` therefore returns a string for a key written
 - https://redis.io/commands/incr[INCR], Increment a value by 1
 - https://redis.io/commands/incrby[INCRBY], Increment a value by a specific amount (64-bit precision)
 - https://redis.io/commands/incrbyfloat[INCRBYFLOAT], Increment a value by a specific amount expresses as a float (64-bit precision)
-- https://redis.io/commands/set[SET], Set a value associated with a key. The value is binary-safe: any bytes, valid UTF-8 or not, are returned unchanged by `GET`. Keys and the arguments of the other commands are text.
+- https://redis.io/commands/set[SET], Set a value associated with a key. The value is binary-safe: any bytes, valid UTF-8 or not, are returned unchanged by `GET`. Keys are binary-safe too (see <<redis-keys>>); the other arguments of the commands (amounts, options, JSON documents, type and index names) are text.
   `NX` (only set if the key does not exist), `XX` (only set if the key already exists) and `GET` (return the
   previous value instead of `OK`) are supported. `EX`/`PX`/`EXAT`/`PXAT`/`KEEPTTL` are rejected with an error
   rather than silently ignored, because transient keys in ArcadeDB have no expiry.
+
+[[redis-keys]]
+===== Keys
+
+A key written as `<database>.<key>`, or a plain key after `SELECT <database>` (or with `arcadedb.redis.defaultDatabase`
+set), lives in that database's global variables, which SQL reads as `$<key>`. A plain key with no database lives in the
+connection's own map. Since v26.11.1 a key is the client's key in both places, as in Redis:
+
+- every byte of a key counts, valid UTF-8 or not, so two binary keys that differ only in a byte that is not valid UTF-8 are
+  two keys. Before, every such byte was replaced by the same character, so `SET` of one key overwrote the other and
+  `GETDEL` of one deleted both;
+- `$k` and `k` are two keys, and the names SQL reserves for its context (`parent`, `current`, `depth`, `path`, `stack`,
+  `history`) are ordinary keys. Before, the leading `$` was stripped, so `$k` was the key `k`, and the reserved names
+  were refused in a database's key space while the connection's own map took them.
+
+A key SQL can name is still visible to it as `$<key>`. A reserved name stays SQL's own: `$parent` or `$depth` in a SQL
+statement never reads a Redis key of that name.
 
 ==== Persistent Commands
 
@@ -200,6 +217,11 @@ HMGET MyDatabase.Account[firstName,lastName] "[\"Jay\",\"Miner\"]" "[\"Nobody\",
 (nil)
 ----
 
+NOTE: A <<rid,`RID`>> that names no record is answered as "not there" by every command that takes one, on the Redis
+protocol as in the `redis` query language: `HGET` replies `(nil)` (no result in the query language), `HEXISTS` `0`,
+`HMGET` a null entry and `HDEL` does not count it. _(Since v26.11.1: `HGET` and `HEXISTS` replied
+`ERR Record ... not found`, and `HGET` in the query language failed with `RecordNotFoundException`.)_
+
 NOTE: A key is matched against the index exactly as you wrote it, then converted to the indexed property's
 declared type. A key is therefore never guessed to be a number just because it looks like one: on a `STRING`
 property, `007` finds the record whose value is the three characters `007`, not the one whose value is `7`.
@@ -286,6 +308,12 @@ as `<database>.<key>`, and `SELECT <database>`, are refused the same way: the ke
 connection and acknowledged with `OK`, and the value was missing from the database once it was available again. A name
 that is not a database keeps its meaning, a plain key for `<name>.<key>` and `Database '<name>' not found` for `SELECT`.
 See <<http-open-on-demand>>.
+
+Since v26.11.1 a database that is on disk and not open yet, which with `arcadedb.server.loadAtStartup=false` is every
+database until its first request, is a database too: `<database>.<key>` and `SELECT <database>` open it. Before, its key
+was kept as a plain key of the connection and acknowledged with `OK`, and `SELECT` answered `Database '<name>' not found`.
+A database an interrupted HA snapshot install left pending is answered with `LOADING` until the install is reconciled. A
+directory of the database directory that holds no database is not one, whatever its name.
 
 [[redis-http-api]]
 ==== Redis via HTTP API
