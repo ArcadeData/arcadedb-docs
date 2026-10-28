@@ -282,6 +282,11 @@ have them: `numeric_precision` (16, 32 and 64 for the integers, 24 for `real`, 5
 `character_octet_length` (2^30 for a text column with no declared length). `numeric_precision_radix` is `NULL` for a type
 that is not a number, where it used to answer 2.
 
+_Since v26.11.1_, a catalog query that matches no row describes its columns exactly as one that matches: every column of
+a catalog relation has a fixed type (`pg_class.oid` is always `int4`, `relhasindex` always `bool`). A `pg_type` lookup of a
+type that does not exist returns the columns it asked for with no rows. _(Before, such a lookup returned no columns at all,
+and an empty answer from another relation announced every column as `varchar`, issue #10869.)_
+
 [[postgres-catalog-indexes]]
 _Since v26.11.1_, the indexes of the database are in the catalog, so `psql`'s `\d <table>` prints the `Indexes:` section,
 `\d <index>` describes an index, `\di` lists them, and the index queries of psqlodbc and of the GUI tools are answered:
@@ -420,6 +425,13 @@ type. To get a native type back for a property in a prepared statement, declare 
 _Since v26.11.1_, `pg_type` also lists the array types of `int2`, `bytea`, `bpchar`, `varchar`, `date` and `timestamp`,
 and a parameter bound as one of them is accepted - for example the `varchar[]` the PostgreSQL JDBC driver sends for
 `Connection.createArrayOf("varchar", ...)`, which used to fail.
+
+_Since v26.11.1_, an array parameter sent in text format (a `{...}` literal, what a client that does not negotiate the
+binary format sends) is read as PostgreSQL reads it. An unquoted `NULL` element is a SQL NULL, while `"NULL"` is the
+string `NULL`. An empty element `""` is kept. A malformed literal, such as `{a,,b}`, is refused with
+`malformed array literal` instead of being stored as something else. A parameter sent without a type is read as an array
+only when it is a valid array literal, so a JSON document such as `{"k": 1}` stays a string. _(Before, an empty element
+was dropped and `NULL` was stored as the string `NULL`, issue #10870.)_
 
 _Since v26.11.1_, every type of the database (a table or a materialized view in the catalog) also has its row type in
 `pg_type`, as every PostgreSQL table has: a composite type (`typtype = 'c'`, `typcategory = 'C'`) named after the type, in
