@@ -421,6 +421,16 @@ _Since v26.11.1_, `pg_type` also lists the array types of `int2`, `bytea`, `bpch
 and a parameter bound as one of them is accepted - for example the `varchar[]` the PostgreSQL JDBC driver sends for
 `Connection.createArrayOf("varchar", ...)`, which used to fail.
 
+_Since v26.11.1_, every type of the database (a table or a materialized view in the catalog) also has its row type in
+`pg_type`, as every PostgreSQL table has: a composite type (`typtype = 'c'`, `typcategory = 'C'`) named after the type, in
+its schema, whose `typrelid` is the relation's `pg_class.oid`. `pg_class.reltype` holds its OID, so the join
+`pg_class c JOIN pg_type t ON t.oid = c.reltype` finds it, and `format_type(c.reltype, NULL)` and `c.reltype::regtype` print
+the relation's name. Only an index has `reltype = 0`. A column's `pg_attribute.attcollation`, and each key of
+`pg_index.indcollation`, is the collation of its type: `100` (`default`) for `text`, `varchar`, `bpchar` and their arrays,
+`0` for every other type, as `pg_type.typcollation` says. _(Before, `reltype` and `attcollation` were 0 for every relation and
+column, so the join from a table to its row type answered no rows, issue #10873.)_ A client that enumerates `pg_type` now
+reads one more row per type of the database.
+
 ===== Transactions
 
 In autocommit mode (the JDBC default) every statement is one transaction: a write statement that touches many

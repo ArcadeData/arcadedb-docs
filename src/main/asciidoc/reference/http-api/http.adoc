@@ -629,13 +629,15 @@ Responses:
 * https://httpstatuses.io/400[`400`] invalid command
 * https://httpstatuses.io/403[`403`] invalid credentials
 * https://httpstatuses.io/404[`404`] the command names a database this server does not have
+* https://httpstatuses.io/503[`503`] the database is there and cannot serve the command now: closed by `close database`, being restored, being dropped, or being recovered by HA (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/409[`409`] the name is taken: `create database` on an existing database (`"error": "Database already exists"`) or `create user` on an existing user (`"error": "User already exists"`) _(Since v26.10.2)_
 * https://httpstatuses.io/400[`500`] invalid JSON request body
 
 NOTE: Since 26.10.1, a command naming a database that does not exist - `open database nosuchdb`, for example -
 answers `404` instead of `500`. Naming a database the server has not got is a mistake in the request, not a
-server fault, and it is the same status the server already gave for a database that is closed or dropped. Adjust
-any monitoring that alerts on `5xx` from this endpoint.
+server fault. Adjust any monitoring that alerts on `5xx` from this endpoint. Since 26.11.1 a database that is there and
+held - closed, being restored or dropped - answers `503`, not `404` (see <<http-unavailable-database,a database that is not
+available>>).
 
 [[http-open-on-demand]]
 *Databases opened on demand.* Since v26.11.1 a database that exists on disk but is not open on the server, because
@@ -654,7 +656,7 @@ the database is opened again, at start or on its first request.
 
 The same rule holds for the other protocols. A database that a `close database` command closed, or that an `overwrite` restore of
 its name is about to replace, is not opened by a Postgres, BOLT, gRPC, Redis or MongoDB connection, or by an MCP or Gremlin request,
-that names it: the client is told that the database is not available, as an HTTP request is (SQLSTATE `57P03` for Postgres, status `UNAVAILABLE` for gRPC,
+that names it: the client is told that the database is not available, as an HTTP request is (`503` for HTTP, SQLSTATE `57P03` for Postgres, status `UNAVAILABLE` for gRPC,
 the transient `Neo.TransientError.Database.DatabaseUnavailable` for BOLT, a `LOADING` error reply for Redis, error `365 TemporarilyUnavailable` for MongoDB;
 an engine error category of its own, `UNAVAILABLE`, so that none of them reports it as a server fault). A Redis key `<database>.<key>` whose
 database is held is refused the same way, and not kept as a plain key of the connection. _(Since v26.11.1: before, these protocols
@@ -669,6 +671,31 @@ for BOLT, error `26 NamespaceNotFound` for MongoDB, `ERR Database '<name>' not f
 category of its own, `DATABASE_NOT_FOUND`, since v26.11.1, issue #10795). A connection that keeps naming a database across a
 `close database` + `open database`, a `drop database` + `create database` or an `overwrite` restore is served by the new database
 as soon as it is there (issue #10794).
+
+[[http-unavailable-database]]
+_Since v26.11.1_, HTTP tells the two apart as every other protocol does (issue #10872): a name that is no database answers `404`
+with `"error": "Database not found"` and the exception `com.arcadedb.exception.DatabaseNotFoundException`; a database that is
+there and cannot serve the request now answers `503` with the exception `com.arcadedb.exception.DatabaseNotAvailableException`,
+an `error` naming the state, and the state in `exceptionArgs`, so a client is told it in production mode too, where the
+`detail` is not sent:
+
+[%header,cols="2,3,4"]
+|===
+| `exceptionArgs` | `error` | when
+| `CLOSED` | `Database is closed` | a `close database` command closed it; it stays closed until `open database`
+| `RESTORING` | `Database is being restored` | an `overwrite` restore holds its name and the database is not open
+| `WRITES_REFUSED` | `Database does not accept writes` | an `overwrite` restore holds it while it is open: reads still answer `200`
+| `DROPPING` | `Database is being dropped` | a `drop database` is deleting its files
+| `RECOVERING` | `Database is being recovered` | on a replicated cluster, a snapshot install or a resync has to reconcile this node's copy first
+| `UNAVAILABLE` | `Database is not available` | any other reason it is not open for this request, such as a server that is starting or stopping
+|===
+
+No `Retry-After` is sent: how long an operator keeps a database closed is not something the server knows. The Java remote client
+rebuilds both exceptions, with the state as `DatabaseNotAvailableException.getReason()`, and does not retry either of them.
+
+NOTE: Before v26.11.1 these states answered `404 Database not found`, the answer of a name that is no database, with the same
+exception class, so the two bodies were identical in production mode. A client or a monitor that treated a `404` from a database
+endpoint as "the database does not exist" now sees `503` for a database that exists and is held.
 
 NOTE: An opened database stays open until the server stops or `close database` closes it, and there is no limit on how many
 the requests can open: each one holds its data files, its caches and, once written, a WAL file (since v26.11.1 a database
@@ -1502,6 +1529,7 @@ Responses:
 * https://httpstatuses.io/400[`400`] invalid language, invalid query
 * https://httpstatuses.io/403[`403`] invalid credentials
 * https://httpstatuses.io/404[`404`] database does not exist (`Database not found`)
+* https://httpstatuses.io/503[`503`] the database is there and cannot serve the request now: closed, being restored, dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/500[`500`] cannot execute query
 * https://httpstatuses.io/503[`503`] the server is busy and the query can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
 * https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
@@ -1607,6 +1635,7 @@ Before v26.11.1 these answered `500` (`"Cannot execute command"` or `"Internal e
 * https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
 * https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
 * https://httpstatuses.io/404[`404`] the database was dropped or closed (`DROP DATABASE`, `CLOSE DATABASE`) while the request was running (`DatabaseIsClosedException`)
+* https://httpstatuses.io/404[`404`] the database does not exist (`Database not found`), or https://httpstatuses.io/503[`503`] it is there and cannot serve the command now: closed, being restored (a write while a restore holds an open database is refused this way), dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 
 Example of insertion of a new Client by using parameters:
 
