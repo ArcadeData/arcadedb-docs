@@ -854,7 +854,7 @@ SELECT expand(`vector.fuse`(
 ===== Bounding the cost of a full-text leg
 
 `vector.fuse` fuses every row its sources produce and, without a `limit` option, loads every fused candidate.
-A dense or sparse leg is bounded by its `k`, but a full-text leg without a `LIMIT` yields one row per match: on a common keyword over a large corpus that is thousands of rows, and the query gets slower with the match count instead of with `k`.
+A dense or sparse leg is bounded by its `k`. A full-text leg without a `LIMIT` is not: it yields one row per match, a common keyword in a large corpus can match thousands of rows, and the query then slows down with the match count instead of with `k`.
 The same holds when the fused rows feed `vector.rerank`.
 
 Bound the full-text leg with a `LIMIT` and the fusion with `limit`:
@@ -872,11 +872,11 @@ SELECT expand(`vector.rerank`(
 ----
 
 `:fetch` is the number of rows each leg contributes, `:candidates` the number of fused rows handed to `vector.rerank`, and `:k` the number of results (for example 100, 50 and 10).
-A `SEARCH_INDEX` subquery without an `ORDER BY` returns its matches by descending score, so its `LIMIT` keeps the best-scoring ones and the bounded form loses no relevance over the unbounded one.
+A `SEARCH_INDEX` subquery without an `ORDER BY` returns its matches by descending score, so its `LIMIT` keeps the best-scoring ones. Bounding it costs no relevance.
 
 Since 26.11.1, `SEARCH_INDEX(...)` can also be passed directly as a source, as in `vector.fuse(vector.neighbors(...), SEARCH_INDEX('Doc[content]', :keywords), { fusion: 'LINEAR' })`.
-It carries the score of each match, so `DBSF` and `LINEAR` accept it, but it cannot take a `LIMIT`: every match is fused, so prefer the subquery when the match count can be large.
-In the same release `vector.rerank` stopped loading again the records that `vector.fuse` and `vector.neighbors` rows already carry, and keeps only the best `k` while scanning.
+It carries the score of each match, so `DBSF` and `LINEAR` accept it. It cannot take a `LIMIT`, though, and every match gets fused: prefer the subquery when the match count can be large.
+In the same release `vector.rerank` stopped reloading records that `vector.fuse` and `vector.neighbors` rows already carry, and now keeps only the best `k` while scanning.
 
 ===== Outer composition
 
