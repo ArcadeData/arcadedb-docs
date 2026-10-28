@@ -136,6 +136,26 @@ PostgreSQL JDBC driver already requires. Binding from a prepared statement that 
 with SQLSTATE `26000`, and executing or describing a portal that does not exist with `34000`, instead of
 answering with a success message.
 
+[[postgres-streamed-portals]]
+_Since v26.11.1_, a `SELECT` whose columns are known before its first row is read is fetched from a live cursor:
+each `Execute` (each chunk of a JDBC `setFetchSize()` fetch) reads only the rows it asks for, instead of the server
+reading the whole result before it sends the first row, and the query is not subject to
+`arcadedb.postgres.queryMaxRows`. The columns are known when the query projects only properties its type declares
+(`SELECT name, age FROM Person`), of a scalar type, `BINARY`, `MAP` or a `LIST` of a scalar type, or when its prepared
+statement was already described to the client (`Describe` on the statement, or a statement the PostgreSQL JDBC driver
+re-executes after `prepareThreshold`). Any other query - `SELECT FROM Person`, `SELECT *`, an expression, a property
+the type does not declare, another query language - can only be described from its rows, so it is still read whole
+first, within that limit. To fetch a large type in chunks, list the declared properties you need.
+
+A live cursor is a running statement until it is drained or its portal ends: it is listed by `list queries` and
+`SHOW TRANSACTIONS`, and a cancel request or `terminate query` stops it, also while the client is between two fetches.
+Its `arcadedb.command.timeout` (or the session's `statement_timeout`) runs from the moment the query starts to its last
+fetch, including the time the client takes between two fetches, where PostgreSQL restarts `statement_timeout` for each
+`Execute`. An idle
+cursor does not hold a slot of `arcadedb.queryMaxConcurrent`: each fetch is admitted on its own. A write the same
+transaction makes between two fetches can be seen by the rows not fetched yet, unless the query sorts (`ORDER BY`
+reads every row on the first fetch).
+
 _Since v26.10.1_, running a prepared statement without asking for its row description again (what the PostgreSQL
 JDBC driver does once a statement has run `prepareThreshold` times, 5 by default) no longer sends an unrequested
 row description. Before, the JDBC connection failed with `NoSuchElementException` from the 6th execution on.
