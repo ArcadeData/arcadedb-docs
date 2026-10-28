@@ -176,9 +176,14 @@ with, so a differently spelled lookup, or another client's, is answered too: a t
 (`pg_type t JOIN pg_type arr ON arr.oid = t.typarray`). A series is charged to the work budget of the statement before
 it is built, so a lookup cannot ask for a billion rows. `pg_range` and `pg_enum` are modelled, and have no row.
 
-The emulated schema list always contains exactly one schema, named after the connected database - matching
-`SELECT current_schema()` - because a PostgreSQL connection is bound to one database and sees the schemas
-inside it, and in ArcadeDB a connection is likewise bound to one database whose types are its tables.
+Every type is a table in one schema, named after the connected database - matching `SELECT current_schema()` -
+because a PostgreSQL connection is bound to one database and sees the schemas inside it, and in ArcadeDB a connection
+is likewise bound to one database whose types are its tables. _Since v26.11.1_, `pg_namespace` (and so
+`DatabaseMetaData.getSchemas()`) also lists `pg_catalog`, the schema every built-in type belongs to, as PostgreSQL
+does: a schema browser may show it, empty.
+
+_Since v26.11.1_, a materialized view and a continuous aggregate have columns in the catalog: the ones their query
+returns, in that order and under their aliases, so `\d <view>` prints them.
 
 _Since v26.10.1_, `pg_type` can also be queried on its own, and not only as part of a column list. Some
 clients build a map of every type the server has before they run a single query, and refuse to connect if
@@ -294,6 +299,10 @@ under `GROUP BY` or an aggregate is not read.
 
 A text compared with a flag is read as the boolean it spells (`indisprimary = 't'`).
 
+An index key over a `HIDDEN` property is not a column of its table in the catalog, so it is described the way PostgreSQL
+describes an index on an expression: its column is named `expr`, and a unique index with such a key is not listed as a
+unique constraint.
+
 [[postgres-copy-to-stdout]]
 ===== COPY ... TO STDOUT
 
@@ -387,6 +396,10 @@ the statement is described (`Describe` on the statement, or on a portal of a nam
 PostgreSQL JDBC driver does from its `prepareThreshold`-th execution). Declared properties keep their exact native
 type. To get a native type back for a property in a prepared statement, declare it, for example
 `CREATE PROPERTY Event.score INTEGER`.
+
+_Since v26.11.1_, `pg_type` also lists the array types of `int2`, `bytea`, `bpchar`, `varchar`, `date` and `timestamp`,
+and a parameter bound as one of them is accepted - for example the `varchar[]` the PostgreSQL JDBC driver sends for
+`Connection.createArrayOf("varchar", ...)`, which used to fail.
 
 ===== Transactions
 
