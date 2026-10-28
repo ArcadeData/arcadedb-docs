@@ -74,11 +74,11 @@ TIP: **Use INT8 quantization for most use cases.** It provides 4x memory savings
 [[quantization-performance]]
 ===== Why INT8 can be faster
 
-Quantization doesn't just save memory -- it changes how vectors are read during search.
+Besides saving memory, quantization changes how vectors are read during search.
 
 Without quantization (`NONE`), each node visited during graph traversal requires a full document lookup: read the record from disk, deserialize it, and extract the vector property. With INT8, vectors are stored in compact contiguous index pages and read directly -- no document deserialization needed.
 
-One benchmark with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2` embedding model) measured these latencies. It is a single setup, not a general figure: how much lower INT8 latency is than NONE depends on the data, on whether the NONE vectors are served from memory or read from documents, and on the recall target, so measure it on your own data before you rely on it:
+One benchmark with 500K 384-dimensional vectors (matching the `all-MiniLM-L6-v2` embedding model) measured the latencies below. Treat them as one setup, not a general figure. The gap between INT8 and NONE depends on the data, on whether the NONE vectors are served from memory or read from documents, and on the recall target, so measure it on your own data:
 
 [cols="1,1,1,1"]
 |===
@@ -448,9 +448,9 @@ The `efSearch` parameter is the beam width of the graph search: how many candida
 When `efSearch` is not set (neither on the index nor per query), ArcadeDB sizes the beam from the graph and runs the search once:
 
 1. For a graph under 10,000 nodes the beam is `max(k, 100)`.
-2. For a larger graph the beam is `max(2 × k, 20)`. This is a deliberately narrow beam that favours latency over recall.
+2. For a larger graph the beam is `max(2 × k, 100)`. Before 26.11.1 it was `max(2 × k, 20)`, so a 10-neighbor query on a large graph walked a beam of 20 and lost recall.
 
-There is no second pass that widens the beam when a search comes up short: a wider beam would visit the same nodes. A search that still returns fewer than `k` results is topped up by a brute-force scan instead. The default beam does not adapt to hard queries, so on a graph of 10,000 nodes or more, set `efSearch` explicitly when recall matters (see below). A larger value trades latency for recall.
+There is no second pass that widens the beam when a search comes up short: a wider beam would visit the same nodes. A search that still returns fewer than `k` results is topped up by a brute-force scan instead. The default beam does not adapt to hard queries. If recall matters, set `efSearch` explicitly (see below): a larger value trades latency for recall.
 
 ===== Setting efSearch
 
@@ -483,7 +483,7 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
 
 *Default beam* -- when neither per-query nor per-index efSearch is specified, the beam is sized from the graph as described above.
 
-TIP: The default beam is narrow on a graph of 10,000 nodes or more. If recall matters, set efSearch explicitly and raise it until the recall you measure on your own queries is enough; set it low only if you have strict latency requirements.
+TIP: The default beam suits most workloads. If recall matters, set efSearch explicitly and raise it until the recall you measure on your own queries is enough. Set it lower only if you have strict latency requirements. On a version before 26.11.1, the default beam of a graph of 10,000 nodes or more is narrow, so set efSearch there when recall matters.
 
 ==== Filtered Search
 
