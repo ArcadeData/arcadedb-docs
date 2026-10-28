@@ -110,6 +110,8 @@ A WARNING naming the field to declare is logged once per protocol. _(Since v26.9
 
 TIP: A declared address always wins over a derived one. Declaring the ports of the nodes that differ is enough; the rest may keep deriving.
 
+A peer that joined the Raft group at runtime (a Kubernetes scale-up beyond `arcadedb.ha.serverList`, `connect cluster`, `POST /api/v1/cluster/peer`) is part of the routing view like a listed one: the Bolt `ROUTE` table offers it as a reader, and as the writer while it leads, a gRPC call refused on a follower names it when it leads, and its address is derived the same way from its Raft host. _(Since v26.11.1: such a peer was replicated to but never routed to, and the workaround was to pre-size `arcadedb.ha.serverList` to the largest node count.)_
+
 [[ha-peer-endpoint-ambiguity]]
 ===== Peer-to-Peer Endpoints (`http`, `https`)
 
@@ -490,6 +492,16 @@ meantime, that value stands.
 * *Overlapping commands.* The entry carries the value its own command set, not the value the node holds when the entry is
 submitted. When two commands change the same setting at the same time, every node applies them in commit order and ends on
 the value of the one that committed last.
+
+[[ha-fixed-width-float-arrays]]
+===== Fixed-width float arrays (from v26.11.1)
+
+Since v26.11.1 an `ARRAY_OF_FLOATS` or `ARRAY_OF_DOUBLES` value is stored fixed-width (see
+<<datatypes-float-array-storage,Data Types>>), a form older builds cannot read. It is not a Raft entry but part of the record
+bytes in the pages a transaction replicates, so a node on an older build would apply them and then fail every read of the
+record. No node writes the new form until every peer of the Raft configuration advertises the `fixed-width-float-arrays`
+capability; until then the old form is written, which every build reads. During a rolling upgrade the new form starts on
+its own once the last node runs v26.11.1. Both forms are always read, so a cluster holding a mix of them needs no action.
 
 ===== Write Quorum
 
@@ -928,7 +940,7 @@ All endpoints require authentication as the `root` user.
 
 |GET
 |`/api/v1/cluster`
-|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. _(Since v26.10.1: two concurrent add-peer requests for one address under different ids could both commit; the add now refuses the second.)_ _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_ Since v26.10.2 the answer also carries `localInPlaceRestarts` (`{"recovered": <n>, "reformatted": <n>}`), `localReplicationPathUnproven` and `localLeaderUnreachableSinceRestart`, see <<ha-in-place-restart>>.
+|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert, and is listed in `peers[]` with its `httpAddress` like any other peer _(since v26.11.1: it was listed without one)_. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. _(Since v26.10.1: two concurrent add-peer requests for one address under different ids could both commit; the add now refuses the second.)_ _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_ Since v26.10.2 the answer also carries `localInPlaceRestarts` (`{"recovered": <n>, "reformatted": <n>}`), `localReplicationPathUnproven` and `localLeaderUnreachableSinceRestart`, see <<ha-in-place-restart>>.
 
 |POST
 |`/api/v1/cluster/peer`

@@ -103,6 +103,14 @@ The Java API `findNeighborsFromVectorApproximate(query, k)` and the select `appr
 
 The graph file of a PRODUCT index no longer stores the PQ codes of every node's neighbors (jvector's FusedPQ) unless the `fusedPQ` index setting is `true`; with it off the graph file is about the size of a NONE index's, and the codes live in the `.vecpq` file. Before 26.11.1 the codes were always written and nothing read them, which made a PRODUCT graph file about 8x the size of a NONE one. Files written earlier keep the codes and are read through them. `fusedPQ` pays off only when the PQ codes cannot stay in memory. `pqTrainingLimit` is the number of vectors, a random sample, the PQ codebook is trained on (default and maximum 128000); before 26.11.1 it was accepted and ignored.
 
+[[product-quantization-codebook-reuse]]
+Since 26.11.1 a graph rebuild of a PRODUCT index keeps the PQ codebook while it still fits the data: the codes of the surviving vectors are carried over and only the vectors added since are encoded. Before, every rebuild trained a new codebook and encoded every vector again. The codebook is trained again, and every vector encoded again, when either test fails:
+
+* *Growth*: the index holds more than `vectorIndex.pqRetrainGrowthFactor` times the vectors it held when the codebook was trained (default 2.0; 0 or less retrains on every rebuild, the behavior before 26.11.1).
+* *Drift*: the mean relative reconstruction error (`+|v - decode(encode(v))|^2 / |v|^2+`) of a sample of up to 1024 vectors added since the training is more than `vectorIndex.pqRetrainErrorRatio` times the error measured on the training vectors (default 1.25; 0 or less disables this test). It applies once at least 32 vectors have been added since the training.
+
+`REBUILD INDEX` always trains a new codebook. PQ training and encoding run on the index's graph-build pool, so `vectorIndex.graphBuildParallelism` bounds the CPU of the whole rebuild; before 26.11.1 PQ training ran on JVector's own default executors. See <<setting-database,the database settings>>.
+
 NOTE: With `rerankOversample: 0`, or `rerank: 0` on a query, the distances returned by a PRODUCT-quantized index are the approximate PQ ones. Before v26.9.1 records written since the last index rebuild were measured exactly while the rest were measured approximately, so two records at the same true distance could come back with different values and the newer one ranked ahead of the older. If you filter on distance with `maxDistance`, your threshold was being applied to two different measurements. All records are now measured the same way.
 
 NOTE: A rebuild replaces the graph and its PQ codes a moment apart. Before v26.10.1 a query landing in between could fail with `Error performing PQ approximate search`, most often on a busy index being rebuilt in the background. Such a query now answers from the exact vectors instead, so it returns normally -- a single query may take longer while the rebuild finishes, and the fast path resumes on its own.
@@ -132,7 +140,7 @@ The `encoding` index option controls the *wire and document-storage* representat
 
 Two encodings are supported:
 
-* `FLOAT32` *(default)* -- the `embedding` property is `ARRAY_OF_FLOATS` (4 bytes per dimension).
+* `FLOAT32` *(default)* -- the `embedding` property is `ARRAY_OF_FLOATS` (4 bytes per dimension; before 26.11.1 a stored float took 5 bytes, see <<datatypes-float-array-storage,Data Types>>).
 * `INT8` -- the `embedding` property is `BINARY` (one signed byte per dimension). Callers using providers that emit int8 directly (Cohere `int8` endpoints, OpenAI `text-embedding-3-large` reduced precision, Sentence Transformers with int8 quantization) skip a precision-losing client-side `int8 -> float32 -> server` round trip. The HTTP payload and document bucket storage shrink 4x.
 
 The HNSW graph still runs on `float32` internally; the engine dequantizes on the read path using `value / 127.0f` (Cohere/OpenAI calibration). Native int8 HNSW is tracked upstream at https://github.com/datastax/jvector/issues/665[datastax/jvector#665] -- once the JVector contract widens, no schema change will be needed.

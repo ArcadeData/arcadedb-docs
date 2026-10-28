@@ -9,6 +9,16 @@ The migration is transparent and happens lazily on first open, so the only opera
 
 This section lists behavior changes that may require action when upgrading.
 
+[[upgrade-float-arrays-fixed-width]]
+[discrete]
+====== 26.11.1 - Float and double arrays are stored fixed-width, which older builds cannot read
+
+An `ARRAY_OF_FLOATS` or `ARRAY_OF_DOUBLES` value (a vector embedding, for example) is now written as its element count followed by the raw little-endian IEEE-754 elements, 4 bytes per float and 8 per double, where each element used to be a zigzag varint of 5 bytes per float and 9 to 10 per double (issue #10856). A record holding a 1536-dimension float embedding shrinks from about 7,695 to about 6,150 bytes, about 22% less disk and page cache. Records written before keep the old form and are still read; an update rewrites the value in the new form. In an HA cluster no node writes the new form until every peer advertises the `fixed-width-float-arrays` capability, so a rolling upgrade keeps writing the old form until the last node is upgraded.
+
+*Impact:* once a database holds records in the new form, a build older than 26.11.1 cannot read them.
+
+*Action:* none to upgrade, and no migration is needed. To go back to an older build afterwards, export the database with 26.11.1 and re-import it with the older version. See <<datatypes-float-array-storage,Data Types>>.
+
 [discrete]
 ====== 26.11.1 - The rows of the vector search functions no longer list the record twice
 
