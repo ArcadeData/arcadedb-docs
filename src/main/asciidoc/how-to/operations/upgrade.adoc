@@ -10,6 +10,24 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.11.1 - The rows of the vector search functions no longer list the record twice
+
+Each row of `vector.neighbors()`, `vector.sparseNeighbors()`, `vector.fuse()`, `vector.rerank()` and the other vector functions holds the record's properties, `@rid`, `@type` and its score, and used to hold the whole record again under a `record` key. `SELECT expand(...)`, `SELECT *` and the JSON of the rows serialized every property twice, embeddings and passages included (issue #10898). The `record` key is no longer listed: a path such as `record.name`, a projection of `record`, and a Java caller that reads the key from the row still get the record.
+
+*Impact:* a client that read the nested `record` object from the JSON of an expanded or unprojected row no longer finds it.
+
+*Action:* read the properties from the row itself, or project `record` explicitly (`SELECT record, distance FROM (SELECT expand(vector.neighbors(...)))`). See <<vector-neighbors-ext,vector.neighbors()>>.
+
+[discrete]
+====== 26.11.1 - A vector index object held across `REBUILD INDEX` refuses to answer
+
+A Java caller that kept the bucket-level `LSMVectorIndex` or `LSMSparseVectorIndex` from before a `REBUILD INDEX` or a drop was answered as if the index were empty (0 neighbors, 0 entries) by the dense index, and with an `IllegalStateException` ("engine is closed") by the sparse one (issue #10897). Both now throw an `IndexException` ("Index '...' is not valid. Probably has been drop or rebuilt") on their searches, `get()` and `countEntries()`, as the `TypeIndex` over them and an `LSM_TREE` bucket index already did. `getStats()` still answers: it describes that instance.
+
+*Impact:* code that held such an object and read an empty answer now gets the exception.
+
+*Action:* fetch the index again by name from the schema after a rebuild.
+
+[discrete]
 ====== 26.11.1 - Function options refuse a value of the wrong kind
 
 A boolean option of a function's options map (`parallel`, `tieBreaker` and `emptyIfMaxDepth` of `astar()` and `dijkstra()`, `edge` of `shortestPath()`, and every other boolean option read through the same option reader) read any value other than a boolean or `'true'` as `false`, so a typo such as `'ture'`, `'yes'` or `1` silently ran another query. It now accepts only a boolean or the strings `'true'` and `'false'` (in any case), and refuses any other value with an error that names the option (issue #10788). `maxDepth` must be a non-negative whole number: `2.5`, `'abc'` and `-1` are refused the same way. For `shortestPath()`, `maxDepth: null` now means no bound, where it was read as 0.
