@@ -476,8 +476,27 @@ parameters the server answers for plus every one the connection has set;
 so a driver that caches them sees the new value.
 
 Some settings describe what the server does and cannot be changed: dates always travel in ISO format (`DateStyle`
-keeps only the field order you choose), text is always `UTF8`, and `standard_conforming_strings` is always `on`.
-A `SET` of a read-only setting such as `server_version` is refused.
+keeps only the field order you choose) and text is always `UTF8`. A `SET` of a read-only setting such as
+`server_version` is refused.
+
+String literals are read as PostgreSQL reads them. With `standard_conforming_strings` `on`, the default and what the
+server reports to drivers, a backslash in a plain `'...'` literal is an ordinary character (`'C:\'` is the
+three characters `C:\`) and a quote inside a literal is doubled (`'it''s'`). Backslash escapes are processed in an
+`E'...'` escape string (`E'a\tb'` holds a tab), with PostgreSQL's escape set: `\b \f \n \r \t`, octal `\ooo`,
+hex `\xhh`, `\uXXXX` and `\UXXXXXXXX`. `SET standard_conforming_strings = off` (or the same option in the
+startup packet, e.g. pgjdbc's `options=-c standard_conforming_strings=off`) makes every plain literal an escape
+string too, as in PostgreSQL. Inside an ArcadeDB JSON object (`CONTENT {...}`) a single-quoted string keeps the
+ArcadeDB meaning.
+
+[NOTE]
+====
+Since v26.11.1. Before, `standard_conforming_strings` was reported `on` while every literal was read with the
+ArcadeDB SQL escapes: `'a\b'` was stored as `ab`, a literal ending in a backslash was a syntax error, `E'...'` did
+not parse, and a `SET` of the parameter to `off` was accepted and ignored. A client that wrote the ArcadeDB escapes
+in plain literals over the PostgreSQL protocol (`'line\nbreak'` for a line break, `'it\'s'`) now gets them
+literally: write them in an `E'...'` literal, or set `standard_conforming_strings` to `off` for the connection.
+Values bound as parameters were never affected.
+====
 
 A `SET` is answered `SET` only when it did what it asked. Since v26.10.1 every other `SET` is answered with an error,
 on both the simple and the extended query protocol, rather than accepted and ignored:
