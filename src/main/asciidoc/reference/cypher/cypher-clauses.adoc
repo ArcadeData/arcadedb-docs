@@ -704,6 +704,32 @@ MATCH (a:Person)-[:KNOWS]->(b:Person) CREATE (a)-[:SCORED]->(b)
 A call to a procedure that writes (`merge.node`, `merge.relationship`, the `refactor.*` procedures) always
 counts as a conflicting write, because what it creates is only known once it runs.
 
+A `MERGE` is a read too: it looks its pattern up once per row. A `SET` or `REMOVE` after it (directly, behind a
+`WITH`, or inside a `FOREACH`) that writes a property key or a label the `MERGE` pattern matches on therefore runs
+only after the `MERGE` has run for every row, exactly as if the two clauses ran one after the other:
+
+[source,cypher]
+----
+// One node: both rows MERGE first (row 2 finds the node row 1 created), then both rows remove key.
+UNWIND [1, 2] AS x
+MERGE (n:Item {id: 1, key: 'value'})
+SET n.key = null
+----
+
+A `SET n = map` or `SET n += map` whose keys are only known when the query runs (`SET n += row`, `SET n = $props`)
+counts as writing every key, so `UNWIND $rows AS row MERGE (n:Person {id: row.id}) SET n += row` gets the barrier
+too. Writes of other keys keep streaming: `MERGE (n:Person {id: row.id}) SET n.name = row.name` has no barrier, nor
+does a `MERGE` that starts the query, which runs its lookup only once.
+
+[NOTE]
+====
+Up to 26.10.2 the `SET` ran right after the `MERGE` of each row, so the `MERGE` of a later row already saw it: the
+example above created two nodes, and adding a `WITH` between the clauses changed the result depending on how many
+rows were pulled at a time. Since 26.11.1 the answer is the same in every spelling, and the same as Neo4j's. A bulk
+load that used `SET n += row` after a `MERGE` now holds its rows in memory until the `MERGE` has run for all of them:
+to keep it streaming, set the properties by name (`SET n.name = row.name, n.age = row.age`).
+====
+
 ---
 
 [[cypher-with]]
