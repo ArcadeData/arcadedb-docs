@@ -1892,6 +1892,46 @@ Index and constraint names share one namespace, as in Neo4j:
 * `DROP INDEX` of a name no index has raises an error unless `IF EXISTS` is given;
 * the index a `UNIQUE` or `NODE KEY` constraint created is dropped with <<cypher-drop-constraint,`DROP CONSTRAINT`>>: `DROP INDEX` refuses it, since the constraint would stay listed with nothing enforcing it.
 
+[[cypher-create-vector-index]]
+====== CREATE VECTOR INDEX / CREATE FULLTEXT INDEX
+
+_(Since v26.11.1)_ Neo4j's `CREATE VECTOR INDEX` creates an `LSM_VECTOR` index and `CREATE FULLTEXT INDEX` a `FULL_TEXT` index, so a Neo4j application can create the indexes `SEARCH`, `db.index.vector.queryNodes` and `db.index.fulltext.queryNodes` query. Both keep the given name and honour `IF NOT EXISTS`, on a label or on a relationship type. A vector index over existing records is built before the statement returns, so it is `ONLINE` at once and needs no `db.awaitIndex`.
+
+[source,cypher]
+----
+CREATE VECTOR INDEX moviePlots IF NOT EXISTS FOR (m:Movie) ON m.embedding
+OPTIONS { indexConfig: { `vector.dimensions`: 1536, `vector.similarity_function`: 'cosine' } }
+
+CREATE VECTOR INDEX moviePlots FOR (m:Movie) ON m.embedding
+OPTIONS { indexConfig: { `vector.dimensions`: 1536, `vector.quantization.type`: 'scalar', efSearch: 200 } }
+
+CREATE FULLTEXT INDEX titles FOR (n:Movie) ON EACH [n.title, n.tagline]
+OPTIONS { indexConfig: { `fulltext.analyzer`: 'english', defaultOperator: 'AND' } }
+----
+
+An undeclared vector property is declared `ARRAY_OF_FLOATS`. The Neo4j settings of `indexConfig` map onto the index settings:
+
+[%header,cols="2,3"]
+|===
+| Neo4j setting | ArcadeDB setting
+| `vector.dimensions` (required) | `dimensions`
+| `vector.similarity_function`: `cosine` (default), `euclidean` | `similarity`: `COSINE`, `EUCLIDEAN` (`dot_product` is accepted too)
+| `vector.quantization.type`: `none`, `scalar`, `binary` | `quantization`: `NONE`, `INT8`, `BINARY`
+| `vector.quantization.enabled` (deprecated by Neo4j) | `quantization`: `INT8` when `true`, `NONE` when `false`. It must agree with `vector.quantization.type` when both are given
+| `vector.hnsw.m` | `maxConnections`, doubled: JVector does not double the degree at the base layer as an HNSW index does
+| `vector.hnsw.ef_construction` | `beamWidth`
+| `fulltext.analyzer` | `analyzer`: a Neo4j analyzer name (`standard-no-stop-words`, `english`, `simple`, ...) or the class name of a Lucene analyzer
+| `fulltext.eventually_consistent` | accepted with either value: the index is updated by the transaction that writes the record
+|===
+
+With no quantization setting the index keeps the exact vectors (`NONE`), while Neo4j quantizes by default (`binary` since Neo4j 2026.08, `scalar` before): a quantized index has a lower recall, which a script must ask for. `vector.default_search_expansion_factor` is refused: the search beam of an `LSM_VECTOR` index is `efSearch`.
+
+Every other setting of the index is given in `indexConfig` under its own name, the one the `METADATA` of SQL <<sql-create-index,`CREATE INDEX`>> takes (`efSearch`, `quantization: 'PRODUCT'`, `pqSubspaces`, `bm25_k1`, `<property>_boost`, ...), and is checked the same way. A setting named both ways (`vector.hnsw.m` and `maxConnections`) or not known is refused, and the statement then creates nothing.
+
+The `createStatement` column of <<cypher-show-indexes,`SHOW INDEXES`>> names every setting of a vector or full-text index that differs from its default, and always the quantization, so it creates the same index again; the `options` column holds the same `indexConfig` with the `indexProvider`.
+
+Not supported yet: an index over several labels or relationship types (`FOR (n:A|B)`), the filtering properties of `CREATE VECTOR INDEX ... WITH [...]`, a vector index without `vector.dimensions`, and the `standard` analyzer (with English stop words).
+
 ---
 
 [[cypher-show-indexes]]
