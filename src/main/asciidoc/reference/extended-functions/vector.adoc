@@ -245,6 +245,13 @@ once to return an exact answer: the same cost the `filter` subquery pays on ever
 before each record the predicate tests, so such a search stops at its deadline. The same applies to the `WHERE` of a
 Cypher `SEARCH` clause, which is tested by the index the same way.
 
+TIP: Index the properties a selective `where` filters on. When the equalities of the predicate (the map form, or the
+`property = value` conditions of a SQL condition without `OR`) cover an `LSM_TREE` or `HASH` index, the search lists the
+matching records through that index as soon as it sees that the predicate keeps few records, and scores them directly
+instead of walking the graph (since 26.11.1). On 100,000 vectors, 20 matching records then cost about 0.3 ms instead of
+about 120 ms. A predicate that keeps a large share of the records keeps the graph walk, at no extra cost. The switch is
+bounded by `arcadedb.vectorIndex.prefilterMaxSelectivity`, and setting it to 0 disables it.
+
 *Returns:* List - Nearest neighbors with distances
 
 Each row holds the record's properties, its `@rid` and `@type`, and the `distance`. The rows of `vector.sparseNeighbors()`,
