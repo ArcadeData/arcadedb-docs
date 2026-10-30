@@ -372,6 +372,19 @@ Example: for a graph with 500K vertices and 8M edges, the GAV uses *134.6 MB* co
 long bytes = gav.getMemoryUsageBytes();
 ----
 
+[[gav-heap-sizing]]
+===== Sizing the Heap for a View
+
+NOTE: Behavior changed in ArcadeDB v26.11.1.
+
+The view lives on the JVM heap, and so does the page cache (`arcadedb.maxPageRAM`, a quarter of the heap by default). Three things decide the smallest heap a view needs:
+
+* *The build.* Since v26.11.1 a build holds about the size of the CSR it produces, plus one forward slice while it renumbers it, at its peak: the edges are collected per edge type in fixed-size blocks, each forward slice is filled from them and sorted in place, and each backward slice is derived from the forward one. Before v26.11.1 the build held the edges as (source, target) pairs in doubling arrays next to the first CSR and the reordered one, about three to four times the size of the view, so on the LDBC graph `datagen-7_5-fb` (633K vertices, 34M edges) a restore needed a 3 GB heap for a view of about 300 MB (issue #11011).
+* *The restore from a persisted CSR.* Since v26.11.1 the file is read and written as a stream of frames of 1 MB, each checksummed and, when the database is encrypted, encrypted on its own, so a clean close and the next open need no more heap than the view itself. Before v26.11.1 both held the whole payload in a buffer besides the view, and in a heap too small for that the clean close silently skipped persisting it and the next open rebuilt the view from a full scan. Files written before v26.11.1 are not read: the first open rebuilds the view and the next clean close writes the new format.
+* *The page cache.* Since v26.11.1 the pages a build reads from disk are the first evicted while it runs, and leave the cache when it ends unless another reader used them meanwhile: the view answers what they hold, so keeping them would hold the graph twice. The pages the cache held before the build stay. The `arcadedb.gavBuildReleasesPages` <<arcadedb-settings,database-level setting>> (default `true`) turns this off, for a workload that reads the same records through the record API right after the build.
+
+A build or restore that runs out of heap, or fails for any other reason, ends the view in the `FAILED` status (or `STALE`, when it still serves an earlier snapshot), logs the failure at `SEVERE` with the view name, and reports the cause in the `buildError` column of `schema:graphAnalyticalViews`. Before v26.11.1 a build that died of an `OutOfMemoryError` left the view `BUILDING` for good. `REBUILD GRAPH ANALYTICAL VIEW` builds a `FAILED` view again from its definition.
+
 ==== Graph Algorithms
 
 The module includes parallelized graph algorithms that operate directly on CSR arrays with zero GC pressure:
@@ -625,7 +638,7 @@ to keep the acceleration.
 // Check status
 if (gav.isReady()) { /* safe to query */ }
 
-// Status values: NOT_BUILT, BUILDING, READY, STALE
+// Status values: NOT_BUILT, BUILDING, READY, STALE, FAILED (since v26.11.1: the build threw, see getBuildError())
 Status status = gav.getStatus();
 
 // Drop (removes from registry + schema)
