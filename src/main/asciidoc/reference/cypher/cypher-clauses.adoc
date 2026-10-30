@@ -415,6 +415,13 @@ RETURN count(DISTINCT n) AS uniqueCount, sum(DISTINCT n) AS uniqueSum
 RETURN abs(-42), sqrt(16), range(1, 5)
 ----
 
+TIP: In a read-only query with `RETURN DISTINCT`, the clauses after the last one that binds a returned variable
+(`MATCH`, `OPTIONAL MATCH`, `UNWIND`, a `WITH` that only passes variables on) can only keep or drop a row. ArcadeDB
+runs them as a filter: it stops at the first match for each row and skips rows whose returned values it already
+returned, instead of expanding every combination. `PROFILE` shows this as a `SEMI JOIN` step. The result is the same.
+A query keeps the full expansion when it aggregates, uses `RETURN *`, or returns a value that can change from call to
+call, such as `rand()`, `randomUUID()` or a user function. _(Since v26.11.1)_
+
 ---
 
 [[cypher-create]]
@@ -1201,6 +1208,10 @@ The `CALL` clause invokes procedures and functions. This includes built-in datab
 |===
 
 These procedures only return the types the current user is allowed to read, like `SELECT FROM schema:types` in SQL. _(Since v26.10.1)_
+
+The procedure arguments and the `WHERE` after `YIELD` can read every variable bound before the `CALL`, as in Neo4j:
+`MATCH (a)-[r:KNOWS]->(b) CALL my.proc(r) YIELD value WHERE value.weight > r.weight RETURN value`. _(Since v26.11.1:
+before, the `WHERE` saw only the yielded fields, and a relationship used only in the `CALL` was `null` there.)_
 
 *Examples:*
 
