@@ -20,6 +20,15 @@ An `ARRAY_OF_FLOATS` or `ARRAY_OF_DOUBLES` value (a vector embedding, for exampl
 *Action:* none to upgrade, and no migration is needed. To go back to an older build afterwards, export the database with 26.11.1 and re-import it with the older version. See <<datatypes-float-array-storage,Data Types>>.
 
 [discrete]
+====== 26.11.1 - A Graph Analytical View rebuilds once after the upgrade, and a failed build reads `FAILED`
+
+The CSR a view persists at a clean close is written in a new format (version 5), streamed in frames so that writing and reading it need no more heap than the view itself (issue #11011). A file written by an earlier version is not read: the first open after the upgrade rebuilds the view from a full scan, as an open after an unclean stop does, and the next clean close writes the new format. A build that fails, an `OutOfMemoryError` included, now ends in the new `FAILED` status with a `buildError` column in `schema:graphAnalyticalViews`, where it used to read `BUILDING` for good after an out-of-memory error. The default of `arcadedb.cypher.algoMaxWorkingMemory` is now `0`, sized from the heap at each call and never below the eighth of the heap it used to be.
+
+*Impact:* one full rebuild of each persisted view on the first open. Code that compares `GraphAnalyticalView.getStatus()` against every value of `Status` meets a new one, `FAILED`.
+
+*Action:* none. See <<gav-heap-sizing,Sizing the Heap for a View>>.
+
+[discrete]
 ====== 26.11.1 - The rows of the vector search functions no longer list the record twice
 
 Each row of `vector.neighbors()`, `vector.sparseNeighbors()`, `vector.fuse()`, `vector.rerank()` and the other vector functions holds the record's properties, `@rid`, `@type` and its score, and used to hold the whole record again under a `record` key. `SELECT expand(...)`, `SELECT *` and the JSON of the rows serialized every property twice, embeddings and passages included (issue #10898). The `record` key is no longer listed: a path such as `record.name`, a projection of `record`, and a Java caller that reads the key from the row still get the record.
