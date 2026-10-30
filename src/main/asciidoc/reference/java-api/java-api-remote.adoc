@@ -236,3 +236,36 @@ The query returns a `ResultSet`, which holds an array of objects of type `Result
 ----
 {name=Jay, @cat=d, @rid=#1:0, lastcall=1675961747290, surname=Miner, @type=Customer}
 ----
+
+[[java-api-remote-streaming]]
+===== Streaming results
+
+_(Since v26.10.1.)_ `query()` and `command()` wait until the server has serialized the whole result, and keep it in
+memory. For a large result use `queryStream()` or `commandStream()` instead: they ask the server for the
+<<http-streaming-results,NDJSON encoding>> and return a `ResultSet` that reads each row off the connection as it
+arrives, so neither the server nor the client holds more than one row at a time.
+
+[source,java]
+----
+database.setMaxResultRows(-1); // no row cap: stream the whole result
+
+try (ResultSet resultSet = database.queryStream("sql", "select from Customer where surname = ?", "Miner")) {
+  while (resultSet.hasNext()) {
+    Result customer = resultSet.next();
+    ...
+  }
+}
+----
+
+* The `ResultSet` keeps an HTTP connection open until it is read to the end or closed, so open it in a
+try-with-resources. It can be read only once.
+* `hasNext()` returns `false` only after the server sent the `stats` trailer. A failure on the server raises the
+exception the buffered call would have raised, and a stream that ends without its trailer (a dropped connection)
+raises a `RemoteException`: a short result is never returned silently.
+* Without `setMaxResultRows()` the server's default cap applies (`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows),
+unless the statement has its own `LIMIT`. When the cap drops rows, the client logs a warning and `hasNext()` returns
+`false`. Call `setMaxResultRows(-1)` to stream every row, up to the server's hard ceiling
+`arcadedb.server.httpQueryMaxResultRows`.
+* `commandStream()` takes read-only statements only. The server refuses a statement that writes, because its rows would
+reach the client before it committed. Use `command()` for writes.
+* The response has no `explain` or write statistics. Use `query()` or `command()` when you need them.
