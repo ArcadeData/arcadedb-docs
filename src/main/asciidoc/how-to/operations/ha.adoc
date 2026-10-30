@@ -118,6 +118,8 @@ A peer that joined the Raft group at runtime (a Kubernetes scale-up beyond `arca
 The same derive-from-this-node's-port fallback applies to the endpoints the *nodes* use to reach each other: a follower downloading a snapshot from the leader, a cluster verify comparing checksums with a peer, and the database presence matrix (`GET /api/v1/cluster?presence=true`).
 When two peers resolve to one `host:port`, that address identifies at most one of them and nothing can say which, so ArcadeDB *withholds* it rather than guessing: the operation is refused and reported as refused - a peer comes back `ERROR` / "not verified" from a verify, and unreachable from a presence matrix - instead of quietly answering for the wrong node. _(Since v26.9.1)_
 
+The presence matrix lists every server the node knows: the server list plus any server that joined at runtime (a Kubernetes scale-up, `connect cluster`). Each one is either a column of the matrix or listed in `unreachable`, and a declared server the cluster no longer counts as a member is also listed in `notInConfiguration`, since a database it lacks is not a replication gap. _(Since v26.11.1: before, a pod that joined at runtime was missing from the matrix.)_
+
 The refusal is visible in three places:
 
 * a one-time WARNING per protocol, naming the peers that could not be told apart, the address they share, and the field to declare;

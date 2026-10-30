@@ -237,6 +237,8 @@ While `restore backup ... overwrite` downloads and extracts the backup, the data
 
 *Action:* none for most installations. Retry the writes after the restore ends.
 
+On an HA cluster the same holds for writes made through the other servers (issues #10965, #10974): while the leader restores a database, a commit on a replica is refused with a retryable error, and the commits the leader had already accepted from replicas are completed before the download starts (at most 10 seconds, otherwise the restore is refused and can be retried). A `restore database` or `restore backup` is refused, retryable, when the server running it is not the leader, or when the leadership moves before the restored copy replaces the database: a new leader may have accepted writes meanwhile, and the restore would destroy them. Requests sent to a follower are forwarded to the leader, as before.
+
 [discrete]
 ====== 26.11.1 - BOLT: a message sent out of turn fails the connection until `RESET`
 
