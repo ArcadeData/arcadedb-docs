@@ -313,7 +313,17 @@ closed, see <<server-dormant-databases,Databases on disk that are not open>>.
 *Metrics.* Two counters are exported with the other server meters (see <<howto-observability,Cloud Observability>>):
 `arcadedb.server.databases.idle_closed`, tagged `reason` `idle` or `cap`, counts the databases closed, and
 `arcadedb.server.databases.reopened` counts the databases a request opened again after such a close. A reopen rate close to the
-close rate means the timeout is shorter than the gap between a tenant's requests.
+close rate means the timeout is shorter than the gap between a tenant's requests. `arcadedb.server.databases.idle_close_failed`
+counts the closes that failed (the server log has the cause): such a database is deregistered anyway, and the next request opens it
+from its files again.
+
+[NOTE]
+====
+*Automatic backups.* The automatic backup schedule of a database follows the databases the server has open, so a database closed for
+idleness or for the cap is not backed up while it stays closed. It does not change while closed, but the writes made between its last
+backup and the close are covered only by the first backup after it is reopened. When every write must reach a backup within a bounded
+time, keep the idle timeout longer than the backup period, or list those databases in `arcadedb.server.databaseIdleExclude`.
+====
 
 [[server-dormant-databases]]
 ====== Databases on disk that are not open
