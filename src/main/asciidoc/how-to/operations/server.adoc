@@ -257,6 +257,86 @@ Once the server is started, multiple clients can be connected to the server by u
 - <<mongodb-query-language,MongoDB>>
 - <<redis-query-language,Redis>>
 
+[[server-idle-databases]]
+===== Closing idle databases
+
+_(Since v26.11.1.)_ A server that hosts one database per tenant can hold thousands of them, and every open database keeps its
+data files, its caches and, once written, a WAL file. The server can close the databases nobody is using and reopen each one on
+its next request, so the open files and the heap follow the active tenants only. Closing is off by default: set
+`arcadedb.server.databaseIdleTimeout`, `arcadedb.server.maxOpenDatabases`, or both.
+
+[source,console]
+----
+$ bin/server.sh -Darcadedb.server.databaseLoadAtStartup=false \
+                -Darcadedb.server.databaseIdleTimeout=1800000 \
+                -Darcadedb.server.maxOpenDatabases=500 \
+                -Darcadedb.server.databaseIdleExclude=catalog,audit
+----
+
+With the example above the server opens no database at start, closes a database nobody has used for 30 minutes, keeps at most 500
+open at once, and never closes `catalog` and `audit`.
+
+[%header,cols="35%,50%,15%"]
+|===
+| Setting | Meaning | Default
+| `arcadedb.server.databaseIdleTimeout` | Closes a database no client has used for this long, in milliseconds. `0` means never | `0`
+| `arcadedb.server.databaseIdleCheckInterval` | How often, in milliseconds, the server looks for databases to close. Idleness is measured at this resolution | `60000`
+| `arcadedb.server.databaseIdleMaxClosesPerCheck` | The most databases one check closes, idle and cap closes together, so a burst of databases going idle at once is closed over several checks. `0` means no bound | `10`
+| `arcadedb.server.databaseIdleExclude` | Comma-separated names of the databases never closed | empty
+| `arcadedb.server.maxOpenDatabases` | The most databases kept open at once. Beyond it, each check closes the least recently used databases that are not in use, idle timeout or not. `0` means no cap | `0`
+|===
+
+The settings are read at each check, so a change made with `SET SERVER SETTING` or the `set server setting` server command applies
+at the next check, without a restart.
+
+*What counts as used.* Any query, command, transaction, record operation, scan or count, from any protocol. The server samples the
+engine's own counters of each database, so no protocol has to report anything. A database is never closed, however long it has been
+quiet, while:
+
+* a transaction is open on it, on any thread: a Postgres or Bolt connection, a gRPC client transaction, an HTTP session opened with
+  `/begin` or a `/ws` insert session;
+* a statement is running on it, or asynchronous work is queued;
+* a backup, restore, import or export of it is in progress;
+* it is replicated (HA), or listed in `arcadedb.server.databaseIdleExclude`.
+
+An open connection without a transaction does not keep a database open: a connection pool would otherwise keep every tenant open for
+good. The next request on that connection reopens the database. A database in use is never closed for the cap either, so the cap can
+be exceeded while more databases than that are busy.
+
+*Reopening.* A database closed for idleness or for the cap keeps its files, and is closed without the mark that the
+`close database` server command sets. Unlike a database closed with that command, which stays closed until `open database`, it is
+reopened transparently by the next request of any protocol: HTTP, gRPC, PostgreSQL, Bolt, Redis, MongoDB, Gremlin and MCP. A request
+that resolved the database a moment before it was closed fails with a retryable error (`DatabaseIsReopeningException`, a retryable `503` over
+HTTP), and its retry finds the database reopened. The database listings include it while it is
+closed, see <<server-dormant-databases,Databases on disk that are not open>>.
+
+*Metrics.* Two counters are exported with the other server meters (see <<howto-observability,Cloud Observability>>):
+`arcadedb.server.databases.idle_closed`, tagged `reason` `idle` or `cap`, counts the databases closed, and
+`arcadedb.server.databases.reopened` counts the databases a request opened again after such a close. A reopen rate close to the
+close rate means the timeout is shorter than the gap between a tenant's requests.
+
+[[server-dormant-databases]]
+====== Databases on disk that are not open
+
+_(Since v26.11.1.)_ The database listings and existence checks include the databases that are on disk but not open, those closed
+for idleness and those not opened at startup because `arcadedb.server.databaseLoadAtStartup` is `false`, because every protocol
+opens them on first use:
+
+* HTTP `GET /api/v1/databases`, `GET /api/v1/exists/{database}` and the `list databases` server command;
+* the gRPC admin RPCs `ListDatabases`, `ExistsDatabase` and `GetDatabaseInfo`, and `CreateDatabase` with `if_not_exists` and
+  `DropDatabase` with `if_exists`;
+* Bolt `SHOW DATABASES`, and the database a Bolt connection falls back on when it names none and `arcadedb.bolt.defaultDatabase`
+  is not set;
+* the MCP `list_databases` tool and the schema resources;
+* Gremlin traversal sources: the traversal opens a database that is not open, and the `g` alias keeps naming the same database
+  whatever is open;
+* the `drop database` server command, which drops a database that is not open.
+
+A database closed with `close database`, being restored or being dropped is still not listed.
+
+NOTE: Before v26.11.1, with `arcadedb.server.databaseLoadAtStartup=false`, these surfaces answered as if a database not opened yet
+did not exist: it was missing from the listings and an existence check answered `false` until a request opened it.
+
 ===== Logging
 
 The log files are created in the folder `./log` with the filenames `arcadedb.log.X`,

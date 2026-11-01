@@ -274,6 +274,24 @@ A gRPC `BeginTransaction` that asks for `SERIALIZABLE` isolation is now refused 
 *Action:* ask for `REPEATABLE_READ`, the strongest level the engine provides. See <<transactions,Transactions>>.
 
 [discrete]
+====== 26.11.1 - gRPC sends the records of a traversal, a list or a map as projected records
+
+A projected value that holds records - `SELECT out() AS n` and the other graph traversal functions (`in()`, `outE()`, `inE()`, `both()`, `bothE()`), a list, a map, an array or a nested result row - is now encoded like a top-level projected record, following the request's `ProjectionSettings` (issues #11067, #11044, #11048). Before, `out()`, `in()`, `outE()` and `inE()` reached a gRPC client as a Java class name string (`com.arcadedb.graph.GraphEngine$10@63e44da5`), and the records inside a list (`both()`) as bare RIDs, while HTTP returned the records.
+
+*Impact:* such a column is now a `list_value` (empty for a vertex with no edges) whose elements are the records, in JSON by default, instead of a string or a list of `link_value`. `soft_limit_bytes` now also counts the records nested inside lists and maps.
+
+*Action:* a client that wants RIDs only sets `projection_encoding` to `PROJECTION_AS_LINK`. See <<grpc-projection-settings,Projected records>>.
+
+[discrete]
+====== 26.11.1 - gRPC `grpc.errors.total` counts the failures a response reports with `success = false`
+
+A call closed with status `OK` whose response declares a top-level boolean `success` field set to `false`, such as an `UpdateRecord` or `DeleteRecord` a listener vetoed, is now counted in `grpc.errors.total`, with `status` `OK` (issue #11054). Before, only `ExecuteCommandResponse` was checked.
+
+*Impact:* the error rate of the gRPC dashboards rises by the in-band failures it did not count.
+
+*Action:* none. See <<grpc-metrics,gRPC metrics>>.
+
+[discrete]
 ====== 26.11.1 - A database an `overwrite` restore replaces refuses writes until the restore ends
 
 While `restore backup ... overwrite` downloads and extracts the backup, the database it replaces stays open for reads and refuses every write, on every protocol, including connections and transactions opened before the restore started (issue #10689). The write is answered as "not available": `57P03` for Postgres, `DatabaseUnavailable` for BOLT, `UNAVAILABLE` for gRPC. A database setting change is refused the same way. The restore first waits for the commits already running. Before, such writes were acknowledged and then lost when the restored copy replaced the database.
@@ -301,6 +319,15 @@ These protocols resolved the database a client names through the server's own en
 *Impact:* a connection that names such a database while the restore runs, or after `close database` and before `open database`, is refused instead of opening it. A database that is already open is served for reads as before and refuses writes while the restore runs (see the note above), and a restore that targets a name nobody has open no longer loses the writes a client made to the copy it replaces.
 
 *Action:* none for most installations. Retry the connection once the restore ends, or run `open database` after the cold backup.
+
+[discrete]
+====== 26.11.1 - Database listings include the databases that are on disk but not open
+
+The database listings and existence checks now include a database that is on disk but not open: one not opened at startup because `arcadedb.server.databaseLoadAtStartup` is `false`, and one closed by the new idle close (issue #11068, see <<server-idle-databases,Closing idle databases>>), because every protocol opens it on its first request. This covers HTTP `GET /api/v1/databases` and `GET /api/v1/exists/{database}`, the `list databases` server command, the gRPC admin `ListDatabases`, `ExistsDatabase`, `GetDatabaseInfo`, `CreateDatabase` (`if_not_exists`) and `DropDatabase` (`if_exists`), Bolt `SHOW DATABASES` and its default-database fallback, the MCP `list_databases` tool and schema resources, Gremlin traversal sources and the `drop database` command. A database closed with `close database`, being restored or being dropped is still not listed.
+
+*Impact:* with `databaseLoadAtStartup=false`, a database nobody has opened yet is listed and reported as existing where it used to be missing. Nothing changes with the default `databaseLoadAtStartup=true` and no idle close configured.
+
+*Action:* none. A tool that read the listing as "the databases open now" should not rely on it: the listing is the databases a client can use.
 
 [discrete]
 ====== 26.11.1 - A plugin route that another plugin or the server already holds fails the server start

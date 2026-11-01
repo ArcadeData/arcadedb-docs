@@ -697,11 +697,13 @@ NOTE: Before v26.11.1 these states answered `404 Database not found`, the answer
 exception class, so the two bodies were identical in production mode. A client or a monitor that treated a `404` from a database
 endpoint as "the database does not exist" now sees `503` for a database that exists and is held.
 
-NOTE: An opened database stays open until the server stops or `close database` closes it, and there is no limit on how many
+NOTE: By default an opened database stays open until the server stops or `close database` closes it, and there is no limit on how many
 the requests can open: each one holds its data files, its caches and, once written, a WAL file (since v26.11.1 a database
 holds no thread of its own and no WAL file until it is written, and a WAL file nobody writes for
 `arcadedb.txWalIdleTimeout` is closed). Size the memory and the file descriptor limit of a server that hosts thousands of
-databases for the ones in use at the same time. Closing the databases that fall idle is not part of this behaviour.
+databases for the ones in use at the same time. Since v26.11.1 the server can also close the databases that fall idle, and cap how
+many stay open, with `arcadedb.server.databaseIdleTimeout` and `arcadedb.server.maxOpenDatabases`: a database closed that way is
+reopened by its next request of any protocol, unlike one closed with `close database`. See <<server-idle-databases,Closing idle databases>>.
 
 Examples:
 
@@ -1208,6 +1210,11 @@ Return:
 {"result": ["school", "mydatabase"]}
 ----
 
+NOTE: Since v26.11.1 the list includes the databases that are on disk but not open: those closed for idleness and those not opened
+at startup because `arcadedb.server.databaseLoadAtStartup` is `false`. The first request that names one opens it. A database closed
+with `close database`, being restored or being dropped is not listed. The `list databases` server command answers the same way. See
+<<server-dormant-databases,Databases on disk that are not open>>.
+
 [[http-databaseexists]]
 ===== Does database exist (GET)
 
@@ -1234,6 +1241,10 @@ Return:
 ----
 {"result": true}
 ----
+
+NOTE: Since v26.11.1 a database that is on disk but not open (closed for idleness, or not opened at startup because
+`arcadedb.server.databaseLoadAtStartup` is `false`) answers `true`, since the first request that names it opens it. Before, it
+answered `false` until it was opened. A database closed with `close database`, being restored or being dropped answers `false`.
 
 [[http-progress]]
 ===== Get operation progress (GET)

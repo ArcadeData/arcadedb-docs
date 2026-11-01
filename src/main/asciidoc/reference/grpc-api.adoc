@@ -203,6 +203,12 @@ created the database, and `DropDatabaseResponse.dropped` only when it dropped on
 never case-folded. The Java client exposes the two forms as `createDatabase` / `createDatabaseIfMissing` and
 `dropDatabase` / `dropDatabaseIfExists`; the `IfMissing` / `IfExists` variants return the boolean.
 
+_(Since v26.11.1)_ `ListDatabases`, `ExistsDatabase`, `GetDatabaseInfo`, `CreateDatabase` with `if_not_exists` and `DropDatabase` with
+`if_exists` see the databases that are on disk but not open (closed for idleness, or not opened at startup because
+`arcadedb.server.databaseLoadAtStartup` is `false`) as existing, since the first request that names one opens it. Before, they answered
+as if such a database did not exist. A database closed with the `close database` server command, being restored or being dropped is still not listed. See
+<<server-dormant-databases,Databases on disk that are not open>>.
+
 *Users, groups, and API tokens*
 
 [cols="2,2,2,3", options="header"]
@@ -357,6 +363,25 @@ A terminated call ends with status `CANCELLED` and the trailer `arcadedb-excepti
 A statement terminated inside a client-managed transaction (`BeginTransaction`) ends that transaction: it is rolled
 back, and a later `CommitTransaction` answers `committed = false`.
 
+[[grpc-metrics]]
+==== Metrics
+
+The gRPC server records three meters per RPC, exported with the other server meters (see <<observability-metrics,Metrics depth>>):
+
+[cols="2,2,3", options="header"]
+|===
+| Meter | Tags | Meaning
+
+| `grpc.requests.total` | `method` | Calls received
+| `grpc.request.duration` | `method`, `status` | Time from the call to its close
+| `grpc.errors.total` | `method`, `status` | Calls that failed: closed with a status other than `OK`, or closed with `OK` but answering a failure in the response
+|===
+
+_(Since v26.11.1)_ `grpc.errors.total` counts every call closed with status `OK` whose response message declares a top-level boolean
+`success` field and sends it `false`, such as an `UpdateRecord` or a `DeleteRecord` that a listener vetoed. Such a call is counted
+with `status` `OK`. Before, only an `ExecuteCommandResponse` with `success = false` was counted, and the other in-band failures read
+as successes (issue #11054).
+
 [[grpc-messages]]
 ==== Message Types
 
@@ -432,6 +457,33 @@ NOTE: `PAGED` retrieval keeps the `ORDER BY` your query specifies. When the quer
 reserves the parameter names `_skip` and `_limit`, and applies to SQL only: a query in another language falls back to
 `CURSOR`. If you order by a column with duplicate values, rows that tie can still move between pages, since every page
 re-runs the query; add a unique tie-break such as `ORDER BY createdAt DESC, @rid` when pages must be reproducible.
+
+[[grpc-projection-settings]]
+===== Projected records
+
+`StreamQueryRequest`, `ExecuteQueryRequest` and `ExecuteCommandRequest` accept an optional `ProjectionSettings` that says how a
+record the query projects as a value is sent:
+
+[cols="1,3", options="header"]
+|===
+| Field | Meaning
+
+| `include_projections` | When `false`, a projected record is sent as its RID (`link_value`) only
+| `projection_encoding` | `PROJECTION_AS_LINK` sends the RID, `PROJECTION_AS_MAP` a `map_value` with `@rid`, `@type` and the properties, `PROJECTION_AS_JSON` the record's JSON in `bytes_value` with `logical_type` `json`
+| `soft_limit_bytes` | A soft bound, in bytes, on the projected records of the request. Past it, the remaining properties of a record are left out (MAP), and a record whose JSON is larger is sent as its RID (JSON). Unset or `0` means no limit
+|===
+
+A request without `ProjectionSettings` gets the records in JSON, with no limit.
+
+_(Since v26.11.1)_ A projected value that holds records - a graph traversal (`SELECT out() AS n`, and likewise `in()`, `outE()`,
+`inE()`, `both()`, `bothE()`), a list, a map, an array or a nested result row - is encoded like a top-level projected record, with
+the request's `ProjectionSettings`, and `soft_limit_bytes` counts the records nested inside lists and maps too. A traversal is a
+`list_value`, empty for a vertex with no edges. A nested result row that wraps a record is sent as that record, `@rid` and `@type`
+included. This is what HTTP returns for the same query.
+
+NOTE: Before v26.11.1 `out()`, `in()`, `outE()` and `inE()` reached a gRPC client as a Java class name string, such as
+`com.arcadedb.graph.GraphEngine$10@63e44da5`, and the records inside a list (`both()`) as bare RIDs whatever the
+`ProjectionSettings` asked for (issues #11044, #11048).
 
 [[grpc-insert-operations]]
 ===== Insert Operations
