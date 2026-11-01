@@ -285,6 +285,12 @@ RETURN count(*)
 
 A variable read anywhere else (returned, counted, renamed, carried to a `RETURN *`), an `OPTIONAL MATCH` with its own `WHERE` or starting from a node an earlier `OPTIONAL MATCH` may have left null, and a statement that writes keep the `OPTIONAL MATCH` as written.
 
+TIP: In a read-only query, when consecutive rows hold the same values for everything an `OPTIONAL MATCH` reads, ArcadeDB
+reuses the matches it found for the previous row instead of searching again. This matters after a clause that turns
+one node into many rows: an `OPTIONAL MATCH (r)-[:LOW]->(l)` that follows `OPTIONAL MATCH (r)-[:HIGH]->(h)` looks up the
+`LOW` relationships of `r` once, not once per `h`. `PROFILE` shows it as `[matches reused per ...]` with `match runs` and
+`reused` counters. The result is the same. _(Since v26.11.1)_
+
 ---
 
 [[cypher-where]]
@@ -1433,6 +1439,12 @@ RETURN a, b, sum
 ----
 
 Subqueries allow you to isolate complex query logic, perform computations on imported variables, and return results back to the outer query.
+
+TIP: In a read-only query the subquery hands its rows to the outer query as it finds them, and reads only as many as
+the rest of the query asks for: in `CALL { ... UNION ALL ... } RETURN x LIMIT 3`, a later `UNION` branch does not run
+when the earlier ones already gave 3 rows. A `UNION` inside `CALL { }` removes duplicates exactly as a top-level `UNION`
+does, so `1` and `1.0` count as the same value. _(Since v26.11.1: before, the whole subquery ran before its first row
+was returned, and a `UNION` inside it compared values by their text.)_
 
 *Subqueries IN TRANSACTIONS:*
 
