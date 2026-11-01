@@ -171,6 +171,8 @@ WHERE SEARCH_INDEX('Article[content]', 'java programming')
 | A Lucene query string
 |===
 
+_(since v26.11.1)_: `SEARCH_INDEX` and `SEARCH_FIELDS` refuse a third argument with an error; before, it was ignored.
+
 [[search-fields]]
 ====== SEARCH_FIELDS()
 
@@ -231,6 +233,15 @@ RETURN node.title AS title, score
 
 NOTE: Coming from Neo4j, you may reach for the `analyzer` option. ArcadeDB rejects it with an error rather than ignoring it:
 the analyzer is the one stored in the index metadata when the index was created, and there is no per-query override.
+
+_(since v26.11.1)_: the `where` and `filter` options restrict the matches before `skip` and `limit` apply, as the same options of `db.index.vector.queryNodes` do. A `WHERE` after the `CALL` only sees the rows the procedure returned, so with a `limit` and a filter that rejects the best matches it answers too few rows, or none (Neo4j behaves the same way); the `where` option answers `limit` rows of the filtered matches instead. `where` is a map of property to value (`{tenant: $t}`) or a SQL condition on the record (`'year >= :minYear'`, named parameters only); `filter` is a list of the record ids, or records, the search may answer. A `where` map that a regular index can answer is decided on the matches before any record is loaded; otherwise each match is tested on its record. The scores are those of the unfiltered search.
+
+[source,cypher]
+----
+CALL db.index.fulltext.queryNodes('Doc[content]', $q, {limit: 10, where: {tenant: $t}})
+YIELD node, score
+RETURN node.title AS title, score
+----
 
 [source,cypher]
 ----
@@ -492,6 +503,17 @@ ORDER BY @rid LIMIT 500
 ----
 
 The same `@rid` conditions are decided before loading for the `geo.*` predicates driven by a geospatial index, and for the root node of a `MATCH` (`{type: Article, where: (@rid > :cursor AND SEARCH_INDEX(...) = true)}`).
+
+_(since v26.11.1)_: a property equality ANDed with the search (`property = value`, against a literal, a parameter or a variable computed by a global `LET`) is decided on the matches before any record is loaded when a regular index lists the records it accepts: the index on `tenant` below lists the records of tenant `:t`, and the search drops every other match before it scores and loads them. This is what makes a tenant or access filter on a large shared corpus cheap when the filter rejects the best matches: the query loads the rows it returns, rather than every match until enough of them passed the filter. The listing is read only when it is no longer than the matches of the bucket, and is exact only for an index over exactly the equalities' properties that compares keys as `=` does (not a case-insensitive one); then the condition no longer counts as a filter that disables the `LIMIT` pushdown. Otherwise the listing still drops the matches it does not hold, and the rest are tested on their records once loaded. The BM25 scores are those of the unfiltered search. `EXPLAIN` shows the conditions handed to the search as `INDEX PRE-FILTER`:
+
+[source,sql]
+----
+CREATE INDEX ON Doc (tenant) NOTUNIQUE;
+
+SELECT @rid, $score FROM Doc
+WHERE SEARCH_INDEX('Doc[content]', :q) = true AND tenant = :t
+ORDER BY $score DESC LIMIT 10
+----
 
 _(since v26.10.2)_: an `OR` of searches (`SEARCH_INDEX(...) = true OR SEARCH_INDEX(...) = true`, `SEARCH_FIELDS` included) with no `ORDER BY` or exactly `ORDER BY $score DESC` is answered best first across all of them: the searches are merged by `$score` as their rows are read, instead of being run one after the other, deduplicated and sorted. A `LIMIT` therefore loads about the rows it returns rather than every match of every index, and without an `ORDER BY` the second index contributes to the first rows too, instead of only once the first one has none left. A record matched by several searches comes back once, with the best of its scores (the scores of different indexes are compared as they are, as `ORDER BY $score DESC` always compared them). A filter ANDed with the `OR` (`(... OR ...) AND lang = 'en'`) keeps the merge, but then the searches are not cut to the best `SKIP + LIMIT` matches. `EXPLAIN` shows `MERGE BY $score DESC` with one branch per search, each with `(best N needed)` when the `LIMIT` is pushed down:
 

@@ -65,6 +65,24 @@ After `ALTER TYPE Foo NAME Bar`, the index `Foo[a]` was listed as `Bar[a]` but r
 *Action:* use the name the schema lists. See <<sql-alter-type,ALTER TYPE>>.
 
 [discrete]
+====== 26.11.1 - SQL refuses a placeholder with no key in the parameter map
+
+A `?` or a `:name` bound through a parameter map (`query`/`command` with a `Map` for `sql` and `sqlscript`, the HTTP `params` given as an object, the GraphQL `@sql` directive) or run with no parameters at all was bound to `null` when the map had no key for it, without a word: an `INSERT` stored `null` and a `WHERE v = ?` matched nothing. Such a statement is now refused before it runs with a `CommandParameterMissingException` (HTTP 400, `Expected parameter(s): v`), as openCypher already refuses it (issue #11098). A key bound to `null` still binds `null`. A `?` is keyed by its position (`"0"` for the first), a `:name` by its name, `:name` or its position. A SQL function defined with `DEFINE FUNCTION` and called with fewer arguments than it declares binds the omitted ones to `null`, and so does an argument a GraphQL query omits for a native-query directive (or its default value, when the field declares one).
+
+*Impact:* code that relied on a missing key being bound to `null` fails where it used to answer.
+
+*Action:* bind every placeholder, with an explicit `null` where that is what you mean.
+
+[discrete]
+====== 26.11.1 - `pow()` and `sqrt()` answer the value, not the width of the argument
+
+`pow()` answered null for every negative base and narrowed its result into the type of the base (`pow(2, 31)` returned `2147483647`, `pow(s, 3)` on a SHORT holding 300 returned `-832`), and read a fractional exponent as a whole one (`pow(2, 2.5)` returned 4). `sqrt()` rounded the root of an integral argument down into its type (`sqrt(2)` returned `1`). Both now answer the value (issue #11047): an exact integral power widens to a Long and then to an exact Decimal, a fractional exponent and a negative exponent of an integral base answer a Double, a negative base is accepted, and the root of an integral or Float argument is a Double. A power no type can hold raises an arithmetic error instead of a saturated number.
+
+*Impact:* `sqrt(4)` returns `2.0` (a Double) where it returned `2`, and `pow()` of an INTEGER base can return a Long or a Decimal.
+
+*Action:* none, unless code relied on the type of the result; cast it with `.asInteger()` or `.asLong()` where an integral value is needed. See <<pow,pow()>> and <<sqrt,sqrt()>>.
+
+[discrete]
 ====== 26.11.1 - SQL refuses positional values that do not match the placeholders
 
 A call that binds positional values (`query`/`command` with `Object...` for `sql` and `sqlscript`, the HTTP `params` given as a JSON array or as an object keyed `"0"`, `"1"`, ..., and the remote Java client) dropped a value no placeholder read and bound a placeholder with no value to `null`, without a word. A list spread into several values for one `IN ?` answered fewer rows than the caller meant. The values are now counted against the placeholders before the statement runs, and a mismatch is refused with a `CommandSQLParsingException` (HTTP 400) that names both counts (issue #10721). Each `?` and each positionally bound `:name` takes exactly one value, a script counts the placeholders of all its statements, and a Postgres-style `$N` may leave lower positions unread. Values bound by name (a map) are not counted.

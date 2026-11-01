@@ -1085,7 +1085,15 @@ SELECT polygon([point(10, 10), point(20, 10), point(20, 20), point(10, 20), poin
 ====== pow() pass:[<span class="fn-badge fn-badge-math">math</span>]
 
 Returns the power of the `base` argument to the `exponent` argument.
-It works with Integer, Long, Short, Double, Float, BigInteger, BigDecimal, and null.
+It works with Integer, Long, Short, Byte, Double, Float, BigInteger, BigDecimal, and null: a null `base` or `exponent` returns null.
+
+_(since v26.11.1)_: the result depends on the values of the arguments, not on the type the base is stored as:
+
+* an integral base and a whole exponent that is not negative return the exact power, widened as the arithmetic operators widen a result: an Integer while it fits, then a Long, then an exact Decimal (`pow(2, 31)` is `2147483648`, `pow(10, 30)` is `1000000000000000000000000000000`). Before, the power was narrowed back into the type of the base (`pow(2, 31)` returned `2147483647`, and `pow(s, 3)` on a SHORT holding 300 returned `-832`)
+* a Decimal base and a whole exponent return the exact power, rounded to 34 digits past 1024 digits or for a negative exponent
+* a Float or Double base, a fractional exponent (`pow(2, 2.5)`, read as 2 before) or a negative exponent of an integral base (`pow(2, -1)` is `0.5`) return a Double
+* a negative base is accepted (`pow(-2, 3)` is `-8`; it returned null before); only a power with no real value, a negative base to a fractional exponent, returns null
+* a power no type can hold, or zero to a negative power of a Decimal, raises an arithmetic error (HTTP 400), like an overflow of the `+` and `*` operators
 
 Syntax: `pow(&lt;base&gt;, &lt;exponent&gt;)`
 
@@ -1228,10 +1236,10 @@ See also: <<algo-shortest-path-sql,Graph Algorithms: shortestPath()>> for the fu
 [[sqrt]]
 ====== sqrt() pass:[<span class="fn-badge fn-badge-math">math</span>]
 
-Returns the absolute value.
-It works with Integer, Long, Short, Double, Float, BigInteger, BigDecimal, and null.
+Returns the square root.
+It works with Integer, Long, Short, Byte, Double, Float, BigInteger, BigDecimal, and null.
 
-NOTE: Integer arguments are rounded down and negative arguments result in null.
+NOTE: Negative arguments result in null. _(since v26.11.1)_: the root of an integral or Float argument is a Double (`sqrt(2)` is `1.4142135623730951`, `sqrt(4)` is `2.0`), and that of a BigInteger or BigDecimal a Decimal rounded to 34 digits. Before, the root was rounded down into the type of the argument (`sqrt(2)` returned `1`) and a Decimal root had 10 digits.
 
 Syntax: `sqrt(&lt;field&gt;)`
 
