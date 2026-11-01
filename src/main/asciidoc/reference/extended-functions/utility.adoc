@@ -129,21 +129,56 @@ Pause execution for a specified time.
 [[util-validate]]
 ===== util.validate()
 
-Validate a condition and throw an error if false.
+Abort the query with an error when a condition holds, as APOC's `apoc.util.validate` does: the predicate states the
+condition that must NOT be true. When `params` is a non-empty list, its values fill the `%s` placeholders of the message
+(Java `String.format`); without it the message is used as written.
 
-*Syntax:* `util.validate(predicate, message)`
+*Syntax:* `util.validate(predicate, message [, params])`
 
-*Returns:* Boolean - true if validation passes
+*Returns:* Boolean - true when the predicate is false (or null)
 
-*APOC Compatible:* `apoc.util.validate`
+*APOC Compatible:* `apoc.util.validate` (also callable with `CALL`)
 
 [source,cypher]
 ----
-RETURN util.validate(1 > 0, "Value must be positive") AS valid
-// Returns: true
+CALL apoc.util.validate(false, 'bad %s', ['x']) RETURN 1 AS ok
+// Returns: one row, ok = 1
 
-RETURN util.validate(false, "This will throw!") AS valid
-// Throws: IllegalArgumentException with message "This will throw!"
+CALL apoc.util.validate(true, 'bad %s', ['x']) RETURN 1 AS ok
+// Throws an error with message "bad x"
+
+// The usual guard: abort the write when the account cannot pay
+MATCH (a:Account {id: $id})
+CALL apoc.util.validate(a.balance < $amount, 'insufficient balance on %s', [$id])
+SET a.balance = a.balance - $amount
+----
+
+[NOTE]
+====
+Up to 26.10.2 `util.validate` took two arguments and threw when the predicate was *false*, the opposite of APOC. It now
+follows APOC: it throws when the predicate is *true*. A query written for the old behavior must negate its predicate
+(`util.validate(NOT (x > 0), ...)`).
+====
+
+---
+
+[[util-validatePredicate]]
+===== util.validatePredicate()
+
+The function form of `util.validate()`, usable in a `WHERE` or a `RETURN`: throws when the predicate is true, returns
+true otherwise.
+
+*Syntax:* `util.validatePredicate(predicate, message [, params])`
+
+*Returns:* Boolean - true when the predicate is false (or null)
+
+*APOC Compatible:* `apoc.util.validatePredicate`
+
+[source,cypher]
+----
+MATCH (n:Person)
+WHERE apoc.util.validatePredicate(n.age IS NULL, 'person %s has no age', [n.name])
+RETURN n.name
 ----
 
 ---
