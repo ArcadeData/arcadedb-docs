@@ -173,6 +173,24 @@ A database that exists but cannot serve now (an `overwrite` restore holds its na
 *Action:* none for most installations. See <<http-open-on-demand,Opening a database on demand>>.
 
 [discrete]
+====== 26.11.1 - The Java remote clients raise the engine's exception for a failing statement
+
+A failing statement used to reach a `RemoteDatabase` or `RemoteGrpcDatabase` caller as an untyped `RemoteException`, which was not an `ArcadeDBException`, for the whole command family: a syntax error, an unknown function, a missing bucket, an `INSERT` sent through `query()` (issue #11045). The clients now raise the exception the embedded engine raises (`CommandSQLParsingException`, `CommandExecutionException`, `QueryNotIdempotentException`, `IllegalArgumentException` for an unknown query language, ...), with the server's sentence as the message, and `RemoteException` extends `ArcadeDBException`.
+
+*Impact:* a `catch (RemoteException e)` around a statement no longer catches these failures; a `catch (ArcadeDBException e)` now catches them, and every other `RemoteException` too. Code that parsed the class name out of a message of the form `Error on executing remote operation ... (cause:<class> detail:<message>)` receives the type instead.
+
+*Action:* catch `ArcadeDBException`, or the specific engine exception, where the code caught `RemoteException` for a failing statement. See <<remote-exception-types,Remote Java API>>.
+
+[discrete]
+====== 26.11.1 - The vector functions return `NULL` for a `NULL` vector, and `0` or `false` for an empty one
+
+`vector.magnitude()` (`vector.l2Norm()`), `vector.normalize()` and the two-vector functions (`vector.cosineSimilarity()`, `vector.dotProduct()`, `vector.l1Distance()`, `vector.l2Distance()`, `vector.add()`, `vector.subtract()`, `vector.multiply()`, `vector.scale()`) used to fail the whole query on a `NULL` vector, while the other vector functions returned `NULL` (issue #11052). They all return `NULL` now. `vector.l1Norm()` and `vector.lInfNorm()` returned an error on an empty vector whose `vector.l2Norm()` was `0`; the three return `0`, and `vector.hasNaN()`, `vector.hasInf()`, `vector.isNormalized()`, `vector.normalize()`, `vector.clip()` and `vector.toString()` answer an empty vector too.
+
+*Impact:* a projection over rows without an embedding returns `NULL` for those rows instead of failing. A query that relied on the error to detect a missing or empty vector no longer gets one.
+
+*Action:* none for most installations. Filter with `WHERE embedding IS NOT NULL` where a missing vector has to be told apart. See <<vector-null-and-empty,NULL and empty vectors>>.
+
+[discrete]
 ====== 26.11.1 - A name that is not a database is the client's error, not a server fault
 
 A client that names a database the server does not have (a typo in the connection's database, or a database dropped while a connection still names it) used to be answered as a server fault by every protocol but HTTP and BOLT: SQLSTATE `XX000` for a statement on Postgres (`HV00Q` when the connection opened), status `INTERNAL` for gRPC, its admin calls included, an uncoded "Unknown error" for MongoDB, and the server logged it with a stack trace (issue #10795). It is now answered as the client's to correct: SQLSTATE `3D000` invalid_catalog_name for Postgres, the code PostgreSQL itself gives, status `NOT_FOUND` for gRPC (the Java gRPC client raises a `DatabaseNotFoundException`), error `26 NamespaceNotFound` for MongoDB, `Neo.ClientError.Database.DatabaseNotFound` for BOLT also when the database is lost under a statement, and `ERR Database '<name>' not found` for Redis, the reply its `SELECT` already gave. HTTP keeps its `404`.

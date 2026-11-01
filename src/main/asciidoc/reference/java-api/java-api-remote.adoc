@@ -34,6 +34,22 @@ that caught `RemoteException` for these cases keeps working, and a provisioning 
 there" as success. In 26.10.1 and earlier a taken user name answered `403` (`Security error`) and a taken database name
 `400`. Restoring a backup into a database name that is taken still answers `400`.
 
+[[remote-exception-types]]
+_(Since v26.11.1.)_ A failing statement raises the same exception remotely as embedded: a syntax error is a
+`CommandSQLParsingException`, an unknown function or a missing bucket a `CommandExecutionException`, an `INSERT` sent
+through `query()` a `QueryNotIdempotentException`, an unknown query language an `IllegalArgumentException`, and so on for
+every ArcadeDB exception that carries only its message, over HTTP and gRPC alike. Its message is the server's own
+sentence. `RemoteException` itself now extends `ArcadeDBException`, so a `catch (ArcadeDBException e)` written against the
+database interfaces catches the same failures whether the database is embedded or remote, including a failure whose type
+the client cannot rebuild (a class of a newer server, or of a plugin). In 26.10.2 and earlier these failures reached the
+caller as a `RemoteException` that was not an `ArcadeDBException`, with a message of the form
+`Error on executing remote operation ... (cause:<class> detail:<message>)`.
+
+_(Since v26.11.1.)_ `getType()` answers the record's type on a mutable remote record too (`newDocument()`,
+`newVertex()`, `modify()`), as it does on a record read from the server, instead of throwing
+`UnsupportedOperationException`. `toMap()` and `toJSON()` of a remote edge include `@in` and `@out`, as an embedded edge
+does.
+
 [[remote-database]]
 ==== RemoteDatabase Class
 The RemoteDatabase class is used to work with a remote database instance.
