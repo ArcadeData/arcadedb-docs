@@ -191,6 +191,27 @@ CREATE INDEX ON Doc (embedding) LSM_VECTOR METADATA {
 }
 ----
 
+[[vector-rid-only-projection]]
+===== Returning Only RIDs and Distances
+
+A quantized index (`INT8`, `BINARY`, `PRODUCT`) walks its graph on the quantized vectors and reads no document. Since v26.11.1 `vector.neighbors()` does not read the record of a neighbour either until a property of it is asked, so a query that projects only `@rid`, `@type` and `distance` keeps the documents, and the full-precision embeddings they hold, out of the page cache:
+
+[source,sql]
+----
+-- Reads no document: the application keeps the entity fields elsewhere
+SELECT @rid, distance FROM (SELECT expand(vector.neighbors('Doc[embedding]', :queryVector, 10)))
+
+-- Reads the 10 records of the answer, and nothing else
+SELECT @rid, title, distance FROM (SELECT expand(vector.neighbors('Doc[embedding]', :queryVector, 10)))
+----
+
+The record is still read as the row is made, as before, when a `groupBy` is given, when a read listener or trigger is registered on the database or on the type, and when the calling transaction has written to the index.
+
+[NOTE]
+====
+*Behavior change in v26.11.1.* A row used to be checked against its bucket when it was made, and a neighbour whose record was gone was skipped and replaced. A row is now checked against the index, which a delete updates in the same commit, so a committed delete (a concurrent one included) still costs no row. What the index cannot see is a record removed from its bucket behind its back, which only a damaged database has (a crash, a partial restore): such a row is returned with its `@rid` and no property, instead of being skipped. `REBUILD INDEX` on the vector index removes those entries.
+====
+
 ===== Multi-Modal Embeddings
 
 Store multiple embeddings per record for different search modalities:
