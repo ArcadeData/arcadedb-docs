@@ -10,12 +10,9 @@ NOTE: In many cases, you may find it more efficient to use <<sql-select,`SELECT`
 [source,sql]
 ----
 TRAVERSE <projection> [, <projection>]*   (a field, or a function such as out(), in() or both())
-         [FROM <target>]
-         [
-           MAXDEPTH <number>
-           |
-           WHILE <condition>
-         ]
+         FROM <target>
+         [MAXDEPTH <number>]
+         [WHILE <condition>]
          [LIMIT <max-records>]
          [STRATEGY DEPTH_FIRST|BREADTH_FIRST]
 
@@ -23,14 +20,14 @@ TRAVERSE <projection> [, <projection>]*   (a field, or a function such as out(),
 
 * <<fields,`&lt;fields&gt;`>> Defines the fields you want to traverse.
 * [[target]]`&lt;target&gt;` Defines the target you want to traverse. This can be a type, one or more buckets, a single Record ID, set of Record ID's, or a sub-query.
-* *`MAXDEPTH`* Defines the maximum depth of the traversal. `0` indicates that you only want to traverse the root node. Negative values are invalid.
-* *`WHILE`* Defines the condition for continuing the traversal while it is true.
+* *`MAXDEPTH`* Defines the maximum depth of the traversal. `0` indicates that you only want to traverse the root node. Negative values are invalid. The result is every record reachable within that many hops of a root, whichever strategy is used.
+* *`WHILE`* Defines the condition for continuing the traversal while it is true. It is evaluated on every record before it is traversed, the roots included: a root that does not satisfy it is neither returned nor traversed. `MAXDEPTH` and `WHILE` can be used together.
 * *`LIMIT`* Defines the maximum number of results the command can return.
-* <<traversal-strategies,`STRATEGY`>> Defines strategy for traversing the graph.
+* <<traversal-strategies,`STRATEGY`>> Defines strategy for traversing the graph. It also decides what `$depth` and `$path` mean on a graph where a record can be reached by more than one path, see <<traversal-strategies,Traversal Strategies>>.
 
-NOTE: The use of the <<filtering,`WHERE`>> clause has been deprecated for this command.
+NOTE: `TRAVERSE` has no `WHERE` clause. To filter the traversed records, wrap the `TRAVERSE` in a <<sql-select,`SELECT`>>, as in the examples below.
 
-NOTE: There is a difference between `MAXDEPTH N` and `WHILE DEPTH &lt;= N`: the `MAXDEPTH` will evaluate exactly N levels, while the `WHILE` will evaluate N+1 levels and will discard the N+1th, so the `MAXDEPTH` in general has better performance.
+NOTE: There is a difference between `MAXDEPTH N` and `WHILE $depth &lt;= N`: the `MAXDEPTH` will evaluate exactly N levels, while the `WHILE` will evaluate N+1 levels and will discard the N+1th, so the `MAXDEPTH` in general has better performance. Both return the same records.
 
 *Examples*
 
@@ -43,7 +40,7 @@ ArcadeDB> TRAVERSE out() FROM #10:1234
 ----
 
 * Specify fields and depth up to the third level, using the <<traversal-strategies,`BREADTH_FIRST`>> strategy:
-
+[source,sql]
 ----
 ArcadeDB> TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3
             STRATEGY BREADTH_FIRST
@@ -56,7 +53,7 @@ ArcadeDB> SELECT FROM (TRAVERSE out("Friend") FROM #10:1234 MAXDEPTH 3)
             WHERE $depth >= 1
 ----
 
-NOTE: You can also define the maximum depth in the <<sql-select,`SELECT`>> command, but it's much more efficient to set it at the inner <<sql-traverse,`TRAVERSE`>> statement because the returning record sets are already filtered by depth.
+NOTE: Bound the depth with `MAXDEPTH` or `WHILE` in the inner <<sql-traverse,`TRAVERSE`>> rather than with `$depth` in the outer <<sql-select,`SELECT`>>. It is much more efficient, because the traversal stops there instead of walking the whole graph. It is also correct with both strategies, while an outer `WHERE $depth &lt;= N` returns every record within N hops only with `STRATEGY BREADTH_FIRST`: with the default `DEPTH_FIRST`, a record first reached through a longer path carries that longer `$depth` and is filtered out, see <<traversal-strategies,Traversal Strategies>>. Filtering out only the root, as above, is safe with both: the roots are the only records at depth `0`.
 
 * Combine traversal with <<sql-select,`SELECT`>> command to filter the result-set. Repeat the above example, filtering for users in Rome:
 [source,sql]
@@ -105,12 +102,15 @@ In addition to the above, you can use the following context variables in travers
 
 * *`$parent`* Gives the parent context, if any. You may find this useful when traversing from a sub-query.
 * *`$current`* Gives the current record in the iteration. To get the upper-level record in nested queries, you can use `$parent.$current`.
-* *`$depth`* Gives the current depth of nesting.
-* *`$path`* Gives a string representation of the current path. For instance, `#5:0.out`. You can also display it through <<sql-select,`SELECT`>>:
+* *`$depth`* Gives the number of hops from the root to the current record, along `$path`. The root is at depth `0`.
+* *`$path`* Gives the path the traversal followed to reach the current record, as the list of its Record IDs from the root to the record itself (for instance `[#8:0, #8:1, #8:3]`). It always has `$depth + 1` elements. You can also display it through <<sql-select,`SELECT`>>:
 [source,sql]
 ----
-ArcadeDB> SELECT $path FROM (TRAVERSE out() FROM V)
+ArcadeDB> SELECT $path, $depth FROM (TRAVERSE out() FROM #10:1234)
 ----
+* *`$stack`* Gives the same Record IDs as `$path`, in reverse order: the current record first, the root last.
+
+With `STRATEGY BREADTH_FIRST`, `$depth` is the shortest distance from the root. With the default `DEPTH_FIRST` it can be longer, see <<traversal-strategies,Traversal Strategies>>.
 
 *Use Cases*
 
@@ -119,20 +119,24 @@ ArcadeDB> SELECT $path FROM (TRAVERSE out() FROM V)
 
 When you already know traversal information, such as relationship names and depth-level, consider using <<sql-select,`SELECT`>> instead of <<sql-traverse,`TRAVERSE`>> as it is faster in some cases.
 
-For example, this query traverses the `follow` relationship on Twitter accounts, getting the second level of friendship:
+For example, this query traverses the `follow` relationship from the Twitter account `#10:1234`, getting the accounts at the second level of friendship, that is the accounts it does not follow directly but that the accounts it follows do:
 
 [source,sql]
 ----
-ArcadeDB> SELECT FROM (TRAVERSE out('follow') FROM TwitterAccounts MAXDEPTH 2 )
-          WHERE $depth = 2
+ArcadeDB> SELECT FROM (TRAVERSE out('follow') FROM #10:1234 MAXDEPTH 2
+          STRATEGY BREADTH_FIRST) WHERE $depth = 2
 ----
 
-But, you could also express this same query using <<sql-select,`SELECT`>> operation, in a way that is also shorter and faster:
+`STRATEGY BREADTH_FIRST` is what makes `$depth = 2` mean "two hops away and not closer", see <<traversal-strategies,Traversal Strategies>>. Note that the traversal starts from one account: each record is returned once per `TRAVERSE`, so starting from every account (`FROM TwitterAccounts`) makes them all roots, an account is typically returned at depth `0`, and `$depth = 2` finds next to nothing.
+
+If you only need the accounts reachable in exactly two hops, you can express it with a <<sql-select,`SELECT`>>, in a way that is also shorter and faster:
 
 [source,sql]
 ----
-ArcadeDB> SELECT out('follow').out('follow') FROM TwitterAccounts
+ArcadeDB> SELECT expand(out('follow').out('follow')) FROM #10:1234
 ----
+
+The two are not the same query: the <<sql-select,`SELECT`>> also returns an account the root follows directly when it is followed by another account the root follows, and returns an account once for every path that reaches it.
 
 *`TRAVERSE` with the Graph Model and API*
 
@@ -162,10 +166,12 @@ In a domain for emails, to find all messages sent on January 1, 2012 from the us
 [source,sql]
 ----
 ArcadeDB> SELECT FROM (TRAVERSE outE(), inV() FROM (SELECT FROM User WHERE
-          name = 'Luca') MAXDEPTH 2 AND (@type = 'Message' or
-          (@type = 'SentMessage' AND sentOn = '01/01/2012') )) WHERE
-          @type = 'Message'
+          name = 'Luca') WHILE $depth &lt;= 2 AND (@type = 'User' OR
+          @type = 'Message' OR (@type = 'SentMessage' AND
+          sentOn = '01/01/2012'))) WHERE @type = 'Message'
 ----
+
+The `WHILE` condition accepts `User` too because it is also evaluated on the root: without it, the traversal would stop before leaving the user.
 
 [[traversal-strategies]]
 ===== Traversal Strategies
@@ -178,3 +184,19 @@ or visiting each child before progressing down the next level (breadth-first), s
 * https://en.wikipedia.org/wiki/Breadth-first_search[`BREADTH_FIRST` Strategy]
 
 By default, the depth-first strategy is used.
+
+A `TRAVERSE` returns each record at most once, even when several roots or several paths reach it. Without a `LIMIT`, both strategies return the same records, and `MAXDEPTH N` (or `WHILE $depth &lt;= N`) returns every record within N hops with either of them. What differs is the order of the results and, on a graph where a record can be reached by paths of different lengths, the `$depth` and `$path` a record is returned with:
+
+[%header,cols="1,2,2"]
+|===
+|Strategy |Order of the results |`$depth` and `$path` of a record
+|`DEPTH_FIRST` (default) |A branch is explored to its end before the next one |The path the walk took. It can be longer than the shortest one
+|`BREADTH_FIRST` |All the records at depth N before any record at depth N+1 |A shortest path. `$depth` is the distance from the root
+|===
+
+For example, if `A` reaches `X` through `A -> B -> X` and also through `A -> C -> D -> E -> X`, a depth-first traversal that explores the `C` branch first returns `X` with `$depth` 4 and the longer path, while a breadth-first one always returns it with `$depth` 2. On a tree, where every record has only one path from the root, the two strategies return the same `$depth` and `$path`.
+
+[IMPORTANT]
+====
+When the meaning of `$depth` matters, as when you filter or group the results by it in an outer <<sql-select,`SELECT`>> (`WHERE $depth = 2`, "the friends of my friends"), use `STRATEGY BREADTH_FIRST`. With the default `DEPTH_FIRST`, `SELECT FROM (TRAVERSE ...) WHERE $depth &lt;= 2` can miss records that are within 2 hops, because they were first reached through a longer path. To only bound the traversal, `MAXDEPTH` and `WHILE` are correct with both strategies.
+====
