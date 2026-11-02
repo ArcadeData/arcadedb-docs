@@ -292,8 +292,10 @@ CALL algo.hashgnn([config]) YIELD node, embedding
 |===
 | Key | Type | Default | Description
 
-| `embeddingDimension` | Integer | `128` | Output embedding size (number of MinHash functions)
-| `iterations` | Integer | `4` | Message-passing rounds (receptive field = iterations hops)
+| `embeddingDimension` | Integer | `128` | Output embedding size (max 4096)
+| `embeddingDensity` | Integer | `embeddingDimension / 8` (at least 1) | Samples drawn per node, so the most non-zero entries an embedding can have. At most `embeddingDimension`
+| `iterations` | Integer | `4` | Message-passing rounds: the farthest hop a sample can come from
+| `neighborInfluence` | Double | `1.0` | Weight of a node's neighbours, all together, against the node itself, applied again at every hop. Lower keeps the embedding local, higher reaches farther; `0` leaves every node with only itself
 | `relTypes` | String | all types | Comma-separated edge type names
 | `direction` | String | `BOTH` | Edge traversal direction
 | `seed` | Long | `-1` | Random seed; -1 = random
@@ -306,14 +308,20 @@ CALL algo.hashgnn([config]) YIELD node, embedding
 | Field | Type | Description
 
 | `node` | Vertex | The vertex
-| `embedding` | List<Float> | L2-normalised MinHash embedding vector of length `embeddingDimension`
+| `embedding` | List<Double> | L2-normalised binary vector of length `embeddingDimension`: every set entry is `1 / sqrt(setCount)`, the others are 0
 |===
 
 *Description*
 
-HashGNN is a *training-free* graph neural network that uses locality-sensitive hashing for neighbourhood aggregation. Each node is initialised with a sparse random binary feature vector (≈12.5% density) derived from its structural identity. For each propagation round, each node's feature set is expanded by OR-combining neighbour feature sets, then reduced to a fixed-size MinHash sketch using random linear hash functions `h_d(x) = (a·x + b) mod F`. The final embedding is the L2-normalised MinHash signature, providing probabilistic Jaccard similarity guarantees: two nodes with similar MinHash signatures have similar neighbourhood feature sets.
+HashGNN is a *training-free* graph neural network that replaces learned neighbourhood aggregation with MinHash sampling. Each node draws `embeddingDensity` samples from the nodes around it, and nodes whose neighbourhoods overlap draw the same samples: a node and its neighbours share many, two nodes far apart share none.
 
-HashGNN is extremely fast (no matrix multiplication, no gradient computation) and naturally handles graphs without node features.
+Each sample is a consistent weighted sample (an exponential race). Every node draws one random race time per sample slot from a hash shared by the whole graph, and each node keeps, per slot, the node with the smallest race time scaled by its distance: in every round a node may take its neighbours' best times multiplied by `degree / neighborInfluence`. So the node itself weighs 1, its neighbours together weigh `neighborInfluence` whatever the degree, and every further hop weighs `neighborInfluence` again of the one before. Because the hash is shared, two nodes keep the same sample with a probability that grows with how much of their weighted neighbourhoods they share. Each sample is then hashed to one of `embeddingDimension` positions, and the embedding is the normalised binary vector of the positions hit, so the cosine similarity of two embeddings measures how much their neighbourhoods overlap.
+
+More `iterations` widen the neighbourhood without ever making every node identical: the node itself always keeps its weight. The samples are node identities rather than random features, so two unrelated nodes share a position only when two of their samples hash to it, with a probability of about `embeddingDensity / embeddingDimension` per sample.
+
+HashGNN is extremely fast (no matrix multiplication, no gradient computation): a round costs `embeddingDensity` comparisons per edge, and it handles graphs without node features.
+
+NOTE: Before 26.11.1 the propagation rounds only OR-combined the neighbours' feature sets and reduced them once, after the last round, so on connected graphs of a few dozen nodes every node got the same vector, all zeros with the default settings (issue #11144). Embeddings computed by earlier versions are not comparable with the current ones.
 
 *Use Cases*
 
@@ -332,7 +340,8 @@ RETURN node.name AS name, embedding
 
 *References*
 
-- https://arxiv.org/abs/2206.01652[Dasoulas, G. et al. (2022). Improving Graph Neural Networks with Learnable Propagation Operators. _ICML 2022_]
+- Wu, W., Li, B., Luo, C., Nejdl, W. (2021). Hashing-Accelerated Graph Neural Networks for Link Prediction. _The Web Conference 2021_
+- Ioffe, S. (2010). Improved Consistent Sampling, Weighted Minhash and L1 Sketching. _ICDM 2010_
 - https://en.wikipedia.org/wiki/MinHash[MinHash – Wikipedia]
 
 '''
