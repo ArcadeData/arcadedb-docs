@@ -945,6 +945,13 @@ Aborts the thread's active transaction by rolling back all the pending changes.
 Usually the transaction rollback is executed in case of errors.
 If an exception happens during the call `<<commit,commit()>>`, the transaction is roll backed automatically.
 Once rolled backed, the transaction cannot be committed anymore but it has to be re-started by calling the `<<begin,begin()>>` method.
+With no active transaction (never begun, already committed or already rolled back) `rollback()` does nothing and does
+not throw, so it is safe in a `finally` block that also runs after a successful commit.
+
+NOTE: _(Since v26.11.1)_ this holds for the remote drivers too (`RemoteDatabase` over HTTP and `RemoteGrpcDatabase`).
+Before, they threw `TransactionException("Transaction not begun")` in that state, so a `finally { db.rollback(); }`
+reported a unit of work that had committed as failed. A remote database still does not support nested transactions:
+`begin()` while a transaction is already active throws a `TransactionException`.
 
 Syntax:
 
@@ -963,6 +970,19 @@ try{
   db.commit();
 } catch( Exception e ){
   db.rollback(); // <--- ROLLBACK IN CASE OF EXCEPTION
+}
+----
+
+Or, equivalently, rolling back whatever the block left open:
+
+[source,java]
+----
+db.begin();
+try{
+  // YOUR CODE HERE
+  db.commit();
+} finally {
+  db.rollback(); // <--- NO-OP AFTER A SUCCESSFUL COMMIT
 }
 ----
 

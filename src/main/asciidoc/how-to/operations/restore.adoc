@@ -48,6 +48,15 @@ NOTE: A restore forces every restored file to disk (fsync) before it reports suc
 directory and its parent. A power loss after the restore completes cannot leave the restored database partially
 written.
 
+NOTE: _(Since v26.11.1)_ the archive is extracted into a hidden staging directory next to `database-path`, and moved
+to `database-path` only once the extraction succeeded and the result was verified to be a database. A restore that
+fails (a truncated or corrupted archive, a wrong encryption key, a full disk) leaves nothing behind, so it can be
+retried with the same command. Previously the half-extracted directory stayed at `database-path`, and every later
+restore into it was refused with "already exist" until it was removed by hand. With `-o`, the database being replaced
+is kept until the restored copy is complete and only then replaced, so a failed restore no longer destroys it. This
+means the disk must have room for both the existing database and the restored copy while the restore runs, as was
+already the case for a restore through the server.
+
 ===== Configuration
 
 - `-f <backup-file>`   (string) path to the backup file to restore.
