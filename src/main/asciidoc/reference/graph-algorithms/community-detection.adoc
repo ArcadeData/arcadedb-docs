@@ -289,7 +289,7 @@ RETURN community, count(nodeId) AS size ORDER BY size DESC
 
 [source,cypher]
 ----
-CALL algo.labelpropagation([{maxIterations: 10, direction: 'BOTH'}])
+CALL algo.labelpropagation([{maxIterations: 10, direction: 'BOTH', seedProperty: 'label', fixedSeeds: true}])
 YIELD node, communityId
 ----
 
@@ -299,10 +299,12 @@ YIELD node, communityId
 |===
 | Parameter | Type | Required | Default | Description
 
-| config map | Map | No | see defaults | Configuration properties (all optional)
+| config map | Map | No | see defaults | Configuration properties (all optional). A key not listed here is refused with an error, so a misspelt one cannot silently fall back to its default
 | `maxIterations` | Integer | No | `10` | Maximum number of propagation passes
 | `direction` | String | No | `"BOTH"` | Edge direction to follow: `"IN"`, `"OUT"`, or `"BOTH"`
 | `tieBreakProperty` | String | No | none | Vertex property used to break ties between equally frequent labels: the smallest value wins (for example the vertex id, as LDBC Graphalytics CDLP requires). Without it, ties follow the internal load order, which a Graph Analytical View does not necessarily share: set it when the communities must not depend on whether a view serves the call. Values must be mutually comparable, and a vertex without the property loses every tie
+| `seedProperty` | String | No | none | Vertex property holding a pre-assigned integer label. Every vertex carrying the same value starts in the same community, a vertex without the property starts with a label of its own. The `communityId` of a community grown from a seed is the seed value itself; any other community is numbered past the largest seed, so the two never collide (the convention of Neo4j GDS `seedProperty`). With `tieBreakProperty` too, a seed label ranks by the smallest tie-break value among the vertices carrying it
+| `fixedSeeds` | Boolean | No | `false` | Keeps every seeded vertex on its seed label for the whole run, while it still spreads that label to its neighbors. Requires `seedProperty`. Without it the seeds are only starting labels, which their neighbors can overwrite
 |===
 
 *Yield Fields*
@@ -312,20 +314,25 @@ YIELD node, communityId
 | Field | Type | Description
 
 | `node` | RID | Vertex identity
-| `communityId` | Integer | Community label assigned to this vertex
+| `communityId` | Integer | Community label assigned to this vertex: with `seedProperty`, the seed value of a seeded community
 |===
 
 *Description*
 
 Detects communities by iteratively propagating labels. In each pass every vertex adopts, at once, the most frequent label among the neighbors its edges in `direction` reach: `OUT` its successors, `IN` its predecessors, `BOTH` all of them. Ties are broken by choosing the smallest label (see `tieBreakProperty`). The passes are synchronous, so a run is deterministic for a given graph; it ends when no label moves or after `maxIterations` passes, since a graph can oscillate between two labellings forever.
 
+With `seedProperty` and `fixedSeeds: true` the run is semi-supervised classification: the vertices whose class is known keep it, and every other vertex ends in the class of the seeds it is best connected to (or in a community of its own when no seed reaches it).
+
 [NOTE]
 Before v26.10.2 a run served by a Graph Analytical View ignored `direction` and always propagated over `BOTH`, so `OUT` and `IN` answered different communities once a view covered the graph.
+
+[NOTE]
+Before v26.11.1 there was no way to pre-assign a label, and an unknown config key (such as `seedProperty` then, or a misspelt `maxIteration`) was silently ignored. Since v26.11.1 every `algo.*` procedure that takes a config map refuses a key it does not know.
 
 *Use Cases*
 
 - Fast community detection in very large graphs
-- Semi-supervised classification when some labels are pre-assigned
+- Semi-supervised classification when some labels are pre-assigned (`seedProperty` with `fixedSeeds: true`)
 - Near-linear time community discovery
 
 *Example*
@@ -335,6 +342,16 @@ Before v26.10.2 a run served by a Graph Analytical View ignored `direction` and 
 CALL algo.labelpropagation({maxIterations: 20, direction: 'OUT'})
 YIELD node, communityId
 RETURN communityId, count(node) AS size ORDER BY size DESC
+----
+
+Semi-supervised classification: a few reviewed records carry their class in `label`, the graph classifies the rest:
+
+[source,cypher]
+----
+CALL algo.labelpropagation({seedProperty: 'label', fixedSeeds: true})
+YIELD node, communityId
+WHERE node.label IS NULL
+RETURN node.name AS record, communityId AS predictedLabel
 ----
 
 *References*
