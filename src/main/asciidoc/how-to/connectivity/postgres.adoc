@@ -137,6 +137,20 @@ PostgreSQL JDBC driver already requires. Binding from a prepared statement that 
 with SQLSTATE `26000`, and executing or describing a portal that does not exist with `34000`, instead of
 answering with a success message.
 
+_Since v26.11.1_, a `Bind` must supply exactly as many parameter values as its prepared statement requires: one for
+every `$N` up to the highest the statement text references, or for every type the `Parse` declared if that is more. A
+`Bind` with fewer or more values is refused with SQLSTATE `08P01` (`bind message supplies 0 parameters, but prepared
+statement "s1" requires 1`), and so is a `Bind` carrying several parameter format codes that do not match its value count,
+as in PostgreSQL. Before, a missing value left its `$N` to be read as a property of that name, so an `UPDATE ... SET
+x = $1` bound with no value wrote `NULL` and reported success. A `$N` inside a string literal, a quoted name or a comment
+is not counted.
+
+In the same release a named prepared statement and a named portal can no longer be redefined while they exist: a `Parse`
+naming a live statement is refused with `42P05` and a `Bind` naming a live portal with `42P03`, and the existing one
+is left as it was. Close it first (`Close`, `DEALLOCATE`, `CLOSE`). The unnamed statement and the unnamed portal are
+still replaced by every `Parse`/`Bind` that names them, which is what drivers rely on. Closing a prepared statement
+leaves the portals already bound from it executable, as PostgreSQL does.
+
 [[postgres-streamed-portals]]
 _Since v26.11.1_, a `SELECT` whose columns are known before its first row is read is fetched from a live cursor:
 each `Execute` (each chunk of a JDBC `setFetchSize()` fetch) reads only the rows it asks for, instead of the server
