@@ -366,6 +366,15 @@ The database listings and existence checks now include a database that is on dis
 *Action:* none. A tool that read the listing as "the databases open now" should not rely on it: the listing is the databases a client can use.
 
 [discrete]
+====== 26.11.1 - Studio's GraphML export writes the properties of the records
+
+Studio's graph *Export > GraphML* is now written by Studio itself instead of the unmaintained `cytoscape-graphml` plugin, in the layout of the GraphML database export (see <<studio-query-graph,Graph view>>). The plugin declared no `<key>` elements and wrote the properties of every record as the single text `[object Object]`, so the file carried none of them. Now the type is under `labelV` / `labelE`, every property is under a typed key, and maps and lists are JSON text marked with `arcadedb:type`. The values the canvas computed to draw an element (`label`, `fullLabel`, `size`, `weight`) are no longer written.
+
+*Impact:* a script that read the old file by its `label`, `size` or `weight` data, or by the `type` data that held the element's type, finds them gone: the type is under `labelV` / `labelE`, the record's own properties under their names.
+
+*Action:* none for most users. Re-export a graph saved with an older Studio to get its properties.
+
+[discrete]
 ====== 26.11.1 - A plugin route that another plugin or the server already holds fails the server start
 
 The routes a plugin declares through `registerAPI(HttpServer, PluginRoutes)` are now one namespace shared by every plugin (issue #10385). Declaring another method on a path a different plugin declared merges into the same entry. Declaring a method a plugin already declared on that path, a path that fills a route the server registers for itself (for example `GET /api/v1/server` or `/api/v1/query/mydb`), or a prefix equal to one of the server's own mounts (`/api/v1`, `/api/v1/ai`, `/ws`), is refused with an `IllegalStateException` naming both parties, and the server does not start. So is an exact path on the path of a prefix another party holds, and a prefix on the path of an exact path another party holds (issue #10532): an exact path is matched before any prefix, so one of the two would answer everything under the path but not the path itself. One plugin may declare both on one path, to handle the root in one handler and everything below it in another. Before, the second registration silently replaced the first plugin's route, which then answered `405` naming the other plugin's method, a plugin could shadow a core route, and a plugin declaring the `/api/v1` prefix replaced the whole core router, with no log line. The same check applies to a plugin still implementing the deprecated `registerAPI(HttpServer, PathHandler)`.
