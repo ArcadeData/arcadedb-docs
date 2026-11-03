@@ -743,6 +743,27 @@ load that used `SET n += row` after a `MERGE` now holds its rows in memory until
 to keep it streaming, set the properties by name (`SET n.name = row.name, n.age = row.age`).
 ====
 
+A value the query reads before a write keeps the value it had when it was read. When a `WITH`, an `UNWIND` or the
+value of a `SET` reads a property that a later `SET`, `REMOVE`, `MERGE` action, `FOREACH`, writing subquery or
+writing procedure changes, every row is read before the first write runs:
+
+[source,cypher]
+----
+// One Counter node with k = 1: all 250 rows return 1, and k ends at 251.
+MATCH (n:Counter)
+UNWIND range(1, 250) AS i
+WITH n, n.k AS before
+SET n.k = n.k + 1
+RETURN before
+----
+
+Reading and writing the same property through a variable that holds a different node on every row keeps streaming,
+because no row can see another row's write: `MATCH (n:P) WITH n, n.k AS old SET n.k = old + 1` has no barrier. Values
+read from `LOAD CSV` rows or from a literal list are not graph properties and never cause one.
+
+NOTE: Up to 26.10.2 the rows were projected in batches of 100, so the rows after the first 100 could see the write and
+return the new value; adding a `WITH *` changed the result (issue #11005).
+
 ---
 
 [[cypher-with]]
