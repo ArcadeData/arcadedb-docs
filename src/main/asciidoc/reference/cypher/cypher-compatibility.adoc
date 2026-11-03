@@ -153,6 +153,27 @@ openCypher can not, so such a property can be read and returned but never copied
 Over Bolt it is reported as `Neo.ClientError.Statement.TypeError`, Neo4j's own code for this refusal, and over HTTP
 as `400`. To move such a property through openCypher, flatten it into scalar properties, or do the write in SQL.
 
+[[cypher-var-length-relationship-variable]]
+===== The Variable of a Variable-Length Relationship Is a List
+
+In `MATCH (a)-[r:R*1..3]->(b)` the variable `r` holds the *list* of relationships the path went through, not one
+relationship, so `r.weight` reads no property. As in Neo4j, the statement is refused before it runs, whatever it would
+match, and the kind follows the variable through a `WITH`:
+
+----
+TypeError: Type mismatch: expected Map, Node, Relationship, Point, Duration, Date, Time, LocalTime, LocalDateTime or
+DateTime but was List<Relationship>. 'r' is a variable-length relationship and holds a list of relationships, so
+'r.weight' reads no property: read it per relationship, e.g. [rel IN r | rel.weight]
+----
+
+Read the property per relationship instead: `[rel IN r | rel.weight]`, `UNWIND r AS rel RETURN rel.weight`,
+`r[0].weight`, or `all(rel IN r WHERE rel.weight > 1)`. The inline predicate of the pattern itself,
+`[r:R* WHERE r.weight > 1]`, tests one relationship at a time, so there `r.weight` is valid.
+
+Over HTTP the refusal is a `400`. A type error that can only be found while the query runs, such as
+`UNWIND [[1, 2]] AS l RETURN l.x`, is a `400` too, with `com.arcadedb.exception.TypeMismatchException` as the
+reported exception, and `Neo.ClientError.Statement.TypeError` over Bolt. Before v26.11.1 both answered `500`.
+
 ===== Not Implemented Features
 
 The following Cypher features are not currently implemented:
