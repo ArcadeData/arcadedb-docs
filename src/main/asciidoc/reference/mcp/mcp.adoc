@@ -287,6 +287,31 @@ The operator tools `profiler_start`, `profiler_stop`, `profiler_status`, `get_se
 `set_server_setting` are described below as well.
 Call `tools/list` for the authoritative list, including the full input schema of every tool.
 
+[[mcp-tool-annotations]]
+===== Tool Annotations
+
+Since v26.11.1 every tool returned by `tools/list` carries MCP `annotations`: a `title` and the hints
+`readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`.
+AI clients use them to decide which calls they can run freely and which ones to confirm with the user first.
+
+[cols="~,10,10,10,10",options="header"]
+|===
+| Tools | Read-only | Destructive | Idempotent | Open world
+| `list_databases`, `get_schema`, `sample_records`, `vector_search`, `full_text_search`, `hybrid_search`, `server_status`, `profiler_status`, `get_server_settings` | yes | no | yes | no
+| `query` | yes | no | yes | yes
+| `upsert_entity`, `upsert_relationship` | no | yes | no | no
+| `profiler_start` | no | yes | no | no
+| `profiler_stop` | no | no | no | no
+| `execute_command` | no | yes | no | yes
+| `set_server_setting` | no | yes | no | no
+|===
+
+`query` and `execute_command` are "open world" because Cypher `LOAD CSV` and `IMPORT DATABASE` can fetch remote URLs.
+The upserts are destructive because they overwrite the properties of a record they match.
+
+NOTE: Annotations are hints for the client only. They never grant or restrict anything: the MCP configuration and
+the user's permissions are enforced by the server as before.
+
 [[mcp-tool-list-databases]]
 ===== `list_databases`
 
@@ -1451,6 +1476,7 @@ The MCP server enforces multiple layers of security:
 * **Prompt gating** -- A prompt is offered, and rendered, only when the tools its text names are visible to the caller and the permissions those tools need are granted. See <<mcp-prompts>>.
 * **Origin validation** -- Cross-origin browser requests are rejected to mitigate DNS rebinding. See <<mcp-origin>>.
 * **Semantic analysis** -- Queries and commands are analyzed to detect their operation type and enforce the appropriate permission.
+* **No scripting languages** -- `query` and `execute_command` refuse scripting languages (`js`, `python`, ...): a script cannot be checked without running it. Since v26.11.1.
 * **Error text in production mode** -- In `production` server mode a tool error raised by the engine (for example a duplicated key refused by `execute_command`, whose message carries the stored key values) answers "The request failed. Check the server log for the details", and the detail is written to the server log. The validation of the tool arguments stays visible. Since v26.10.2; see <<production-mode-errors,Error details in production mode>>.
 
 ==== Using with AI Clients
@@ -1480,3 +1506,23 @@ explore databases, query data, and execute commands within the configured permis
 A client that supports the other two surfaces should also read `arcadedb://{database}/schema` from
 <<mcp-resources,Resources>> at session start, which supplies the schema without spending a tool call, and offer the
 <<mcp-prompts,Prompts>> its profile exposes.
+
+[[mcp-claude-code-plugin]]
+===== Claude Code Plugin
+
+Since v26.11.1 the ArcadeDB repository is also a Claude Code plugin marketplace. The `arcadedb` plugin connects
+Claude Code to your own ArcadeDB server and adds a skill that teaches the assistant how to work with ArcadeDB.
+
+1. In Studio, create an API token (*Security > API Tokens*) with only the permissions the assistant needs.
+2. In Studio, enable MCP (*Server > MCP*) and add `apitoken:<token name>` to the allowed users.
+3. Install the plugin:
++
+[source,shell]
+----
+claude plugin marketplace add ArcadeData/arcadedb --sparse .claude-plugin claude-plugin
+claude plugin install arcadedb@arcadedb
+----
+
+Claude Code asks for the server URL (for example `http://localhost:2480`, without `/api/v1/mcp`) and the API token,
+which it keeps in the operating system's credential store. Use `https://` for any server that is not on your own
+machine, because the token travels in an HTTP header.
