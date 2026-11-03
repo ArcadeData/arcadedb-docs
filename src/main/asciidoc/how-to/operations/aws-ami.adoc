@@ -1,0 +1,114 @@
+[[aws-ami]]
+==== AWS Marketplace AMI
+
+ArcadeDB is available as an Amazon Machine Image (AMI) on AWS Marketplace.
+The image is ArcadeDB Community Edition (Apache 2.0) installed on Ubuntu 22.04 LTS, ready to run as a systemd service on a single EC2 instance.
+There is no software fee: you pay only for the AWS resources you use (EC2, EBS and data transfer).
+The image is built with Packer from the https://github.com/ArcadeData/arcadedb-ami[arcadedb-ami] repository, which also holds the Terraform and CloudFormation templates mentioned at the end of this page.
+
+NOTE: The Marketplace AMI is x86_64 only.
+The recommended instance type is `m6i.large`; smaller types such as `t3.medium` are enough for evaluation.
+
+[[aws-ami-contents]]
+===== What is in the image
+
+[%header,cols="1,3"]
+|===
+|Item |Value
+
+|Operating system |Ubuntu 22.04 LTS, hardened and checked against CIS-style tests when the image is built
+|Java |OpenJDK 25 (headless)
+|ArcadeDB home |`/opt/arcadedb`
+|Service |`arcadedb` (systemd, restarts automatically), running as the `arcadedb` user
+|Databases |`/var/lib/arcadedb/databases`
+|Backups |`/var/lib/arcadedb/backups`
+|Logs |`/var/log/arcadedb`
+|HTTP API and Studio |port `2480`
+|SSH user |`ubuntu`, with the EC2 key pair you choose at launch
+|===
+
+The JVM heap is sized from the instance memory (initial 25%, maximum 50% of RAM) and remote JMX is disabled.
+The image does not serve HTTPS: see <<aws-ami-security,Security>>.
+
+[[aws-ami-launch]]
+===== Launch an instance
+
+. Subscribe to ArcadeDB on AWS Marketplace and choose *Continue to Configuration*, then *Launch*.
+. Pick an instance type (`m6i.large` recommended), a VPC and a subnet, and an EC2 key pair.
+. In the security group, allow:
+** TCP `22` (SSH) from your own IP address only
+** TCP `2480` (Studio and HTTP API) from your own network only
+. Launch the instance and wait two or three minutes for it to start.
+
+[[aws-ami-first-login]]
+===== First login and the root password
+
+The image contains no password.
+On the first boot of every instance, `arcadedb-firstboot` generates a unique password for the `root` user, stores it in `/etc/arcadedb/root-password` and starts the server with `-Darcadedb.server.rootPasswordPath` pointing to that file (see <<secrets,Secrets>>).
+A copy for the SSH user is left in the home directory:
+
+[source,shell]
+----
+ssh -i your-key.pem ubuntu@<instance-public-ip>
+cat ~/arcadedb-root-password.txt
+----
+
+Open `http://<instance-public-ip>:2480` in a browser and log in as `root` with that password.
+Copy the password to your password manager and delete `~/arcadedb-root-password.txt` afterwards.
+
+To check the server from the instance:
+
+[source,shell]
+----
+sudo systemctl status arcadedb
+curl http://localhost:2480/api/v1/ready
+----
+
+To create users and give them access to databases, see <<users,Users>>.
+
+[[aws-ami-operate]]
+===== Operating the instance
+
+[source,shell]
+----
+sudo systemctl status arcadedb      # service state
+sudo systemctl restart arcadedb     # restart
+sudo journalctl -u arcadedb -n 200  # recent output
+ls /var/log/arcadedb                # server logs
+----
+
+*Settings.*
+ArcadeDB settings are passed as JVM properties in the `ARCADEDB_SETTINGS` environment variable of the `arcadedb` unit.
+Override it with a drop-in and keep the `rootPasswordPath`, `databaseDirectory` and `backupDirectory` properties that the image sets, otherwise the server no longer finds its password and data:
+
+[source,shell]
+----
+sudo systemctl show arcadedb -p Environment   # see the current value
+sudo systemctl edit arcadedb                  # add an Environment="ARCADEDB_SETTINGS=..." line
+sudo systemctl restart arcadedb
+----
+
+See <<changing-settings,Changing settings>> for the available settings.
+
+*Backups.*
+The backup directory `/var/lib/arcadedb/backups` is already configured.
+Use the <<backup,backup>> and <<restore,restore>> commands, and take regular EBS snapshots of the volume that holds `/var/lib/arcadedb`.
+
+*Upgrades.*
+Every release of the AMI contains one ArcadeDB version.
+To move to a newer version, launch an instance from the new AMI version and restore a backup of your databases on it (see <<upgrade,Upgrade>> for what changes between versions), then retire the old instance.
+
+[[aws-ami-security]]
+===== Security
+
+* The server listens on plain HTTP.
+Put a TLS-terminating load balancer or reverse proxy in front of it, or configure ArcadeDB's SSL settings, before exposing it beyond a trusted network.
+* Keep ports `22` and `2480` restricted to your own IP range in the security group.
+* Each instance has its own root password.
+Do not bake an instance into a new image with the password file still in place.
+* Use IAM roles and instance profiles rather than long-lived access keys for anything running on the instance.
+
+[[aws-ami-iac]]
+===== Terraform and CloudFormation
+
+The https://github.com/ArcadeData/arcadedb-ami[arcadedb-ami] repository includes a Terraform configuration and a CloudFormation template (`cloudformation/arcadedb-single-instance.yaml`) that launch the AMI with a security group and a root password chosen at deploy time.
