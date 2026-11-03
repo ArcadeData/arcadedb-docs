@@ -9,6 +9,33 @@ The migration is transparent and happens lazily on first open, so the only opera
 
 This section lists behavior changes that may require action when upgrading.
 
+[discrete]
+====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
+
+A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.
+
+*Impact:* with the default MCP configuration (`allowSchemaChange: false`) the upsert tools no longer create missing types.
+
+*Action:* create the types first, or enable `allowSchemaChange` for the agent. See <<mcp-server,MCP>>.
+
+[discrete]
+====== 26.11.1 - A Postgres, Redis or BOLT connection must authenticate within 30 seconds
+
+A connection that has not authenticated within `arcadedb.network.preAuthTimeout` (30 s) of being accepted is closed, even if it keeps sending data. Before, only a silent connection was closed.
+
+*Impact:* a client that waits more than 30 s before sending its credentials is disconnected.
+
+*Action:* none for normal clients. Raise `arcadedb.network.preAuthTimeout` if needed, or set it to 0 to disable it.
+
+[discrete]
+====== 26.11.1 - Schema listings hide the types a user may not read
+
+The PostgreSQL catalog (`\dt`, `information_schema`, `pg_class`...), GraphQL introspection, the MCP `get_schema` tool, the Studio AI assistant, the gRPC database info and the Cypher `meta.*` procedures now list only the types the user can read, as `SELECT FROM schema:types` already did.
+
+*Impact:* a user restricted by per-type permissions no longer sees the other types in those listings.
+
+*Action:* none.
+
 [[upgrade-float-arrays-fixed-width]]
 [discrete]
 ====== 26.11.1 - Float and double arrays are stored fixed-width, which older builds cannot read
