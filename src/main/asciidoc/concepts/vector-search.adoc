@@ -774,6 +774,10 @@ Large indexes additionally split a query across RID ranges scored in parallel, w
 
 Posting-weight quantization is configurable via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against the precision of the stored weights. Since v26.10.1 the quantized weights only select candidates: a search rescores `k * rescoreOversample` of them exactly from the records' own weights (default `2` for `INT8` and `FP16`), so the returned ranking and scores are exact and do not depend on how the data was committed or compacted. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
 
+===== Durability of recent writes
+
+New postings are kept in memory and sealed into a segment once about one million accumulate, or when the database closes. Since v26.11.1 each sparse index also writes them, in the same transaction as the records, to a small posting log (two files per index, `<index>_plog0` and `<index>_plog1`, extension `.sparselog`), so after a crash they are replayed and a committed record is always found by `vector.sparseNeighbors`. Before, the postings not yet sealed were lost by a crash until a `REBUILD INDEX`. The log costs roughly 5-10% of write time on a sparse-heavy workload. It is not used yet on an HA cluster, where postings not yet sealed are still held in memory by the leader only.
+
 ===== Segment compaction and deletes
 
 Sealed segments are merged in the background by a size-tiered policy: segments of comparable posting count that sit next to each other in write order are merged into one, which keeps the per-query merge fan-in bounded without rewriting the whole index on every flush.

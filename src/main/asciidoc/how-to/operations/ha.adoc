@@ -815,6 +815,12 @@ stands the node:
 log;
 * keeps the quarantine across restarts: it is recorded in `.raft/applied-index`.
 
+Since v26.11.1 an index compaction on the leader is quarantined too when the cluster cannot say whether it accepted the
+compaction: the publication timed out and, after waiting up to the quorum timeout, the outcome is still unknown, or the entry
+was lost to a leadership change. The leader keeps its old index files and schema untouched until the compaction is accepted,
+so a leader that crashes in between restarts on the same files as every other server. Before, an unknown outcome was left
+alone and the old leader's index could silently miss entries written by the next leader.
+
 The way out is a resync, which reinstalls the database from a peer and lifts the quarantine. The node starts one itself;
 to force it, run `POST /api/v1/cluster/resync/{database}` on that node. A leader cannot resync from itself: transfer
 leadership first (`POST /api/v1/cluster/leader`).
