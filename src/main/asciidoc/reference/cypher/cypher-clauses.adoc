@@ -293,6 +293,25 @@ one node into many rows: an `OPTIONAL MATCH (r)-[:LOW]->(l)` that follows `OPTIO
 
 ---
 
+[[cypher-search]]
+===== SEARCH (vector index)
+
+_(Since v26.11.1)_ The Cypher 25 `SEARCH` subclause of a `MATCH` runs a vector index search first and binds a node variable to the `k` nearest records, with their score:
+
+[source,cypher]
+----
+MATCH (d:Doc) [WHERE w]
+SEARCH d IN (VECTOR INDEX docEmbeddings FOR $queryVector [WHERE p] LIMIT 3) SCORE AS score
+RETURN d.title, score
+----
+
+* The pattern and the `WHERE` of the `MATCH` then filter those rows, as Neo4j applies them. The `WHERE` inside the parentheses is tested on each candidate during the search, and the search widens until it has `k` matching rows. Before v26.11.1 the subclause was parsed and dropped, so every `Doc` was answered and a `SCORE AS` variable was undefined.
+* `FOR`, `LIMIT` and the index name (also given as a `$parameter`) are evaluated per input row, so they can read variables of earlier clauses.
+* The binding variable must be a node variable of the `MATCH` pattern. `OPTIONAL MATCH ... SEARCH` is refused. A binding variable already bound by an earlier clause is restricted to the `k` nearest, not rebound.
+* The widening stops at 100,000 candidates per index, so an inner `WHERE` that keeps fewer than `k` of them returns fewer than `k` rows.
+
+See <<cypher-create-vector-index,CREATE VECTOR INDEX>> to create the index.
+
 [[cypher-where]]
 ===== WHERE
 
@@ -763,6 +782,9 @@ read from `LOAD CSV` rows or from a literal list are not graph properties and ne
 
 NOTE: Up to 26.10.2 the rows were projected in batches of 100, so the rows after the first 100 could see the write and
 return the new value; adding a `WITH *` changed the result (issue #11005).
+
+A `MATCH` filter also sees the graph as it was before a later write of the property it filters on. _(Since v26.11.1)_ A `SET`, `REMOVE`, `SET +=` with a map literal, `MERGE ... ON CREATE` or `ON MATCH SET`, `FOREACH` or writing subquery that names the property read by an earlier `MATCH` pattern or `WHERE` plants an eager barrier before the write, so the query holds its input in memory. A query that read its own later write now returns the pre-write answer, and `UNWIND ... MATCH (n {id: row.id}) SET n.id = ...` costs memory.
+An opaque map write that can rewrite a lookup key plants the barrier too: `MATCH (n {id: row.id}) SET n += <anything but row>` over several input rows used to answer duplicate lookups with the rewritten key (150 duplicate lookups answered 100 rows), and now holds the rows in memory, as Neo4j does. The exception is a map taken from the same variable the key is read from (an inline `{id: row.id}`, `WHERE n.id = row.id`, or a key projected by `WITH row, row.id AS id`), which writes back the value the node was found by, so `LOAD CSV` and `UNWIND` upserts keep streaming. A `WITH` rename drops that pairing, and a subquery body with an opaque write is weighed as well.
 
 ---
 
@@ -1842,6 +1864,31 @@ NOTE: Following Cypher 25 / GQL, `INTEGER` is the 64-bit generic integer type wh
 *When upgrading to 26.10.2*: before, a property type constraint refused a list with an element type (`LIST<STRING>`), `LOCAL DATETIME` and `ZONED DATETIME` declared a `DATETIME` (millisecond precision, which truncated the sub-millisecond digits and dropped the zone), `LOCAL TIME` and `ZONED TIME` declared a `STRING`, `DURATION` declared a `LONG` (which refused every duration value) and `POINT` declared a `STRING`. A constraint created before 26.10.2 keeps the declaration it made then.
 ====
 
+[[cypher-vector-constraint]]
+====== IS :: VECTOR property type constraint
+
+_(Since v26.11.1)_ `CREATE CONSTRAINT ... REQUIRE n.e IS :: VECTOR<T>(n)`, also spelled `VECTOR(n, T)`, declares the property as the array type of the coordinate type and enforces the dimension on every write:
+
+[source,cypher]
+----
+CREATE CONSTRAINT embedding_vector FOR (d:Doc) REQUIRE d.embedding IS :: VECTOR<FLOAT32>(1536)
+----
+
+[%header,cols="1,2"]
+|===
+| Coordinate type | Property type
+| `FLOAT32` | `ARRAY_OF_FLOATS`
+| `FLOAT` | `ARRAY_OF_DOUBLES`
+| `INTEGER` | `ARRAY_OF_LONGS`
+| `INT32` | `ARRAY_OF_INTEGERS`
+| `INT16` | `ARRAY_OF_SHORTS`
+| `INT8` | `BINARY`
+|===
+
+The dimension is enforced through the property's `MIN` and `MAX`, which count array items. `IS :: VECTOR` matches a number array of the right type and length (a list does not), so a constraint the stored data already breaks is refused and rolled back. `DROP CONSTRAINT` hands the bounds to an equivalent constraint with the same dimension, or clears them. A type constraint can now retype a property to an array type, and dropping one of two equivalent type constraints no longer puts the old declaration back while the other still requires the new type. A fixed-size array declared outside Cypher shows in `SHOW CONSTRAINTS` under its ArcadeDB name.
+
+The Cypher `vector(v, n, T)` function builds the array of its coordinate type: `INT8` gives a `byte[]`, `INT16` a `short[]`, `INT32` an `int[]`, `INTEGER` a `long[]`, `FLOAT32` a `float[]` and `FLOAT` a `double[]`, so `vector([1,2,3], 3, INT8) IS :: VECTOR<INT8>(3)` is true. An integer coordinate must be a whole number inside the range of the type, otherwise the call fails and nothing wraps. A null type still means `FLOAT32`. A `byte[]` that reaches the Cypher vector functions and the `vector.*` SQL functions is read as plain INT8 coordinates, not a quantized vector, except by `vector.dequantizeInt8`.
+
 ---
 
 [[cypher-drop-constraint]]
@@ -2014,7 +2061,12 @@ Every other setting of the index is given in `indexConfig` under its own name, t
 
 The `createStatement` column of <<cypher-show-indexes,`SHOW INDEXES`>> names every setting of a vector or full-text index that differs from its default, and always the quantization, so it creates the same index again (an odd `maxConnections` has no `vector.hnsw.m` spelling, so it is listed under its own name); the `options` column holds the same `indexConfig` with the `indexProvider`.
 
-Not supported yet: an index over several labels or relationship types (`FOR (n:A|B)`), the filtering properties of `CREATE VECTOR INDEX ... WITH [...]`, a vector index without `vector.dimensions`, and the `standard` analyzer (with English stop words).
+Further behavior, all since v26.11.1:
+
+* *Several labels or relationship types.* `CREATE FULLTEXT INDEX docs FOR (n:Article|Post) ON EACH [n.title, n.body]` and `CREATE VECTOR INDEX emb FOR ()-[r:LIKES|RATES]-() ON r.embedding` build one index per type and record a logical name on every labelled type, persisted and replicated with the schema. `db.index.fulltext.queryNodes`, `queryRelationships`, `db.index.vector.queryNodes` and the `SEARCH` clause resolve the name, `SHOW INDEXES` lists one row with every label, `DROP INDEX <name>` drops only the indexes the statement built, and `IF NOT EXISTS` and name uniqueness apply. A failed statement drops the indexes and properties it created. A vector index over several types needs the same `vector.dimensions` and `vector.similarity_function` on each. Full-text scores are merged by raw score: BM25 statistics are per per-type index, so a score is not exactly the one a single Neo4j index over all the labels would give. From SQL, each per-type index is an ordinary index (`SEARCH_INDEX('Post[title,body]', ...)`, `vector.neighbors('Post[e]', ...)`); the logical name itself is not known to SQL.
+* *Filter properties.* `WITH [...]` filter properties of a vector index are accepted and build the same index as without them: the `SEARCH` clause filters on the record itself, so any property can be filtered on, declared or not. `SHOW INDEXES` does not list them.
+* *No `vector.dimensions`.* The dimension is taken from the first vector the indexed property already holds. With no vector yet, the index is created unsized (the `LSM_VECTOR` metadata key `sizeOnFirstVector`, also usable from SQL) and takes its dimension from the first vector it receives, with no upper bound; a vector of another length is then refused like with any sized index. `SHOW INDEXES` lists `vector.dimensions` once decided. SQL without that flag is still refused.
+* *Analyzer.* `fulltext.analyzer: 'standard'` maps to a standard tokenizer with lower-casing and the English stop words, without stemming, and `SHOW INDEXES` lists it back as `'standard'`.
 
 ---
 

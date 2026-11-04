@@ -282,6 +282,15 @@ control>>: each is a single in-memory map operation, done before a listing could
 with `TRYAGAIN` when the server is busy. The commands that read or write records (`HSET`, `HGET`, `HMGET`, `HEXISTS`,
 `HDEL`) are still listed and gated.
 
+[[redis-protocol-errors]]
+===== Malformed messages and inline commands
+
+_(Since v26.11.1)_ A malformed message gets one `-ERR Protocol error` reply and one WARNING in the log, and the connection is closed. Before, a client that had not authenticated could make the server log one or two SEVERE records per junk byte.
+
+* A command that does not start with a RESP type marker is read as an inline command, as Redis reads it, so `PING` typed in `nc` or `telnet`, or sent by a health probe, is answered. Quotes and the escapes `\n`, `\r`, `\t`, `\b`, `\a` and `\xHH` are honored, the line is capped at 64 KB, and the argument count at `arcadedb.redis.maxMultiBulkLength`. A blank line gets no reply, and an HTTP request sent to the Redis port is refused at its first line.
+* A top-level simple string, integer or bulk string (`+`, `:` or `$`) is refused with `-ERR Protocol error` and the connection is closed. This is stricter than Redis, which reads it as an inline command.
+* An array whose first element is not a string (`*1\r\n:1\r\n`) is answered with `-ERR Protocol error: expected '$', got ':'` (`'*'` for a nested array, `the command name is a null bulk string` for `$-1`), and the connection stays open. Redis sends the same error and then closes the connection.
+
 [[redis-pipelining]]
 ===== Pipelining
 
