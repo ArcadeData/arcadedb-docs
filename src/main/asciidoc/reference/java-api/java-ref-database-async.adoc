@@ -277,8 +277,13 @@ the workers' pending batches. Tasks that other threads submit while it waits are
 also waited for those, so another thread that kept the async queues busy could keep `waitCompletion()`, a parallel
 `GraphBatch` flush or an index build from ever returning.)_
 
-When no other thread submits work, the executor is idle by the time `waitCompletion()` returns: `isProcessing()` asked
-right after it answers `false`.
+The tasks those other threads' tasks schedule are not waited for either, so `waitCompletion()` returns once your own work is
+done, whatever anybody else keeps submitting. A task scheduled from the global <<asynconok,`onOk()`>> or `onError()` callback
+counts as submitted by another thread: a `waitCompletion()` already in progress does not wait for it. _(Since v26.11.1; before,
+either of these could keep `waitCompletion()`, and with it an index build, from ever returning.)_
+
+When no other thread and no global callback submits work, the executor is idle by the time `waitCompletion()` returns:
+`isProcessing()` asked right after it answers `false`.
 
 ```java
 database.async().waitCompletion();
@@ -479,6 +484,6 @@ database.async().createRecord(vertex,
 database.async().waitCompletion();
 ```
 
-The callback is not tied to one record: it tells you a batch has committed, not which records were in it. Each worker commits on its own, so the callback runs on the committing worker's thread, possibly from several threads at once. It must be thread-safe and cheap, because a slow callback slows that worker down. A worker also calls it on shutdown even when it had nothing left to commit, so a call at shutdown is not proof that a particular write became durable at that moment.
+The callback is not tied to one record: it tells you a batch has committed, not which records were in it. Each worker commits on its own, so the callback runs on the committing worker's thread, possibly from several threads at once. It must be thread-safe and cheap, because a slow callback slows that worker down. A worker also calls it on shutdown even when it had nothing left to commit, so a call at shutdown is not proof that a particular write became durable at that moment. A task scheduled from this callback is not waited for by a <<asyncwaitcompletion,`waitCompletion()`>> already in progress.
 
 NOTE: "Committed" here means durable in the write-ahead log and safe to replay on the next open. With the default `setTransactionSync(NO)` there is no `fsync` at that point, so the write can still be lost to a power loss or an operating system crash (not to a JVM crash or restart). Set `setTransactionSync(YES_NOMETADATA)` or `YES_FULL` if you need that guarantee; the timing of this callback does not change with it.
