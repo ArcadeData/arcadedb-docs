@@ -638,6 +638,71 @@ After a power loss in production mode, crash recovery could abort on a WAL gap a
 *Action:* none. Watch `/api/v1/ready` and the `local-resync-in-progress` alert after a power loss.
 
 [discrete]
+====== 26.11.1 - A statement that fails inside a transaction is taken back, `UPDATE ... SET` reads the row as it was, and an explicit `NULL` stays `NULL`
+
+A multi-row `INSERT`, `UPDATE`, `DELETE`, `CREATE EDGE`, openCypher or `sqlscript` statement that failed after writing part of its records used to leave them in the caller's transaction, and the commit published half a statement. The engine now takes the statement back on its own, with its records, index entries, edges and counters, and the transaction goes on (issues #10346, #10194, #10379). When it cannot take the statement back exactly (more than `arcadedb.txStatementSavepointMaxEntries` entries, 100,000 by default, a statement that touched a Graph Analytical View, dropped a file or ran Gremlin) the commit is refused with a `TransactionException` that names the reason.
+
+Two SQL write semantics changed with it (issue #10194): every right-hand side of `UPDATE ... SET` reads the row as it was before the statement, so `SET a = b, b = a` swaps the two values, and an explicit `NULL` is stored as `NULL`: a `DEFAULT` fills only a property that is left out of the statement.
+
+*Impact:* code that caught the error of a multi-row statement and relied on the rows written before the error now finds none of them. A `NOTNULL` property with a default refuses an explicit `NULL`. A `SET` list that relied on a later item reading the new value of an earlier one gives a different result.
+
+*Action:* write the dependent assignment out (`SET b = 7, a = 7`), and leave a property out of the `INSERT` to get its default. See <<transactions,Transactions>>.
+
+[discrete]
+====== 26.11.1 - String functions count characters, not UTF-16 code units
+
+SQL `length()`, `left()`, `right()`, `subString()`, `indexOf()`, `lastIndexOf()`, `charAt()` and `size()`, and `text.charAt()`, `text.indexOf()`, `text.lpad()` and `text.rpad()`, counted and cut UTF-16 code units, so a character outside the Basic Multilingual Plane (an emoji) counted as 2 and could be split into a lone surrogate. They now count characters, as openCypher already did (issues #10248, #10378, #10523, #10524).
+
+*Impact:* the result of these functions on a string that holds such characters changes (`'😀a'.length()` was 3 and is 2). Strings that stay in the Basic Multilingual Plane are not affected.
+
+*Action:* none, unless an index or an offset was computed from the old counts.
+
+[discrete]
+====== 26.11.1 - Cypher temporal values compare, add and construct as in Neo4j
+
+Two durations are no longer comparable with `<` and `>` (the answer is `null`), a `localdatetime()` no longer equals a `datetime()` at the same wall-clock time, `ORDER BY` over several temporal types orders by type instead of throwing, duration arithmetic is exact (`duration('P1D') / 24` is `PT1H`), and calendar units follow the local calendar across a daylight-saving change (issues #10198, #10199, #10200). `sum()` and `avg()` accept durations.
+
+*Impact:* a query that compared durations with `<` or `>`, or compared a `localdatetime()` with a `datetime()`, answers differently.
+
+*Action:* compare two values of the same temporal type, and compare durations by their components or by a number you compute from them. See <<cypher-temporal-comparison,Temporal comparison>>.
+
+[discrete]
+====== 26.11.1 - A DATE compared with a DATETIME is midnight of that day, and an impossible date is refused
+
+A `DATE` compared with a `DATETIME` is now compared as midnight of its day, and a date such as `2021-02-30` is refused instead of being moved to the last day of its month (issue #10206).
+
+*Impact:* `WHERE day = '2021-02-30'` matches nothing, and a `DATE` no longer equals a `DATETIME` of the same day at noon.
+
+*Action:* none for valid dates. See <<managing-dates,Managing dates>>.
+
+[discrete]
+====== 26.11.1 - A `PRODUCT` vector index ranks through its PQ codes and re-ranks
+
+A search of a `PRODUCT` index walks the graph on the in-memory PQ codes, keeps `k * rerankOversample` candidates and scores them on the stored vectors, so the returned distances stay exact. Before, every visited node was scored on the stored vectors. New index settings `rerankOversample` (default 10) and `fusedPQ`, a per-query `rerank` option, and `pqTrainingLimit` is now honoured (issues #10514, #10975).
+
+*Impact:* the ranking of a `PRODUCT` index follows the PQ codes first, so recall at a low `rerankOversample` can differ from before.
+
+*Action:* raise `rerank` or `rerankOversample` if recall matters more than speed. See <<product-quantization-search,Product quantization search>>.
+
+[discrete]
+====== 26.11.1 - PostgreSQL: `format_type()` and `regtype` print PostgreSQL's type names
+
+`format_type()` and the `regtype` cast print `integer` and `character varying`, as PostgreSQL does, and the catalog answers the queries of psql (`\dt`, `\d`, `\di`, `\dm`, `\df`, `\du`) and psqlodbc (issue #10228).
+
+*Impact:* a client that compared the old names of `format_type()` must compare the PostgreSQL ones.
+
+*Action:* none for standard drivers. See <<postgres-driver,PostgreSQL driver>>.
+
+[discrete]
+====== 26.11.1 - HA: an index compaction with an unknown outcome quarantines the leader
+
+When the cluster cannot say whether it accepted an index compaction (the publication timed out, or the entry was lost to a leadership change), the leader is quarantined and resyncs instead of leaving its index silently short (issue #11240).
+
+*Impact:* the leader can hand off leadership after such a compaction, and the database resyncs from the new leader.
+
+*Action:* none. See <<ha-quarantine,Quarantine>>.
+
+[discrete]
 ====== 26.11.1 - Storage: the chunk-link format has an opt-in setting
 
 A multi-page record is stored as a chain of chunks, each holding a link to the next one, and a chunk at position 0 of a bucket could not be linked (issues #10701, #10854). The database setting `arcadedb.bucketSelfDescribingChunkLinks` (default `false`) makes the writer store the link as `-(position + 1)`, which lets position 0 be linked (issues #10949, #11263). Every 26.11.1 server reads both forms, and nothing writes the new one by default.
