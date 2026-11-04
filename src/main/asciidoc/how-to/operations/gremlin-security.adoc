@@ -62,6 +62,27 @@ from the request: a `withoutStrategies(...)` naming the strategy that enforces i
 
 In embedded mode no user is bound to the request, so none of these checks apply.
 
+===== Groovy Scripts Are Always Treated as Writes
+
+A Groovy script is code: only running it tells what it does, and it can write through any API it reaches
+(`g.getGraph().addVertex(...)`, the database itself), not only through traversal steps. Since 26.11.1 ArcadeDB never
+runs a script to find out whether it is read-only: a script the `gremlin-lang` grammar cannot read (so one the `auto`
+or `groovy` engine runs as Groovy) is treated as one that may do anything, a schema change or an administrative
+operation included. In practice:
+
+- the read-only query entry points (`GET`/`POST /api/v1/query`, `database.query("gremlin", ...)`, the MCP `query`
+  tool, a chart drawn by the Studio AI assistant) refuse it as not idempotent, without running it. Send it as a
+  command (`POST /api/v1/command`) instead;
+- the MCP `execute_command` tool allows it only when the MCP configuration allows every operation, schema changes and
+  administrative operations included;
+- on an HA follower it is always forwarded to the leader;
+- the streaming encoding refuses it, as it refuses any statement that may write.
+
+A script written as a plain traversal (`g.V().has('name', 'a').values('age')`) is read by the grammar on every engine
+and is classified exactly, as before. Note that a traversal can fall back to Groovy only because of where it places a
+parameter: `__.constant(p1)` is not a position the `gremlin-lang` grammar accepts a variable in, so on the `auto`
+engine such a read runs as Groovy and has to be sent as a command.
+
 ===== Configuration
 
 Set the engine via database configuration:
