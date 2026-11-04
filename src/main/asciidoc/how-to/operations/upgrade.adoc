@@ -445,6 +445,208 @@ A `graphson` export no longer fails for the whole database on a `BYTE`, `SHORT`,
 *Action:* none for ArcadeDB to ArcadeDB transfers. See <<sql-export-graph-formats-value-fidelity,the graph formats note>>.
 
 [discrete]
+====== 26.11.1 - HTTP: committing a session the server does not hold answers `404`, not `204`
+
+`POST /api/v1/commit/{database}` with an `arcadedb-session-id` the server does not hold for the caller (never issued, already rolled back, ended by `terminate transaction`, expired, or owned by another user) answered `204`, the answer of a real commit, although nothing was committed. It now answers `404` "Remote transaction session not found or expired" (issues #10164, #10172). The idempotent retry of a commit that did succeed still answers `204`: the server remembers committed sessions for the session timeout, at most 10,000 of them, per server and in memory.
+
+*Impact:* a client that treated `204` on commit as "committed" for a stale or foreign session now gets `404`. A commit retry sent to another cluster node, or after a server restart, gets `404` even when the first commit succeeded, and so does a retry that arrives while the first commit of the same session is still running. `POST /api/v1/rollback` still answers `204` for a stale session id.
+
+*Action:* handle `404` on commit. See <<http-commit,Commit a transaction>>.
+
+[discrete]
+====== 26.11.1 - HTTP: wrong Basic credentials answer `401`, not `403`
+
+A request with Basic credentials that do not authenticate (wrong password, unknown user, or a user locked out after too many failed attempts) answered `403` "Security error". It now answers `401` "Authentication failed", as the bearer-token and API-token paths already did, and so do a malformed Basic header and an unsupported `Authorization` scheme (issues #10109, #10180). No `WWW-Authenticate` header is sent, so browsers do not open their native login dialog over Studio's login form. The response body still names `ServerSecurityException`, so the Java client raises the same `SecurityException` as before.
+
+*Impact:* a client that matched on `403` to detect a failed login, including a lockout, no longer sees it. `403` remains the answer for an authenticated user who lacks permission.
+
+*Action:* match on `401` for a failed login.
+
+[discrete]
+====== 26.11.1 - HTTP: plugin routes answer only the method they declare
+
+The HTTP routes of the plugins shipped with the server (the HA cluster endpoints, MCP and metrics) ran their handler for any HTTP method, so `GET /api/v1/cluster/stepdown` stepped the leader down like the documented `POST`. Every shipped plugin route now declares its method, and any other method answers `405` with an `Allow` header before the handler runs, and before authentication (issues #10157, #10297). MCP keeps its JSON-RPC error body on a `405`. `HEAD` on a GET-only plugin route answers `405` too.
+
+Plugins declare their routes through `ServerPlugin.registerAPI(HttpServer, PluginRoutes)`, which takes each route with its HTTP methods (issues #10296, #10311). The old `registerAPI(HttpServer, PathHandler)` is deprecated for removal: a plugin that still implements it keeps working and still answers every method on its routes, and the server logs a WARNING at startup that names the plugin. A plugin should implement only one of the two overloads. If it implements both, both are called with a separate WARNING, and a path registered in both is registered twice, the later raw registration winning.
+
+*Impact:* a client that called a plugin endpoint with an undocumented method now gets `405`.
+
+*Action:* use the documented method of each endpoint, and move third-party plugins to the `PluginRoutes` overload.
+
+[discrete]
+====== 26.11.1 - SQL `INSERT` into a time series refuses a number for a BOOLEAN or STRING column
+
+SQL `INSERT INTO` a TIMESERIES type converted each value to the column's type before the time series check ran, so `bo = 7` was stored as `true` in a BOOLEAN column and `s = 42` as `"42"` in a STRING column. SQL now refuses it, through `SET`, `CONTENT` and `VALUES`, with a `CommandExecutionException` naming the column, as the line protocol, gRPC and Prometheus remote write already did. An out-of-range number in a non-temporal column (for example 300 into a BYTE column) fails with the same exception instead of a bare `IllegalArgumentException` (issues #10137, #10236).
+
+*Impact:* an insert that relied on a number being coerced into a BOOLEAN or STRING time series column now fails. TIMESTAMP and DATE/DATETIME columns are unchanged: SQL still reads a number there as epoch milliseconds.
+
+*Action:* send a value of the column's type.
+
+[discrete]
+====== 26.11.1 - MongoDB: writes on a time-series collection are refused unless they can be applied exactly
+
+A filtered update or delete, and the existence check of an upsert, on a TIMESERIES type matched nothing and reported success. `deleteMany` now deletes the samples when its filter is an AND of conditions the time-series engine applies exactly: `$eq`, `$gt`, `$gte`, `$lt` and `$lte` on the timestamp (whole milliseconds, or a date), and equality on a TAG field with a value of the tag's own kind. An unfiltered `deleteMany` deletes every sample. Any other filter (a FIELD, `$or`, `$ne`, `$in`, an unknown field, a tag value of another kind) is refused with error 20 (`IllegalOperation`) naming the type. `deleteOne`, and every update, replace and upsert, are refused the same way. Every entry of a multi-entry delete command is checked before any runs (issues #10464, #10477).
+
+*Impact:* a MongoDB client that updated, upserted or deleted one document in a time-series collection and got a success that changed nothing now gets an error. As in SQL, the samples a delete removes are not part of the command's transaction: they are gone when it returns. `insertOne` into a time-series collection fails with a misleading `NamespaceNotFound` (issue #10476).
+
+*Action:* see <<timeseries-query-languages,Query languages>>.
+
+[discrete]
+====== 26.11.1 - Java API: a failed `transaction()` that joined the caller's transaction leaves it open
+
+When the block passed to `database.transaction(...)` joined a transaction the caller had already begun, and threw anything other than a retryable exception, the call rolled back the caller's whole transaction, and the caller's next write failed with "Transaction not begun". `transaction()` now rolls back only the levels it opened itself, embedded and through the remote drivers (HTTP and gRPC) (issues #10135, #10241). A nested transaction the block began and left open no longer survives the failure, and over the remote drivers an `Error` thrown by a block also releases the server-side transaction the call owns.
+
+*Impact:* code that relied on a failed joined `transaction()` rolling back the outer transaction now finds it still active.
+
+*Action:* commit or roll back the outer transaction yourself.
+
+[discrete]
+====== 26.11.1 - A UNIQUE key moved off its holder can be given to only one record
+
+When a transaction moved a UNIQUE key away from the record that held it, and then gave the key to two other records, the commit succeeded with only one of the two in the index, a duplicate the index could no longer see. The in-transaction duplicate check now treats a key that was handed over as taken, on UNIQUE and UNIQUE_HASH indexes alike, so the second claim fails with `DuplicatedKeyException` (issues #10265, #10298). Three related defects are fixed with it: inside the transaction, a lookup on a UNIQUE key that one record gave up no longer hides the records still holding it; committing such a transaction on a UNIQUE_HASH index no longer deletes the committed holder's index entry; and a valid replacement whose removals sit in several buckets is no longer refused at commit.
+
+*Impact:* a transaction that gives one UNIQUE key to two records, directly or through a SQL script, now fails with `DuplicatedKeyException` instead of committing a corrupt index.
+
+*Action:* none, other than fixing the offending transaction.
+
+[discrete]
+====== 26.11.1 - Remote drivers: deleting a missing or vetoed record throws, and `LIST OF DATE` reads as `LocalDate`
+
+A remote delete that deleted nothing could look like a success. Both drivers now fail the way the embedded engine does for a missing record: a missing record throws `RecordNotFoundException` (HTTP now matches gRPC and embedded), and a vetoed delete throws `RecordVetoedException`, as a vetoed remote `save()` already does. The embedded `deleteRecord` still stays silent on a veto. `RemoteGrpcDatabase.deleteRecord(String rid, long timeoutMs)` returns `false` for a vetoed delete. `delete()` on a remote vertex or edge goes through the driver instead of sending its own SQL, and `delete()` on a remote immutable document no longer throws `NullPointerException`. The `deleteRecord` statistic counts a delete only after the server confirms it (issues #10230, #10301, #10141, #10231).
+
+The remote client reads `LIST OF DATE` items as `LocalDate` instead of Strings, in projections and in whole-record reads; `java.util.Date` items stay unhinted (issues #10909, #10995).
+
+*Impact:* code that deletes a record over HTTP that may already be gone, and relied on the call being silently idempotent, must catch `RecordNotFoundException`. Code that expected a vetoed remote delete to return normally must catch `RecordVetoedException`. An older gRPC client talking to a new server gets `DatabaseOperationException` for a vetoed delete.
+
+*Action:* catch the two exceptions where deletes may race. See <<java-events,Events>>.
+
+[discrete]
+====== 26.11.1 - A remote `LocalDate` query parameter is sent as a typed marker
+
+The remote Java client sent a `LocalDate` parameter as the epoch milliseconds of its UTC midnight, which a comparison reads as epoch days, so `WHERE fecha = ?` matched nothing remotely. It now sends `{"$date": "2024-01-15"}`, which the server decodes to a `LocalDate`, so `=`, `IN` and `>` match a DATE. A malformed or non-string `$date` payload is refused before execution (issues #10908, #10997).
+
+*Impact:* there is no version negotiation: a server older than this change receives a map for a `LocalDate` parameter. `LocalDateTime` and `java.util.Date` parameters keep their epoch-millis form. The gRPC and Python clients were not examined.
+
+*Action:* upgrade client and server together.
+
+[discrete]
+====== 26.11.1 - A number written into a DATE property is a day count under every `dateImplementation`
+
+Under `arcadedb.dateImplementation=java.util.Date` (also `Calendar` and `LocalDateTime`) a number written into a DATE property was read as epoch milliseconds, while the default `LocalDate` reads days, so the days the remote client sends were stored as 1970-01-01. A number, and a numeric string, written into a DATE property, or into the items of a `LIST OF DATE` or `MAP OF DATE`, is now a day count for every implementation, with the midnight-millis reading kept (a non-zero exact multiple of 86,400,000). The day-to-millis multiplication is overflow-guarded and fails with an `IllegalArgumentException`. A number that is no day count for a `LocalDate`, such as a "now" in millis, is still read as millis (issues #10910, #10996).
+
+*Impact:* a caller that wrote a small millis value (below about 1.07e11 and not a midnight) into a DATE under `java.util.Date`, `Calendar` or `LocalDateTime` now gets that many days, as `LocalDate` always did. A numeric string wins over a configured `dateFormat`.
+
+*Action:* write dates as dates, or as day counts. See <<managing-dates,Managing dates>>.
+
+[discrete]
+====== 26.11.1 - An update of a record with a property that cannot be decoded is refused
+
+An update of a record one of whose properties cannot be decoded used to save the record back without that property, because the lenient read logs `Skipping corrupted property` and returns the rest, which turned a possibly recoverable read problem into permanent data loss. The update (`MutableDocument.save()`, SQL `UPDATE`, graph vertex and edge saves, async updates) is now refused with a `SerializationException` naming the record and the property, and the stored bytes are left untouched (issues #10955, #10983). Reads stay lenient. An explicit full overwrite (`fromMap`) is still allowed.
+
+*Impact:* an update of a damaged record now fails instead of silently dropping the damaged property.
+
+*Action:* investigate the record with `CHECK DATABASE`, and restore it from a backup if needed.
+
+[discrete]
+====== 26.11.1 - Docker: every image runs as UID 1000, and the volumes changed
+
+The JVM image and both native images (amd64 and arm64) run as `1000:1000`. The amd64 native image ran as root and the arm64 one as UID 65532, so a volume written by one image could not be opened by another (issues #10319, #10331). The image a custom distribution generates with `package/arcadedb-builder.sh` ran as `100:101`, and now runs as `1000:1000` too (issues #10330, #10351). The generated image now declares the same five volumes as the official images (`config`, `databases`, `replication`, `backups`, `log`) instead of three (issues #10387, #10401), and the `docker-compose.yml` quickstart mounts a named volume on all five instead of only `databases` (issues #10402, #10453).
+
+*Impact:* a volume or bind mount written by an earlier native image is owned by root or 65532, and one written by an earlier custom image by `100:101`, so the new image cannot write to it. A `config` volume of a custom image no longer picks up default files that a later image adds, and a bind mount on `config` hides the image's defaults. Users, groups and API tokens created with the earlier compose file are in an anonymous volume that the new file does not mount.
+
+*Action:* before upgrading, run `chown -R 1000:1000 <volume or bind-mount path>` once on each volume. To keep the users, groups and tokens of an old compose stack, copy `/home/arcadedb/config` out of the old container and into the new one. See <<docker-image-user,Image user and volumes>>.
+
+[discrete]
+====== 26.11.1 - Kubernetes: the plain StatefulSet example is removed, use the Helm chart
+
+The distribution and the Docker images no longer ship `config/arcadedb-statefulset.yaml`. The https://github.com/ArcadeData/arcadedb-helm[Helm chart] is the only supported Kubernetes deployment (issue #10542). The server-side fix that lets a node started with only `arcadedb.server.rootPasswordPath` form an HA cluster is kept.
+
+*Impact:* a deployment applied from `arcadedb-statefulset.yaml` keeps running, but the file no longer comes with new releases.
+
+*Action:* move to the chart, see <<kubernetes,Kubernetes>>. `helm template` renders plain manifests from it.
+
+[discrete]
+====== 26.11.1 - SQL `shortestPath()` `maxDepth` limits the edges, not the vertices
+
+`shortestPath(..., {maxDepth: n})` counted vertices, so a path of exactly `n` edges was not found and `maxDepth: 1` could not find even a direct edge. It now limits the edges on the path, as documented (issues #10439, #10445). Cypher `shortestPath` with `*..n` returns the same results as before.
+
+*Impact:* a query that set `maxDepth` one higher to work around this now allows one more hop and can return a longer path.
+
+*Action:* lower `maxDepth` by one. See <<shortest-path-function,shortestPath()>>.
+
+[discrete]
+====== 26.11.1 - A pattern on a time-series type fails in Cypher, Gremlin and GraphQL
+
+A Cypher pattern whose node label or relationship type names a TIMESERIES type returned zero rows. It now fails with a `CommandSemanticException` that names the type and points to SQL or PromQL, for every pattern of the statement, including `OPTIONAL MATCH`, `MERGE`, pattern predicates, `CALL`/`EXISTS`/`COUNT` subqueries and `UNION` branches (issues #10440, #10443). A Gremlin traversal fails with an error naming the type when a `has` step asks for a time-series label, or a hop names one as its edge label, including inside child traversals; a label under an odd number of nested `not()` steps is still answered. A GraphQL `@relationship` directive that names a time-series type, which returned an empty list, now fails (issues #10442, #10468). MongoDB QL now returns the samples of a time-series collection instead of nothing.
+
+*Impact:* a query that names a time-series type fails even when no row would reach that pattern.
+
+*Action:* query time series with SQL or PromQL.
+
+[discrete]
+====== 26.11.1 - SQL: on an edge, `out` and `in` read the endpoints
+
+On an edge, SQL reads the endpoints as `@out` and `@in`. The plain names `out` and `in` answered `null` (`SELECT out.id FROM E`, `WHERE in.name = 'x'`, `ORDER BY out`). On an edge with no property of that name they now resolve to the edge's endpoints, like `@out` and `@in`. A property named `out` or `in` on the edge record (even with a `null` value), or declared under that name by the edge's type, still wins. Vertices, documents and projection rows are unchanged (issues #10684, #10806).
+
+*Impact:* `SELECT FROM E WHERE out IS NULL` used to match every edge without an `out` property and now matches none.
+
+*Action:* prefer `@out` and `@in`: `WHERE @out = #rid` can use the index or the adjacency shortcut, while `WHERE out = #rid` answers correctly but through a scan.
+
+[discrete]
+====== 26.11.1 - Number arguments of SQL and Cypher-style functions are no longer truncated or wrapped
+
+`if`, `randomInt` and `vector.sparseCreate` read a numeric argument through a cast to int, which dropped the fraction and wrapped a value past the int range. `if(0.5, a, b)` and a condition of `3000000000` now return `a`, and `-3000000000` returns `b`. `randomInt` and `vector.sparseCreate` refuse a fractional or out-of-range bound, dimension or index with an error naming the function (issues #10699, #10851). The Cypher-style functions (text, collection, aggregation, path, temporal and others) refuse a fractional or out-of-range INTEGER argument with a `CommandSemanticException` naming the function and the argument, and keep a value past the int range as a long where the function can still answer (`left('abc', 3000000000)` returns `'abc'`). The same check covers the SQL `duration`, `date` and `promql` amounts, `ts.timeBucket`, `substring()`, `util.sleep` and `date.*`. A TEXT argument such as `'2.5'` is refused the same way, with `<fn>() requires a whole number <arg>, but received '2.5'`, instead of a raw `NumberFormatException` (issues #10850, #10953, #10954, #10981).
+
+*Impact:* an `if` whose condition is a fraction between -1 and 1, or a number past the int range, can take the other branch. A query that passed `2.5`, or a number past the int range, to one of these functions ran on the truncated or wrapped value and now fails.
+
+*Action:* pass whole numbers.
+
+[discrete]
+====== 26.11.1 - Redis: a malformed message gets one error and a close, and inline commands are answered
+
+Every malformed message gets one `-ERR Protocol error` reply and one WARNING, and the connection is closed. A command that does not start with a RESP type marker is read as an inline command, so `PING` from `nc`, `telnet` or a health probe is answered (issues #10597, #10846). An array whose first element is not a string is answered with an error and the connection stays open (issues #10845, #10963).
+
+*Impact:* a top-level simple string, integer or bulk string (`+`, `:` or `$`) is refused and the connection is closed, which is stricter than Redis.
+
+*Action:* none for standard clients. See <<redis-protocol-errors,Malformed messages and inline commands>>.
+
+[discrete]
+====== 26.11.1 - HA: a node refuses to start when the root password behind its cluster token was rewritten
+
+With no explicit cluster token, HA derives the token from `arcadedb.ha.clusterName` and the root password at every start. Rewriting the password file (`arcadedb.server.rootPasswordPath`) in place, as rotating a Kubernetes Secret does, or changing the inline `arcadedb.server.rootPassword`, gave each node a new token at its next restart, and during a rolling restart the nodes on the new token and those on the old one refused each other's requests with `401`. A node whose token is derived from the password now records a fingerprint of it in `<raft-storage>.cluster-token-fingerprint` and refuses to start when a later start derives a different token, unless `arcadedb.ha.clusterTokenAllowRotation=true` (default false) (issues #10601, #10826, #10924, #11232). The startup WARNING now describes how the token is derived, and a refused cluster token answers `401` "Invalid cluster token" with a WARNING on the refusing node.
+
+*Impact:* the root password can no longer be rotated with a rolling restart when the token is derived from it. `<raft-storage>.cluster-token-fingerprint` must be writable, otherwise startup fails with a `ConfigurationException`. A node already running on the inline source has no record yet, so a rotation made before the upgrade cannot be detected at its first start. A new node, or one without persisted Raft storage, has nothing to compare against, so a differing token is still refused per request.
+
+*Action:* either restart every node together with `arcadedb.ha.clusterTokenAllowRotation=true` and then remove the setting, or switch to an explicit `arcadedb.ha.clusterTokenPath`. See <<ha-security,HA security>>.
+
+[discrete]
+====== 26.11.1 - openCypher: an explicit write of a lookup key makes the query eager
+
+A `MATCH` filter now sees the graph as it was before a later write of the property it filters on, as the language requires. A `SET`, `REMOVE`, `SET +=` with a map literal, `MERGE ... ON CREATE/ON MATCH SET`, `FOREACH` or writing subquery that names the property read by an earlier `MATCH` pattern or `WHERE` plants an eager barrier before the write (issues #11173, #11228). An opaque map write that can rewrite a lookup key plants it too (issues #11230, #11261): `MATCH (n {id: row.id}) SET n += <anything but row>` holds its rows in memory, as Neo4j does. A map taken from the same variable the key is read from keeps streaming.
+
+*Impact:* a query that read its own later write returns a different result, and `UNWIND ... MATCH (n {id: row.id}) SET n.id = ...` holds its input in memory.
+
+*Action:* none for most queries. See <<cypher-reads-and-writes,Reads and writes in the same query>>.
+
+[discrete]
+====== 26.11.1 - HA: a database whose crash recovery did not complete is quarantined
+
+After a power loss in production mode, crash recovery could abort on a WAL gap and the database opened anyway, serving wrong property values and missing index data. Such a database is now quarantined under the cause `LOCAL_RECOVERY_INCOMPLETE`, and a database that opens with an unavailable unique index under `UNAVAILABLE_UNIQUE_INDEX`. The node refuses readiness, hands leadership off and resyncs the database from the leader (issues #11250, #11259, #11264).
+
+*Impact:* a sole voter has no leader to resync from and only logs a SEVERE message. Known limits are listed in <<ha-power-loss,After a power loss>>.
+
+*Action:* none. Watch `/api/v1/ready` and the `local-resync-in-progress` alert after a power loss.
+
+[discrete]
+====== 26.11.1 - Storage: the chunk-link format has an opt-in setting
+
+A multi-page record is stored as a chain of chunks, each holding a link to the next one, and a chunk at position 0 of a bucket could not be linked (issues #10701, #10854). The database setting `arcadedb.bucketSelfDescribingChunkLinks` (default `false`) makes the writer store the link as `-(position + 1)`, which lets position 0 be linked (issues #10949, #11263). Every 26.11.1 server reads both forms, and nothing writes the new one by default.
+
+*Impact:* with the setting `true`, a database that has stored the new form cannot be read by a version older than 26.11.1. Making it the default is planned for 27.1.1 (issue #10950).
+
+*Action:* turn it on only when no node, replica or restore target runs an older version. In HA the setting is documented, not gated: set it on every node. See <<arcadedb-settings,Settings>>.
+
+[discrete]
 ====== 26.10.2 - Client requests wait in a queue when the server is busy
 
 Every request of a remote client (HTTP, Postgres, BOLT, Redis, gRPC, Gremlin Server, MCP, MongoDB) now goes through a query admission gate: at most twice the number of cores run at once, and a request that arrives when they are all taken, or when the running queries hold more than 80% of the query heap budget, waits in a queue and starts in arrival order (issue #9518). Before, every request started at once, and under a burst of heavy queries the last ones were refused by the heap budget or exhausted the heap.

@@ -379,6 +379,8 @@ The gRPC server records three meters per RPC, exported with the other server met
 | `grpc.errors.total` | `method`, `status` | Calls that failed: closed with a status other than `OK`, or closed with `OK` but answering a failure in the response
 |===
 
+_(Since v26.11.1)_ Authentication faults are visible. When the server cannot read the credentials of an admin request, or the security backend fails unexpectedly, the call still fails closed as `UNAUTHENTICATED`, but it is logged at `SEVERE` with the cause and the method name (before, at `FINE`, which the default level hides) and counted on the Micrometer counter `grpc.auth.faults.total`, tagged `stage` = `admin-credential-read`, `authenticate` or `intercept`. The counters are registered at zero. An unexpected failure inside the security backend answers "Authentication error: the server could not evaluate the credentials (server fault, see the server log)" on the data plane and the admin service, instead of "Invalid credentials"; a wrong password, a missing grant and a lockout answer as before. A linkage error such as `NoClassDefFoundError` during authentication is reported the same way.
+
 _(Since v26.11.1)_ `grpc.errors.total` counts every call closed with status `OK` whose response message declares a top-level boolean
 `success` field and sends it `false`, such as an `UpdateRecord` or a `DeleteRecord` that a listener vetoed. Such a call is counted
 with `status` `OK`. Before, only an `ExecuteCommandResponse` with `success = false` was counted, and the other in-band failures read

@@ -57,6 +57,8 @@ This is for example the case in the data argument (`-d`) of POST requests.
 ==== Token-Based Authentication
 
 In addition to HTTP Basic Authentication, ArcadeDB supports token-based authentication.
+Wrong Basic credentials, an unknown user and a user locked out after too many failed attempts are answered `401` "Authentication failed", the same status the bearer-token and API-token paths use. So are a malformed Basic header and an unsupported `Authorization` scheme. `403` is the answer for an authenticated user who lacks permission. No `WWW-Authenticate` header is sent, so browsers do not open their native login dialog over Studio's login form. _(Since v26.11.1: before, these cases answered `403` "Security error".)_
+
 This allows you to login once with credentials and receive a token that can be used for subsequent requests, avoiding the need to send username and password with every request.
 
 This is particularly useful when:
@@ -376,7 +378,7 @@ A request body that is sent but cannot be parsed as JSON (a truncated object, a 
 a `400` and `"error": "Invalid JSON payload"`, whichever route it was sent to. The `detail` names where the parser stopped, for example
 `End of input at line 1 column 13`; it never repeats the body. _(Since v26.11.1: before, a body that could not be parsed was
 treated by most routes as if no body had been sent, and `POST /api/v1/server` answered a `500`. The cluster routes that took a body
-as optional, such as the security seed and the bootstrap state, now refuse an unparseable one too.)_ A blank body is no body, and is not
+as optional, such as the security seed and the bootstrap state, now refuse an unparsable one too.)_ A blank body is no body, and is not
 refused. The routes whose body is not JSON keep their format: the time series line protocol write, the Prometheus `remote_read` and
 `remote_write`, and the batch import. The MCP endpoint is the exception to the refusal: it answers the JSON-RPC parse error `-32700` over
 HTTP `200`.
@@ -571,7 +573,7 @@ its database names, user names and groups while each password is replaced _(sinc
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 
 Example:
 
@@ -627,7 +629,7 @@ Responses:
 
 * https://httpstatuses.io/200[`200`] OK
 * https://httpstatuses.io/400[`400`] invalid command
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/404[`404`] the command names a database this server does not have
 * https://httpstatuses.io/503[`503`] the database is there and cannot serve the command now: closed by `close database`, being restored, being dropped, or being recovered by HA (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/409[`409`] the name is taken: `create database` on an existing database (`"error": "Database already exists"`) or `create user` on an existing user (`"error": "User already exists"`) _(Since v26.10.2)_
@@ -1193,7 +1195,7 @@ URL Syntax: `/api/v1/databases`
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 
 Example:
 
@@ -1302,7 +1304,7 @@ On successful authentication, it returns a JSON response containing the authenti
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK - returns token and username
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/503[`503`] the server holds the maximum number of concurrent authentication
 sessions and none could be reclaimed - see <<settings-sql,`server.httpAuthSessionMax`>> _(since v26.9.1)_
 
@@ -1519,7 +1521,7 @@ Responses:
 
 * https://httpstatuses.io/200[`200`] OK
 * https://httpstatuses.io/400[`400`] invalid language, invalid query
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/404[`404`] database does not exist (`Database not found`)
 * https://httpstatuses.io/503[`503`] the database is there and cannot serve the request now: closed, being restored, dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/500[`500`] cannot execute query
@@ -1622,7 +1624,7 @@ Responses:
 * https://httpstatuses.io/200[`200`] OK
 * https://httpstatuses.io/200[`202`] Accepted
 * https://httpstatuses.io/400[`400`] invalid language, invalid command
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/409[`409`] _(since v26.11.1)_ the command creates, or renames onto, a schema object name that is already taken: a type,
 property, index, constraint, bucket, trigger, view or function. `error` names the kind (for example `"Type already exists"`, kept in production mode),
 `exception` is `com.arcadedb.exception.AlreadyExistsException` and `exceptionArgs` the kind (`TYPE`, `PROPERTY`, `INDEX`, ...). Not retryable.
@@ -2139,7 +2141,7 @@ Responses:
 
 * https://httpstatuses.io/204[`204`] OK
 * https://httpstatuses.io/400[`400`] invalid `isolationLevel` value, or a body that is not a valid JSON object
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/409[`409`] transaction already started
 * https://httpstatuses.io/500[`500`] invalid database
 
@@ -2189,6 +2191,8 @@ seconds for the first one to finish, then answers `204` if that commit succeeded
 reaches another server, or arrives after a restart, cannot know the outcome and answers `404`: send an
 <<http-request-replay,`X-Request-Id`>> to make a retry safe in every case. _(Since v26.11.1: before, the retry answered
 `404` even when the first commit succeeded.)_
+The server remembers the sessions it committed for the session timeout, at most 10,000 of them, per server and in memory, which is what lets the retry of a commit that did succeed answer `204`.
+A `/commit` that names a session the server does not hold for the caller (never issued, already rolled back, ended by `terminate transaction`, expired, or owned by another user) answers `404` "Remote transaction session not found or expired". _(Since v26.11.1: before, it answered `204`, the answer of a real commit, although nothing was committed.)_ `POST /api/v1/rollback` still answers `204` for a stale session id.
 
 Response:
 
@@ -2228,7 +2232,7 @@ afterwards. _(Since v26.10.1: before, the session of a failed commit stayed regi
 Response:
 
 * https://httpstatuses.io/204[`204`] OK
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
 
 Example:
@@ -2419,7 +2423,7 @@ Responses:
 
 * https://httpstatuses.io/200[`200`] OK
 * https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, vertices after edges
-* https://httpstatuses.io/403[`403`] invalid credentials
+* https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/413[`413`] the body exceeds `server.httpBodyContentMaxSize`; the load is cut short and the records loaded before the cut *stay loaded*
 * https://httpstatuses.io/503[`503`] / https://httpstatuses.io/504[`504`] the request could not be forwarded (for example from a follower to the leader); the records loaded before the failure *stay loaded*
 

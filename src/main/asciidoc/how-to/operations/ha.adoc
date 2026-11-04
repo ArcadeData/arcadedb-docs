@@ -478,9 +478,10 @@ command returns once its own node has applied the change.
 
 * *Rolling upgrades.* A node running an older build cannot decode the entry. While any peer has not confirmed it can, because
 it runs an older build or cannot be reached, the change is refused before anything is submitted, with HTTP `409 Conflict`
-or gRPC `FAILED_PRECONDITION` naming the peers, and the setting is put back on the node that ran the command. Setting
-`arcadedb.ha.securityEntryCapabilityGate=false` skips this check too, but a peer that cannot decode the entry then halts
-when it applies it.
+or gRPC `FAILED_PRECONDITION` naming the peers, and the setting is put back on the node that ran the command. No setting
+overrides this refusal: `arcadedb.ha.securityEntryCapabilityGate=false` only applies to the two security entries (groups and API
+tokens), and the refusal of a database configuration change says there is no override. _(Since v26.11.1: before, turning the
+gate off also let a database configuration change through while a peer could not decode it.)_
 * *Path-valued settings.* `arcadedb.externalPropertyBucketPath`, `arcadedb.pageSnapshotSpillPath` and
 `arcadedb.opencypher.loadCsv.importDirectory` set this way now apply on every node, so the directory must exist, and be
 writable where the setting needs it, on all of them.
@@ -821,6 +822,15 @@ was lost to a leadership change. The leader keeps its old index files and schema
 so a leader that crashes in between restarts on the same files as every other server. Before, an unknown outcome was left
 alone and the old leader's index could silently miss entries written by the next leader.
 
+[[ha-power-loss]]
+*After a power loss.* _(Since v26.11.1)_ In production mode, the crash recovery of a database can abort on a gap in its write-ahead log. Before, the database opened anyway and the node served wrong property values and missing index data. Now a database whose crash recovery did not complete is quarantined under the cause `LOCAL_RECOVERY_INCOMPLETE`, and a database that opens with an unavailable unique index under `UNAVAILABLE_UNIQUE_INDEX`. The node refuses readiness, hands leadership off and resyncs the database from the leader, as for any other quarantine. A node that is the only voter has no leader to resync from and only logs a SEVERE message.
+Known limits, tracked upstream:
+
+* a recovery that throws on a torn page (a `SerializationException` while replaying the WAL) stops the node from starting on every restart instead of quarantining the database (#11280);
+* a quarantined database may still answer reads until its resync completes (#11281, not yet confirmed);
+* a first or header page lost after fsync, and a torn page with no WAL history, are not covered yet (#11258); the second one needs a per-page checksum (#11157);
+* an index that becomes unavailable after a later schema reload is not rechecked.
+
 The way out is a resync, which reinstalls the database from a peer and lifts the quarantine. The node starts one itself;
 to force it, run `POST /api/v1/cluster/resync/{database}` on that node. A leader cannot resync from itself: transfer
 leadership first (`POST /api/v1/cluster/leader`).
@@ -1103,6 +1113,14 @@ See <<studio,Studio>>.
 *Cluster token*:: Inter-node HTTP forwarding (replica -> leader proxy, snapshot downloads) is authenticated with a shared *cluster token* sent as the `X-ArcadeDB-Cluster-Token` HTTP header.
 If `arcadedb.ha.clusterToken` is not set explicitly, the token is derived deterministically from `arcadedb.ha.clusterName` and the `root` password via PBKDF2-HMAC-SHA256 — it is *not* persisted on disk.
 Every node that starts with the same cluster name and the same root password ends up with the same token automatically.
+_(Since v26.11.1)_ The root password can come from the inline `arcadedb.server.rootPassword` setting or from the file named by `arcadedb.server.rootPasswordPath`. The inline value is checked first, then the file, and both are read the same way: one trailing CR/LF is dropped, so a node given the password inline and a node reading it from a file derive the same token. An explicit `arcadedb.ha.clusterToken` or `arcadedb.ha.clusterTokenPath` takes precedence. A node started with only `rootPasswordPath` forms a cluster.
+
+*Token fingerprint*:: A node whose token is derived from the root password records a fingerprint of it (a SHA-256 under a domain prefix, never the token or the password) in `<raft-storage>.cluster-token-fingerprint`, next to its Raft storage directory, with mode 0600. The file must be writable, otherwise startup fails with a `ConfigurationException`.
+If the password (file or inline setting) later derives a different token, for example because a Kubernetes Secret was rotated, the node refuses to start with a message that names the setting the password came from. Without this check, the nodes on the new token and those on the old one refuse each other's requests with `401` during a rolling restart.
+To rotate the root password on purpose, either restart every node together with `arcadedb.ha.clusterTokenAllowRotation=true` and then remove the setting, or move to an explicit `arcadedb.ha.clusterTokenPath`.
+A token that is not derived from the password clears the record. A node that does not persist its Raft storage has no fingerprint to compare against, so a token that differs from the group's is refused per request, as before. A node that already ran on the inline source has no record yet, so a rotation made before the upgrade cannot be detected at its first start.
+A refused cluster token answers `401` "Invalid cluster token", and the refusing node logs a WARNING, at most once every 60 seconds, that names the caller and where its own token comes from.
+
 Set `arcadedb.ha.clusterToken` (or `HA_CLUSTER_TOKEN`) explicitly when you need to rotate the token without changing the root password, or when each peer has a different root password.
 To keep the secret off the command line (and out of `ps`/`/proc/<pid>/cmdline`), set `arcadedb.ha.clusterTokenPath` to a file the server reads at startup, e.g. a Kubernetes Secret mounted on `tmpfs`. It is read only when `arcadedb.ha.clusterToken` is not set, and its content is trimmed of surrounding whitespace so a trailing newline does not break the token comparison between nodes.
 
@@ -1438,6 +1456,8 @@ With enough buckets, parallel insertions avoid page contention entirely and do n
 
 A follower that is killed while it is installing a snapshot from the leader -- a liveness-probe kill, an OOM kill, a node drain -- leaves `databases/<name>/` holding a mix of the previous database and the incoming one. It is neither, and opening it would register and serve that mix. The installer marks the directory with a `.snapshot-pending` file before it touches a single byte and removes the file only once the installed copy has been reopened successfully, so the marker's presence is the node's own record that the install did not finish.
 
+_(Since v26.11.1)_ A snapshot install is also verified before the previous copy is given up. The leader sends the name and size of every file, and the install compares the live files against that account right after the swap and before the reopen. On a mismatch, such as zero-length page files or a corrupt `schema.json`, it rolls back to the previous copy. The leader's file account is kept as `.snapshot-manifest` through the swap, so the crash-recovery roll-forward compares against it too and restores the backup instead of keeping a half-installed copy. An install without a manifest falls back to the check that the database reopens.
+
 While that marker exists, the database is *not opened by anything*: not the startup scan, not the default-database configuration (`arcadedb.server.defaultDatabases`), and not a client request naming it. A request for it is answered with `Database '<name>' is not available: an interrupted HA snapshot install left '.snapshot-pending' in its directory`. The refusal lasts as long as the marker does -- it is a statement about the directory, not about a phase of startup. _(Since v26.10.1)_
 
 The node still starts. HA snapshot recovery runs during startup and either completes the interrupted swap (the download had finished) or rolls it back to the previous copy (it had not); either way it removes the marker, and the database is opened before the server reports itself online. In the normal case the only trace is one INFO line naming the deferred database.
@@ -1629,8 +1649,12 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |false
 
 |`+arcadedb.ha.clusterToken+`
-|Shared secret for inter-node authentication. If empty, auto-generated at first startup and persisted under `raft-storage/`
+|Shared secret for inter-node authentication. If empty, the token is derived at every start from `arcadedb.ha.clusterName` and the root password, see <<ha-security,Security>>
 |(empty)
+
+|`+arcadedb.ha.clusterTokenAllowRotation+`
+|Lets a node whose derived cluster token changed since its last start (root password file or inline root password rewritten) start anyway, and records the new fingerprint. Default false: the node refuses to start. See <<ha-security,Security>>. _Since v26.11.1_
+|false
 
 |`+arcadedb.ha.clusterTokenPath+`
 |Path to a file containing the cluster token. Read only when `arcadedb.ha.clusterToken` is not set; the content is trimmed. Keeps the secret off the command line (e.g. a Kubernetes Secret mounted on `tmpfs`)

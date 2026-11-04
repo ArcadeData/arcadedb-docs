@@ -41,15 +41,19 @@ Studio and the configuration templates are embedded in it.
 ===== CPU Requirements
 
 A native binary is compiled for one CPU baseline and starts only on a CPU that has every feature of it.
-The published images and release archives use the GraalVM defaults:
+`native/pom.xml` states the baseline explicitly through the `native.march` property, which a profile sets per build architecture, instead of inheriting the builder's default.
+The published images and release archives use these baselines:
 
 [%header,cols="2,1,3,3"]
 |===
 | Architecture | Baseline | Required CPU features | Excludes, for example
 | amd64 (Linux, Windows) | `x86-64-v3` | AVX, AVX2, BMI1, BMI2, FMA, F16C, LZCNT, MOVBE | Intel before Haswell (2013), AMD before Excavator, Atom, Celeron and Pentium parts without AVX, and VMs whose CPU model hides AVX2 (the QEMU default `qemu64`, the Proxmox defaults `x86-64-v2-AES` and `kvm64`)
-| arm64 (Linux, macOS Apple Silicon) | `armv8.1-a` | ASIMD, CRC32, LSE atomics | ARMv8.0 cores such as the Cortex-A53 and A72 (Raspberry Pi 3 and 4)
+| arm64 (Linux, macOS Apple Silicon) | `armv8-a` | ASIMD (the ARMv8.0 baseline) | None: runs on every 64-bit ARM core, including the Cortex-A53 and A72 (Raspberry Pi 3 and 4) and Graviton1
 |===
 
+`x86-64-v3` is also GraalVM 25's own default on amd64.
+On arm64 the builder's own default is `armv8.1-a` (CRC32 and LSE atomics), and `armv8-a` is a deliberate choice below it, so that ARMv8.0 cores keep working.
+_(Since v26.11.1: the arm64 baseline was briefly recorded as `armv8.1-a`, which excluded those cores, and is `armv8-a` again.)_
 On an older CPU the binary exits as soon as it starts, with:
 
 ----
@@ -63,6 +67,7 @@ In a VM, expose the host CPU (`-cpu host` in QEMU, CPU type `host` in Proxmox) o
 
 If the CPU does not qualify, either:
 
+* download the `linux/amd64` compatibility archive of the release, `arcadedb-<version>-linux-x86_64-compat.tar.gz`, built with `-march=compatibility` (the default archive is `arcadedb-<version>-linux-x86_64.tar.gz`). It starts on any x86-64 CPU, including pre-Haswell hardware, QEMU's `qemu64` and Proxmox's `x86-64-v2-AES`. It is an archive only: there is no Docker image for it, and the published images keep the baselines in the table above. To run it in a container, build the image yourself with `./native/scripts/build-native-docker.sh --march compatibility`,
 * run the JVM image (`arcadedata/arcadedb:<version>`) or the JVM distribution, whose JIT compiles for the CPU it runs on, or
 * build a native binary for a lower baseline with `-Dnative.march=compatibility`, which runs on any x86-64 or ARMv8 CPU (see <<native-image-build>>).
 

@@ -74,6 +74,14 @@ the volume stays unwritable, so fix the volume. Before 26.11.1 the save was not 
 user change had to be reissued, or that server reverted to the previous users on its next restart.
 ====
 
+[[security-files-reload]]
+*Reloading the security files.* _(Since v26.11.1)_ The users (`server-users.jsonl`), groups (`server-groups.json`) and API-token files share one reload policy and one watcher implementation, polled every `arcadedb.server.reloadEvery` milliseconds (the users watcher is a daemon thread named `arcadedb-security-users-watcher[<path>]`). Setting `reloadEvery` to 0 or less starts no watcher.
+
+* When a running server cannot load one of the files (a malformed line, a record that is not a valid user, an empty, missing or unreadable file, a wrong shape), it keeps the users, groups or tokens already in force, logs a SEVERE message, and saves a readable bad file as an `-error` copy (`server-users-error.jsonl`, `server-groups-error.json`, or the API-token file's error copy). It never writes over the operator's file. The watcher applies the next corrected edit as usual. Before, a bad users file was replaced by a passwordless `root` user, other users' sessions were revoked, and a bad groups file was replaced by the default groups.
+* At startup there are no previous users to keep: a parse or I/O error in `server-users.jsonl` keeps the file as `server-users-error.jsonl` and installs the default `root` user, so a server restarted before the file is fixed starts with only `root`. A `server-groups.json` without `version` or without a `databases` object is kept as `server-groups-error.json` before the default groups are installed. An API-token file without a `tokens` key is refused and kept as an error copy.
+* The API-token file has its own watcher, and a users-file reload no longer clears the tokens.
+* When a replicated change (a dropped user, a rotated password, a deleted group) could not be written to its file, the watcher keeps the replicated state in force and logs a WARNING instead of re-reading the older file. A reload that read the users file just before a concurrent replicated change was applied is dropped with a WARNING telling the operator to redo a hand edit through the server.
+
 ++++
 <svg class="dgm-svg" viewBox="0 0 1200 220"
      xmlns="http://www.w3.org/2000/svg"
@@ -222,7 +230,7 @@ string*, not the raw 32 salt bytes. In other words, the text that appears betwee
 second and third `$` characters is taken verbatim and hashed with the user-supplied
 password. Any external tool that generates this hash must do the same, otherwise the stored
 hash will never match at login time and the user will be rejected with
-`403 User/Password not valid`.
+`401 Authentication failed` (before v26.11.1: `403 User/Password not valid`).
 
 This is an implementation detail of the current storage format, preserved for compatibility
 with existing user files. It is not a security weakness, only a thing to be aware of when

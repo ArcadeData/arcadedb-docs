@@ -642,6 +642,7 @@ Syntax: `if(&lt;expression&gt;, &lt;result-if-true&gt; [,&lt;result-if-false&gt;
 
 Evaluates a condition (first parameter) and returns the second parameter if the condition is true, and the third parameter otherwise.
 The third parameter is optional: if it is omitted and the condition is false, `null` is returned.
+_(Since v26.11.1)_ A numeric condition is read by its sign, without truncation: `if(0.5, a, b)` and a condition of `3000000000` return `a`, and `-3000000000` returns `b`. Before, the number was cast to an int, which dropped the fraction and wrapped a value past the int range.
 
 *Examples*
 
@@ -1113,6 +1114,8 @@ Returns an integer drawn from a uniform pseudo-random distribution in the range 
 
 Syntax: `randomInt(&lt;max&gt;)`
 
+_(Since v26.11.1)_ `max` must be a whole number inside the int range: `10`, `10.0` and `'10'` work, while `2.5`, `0.9`, `3000000000` and `'abc'` are refused with an error of their own. Before, `2.5` silently became 2.
+
 *Examples*
 
 [source,sql]
@@ -1181,7 +1184,7 @@ Where:
   This can also be a list of edge class names (eg. `[&quot;edgeType1&quot;, &quot;edgeType2&quot;]`)
 - `additionalParams`, optional, here you can pass a map of additional parameters (Map&lt;String, Object&gt; in Java, JSON from SQL).
   Currently allowed parameters are
-- 'maxDepth': integer, maximum depth for paths (ignore path longer that 'maxDepth'). It must be a non-negative whole number, and `null` means no bound _(since v26.11.1; before, `null` was read as 0)_
+- 'maxDepth': integer, maximum depth for paths (ignore path longer that 'maxDepth'). It limits the number of edges on the path, so `maxDepth: 1` finds a direct edge _(since v26.11.1; before, it counted vertices, so a path of exactly `maxDepth` edges was not found)_. It must be a non-negative whole number, and `null` means no bound _(since v26.11.1; before, `null` was read as 0)_
 - 'edge': boolean, include the edges in the result. A boolean or the strings `'true'` and `'false'`; any other value is rejected with an error _(since v26.11.1; before, it was read as `false`)_
 
 *Examples*
@@ -2031,6 +2034,8 @@ By default the dimension is inferred form the index array.
 Optionally, the dimension can be set via the dimension argument.
 
 Syntax: `vectorSparseCreate(&lt;vector|field&gt;, &lt;vector|field&gt; [, &lt;integer&gt;])`
+
+_(Since v26.11.1)_ The dimension, when given, must be a whole positive number in the int range. Every index must be a whole number, not negative and below the dimension. A fractional, out-of-range, zero or negative dimension, a bad index, and a null index element are refused with an error that names the function, instead of being cast or raising a raw `IndexOutOfBoundsException` or `NullPointerException`. The indices of `vector.sparseNeighbors` are checked the same way.
 
 *Examples*
 
