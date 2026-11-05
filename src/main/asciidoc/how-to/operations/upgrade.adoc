@@ -9,6 +9,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 
 This section lists behavior changes that may require action when upgrading.
 
+[discrete]
+====== 26.12.1 - A schema change over PostgreSQL answers no result set, and a violated constraint has its own error code
+
+Over the PostgreSQL protocol a schema change (`CREATE TYPE`, `CREATE PROPERTY`, `CREATE INDEX`, `ALTER TYPE`, `DROP TYPE`, `REBUILD INDEX`, ...) is answered as PostgreSQL answers `CREATE TABLE`: no result set and a command tag naming the statement, such as `CREATE DOCUMENT TYPE` (issue #11312). The command tag of every statement the server parses comes from the statement, not from its text, so a write with a leading comment reports its row count (issue #11313). A value refused by a constraint declared on its property raises a `ValidationException` that names the constraint (`ValidationException.getKind()`: `MANDATORY`, `NOT_NULL`, `MIN`, `MAX`, `MAX_LENGTH`, `REGEXP`, `READONLY`, `TYPE`, `ENCODING`), a number a property's type cannot hold raises a `ValueOutOfRangeException` (an `IllegalArgumentException`), and a call of a function that does not exist raises an `UnknownFunctionException` (a `CommandExecutionException`), see issue #11314.
+
+*Impact:* over PostgreSQL, a client that read the row a schema change returned gets none (JDBC `execute()` returns `false` for it), and the refusals answer the SQLSTATEs listed in <<postgres-refused-value,A refused value and an unknown function>> instead of `22023` and `XX000`. Over HTTP a violated constraint and an unknown function answer `400` instead of `500`, with the constraint in `exceptionArgs`; over Bolt a violated constraint is `Neo.ClientError.Schema.ConstraintValidationFailed` and an unknown SQL function `Neo.ClientError.Statement.SyntaxError`; over MongoDB a violated constraint is `121` (`DocumentValidationFailure`); over gRPC an unknown function is `INVALID_ARGUMENT` instead of `INTERNAL`. The Java remote clients rebuild the `ValidationException` with its kind.
+
+*Action:* read a schema change's outcome from the success of the statement rather than from a returned row. Clients that keyed on the old error codes should expect the new ones.
+
 [[upgrade-timeseries-sealed-owner]]
 [discrete]
 ====== 26.12.1 - TIMESERIES sealed files record the type they belong to, which older builds cannot read

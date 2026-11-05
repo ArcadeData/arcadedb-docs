@@ -661,6 +661,46 @@ the same case: `42P07` (`duplicate_table`) for a type, an index or a view, `4270
 (`duplicate_object`) for anything else, such as a constraint, a bucket, a trigger or a function. Before v26.11.1 it was `XX000`
 (internal error), or `42P01` (undefined table) for some of them.
 
+[[postgres-refused-value]]
+===== A refused value and an unknown function
+
+_(Since v26.12.1.)_ A value refused by a constraint declared on its property, or by the conversion to the property's type,
+fails with the SQLSTATE PostgreSQL answers the same refusal with, so a driver maps it to the right error class (Rails
+`NotNullViolation`, Django `IntegrityError` for class `23` against `DataError` for class `22`, Hibernate
+`ConstraintViolationException`):
+
+[%header,cols="2,1,2"]
+|===
+| Refusal | SQLSTATE | PostgreSQL name
+| `MANDATORY` or `NOTNULL` | `23502` | `not_null_violation`
+| `MIN`, `MAX`, `REGEXP`, `READONLY` | `23514` | `check_violation`
+| a `STRING` or `BINARY` longer than its `MAX` | `22001` | `string_data_right_truncation`
+| a value of another type (a link to another type, an embedded document of another type) | `42804` | `datatype_mismatch`
+| a number the property's type cannot hold | `22003` | `numeric_value_out_of_range`
+| text that is not a number | `22P02` | `invalid_text_representation`
+| text that is not a date | `22007` | `invalid_datetime_format`
+| a call of a function that does not exist | `42883` | `undefined_function`
+|===
+
+Before v26.12.1 every refused value answered `22023` (`invalid_parameter_value`), and a call of an unknown SQL function
+answered `XX000` (internal error).
+
+[[postgres-command-tag]]
+===== Schema changes and command tags
+
+_(Since v26.12.1.)_ A schema change (`CREATE TYPE`, `CREATE PROPERTY`, `CREATE INDEX`, `ALTER TYPE`, `DROP TYPE`,
+`REBUILD INDEX`, ...) is answered as PostgreSQL answers `CREATE TABLE`, on the simple and the extended protocol alike: no
+result set (`NoData` to a `Describe`), and a command tag naming the statement with no row count, for example
+`CREATE DOCUMENT TYPE`. So JDBC's `executeUpdate()` accepts it and returns `0`, and `execute()` returns `false`. Before
+v26.12.1 it answered a result set with one row describing the change and an empty tag: `executeUpdate()` threw "A result was
+returned when none was expected", and a client that described the statement before running it (asyncpg, pgx, npgsql)
+received an error with SQLSTATE `0A000` after the change had been applied.
+
+The command tag of a statement (`INSERT 0 n`, `UPDATE n`, `DELETE n`, `SELECT n`) is the one of the statement the server
+parsed, whatever its text looks like: a leading comment (`/* hint */ INSERT ...`, as Hibernate's
+`hibernate.use_sql_comments` writes), a line break or a doubled space between its keywords does not change it. Before
+v26.12.1 such a statement was tagged with an empty string, so JDBC reported 0 rows for rows it had written.
+
 ===== Postgres Tools Known to Work
 
 NOTE: Some tools compatible with Postgres may execute queries on internal Postgres tables to retrieve the schema.
