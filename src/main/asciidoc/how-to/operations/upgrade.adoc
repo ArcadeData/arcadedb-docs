@@ -38,6 +38,15 @@ Every TIMESERIES type created by 26.12.1 draws a random owner id, stored in the 
 *Action:* drop the index itself instead of one of its bucket indexes, and run `REBUILD INDEX <name>` on an index `SHOW INDEXES` reports as `FAILED`. See <<sql-drop-index,`DROP INDEX`>> and <<sql-rebuild-index,`REBUILD INDEX`>>.
 
 [discrete]
+====== 26.12.1 - A materialized view keeps the brackets of its query, and `@cat` is a reserved name
+
+A materialized view or a continuous aggregate stores its `SELECT` as text. Earlier versions dropped brackets from that text: `a = 1 AND (b = 2 OR c = 3)` was stored as `a = 1 AND b = 2 OR c = 3`, and `NOT (x AND y)` lost its brackets too, so the view held rows its query does not return (issue #11299). A back-ticked `` `@cat` `` was stored without its back-ticks, and the view could not be created (issue #11308). The stored text now means what was written. `@cat` is now a token of its own like `@rid` and `@type`, so it can be written without back-ticks.
+
+*Impact:* a view created by an earlier version keeps the text it stored, and keeps answering the wrong rows.
+
+*Action:* drop and recreate any materialized view or continuous aggregate whose query has a bracketed `OR` or a `NOT (...)`. See <<sql-create-materialized-view,`CREATE MATERIALIZED VIEW`>>.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.
