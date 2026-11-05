@@ -574,7 +574,11 @@ use the blocking rebuild described above.
 NOTE: Since 26.11.1 an index missing the part of one of its type's buckets (for example after a rebuild interrupted by an older
 version) is reported with `valid = false`, queries do not use it and `COMPACT INDEX` refuses it. The server logs which buckets are
 missing at startup; `REBUILD INDEX <index-name>` fills them without blocking the database. Index files left behind by an
-interrupted rebuild are deleted at the next startup, with one warning each.
+interrupted rebuild are deleted at the next startup, with one warning each. Since 26.12.1 no query planner uses such an index
+(SQL, Cypher, the Java `select()` API, the MongoDB wire protocol): the query falls back to a scan and answers every row, where
+some of them used to return short results from it. `database.lookupByKey()` on it raises an `IllegalArgumentException` naming
+the index and asking for `REBUILD INDEX`, and Cypher <<cypher-show-indexes,`SHOW INDEXES`>> reports it with state `FAILED`
+(issue #11303).
 
 NOTE: An index declared on a super type also covers the buckets of its sub types. `REBUILD INDEX *` (and `CHECK DATABASE ... FIX`)
 rebuilds the part on a sub type's bucket under the index the super type declares. Since 26.11.1; before, the rebuild could detach the
@@ -678,6 +682,13 @@ restart.
 index is dropped. It returns one row per index dropped (the per-bucket indexes included), with the name in `indexName` (the same name is also in `bucketName`, kept for
 compatibility). Since 26.11.1; before, it dropped the indexes one at a time, so a refusal left the indexes before it dropped, and the
 rows carried the name in `bucketName` only.
+
+NOTE: An index on a type is made of one bucket index per bucket of the type (for example `S_0_4559193709411875`, the part of
+`S[k]` on one bucket). `DROP INDEX` naming one of those bucket indexes, from SQL or Cypher, is refused with a `SchemaException`
+(`Index 'S_0_4559193709411875' is the bucket index of index 'S[k]' and cannot be dropped alone: ... Drop 'S[k]' instead`), since
+the type index would miss every record of that bucket. Drop the type index itself, which drops all its bucket indexes.
+_(Since v26.12.1, issue #11303. Before, the bucket index was dropped and the type index kept answering without the records of
+that bucket; an index left that way is repaired with <<sql-rebuild-index,`REBUILD INDEX`>>.)_
 
 *Examples*
 

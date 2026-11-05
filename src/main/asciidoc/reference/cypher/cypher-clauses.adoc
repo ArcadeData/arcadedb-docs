@@ -2028,7 +2028,8 @@ Index and constraint names share one namespace, as in Neo4j:
 * a name already taken by an index or a constraint is refused, and with `IF NOT EXISTS` the statement does nothing;
 * an index already defined on the same properties is refused under another name, and with `IF NOT EXISTS` the statement does nothing;
 * `DROP INDEX` of a name no index has raises an error unless `IF EXISTS` is given;
-* the index a `UNIQUE` or `NODE KEY` constraint created is dropped with <<cypher-drop-constraint,`DROP CONSTRAINT`>>: `DROP INDEX` refuses it, since the constraint would stay listed with nothing enforcing it.
+* the index a `UNIQUE` or `NODE KEY` constraint created is dropped with <<cypher-drop-constraint,`DROP CONSTRAINT`>>: `DROP INDEX` refuses it, since the constraint would stay listed with nothing enforcing it;
+* _(Since v26.12.1)_ `DROP INDEX` of the bucket index of an index (for example `S_0_4559193709411875`, the part of `S[k]` on one bucket) is refused, as in <<sql-drop-index,SQL>>: the index would miss every record of that bucket. Drop the index itself, which drops all its bucket indexes.
 
 [[cypher-create-vector-index]]
 ====== CREATE VECTOR INDEX / CREATE FULLTEXT INDEX
@@ -2098,7 +2099,7 @@ The keyword after `SHOW` restricts the list to one type of index, matched agains
 | Column | Description
 | `id` | A sequence number of the row
 | `name` | The index name
-| `state` | `ONLINE`, or `POPULATING` while the index is being built
+| `state` | `ONLINE`, `POPULATING` while the index is being built, or `FAILED` when the index lacks the part of one of the buckets it covers (left by an interrupted rebuild of an earlier version): no query uses it until <<sql-rebuild-index,`REBUILD INDEX`>> repairs it. _(`FAILED` since v26.12.1; before, such an index was listed as `POPULATING` or `ONLINE`.)_
 | `populationPercent` | `100.0` when the index is online, otherwise `0.0`
 | `type` | `RANGE` (an `LSM_TREE` index), `HASH`, `FULLTEXT`, `VECTOR`, `SPARSE_VECTOR` or `POINT` (a geospatial index)
 | `entityType` | `NODE` or `RELATIONSHIP`

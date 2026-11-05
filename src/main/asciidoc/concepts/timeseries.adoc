@@ -1509,6 +1509,24 @@ recreating an empty type or returning wrong results. Earlier versions dropped th
 the next restart.
 ====
 
+[[timeseries-sealed-owner]]
+[NOTE]
+====
+Since 26.12.1 every TIMESERIES type draws a random owner id when it is created. It is stored in the schema
+(`sealedOwner`) and written into the header of every `.ts.sealed` file of the type's shards (sealed format version 4,
+a 35-byte header with the owner at offset 27). When the engine opens the type, a sealed file at its path that was
+written for another type, another shard or another database (for example a file copied in by hand) is refused: the
+type stays registered, but its storage is reported unavailable as described above (a `SEVERE` log line, a finding of
+`CHECK DATABASE`, and an error saying why on every read and write), and the file is neither read nor overwritten.
+Move the foreign file away and reopen the database to restore the type. Renaming the type keeps its owner. A type of a
+database written before 26.12.1 has no owner and reads its files as before (issue #11274).
+
+Restoring a whole database directory (the schema together with its files) and HA replication are unaffected. As with
+the earlier sealed format changes, a sealed file that 26.12.1 rewrites whole (compaction, retention, downsampling) is
+at version 4, which an older build cannot read, and an older build refuses at schema load a type created by 26.12.1
+(`sealedFormatVersion` 4). See <<upgrade-timeseries-sealed-owner,Upgrade ArcadeDB>>.
+====
+
 A TimeSeries type has neither record buckets nor indexes, so <<sql-check-database,`CHECK DATABASE`>> walks it with a
 pass of its own that reads all three of the on-disk formats it owns:
 

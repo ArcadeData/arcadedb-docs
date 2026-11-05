@@ -9,6 +9,25 @@ The migration is transparent and happens lazily on first open, so the only opera
 
 This section lists behavior changes that may require action when upgrading.
 
+[[upgrade-timeseries-sealed-owner]]
+[discrete]
+====== 26.12.1 - TIMESERIES sealed files record the type they belong to, which older builds cannot read
+
+Every TIMESERIES type created by 26.12.1 draws a random owner id, stored in the schema (`sealedOwner`) and written into the header of every `.ts.sealed` file of its shards, at sealed format version 4 (issue #11274). A sealed file at the type's path that was written for another type, another shard or another database (a file copied in by hand, for example) is refused when the type is opened: the type stays registered with its storage reported unavailable, and the file is neither read nor overwritten. Types of databases written before 26.12.1 have no owner and read their files as before.
+
+*Impact:* as with the sealed format versions 2 and 3, a sealed file that 26.12.1 rewrites whole (compaction, retention, downsampling) is at version 4 and cannot be read by an older build, and an older build refuses at schema load a type created by 26.12.1 (`sealedFormatVersion` 4). A `.ts.sealed` file copied from another type or database into the place of one of a type created by 26.12.1 is refused. Restoring a whole database directory (the schema and its files together) and HA replication are unaffected.
+
+*Action:* none to upgrade. To go back to an older build afterwards, export the database with 26.12.1 and re-import it with the older version. If a type reports its storage unavailable because of a foreign sealed file, move that file away and reopen the database. See <<timeseries-sealed-owner,Integrity Checking>>.
+
+[discrete]
+====== 26.12.1 - `DROP INDEX` refuses the bucket index of an index, and an index missing one is not used
+
+`DROP INDEX` naming the bucket index of an index (for example `S_0_4559193709411875`, the part of `S[k]` on one bucket), from SQL or Cypher, is refused with a `SchemaException` naming the index it belongs to (issue #11303). An index that lacks the bucket index of one of the buckets it covers (left by an interrupted rebuild of an earlier version) is no longer used by any query planner: queries fall back to a scan. `database.lookupByKey()` on it raises an `IllegalArgumentException`, and Cypher `SHOW INDEXES` reports it with state `FAILED`.
+
+*Impact:* a script that drops a bucket index on its own fails. Queries that read such an incomplete index answer every row, more slowly, where they used to return short results.
+
+*Action:* drop the index itself instead of one of its bucket indexes, and run `REBUILD INDEX <name>` on an index `SHOW INDEXES` reports as `FAILED`. See <<sql-drop-index,`DROP INDEX`>> and <<sql-rebuild-index,`REBUILD INDEX`>>.
+
 [discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
