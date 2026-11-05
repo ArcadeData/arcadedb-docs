@@ -1,0 +1,96 @@
+[[aws-marketplace]]
+==== Installation on AWS (Marketplace AMI)
+:description: Launch ArcadeDB on Amazon EC2 from the official AWS Marketplace AMI: a CIS-hardened Ubuntu 22.04 image with ArcadeDB installed as a systemd service, for x86_64 and Graviton (arm64).
+
+ArcadeDB publishes an official Amazon Machine Image (AMI) on AWS Marketplace, sold by ArcadeDB.
+It installs the open source (Apache 2.0) ArcadeDB server on Amazon EC2 with nothing left to set up:
+
+* CIS-hardened Ubuntu 22.04 LTS with OpenJDK 25
+* ArcadeDB installed as the `arcadedb` systemd service, started on boot
+* A root password generated on each instance's first boot, with no default credentials
+* Built for x86_64 and AWS Graviton (arm64) instances
+
+There are two listings, one per CPU architecture:
+
+[%header,cols="1,3"]
+|===
+| Architecture | Listing
+| x86_64 (t3, m6i/m7i, c6i/c7i, r6i/r7i) | https://aws.amazon.com/marketplace/pp/prodview-sweps2e65ru3i[ArcadeDB Community Edition (x86_64)]
+| arm64 (t4g, m6g/m7g, c6g/c7g, r6g/r7g) | https://aws.amazon.com/marketplace/pp/prodview-nv32aps7bkclw[ArcadeDB Community Edition (arm64)]
+|===
+
+The AMI carries an hourly software fee, set by instance size, on top of the EC2, EBS and data transfer charges.
+New subscribers get a 7-day free trial of the software fee.
+The current rates are on each listing's pricing tab.
+The fee appears on your AWS bill, so there is no separate contract or vendor to onboard.
+If you prefer to install ArcadeDB yourself on EC2 at no software cost, use the <<install-docker,Docker image>> or the <<binaries,binary distribution>>; the database engine is the same.
+
+The Marketplace image includes community support through https://github.com/ArcadeData/arcadedb/issues[GitHub issues] and this documentation, with no SLA.
+For a support contract, see https://arcadedb.com/pricing.html[ArcadeDB support plans].
+
+[[aws-marketplace-launch]]
+===== Launch an instance
+
+. Open the listing for your architecture and choose *View purchase options*, then *Subscribe*.
+. Choose *Launch your software*, pick a region and an instance type.
+`m6i.large` (or `m7g.large` on Graviton) is a good starting point.
+. Select your EC2 key pair.
+. In the security group, allow inbound TCP *22* (SSH) and *2480* (HTTP API and Studio) *only from your own IP range*.
+Do not open these ports to `0.0.0.0/0`.
+If you enable more protocols later, such as PostgreSQL (5432) or Bolt (7687), open their ports the same way.
+. Launch the instance and wait for it to pass its status checks.
+
+[[aws-marketplace-password]]
+===== Read the root password
+
+Every instance generates its own `root` password on first boot.
+SSH in as the `ubuntu` user and read it:
+
+[source,shell]
+----
+ssh -i my-key.pem ubuntu@<instance-public-ip>
+cat ~/arcadedb-root-password.txt
+----
+
+Store the password in your secrets manager, then delete the file from the instance.
+
+[[aws-marketplace-connect]]
+===== Connect
+
+Open Studio at `http://<instance-public-ip>:2480` and log in as `root`.
+To keep port 2480 closed to the internet altogether, reach it through an SSH tunnel instead and open `http://localhost:2480`:
+
+[source,shell]
+----
+ssh -i my-key.pem -L 2480:localhost:2480 ubuntu@<instance-public-ip>
+----
+
+Check the server from the command line:
+
+[source,shell]
+----
+curl -s -u root:<password> http://<instance-public-ip>:2480/api/v1/server?mode=basic
+----
+
+Applications connect over the HTTP API on port 2480 with any of the <<languages-drivers,drivers>>.
+The plain HTTP port is meant for private networks: for traffic that crosses the internet, put an Application Load Balancer with a TLS certificate in front of the instance, or connect over a VPN or SSH tunnel.
+
+[[aws-marketplace-operate]]
+===== Operate the server
+
+[%header,cols="1,2"]
+|===
+| Task | How
+| Service status | `sudo systemctl status arcadedb`
+| Restart | `sudo systemctl restart arcadedb`
+| Database files | `/var/lib/arcadedb/databases`
+|===
+
+Keep the databases on the instance's EBS volume and back them up with <<backup,ArcadeDB backups>> or EBS snapshots.
+The software fee stops while the instance is stopped; EBS storage is still billed.
+
+[[aws-marketplace-upgrade]]
+===== Upgrade
+
+A new ArcadeDB release is published as a new version of the Marketplace listing.
+To move an existing instance to it, take a <<backup,backup>>, launch a new instance from the new version, and restore the backup there, following the <<upgrade,upgrade checklist>> of the release.

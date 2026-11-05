@@ -177,6 +177,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("how-to/operations/install-docker.adoc", "Install with Docker"),
                 ("how-to/operations/native-image.adoc", "Native Image (Experimental)"),
                 ("how-to/operations/kubernetes.adoc", "Kubernetes"),
+                ("how-to/operations/aws-marketplace.adoc", "AWS Marketplace (EC2)"),
                 "tutorials/embed-server.adoc",
                 ("how-to/operations/server.adoc", "Server Configuration"),
                 ("how-to/operations/settings.adoc", "Changing Settings"),
