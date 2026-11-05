@@ -461,13 +461,13 @@ cached record count of bucket 'Order_0' is 10869 but the bucket holds 10906 reco
 count(*) on this bucket under-reports by 37; run CHECK DATABASE FIX to recompute the counter
 ----
 
-`FIX` recomputes it - the counter is invalidated, and the next `count(*)` rescans and republishes it. A read-only run
+`FIX` recomputes it - the counter is invalidated, and the next `+count(*)+` rescans and republishes it. A read-only run
 only reports, and the report carries `staleRecordCounters` and, under `FIX`, `staleRecordCountersFixed`. Both count
 *buckets*, not records: one per bucket whose counter disagreed, whatever the size of the disagreement. They sit next to
 record tallies such as `totalActiveRecords` in the same JSON, so the distinction is worth reading twice.
 
-This is the symptom to look for when `count(*)` disagrees with a forced full scan such as
-`SELECT count(*) FROM <type> WHERE @rid IS NOT NULL`, in *either* direction. On a replicated database the drift is
+This is the symptom to look for when `+count(*)+` disagrees with a forced full scan such as
+`+SELECT count(*) FROM <type> WHERE @rid IS NOT NULL+`, in *either* direction. On a replicated database the drift is
 per node and per bucket, so the replicas disagree with each other while holding identical data, which looks exactly
 like <<howto-high-availability,HA>> state divergence until a full scan rules it out.
 
@@ -483,9 +483,9 @@ Releases up to and including `26.9.1` could fold a replicated transaction's reco
 <<howto-high-availability,Raft>> entry was replayed on a node that had been restarted *cleanly*, which includes every
 rolling upgrade and every Kubernetes pod rotation. Nothing in `statistics.json` says which counters that happened to,
 so `26.10.1` does not trust any of them: the file now carries a format version, counts written without one are
-discarded when the database is opened, and each affected bucket recomputes on its next `count(*)`. That is one extra
+discarded when the database is opened, and each affected bucket recomputes on its next `+count(*)+`. That is one extra
 bucket scan, once, and the marker is written back on the next clean close. A `WARNING` in the server log says how many
-buckets it applied to, so the first `count(*)` that changes after an upgrade is not a mystery.
+buckets it applied to, so the first `+count(*)+` that changes after an upgrade is not a mystery.
 
 [[sql-check-database-timeseries]]
 *TimeSeries integrity*
@@ -707,7 +707,7 @@ IMPORT DATABASE <url> [WITH ( <setting-name> = <setting-value> [,] )* ]
 ----
 
 * *`&lt;url&gt;`* Defines the location of the file to import. Use:
- ** `file://` as prefix for files located on the same file system where ArcadeDB is running. The path is resolved against the directory where ArcadeDB is running, so a file written by `EXPORT DATABASE` (which writes to `exports/`) is read back with `file://exports/<file-name>`.
+ ** `file://` as prefix for files located on the same file system where ArcadeDB is running. The path is resolved against the directory where ArcadeDB is running, so a file written by `EXPORT DATABASE` (which writes to `exports/`) is read back with `+file://exports/<file-name>+`.
  ** `https://` and `http://` as prefix for remote files.
 
 *Examples*
