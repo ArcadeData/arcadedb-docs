@@ -9,6 +9,8 @@ The RemoteServer class is used to manage remote server connections and databases
 
 The server administration calls (databases, users, groups and API tokens) prefer the cluster leader and wait out an election in progress. If the server becomes unreachable, they switch to another server of the cluster only when `arcadedb.network.sameServerErrorRetries` is greater than 0 (the default is 0). A write whose answer was lost is never sent again, because the server may already have applied it. `createApiToken` refuses to send the token over plain HTTP to a non-loopback host, whichever server the request is sent to, unless `setAllowInsecureApiTokenTransport(true)` is set.
 
+When a server becomes unreachable, `RemoteServer` and `RemoteDatabase` refresh the cluster configuration by asking every known replica in turn, then the old leader, then the address the client was created with, and the retry goes to the server that answered. If no server can give the configuration, for example during an election, the client keeps the leader and the replica list it had and spends the remaining retries (`arcadedb.ha.errorRetries`) on that list, so a read can still reach a follower. The error is raised when those retries run out. _(Since v26.12.1.)_
+
 _(Since v26.10.2.)_ `acceptDivergedDatabase(databaseName)` and `acceptStaleSnapshot()` are the operator overrides for a
 node of a replicated cluster that has no peer left to resync from. Both are root only and accept the node's local copy
 as the truth without a resync, so the entries that were skipped are not replayed. `acceptDivergedDatabase` lifts the
