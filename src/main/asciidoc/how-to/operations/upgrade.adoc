@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - `arcadedb.server.defaultDatabases` decodes `%XX` in its credentials and refuses an ambiguous one
+
+A user name, password or group of a `arcadedb.server.defaultDatabases` credential is percent-decoded, so a separator inside it can be written (`%3A` for `:`, `%2C` for `,`, `%3B` for `;`, `%5B` for `[`, `%5D` for `]`, `%25` for `%`), see issue #11269. A credential with more than three `:`-separated fields, an empty user name or an empty password is refused with a WARNING naming the user, and so is an entry with text after its `]` that opens no `{...}` command list.
+
+*Impact:* a password written with a raw `:` used to be cut at it, the text after it becoming the user's group; that credential now creates no user and grants nothing. A password that contains `%` followed by two hexadecimal digits (`%41`) now reads as the decoded character: an existing user written that way is reported `already exists with a different password` and keeps its password, a new one is created with the decoded password.
+
+*Action:* write a `%` that is followed by two hexadecimal digits as `%25`, and any `:`, `,`, `;`, `[` or `]` inside a field encoded as above. See <<settings-sql,`server.defaultDatabases`>>.
+
+[discrete]
 ====== 26.12.1 - A schema change over PostgreSQL answers no result set, and a violated constraint has its own error code
 
 Over the PostgreSQL protocol a schema change (`CREATE TYPE`, `CREATE PROPERTY`, `CREATE INDEX`, `ALTER TYPE`, `DROP TYPE`, `REBUILD INDEX`, ...) is answered as PostgreSQL answers `CREATE TABLE`: no result set and a command tag naming the statement, such as `CREATE DOCUMENT TYPE` (issue #11312). The command tag of every statement the server parses comes from the statement, not from its text, so a write with a leading comment reports its row count (issue #11313). A value refused by a constraint declared on its property raises a `ValidationException` that names the constraint (`ValidationException.getKind()`: `MANDATORY`, `NOT_NULL`, `MIN`, `MAX`, `MAX_LENGTH`, `REGEXP`, `READONLY`, `TYPE`, `ENCODING`), a number a property's type cannot hold raises a `ValueOutOfRangeException` (an `IllegalArgumentException`), and a call of a function that does not exist raises an `UnknownFunctionException` (a `CommandExecutionException`), see issue #11314.
