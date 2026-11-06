@@ -232,8 +232,24 @@ entire chunk.)_
 ===== Import report
 
 An import returns a summary of what it did, with the counters that apply to the source: `parsedRecords`,
-`createdDocuments`, `createdVertices`, `createdEdges`, `skippedRecords`, `skippedEdges`, `errors` and `warnings`. A
-counter is left out of the summary when it is zero.
+`createdRecords`, `createdDocuments`, `createdVertices`, `createdEdges`, `skippedRecords`, `skippedEdges`, `errors` and
+`warnings`. `parsedRecords` and `createdRecords` (the records of every kind the import created) are always present;
+every other counter is left out of the summary when it is zero.
+
+A source that holds no records is a valid import, such as a CSV file with only its header, an empty JSON array or an XML
+document with only its root element. The import ends with `result` `OK`, and `warningMessages` names the source and the
+format it was read as, which is what tells such a source from one read as the wrong format. An import that cannot
+have read anything fails instead: one that names no source (`url`, `documents`, `vertices` or `edges`), a setting that
+is not in the list below, a source of zero bytes when it is the only source of the import, whatever its format, and an
+HTML page in place of data, unless it was asked for as XML. A source of zero bytes named beside other sources is skipped,
+with a message in `warningMessages`.
+
+[NOTE]
+====
+_(Since v26.12.1.)_ These four cases used to end with `result` `OK`, or depended on the format. A script that passes a
+setting the importer never read now fails with `Unknown importer setting`. That includes `efConstruction`
+(use `beamWidth`), `ef` and `typeIdPropertyIsUnique` (use `typeIdUnique`), none of which had any effect.
+====
 
 `parsedRecords` counts every row read from every file of the import, including any header row and any row that was
 skipped. It is therefore normally higher than the number of records created. _(Since v26.10.1: when an import read
@@ -301,8 +317,7 @@ Below you can find all the supported settings for the Importer.
 | edgeToField| | Name of the property containing the ending vertex
 | edgeBidirectional| true| When creating edges, create bidirectional edges if true, otherwise unidirectional
 | distanceFunction | `innerproduct` | Type of distance measure, see <<similarity,similarity measures>>.
-| efConstruction | 256 | Size of dynamic neighbor candidate list of (during insert).
-| ef | 256 | Number of nearest neighbors to return (in layer search).
+| beamWidth | 100 | Size of the candidate list kept while the vector index is built. Higher values improve recall but slow the build
 | m | 16 | Maximum number of connections per layer in the HNSW index. Higher values improve recall but increase memory usage
 | vectorType | `float` | The data type of a vector element, for example 'float'.
 | vectorProperty | `"vector"` | Name of the property holding the vector of a Word2Vec or GloVe import. _(Since v26.11.1: it had no default, and an import that did not set it failed with a `NullPointerException`)_
