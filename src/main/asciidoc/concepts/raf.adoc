@@ -1,0 +1,172 @@
+[[raf]]
+=== Real-time Aggregated Facets (RAF)
+
+_Since v26.12.1_
+
+A facet is a count per value shown next to a list of results: "brand: 1,240 / 830 / ...", "size: small / medium / large", "published per month".
+Before RAF, an application computed each facet with its own `GROUP BY`, and every `GROUP BY` read every matched record again.
+**Real-time Aggregated Facets (RAF)** compute the result rows and all their facets in one `SELECT`, with the new <<sql-facets,`FACETS` clause>>, over the full set of matches of any match source: a SQL `WHERE`, a <<index-full-text,full-text>> search or a <<vector-model,vector>> search.
+
+RAF has three parts:
+
+* a `COLUMNAR` index, which declares the properties to facet on;
+* a *projection*, a compact columnar copy of those properties that ArcadeDB keeps up to date in the background;
+* the `FACETS` clause, which counts over the projection instead of over the records.
+
+Facets stay exact while the projection lags behind the commits: the query corrects its counts at read time.
+
+[[raf-columnar-index]]
+==== The `COLUMNAR` index
+
+[source,sql]
+----
+CREATE INDEX ON Asset (brand) COLUMNAR
+CREATE INDEX ON Asset (tags BY ITEM) COLUMNAR
+CREATE INDEX ON Asset (fileSize) COLUMNAR
+CREATE INDEX ON Asset (publishDate) COLUMNAR
+----
+
+A `COLUMNAR` index is a *facet source*, not a lookup structure: the query planner never uses it for `WHERE` or `ORDER BY`.
+Create one index for each property you want to facet on, and add `BY ITEM` for a list property so that each item counts as a value.
+At most one `COLUMNAR` index can exist for a property in a type hierarchy: a super type and its sub type cannot both index `brand`.
+To remove it, use `DROP INDEX`; the projection of the property is dropped with it.
+
+Supported property types:
+
+[%header,cols="40%,20%,40%"]
+|===
+|Property type |Column kind |Stored as
+|`STRING`, `BOOLEAN`, `LINK` |ordinal |One dictionary ordinal per record
+|`LIST` or `ARRAY_OF_*`, with `BY ITEM` |ordinal list |Sorted, deduplicated set of ordinals per record
+|`BYTE`, `SHORT`, `INTEGER`, `LONG`, `DATE`, `DATETIME` (any precision) |long |64-bit integer (dates as epoch counts at the precision of the property)
+|`FLOAT`, `DOUBLE` |double |Raw double
+|`DECIMAL`, `MAP`, `EMBEDDED`, `BINARY`, `LIST` without `BY ITEM` |- |Not supported
+|===
+
+Strings, booleans and links are kept as integer ordinals of a per-bucket dictionary, so the memory of a dictionary grows with the number of *distinct* values, not with the number of records.
+When a dictionary passes `columnar.maxCardinality` distinct values (1,000,000 by default) a warning is raised and the gauge `arcadedb.columnar.cardinality.exceeded` turns to 1.
+To set the limit for one index, pass it as metadata:
+
+[source,sql]
+----
+CREATE INDEX ON Asset (brand) COLUMNAR METADATA {"maxCardinality": 5000000}
+----
+
+[[raf-cost]]
+===== What the index costs
+
+Only the types that have a `COLUMNAR` index pay for it.
+On the measured workload (five `COLUMNAR` indexes on one type), the wall time of the same workload without the indexes grows by about:
+
+* *6%* for inserts;
+* *10%* for updates.
+
+A commit only marks the changed pages; a background pass reads them and updates the projection later.
+There is no per-index switch to turn the maintenance off: to stop paying, drop the index.
+The projection is read through the operating system page cache, so it adds little heap: dictionaries (proportional to the number of distinct values) and a small in-memory overlay of the newest changes.
+
+[[raf-projection]]
+==== The projection
+
+The projection lives in a `columnar/` directory next to the database files, with one sub-directory for each bucket that has a `COLUMNAR` index.
+It is *derived data*: it is never part of the transaction log, never replicated, and can always be rebuilt from the records.
+The commit of a transaction does not wait for it.
+A background pass, normally within a fraction of a second, reads the changed pages and writes the changes into an in-memory overlay that is flushed to immutable, compressed segment files (`arcadedb.columnar.flush*` settings).
+Segments with many superseded rows are rewritten, and too many segments are merged (`columnar.mergeDeadRatio`, `columnar.mergeMaxSegments`).
+
+[[raf-lifecycle]]
+===== Backup, export, restart and replication
+
+[%header,cols="30%,70%"]
+|===
+|Event |What happens to the projection
+|Backup and restore |The backup does not contain the projection. After a restore, a bucket that has records and no projection is rebuilt in the background.
+|Export and import |The export contains records and schema only. The `COLUMNAR` index is recreated by the import and its projection is built in the background.
+|`CREATE INDEX ... COLUMNAR` on a type that has data |The projection is built in the background; writers keep working and the projection catches up with them.
+|Clean restart |Nothing to rebuild: the projection is opened as it was.
+|Unclean shutdown |The pages that were committed but not yet flushed to the projection are re-applied at the next open. A background check compares the page versions of the projection with the bucket. Only if too much changed is the bucket rebuilt.
+|`CHECK DATABASE FIX` |Only the buckets the fix repaired are rebuilt.
+|Snapshot install on a replica (<<ha-concepts,HA>>) |The replaced files invalidate the projection, which is rebuilt in the background.
+|===
+
+In every case the facets stay exact meanwhile: a bucket whose projection is missing or being rebuilt is answered by scanning its matched records (`"source": "scan"`, see <<raf-answer,the answer>>), which is slower but returns the same counts.
+A rebuild is capped by `columnar.rebuildConcurrency` (1 by default) in the JVM.
+A database opened in read-only mode never writes under `columnar/`.
+
+NOTE: A replica can ask for an unnecessary rebuild after a long overlap with a replicated apply (https://github.com/ArcadeData/arcadedb/issues/11364[arcadedb#11364]). The projection stays correct and the facets exact; it only costs a rebuild.
+
+[[raf-exactness]]
+==== Exactness
+
+Because the projection lags the commits, a `FACETS` query reads the records that changed and have not been applied yet, and corrects its counts with them (*patching*).
+Your own uncommitted writes are read from the records in the same way.
+The answer says how much work that took, in `meta`: `patched` is the number of records read directly, and `lagMs` is the age of the oldest change the projection had not applied on the queried buckets.
+The answer is exact (`"exact": true`) unless the number of records to patch is above `max(columnar.patchBudget, columnar.patchBudgetRatio x matches)`.
+With the defaults (10,000 and 1.0) a query patches whatever lags, bounded by the memory budget.
+Over the budget the query does not patch, counts from the projection alone and reports `"exact": false`; it never turns into a full scan that would load a busy server further.
+
+[[raf-security]]
+==== Security
+
+Facets follow the bucket-level access of the user.
+Before reading the projection of a bucket, ArcadeDB checks that the user can read the bucket, as it does for a record read.
+A restricted user's facets, distinct counts and `PROFILE` figures never include a bucket the user cannot read, and no value of such a bucket appears in a bucket list.
+ArcadeDB has no property or record masking, so there is nothing else to filter.
+
+A type with a `BEFORE READ` or `AFTER READ` <<sql-triggers,trigger>> or listener can hide or rewrite records, which only a real record read applies.
+For such a type the facets are answered by a scan of the matched records and not from the projection.
+At most `columnar.maxFallbackScans` (2) of these scans run at the same time for a database; the others get facets with `"source": "unavailable"` and the reason `fallback scans capped`.
+
+[[raf-ha]]
+==== High availability
+
+Every node of a <<ha-concepts,cluster>> keeps its own projection: followers learn the changed *pages* from the replication log, not the records, and mark them like the leader does.
+Nothing is added to the replication traffic, and a node answers facets locally with exact counts, because every node holds the whole database.
+After a leader change nothing has to be done: each node keeps maintaining its own projection.
+After a snapshot install a node rebuilds the affected projections in the background (see <<raf-lifecycle,above>>).
+
+[[raf-operations]]
+==== Operations
+
+[[raf-metrics]]
+===== Metrics
+
+When the <<howto-monitoring,metrics>> are enabled, RAF publishes <<howto-monitoring,Micrometer>> meters with the prefix `arcadedb.columnar.`, tagged by `database` and, where it applies, by `type`, `property` and `reason`:
+
+[%header,cols="35%,65%"]
+|===
+|Meter |Meaning
+|`apply.lag.ms` |Age in milliseconds of the oldest committed page not yet applied: the freshness of the projection
+|`apply.pages`, `apply.records.reread`, `apply.unreadable` |Pages applied, records read again, and pages or records the apply could not read
+|`flush.count`, `flush.duration`, `merge.count`, `merge.duration` |Flushes of the overlay and merges of segments
+|`overlay.rows`, `segments`, `segments.dead.ratio` |Size of the projection
+|`dictionary.size`, `dictionary.compactions`, `cardinality.exceeded` |Dictionary of a property, its compactions and the cardinality warning
+|`conversion.failures`, `conversion.coerced` |Values that cannot be held by the column (counted as missing) and values stored as another type than the declared one
+|`+rebuilds{reason}+` |Rebuilds, by `create`, `snapshot_install`, `missing`, `corrupt`, `unclean_no_wal`, `schema`, `check_fix`. A normal open and a crash recovery never count here.
+|`query.patched`, `query.patch.overflows` |Records patched by `FACETS` queries, and queries over the patch budget
+|`+query.fallback.scans{reason}+` |`FACETS` queries that scanned records, by reason: `expression`, `no_projection`, `no_index`, `not_published`, `encoding_changed`, `segment_without_column`, `read_events`, `own_writes`
+|`query.budget.waits` |Reservations of query memory that had to wait
+|`groupby.accelerated`, `groupby.fallbacks` |Eligible `GROUP BY` answered by the projection and run by the normal plan
+|`cache.hits`, `cache.misses`, `cache.used.bytes` |The shared cache of decoded column blocks (`database="*"`)
+|===
+
+[[raf-profile]]
+===== Reading `PROFILE`
+
+`EXPLAIN` and `PROFILE` show the facet steps.
+For each facet, `PROFILE` reports the `source` (`index` or `scan`), the number of `matches` counted and the `cardinality` of the property.
+A facet that shows `scan` when you expect `index` is the first thing to look at: the metric `query.fallback.scans` says why.
+Typical reasons are a property with no `COLUMNAR` index, a projection that is being rebuilt, a type with read triggers, and a facet on an expression.
+
+[[raf-tuning]]
+===== Settings
+
+All the settings are in the <<setting-table,settings reference>> under the `columnar.` prefix.
+Most of them are internal and rarely need tuning: the flush, merge, dictionary, segment and thread settings keep sensible defaults.
+The ones worth knowing are:
+
+* `columnar.queryMemoryBudget` (256 MB per JVM): memory all concurrent `FACETS` queries share for counting. When it is exhausted a facet waits `columnar.queryBudgetWait` and then reports `unavailable` with the reason `memory budget`.
+* `columnar.topMax` (1000): the largest `TOP` accepted.
+* `columnar.maxFallbackScans` (2): concurrent fallback scans per database.
+* `columnar.applyInterval` and `columnar.applyMaxLag`: how stale the projection can get under sustained writes (500 ms at the defaults). A higher lag costs less write CPU and more patching.
+* `columnar.groupByAcceleration`: the kill switch of the <<sql-group-by-acceleration,`GROUP BY` acceleration>>.

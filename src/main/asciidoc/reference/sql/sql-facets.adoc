@@ -1,0 +1,305 @@
+[[sql-facets]]
+==== Facets (RAF)
+
+_Since v26.12.1_
+
+The `FACETS` clause of <<sql-select,`SELECT`>> returns the rows of the query and, in the same request, one facet (a set of counts) for each property you ask for.
+The facets are computed by Real-time Aggregated Facets: see <<raf,the concepts page>> for the model, the `COLUMNAR` index they need, their cost and their exactness.
+
+[[sql-facets-syntax]]
+===== SQL - `FACETS`
+
+*Syntax*
+
+[source,sql]
+----
+SELECT <projections> FROM <target>
+[ WHERE <condition> ]
+FACETS <facet> [, <facet>]*
+[ ORDER BY ... ]
+[ SKIP <n> ]
+[ LIMIT <n> ]
+[ TIMEOUT <ms> ]
+
+<facet> ::= [<alias>:] <property> <kind-and-options>
+----
+
+* `FACETS` goes *before* `SKIP` and `LIMIT` (the reverse order is a parse error with a message that says so), on the outermost `SELECT`, and the query needs a `FROM`.
+* Without an alias the facet is named after the property. Use `<alias>:` to facet the same property twice. `meta` is reserved.
+* The facets count *every match* of the query, not the page the `LIMIT` returns.
+  For this reason the planner turns off every `LIMIT` push-down and early termination of the match source when `FACETS` is present, including the full-text top-K shortcut and the limit that the HTTP handler appends.
+  A query with `LIMIT 1` and `FACETS` still pays for the full facet pass, bounded by the statement `TIMEOUT` and by the query memory budget (`columnar.queryMemoryBudget`).
+* A facet on a property with a `COLUMNAR` index is answered from the projection. A facet on any other property still works, by scanning the matched records (`"source": "scan"`).
+* The new words (`FACETS`, `TERMS`, `TOP`, `MIN_COUNT`, `INCLUDE`, `MISSING`, `RANGES`, `HISTOGRAM`, `HIERARCHY`, `DISTINCT`, `PRECISION`, `STATS`, `AFTER`) are also valid identifiers, so a property named `top` or `range` keeps working. An alias named `unwind` or `timeout` needs back-ticks.
+
+*Example*
+
+[source,sql]
+----
+SELECT @rid, title FROM Asset
+WHERE SEARCH_FIELDS(['title', 'body'], 'running shoes')
+FACETS
+  brand TERMS TOP 10 FILTER brand IN ['brand-a', 'brand-b'] INCLUDE ['brand-a', 'brand-b'],
+  tags  TERMS TOP 20 MIN_COUNT 2 ORDER BY COUNT DESC,
+  size: fileSize RANGES ([0, 1048576) AS 'small', [1048576, 10485760) AS 'medium', [10485760, *) AS 'large'),
+  pub:  publishDate HISTOGRAM CALENDAR '1M' TIMEZONE 'America/New_York' MIN_COUNT 0
+LIMIT 20
+----
+
+To facet the neighbors of a vector search, facet a subquery:
+
+[source,sql]
+----
+SELECT FROM (SELECT expand(`vector.neighbors`('Asset[embedding]', :vector, 100)))
+FACETS brand TERMS TOP 10
+----
+
+[[sql-facets-kinds]]
+===== Facet kinds
+
+[%header,cols="15%,85%"]
+|===
+|Kind |Counts
+|<<sql-facets-terms,`TERMS`>> |Documents per distinct value
+|<<sql-facets-ranges,`RANGES`>> |Documents per user-defined range
+|<<sql-facets-histogram,`HISTOGRAM`>> |Documents per fixed or calendar interval
+|<<sql-facets-hierarchy,`HIERARCHY`>> |Documents per node of a tree, rolled up to the ancestors
+|<<sql-facets-distinct,`DISTINCT`>> |The number of distinct values
+|<<sql-facets-stats,`STATS`>> |`count`, `min`, `max`, `sum` and `avg`
+|===
+
+A property with several values (a list indexed `BY ITEM`) counts *documents*, not values: a document with two matching tags counts once in a facet of the tags.
+
+[[sql-facets-terms]]
+====== `TERMS`
+
+[source,sql]
+----
+<property> TERMS [TOP <n>] [MIN_COUNT <n>] [ORDER BY COUNT|VALUE [ASC|DESC]]
+                 [INCLUDE [<value>, ...]] [AFTER <value>] [MISSING] [FILTER <condition>]
+----
+
+* `TOP n`: number of buckets returned. The default is 10 and the maximum is `columnar.topMax` (1000); a larger value is a parse error.
+* `MIN_COUNT n`: drop the values counted fewer than `n` times. The default is 1.
+* `ORDER BY`: by `COUNT` (the default, descending) or by `VALUE`. Ties are always broken by value ascending, so the order is deterministic.
+* `INCLUDE [...]`: return exactly these values, in addition to nothing else, even at count 0.
+* `FILTER <condition>`: see <<sql-facets-filter,disjunctive facets>>.
+* `MISSING` adds the number of matches that have no value to the facet, as `missing`.
+* `AFTER <value>` pages through all the values of the property in value order: ask for `TOP n` values after the last value you got.
+  The facet answer carries the `after` cursor to pass to the next call. With `MISSING`, the count of matches without a value is reported on the last page only.
+* `otherCount` is the sum of the counts of the values that were not returned, and `missing` counts the matches with no value (when `MISSING` is given).
+
+[source,sql]
+----
+SELECT FROM Asset FACETS tags TERMS ORDER BY VALUE TOP 50
+SELECT FROM Asset FACETS tags TERMS ORDER BY VALUE AFTER 'tag-120' TOP 50
+----
+
+[[sql-facets-ranges]]
+====== `RANGES`
+
+[source,sql]
+----
+<property> RANGES ([lo, hi) AS 'label', ... [, DEFAULT 'label']) [FILTER <condition>]
+----
+
+Ranges are half-open: a value equal to `hi` falls in the next range. Use `*` for an unbounded side. Ranges may overlap, and a document counts in each range it falls in.
+`DEFAULT 'label'` collects the values that fall in no range.
+
+[[sql-facets-histogram]]
+====== `HISTOGRAM`
+
+[source,sql]
+----
+<property> HISTOGRAM { CALENDAR '<unit>' | FIXED '<interval>' | FIXED <number> }
+                     [TIMEZONE '<zone>'] [OFFSET '<interval>'] [MIN_COUNT <n>] [BOUNDS [lo, hi]] [FILTER <condition>]
+----
+
+* `CALENDAR` buckets by calendar unit: `1m` (minute), `1h`, `1d`, `1w`, `1M` (month), `1q` (quarter) or `1y`. The boundaries are computed once per query in the `TIMEZONE`, so months and days across a daylight-saving change are exact.
+* `FIXED` buckets by a fixed length (`'30s'`, `'15m'`, `'6h'`, `'1d'`, `'1w'`), or by a number for a numeric property. `FIXED '1M'` is refused (it would mean one minute) with a pointer to `CALENDAR`.
+* `OFFSET '2h'` shifts the start of every bucket, for example to start a day at a local hour.
+* `MIN_COUNT 0` also returns the empty buckets between the first and the last.
+* A histogram of more than 100,000 buckets is an error: narrow `BOUNDS` or use a larger interval.
+
+[[sql-facets-hierarchy]]
+====== `HIERARCHY`
+
+A hierarchy facet rolls the counts of a tree of values (categories, tags) up to the ancestors.
+Documents keep only their own tags; the tree is a graph of vertices that you declare in the metadata of the `COLUMNAR` index:
+
+[source,sql]
+----
+CREATE VERTEX TYPE Tag
+CREATE PROPERTY Tag.path STRING
+CREATE EDGE TYPE ParentOf
+
+CREATE INDEX ON Asset (tags BY ITEM) COLUMNAR
+  METADATA {"hierarchy": {"vertexType": "Tag", "key": "path", "parentEdge": "ParentOf"}}
+
+SELECT FROM Asset FACETS tagTree: tags HIERARCHY TOP 20
+----
+
+* `vertexType` is the vertex type of the tree, `key` the property that holds the value stored in the documents, and `parentEdge` the edge type that links a node and its parent.
+  `parentDirection` (`IN` by default, or `OUT`) tells which end of the edge is the parent.
+* The indexed property must be a `STRING` or a list of strings.
+* A document counts once for each node of the tree, even when it holds two tags in the same subtree. A node can have more than one parent.
+* Cycles and self-parents are tolerated: the roll-up ends, and a node without a parent is a root.
+* The tree is read from the graph and kept in memory; it is rebuilt when the tag vertices or edges change.
+
+A `HIERARCHY` facet on a property whose index declares no hierarchy fails with `HIERARCHY requires a COLUMNAR index with METADATA hierarchy on <Type>.<property>`.
+
+[[sql-facets-distinct]]
+====== `DISTINCT`
+
+[source,sql]
+----
+<property> DISTINCT [PRECISION <n>]
+----
+
+Counts the distinct values of the matches. The count is *exact* by default.
+With `PRECISION n`, a numeric set of more than `n` values is counted by a HyperLogLog estimate (standard error about 0.81%) in bounded memory.
+Strings are always counted exactly.
+The answer is `{"value": <count>, "exact": <true|false>}`: `exact` tells which one you got.
+
+[[sql-facets-stats]]
+====== `STATS`
+
+[source,sql]
+----
+<property> STATS
+----
+
+Returns `count`, `missing`, `min`, `max`, `sum` and `avg` of a numeric property; for a date property `count`, `missing`, `min` and `max`.
+`sum` and `avg` have the type the SQL functions `sum()` and `avg()` give for the property: an integer sum widens from `LONG` to `DECIMAL` instead of overflowing.
+The sum of floating-point values may differ from a plain `sum()` in the last bits, because the order of the additions is different.
+A property that is not a number or a date is `unavailable` with the reason `not a number or a date`.
+
+[[sql-facets-filter]]
+===== Disjunctive facets: `FILTER`
+
+A facet with a `FILTER` follows the semantics of the Elasticsearch `post_filter`, so that a user can select a value and still see the counts of the other values:
+
+* the result rows are the matches of the `WHERE` that pass *every* `FILTER`;
+* each facet counts the matches that pass every `FILTER` *except its own*;
+* a facet without `FILTER` counts the rows that pass all the filters.
+
+In the example at the top of this page, selecting `brand-a` in the `brand` facet narrows the rows and the other facets, and the `brand` facet keeps showing the counts of the other brands.
+The filters are evaluated in the same pass over the matches. Up to 31 facets of a query can carry a `FILTER`.
+
+[[sql-facets-search-values]]
+===== `facet.searchValues()`
+
+[source,sql]
+----
+SELECT expand(facet.searchValues('<type>', '<property>', '<prefix>', <limit>))
+----
+
+Returns the values of a `COLUMNAR` property that start with `prefix`, in value order, as rows `{value, count}`, where `count` is the number of records of the type (and its sub types) that carry the value now.
+Use it for the type-ahead box of a facet with too many values to list.
+
+[source,sql]
+----
+SELECT expand(facet.searchValues('Asset', 'tags', 'run', 20))
+----
+
+* Only `STRING` properties and lists of strings (`BY ITEM`) can be searched.
+* `limit` is capped by `columnar.topMax`.
+* The counts only include the records the user can read. A row has `"exact": false` when the query could not patch every pending change.
+* The call fails, with a message that asks to retry, while the projection of a readable bucket is missing or being rebuilt: a partial answer would silently miss values.
+
+[[sql-facets-answer]]
+===== The answer
+
+[[raf-answer]]
+The query result carries the rows as usual, plus a `facets` object:
+
+[source,json]
+----
+{
+  "result": [ { "@rid": "#12:4051", "title": "..." } ],
+  "facets": {
+    "meta":  { "exact": true, "patched": 12, "lagMs": 340 },
+    "brand": { "type": "terms", "source": "index",
+               "buckets": [ { "value": "brand-a", "count": 1240 } ], "otherCount": 310, "missing": 4 },
+    "size":  { "type": "range", "source": "index",
+               "buckets": [ { "key": "small", "from": 0, "to": 1048576, "count": 830 } ] },
+    "authors":   { "type": "distinct", "source": "index", "value": 981, "exact": true },
+    "sizeStats": { "type": "stats", "source": "index", "count": 9000, "missing": 3, "min": 12, "max": 99120, "sum": 410230, "avg": 45.5 }
+  }
+}
+----
+
+*`meta`*
+
+* `exact`: `true` unless the number of changes the projection had not applied exceeded the patch budget (see <<raf-exactness,Exactness>>), or a `DISTINCT` was estimated.
+* `patched`: records read directly to correct the projection.
+* `lagMs`: age in milliseconds of the oldest change the projection had not applied on the queried buckets. 0 means the projection is up to date.
+
+*One member for each facet alias*
+
+* `type`: `terms`, `range`, `histogram`, `hierarchy`, `distinct` or `stats`.
+* `source`: where the numbers come from.
+** `index`: the projection of a `COLUMNAR` index.
+** `scan`: a fallback that counted the matched records. The counts are exact, only slower.
+** `unavailable`: the facet could not be computed; there are no buckets, and `reason` says why.
+* `reason`: present when the source is `unavailable`.
+* `buckets`: for `terms`, `hierarchy`, `histogram` and `range` facets, each with its `count`. A `terms` bucket has a `value`; a `range` or `histogram` bucket has a `key` and the `from` and `to` bounds.
+* `otherCount`: the sum of the counts of the values not returned, like `sum_other_doc_count` of Elasticsearch. For a multi-valued property it can be larger than the number of matches.
+* `missing`: matches without a value.
+* `after`: the cursor of a `TERMS ... AFTER` facet.
+
+Values come back with the same type and encoding that a row value of the same property has (dates as dates, decimals as decimals), on every protocol.
+
+[[sql-facets-reasons]]
+====== `unavailable` and fallback reasons
+
+[%header,cols="35%,65%"]
+|===
+|Reason |Meaning and what to do
+|`memory budget` |The counters did not fit in `columnar.queryMemoryBudget` after waiting `columnar.queryBudgetWait`. The other facets of the query are fine. Retry later, ask for fewer buckets or raise the budget.
+|`fallback scans capped` |The facet needed a scan of the records and `columnar.maxFallbackScans` scans were already running on the database. Retry later.
+|`projection unusable (...)` |The projection of a bucket cannot answer right now (for example, it is being checked after an unclean shutdown). It usually clears by itself; the facet is not wrong, just missing.
+|`projection closed, dropped or replaced while the query read it` |The index was dropped or the database rebuilt the projection during the query. Retry.
+|`no hierarchy on <Type>.<property>` |A `HIERARCHY` facet on an index without a `hierarchy` in its metadata.
+|`hierarchy source not readable` |The user cannot read the vertices of the tree.
+|`not a number or a date`, `numbers and dates mixed` |`STATS` over a property that cannot be summarized.
+|===
+
+When the projection cannot answer a bucket but the records can, the facet is not `unavailable`: it is a `scan` and stays exact.
+The scan happens for a facet on a property without a `COLUMNAR` index, on a type with read triggers or listeners, on an expression, while a projection is being created or rebuilt, and when the transaction of the caller wrote more than the patch budget.
+The meter `query.fallback.scans` counts them by reason.
+
+[[sql-facets-transports]]
+===== Where facets show up
+
+[%header,cols="30%,70%"]
+|===
+|Interface |How
+|HTTP API |A `facets` member next to `result`, for JSON and for ndjson (in the final `stats` trailer, so older clients meet no unknown event). The OpenAPI document describes it.
+|gRPC |In unary queries and in `CURSOR` streams. A `PAGED` stream refuses `FACETS` with an error.
+|Java `RemoteDatabase` and `RemoteGrpcDatabase` |The `ResultSet` returned by the query exposes the facets, as the embedded `ResultSet` does.
+|Python |See https://github.com/ArcadeData/arcadedb-python/issues/289[arcadedb-python#289].
+|`EXPLAIN`, `PROFILE` |The facet steps, with the `source`, `matches` and `cardinality` of each facet.
+|===
+
+[[sql-group-by-acceleration]]
+===== `GROUP BY` acceleration
+
+A plain `GROUP BY` on a property that has a `COLUMNAR` index is answered from the projection, with the same result as the normal plan and much faster on large types.
+The acceleration is on by default for the types that have a `COLUMNAR` index. To turn it off, set the database setting `columnar.groupByAcceleration` to `false`.
+
+[source,sql]
+----
+SELECT brand, count(*), sum(fileSize), avg(fileSize) FROM Asset GROUP BY brand
+----
+
+A statement is accelerated when all of these hold; otherwise the normal plan runs, with no error:
+
+* the target is one schema type, with no `WHERE`, and the query does not use `FACETS`, `DISTINCT`, `EXPAND`, `UNWIND` or `LET`;
+* the key is one bare property (a `STRING` or an integral number) that has a `COLUMNAR` index, and the projection holds plain aggregates (`count`, `min`, `max`, `sum`, `avg`, `count(DISTINCT ...)`) of properties that have one too;
+* `LIMIT` or `SKIP` appear only together with an `ORDER BY`;
+* the user can read every bucket of the type, no read trigger or listener applies to it, and the transaction of the caller did not change it (or does not read at `REPEATABLE_READ`);
+* the projection is up to date and usable, and the query memory budget grants the counters at once.
+
+The result is always exact. One difference is visible: the `MIN` and `MAX` of a `DOUBLE` or `FLOAT` group, and the `STATS` facet, may return `0.0` where a plain scan returns `-0.0`.
+Use `PROFILE` to see which path ran, and the meters `groupby.accelerated` and `groupby.fallbacks` to see how often.

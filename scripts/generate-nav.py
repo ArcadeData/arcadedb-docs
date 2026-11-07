@@ -146,6 +146,7 @@ NAV_STRUCTURE: list[dict] = [
                 ("concepts/graphs.adoc", "Graph Database"),
                 ("concepts/timeseries.adoc", "Time Series"),
                 ("concepts/vector-search.adoc", "Vector"),
+                ("concepts/raf.adoc", "Real-time Aggregated Facets (RAF)"),
                 ("how-to/data-modeling/geospatial.adoc", "Geospatial"),
                 ("how-to/data-modeling/full-text-index.adoc", "Full-Text Search & BM25"),
                 ("concepts/key-value.adoc", "Key/Value"),
@@ -275,6 +276,7 @@ NAV_STRUCTURE: list[dict] = [
                     ("reference/sql/sql-projections.adoc", "Projections"),
                     ("reference/sql/sql-pagination.adoc", "Pagination"),
                     ("reference/sql/sql-where.adoc", "Filtering"),
+                    ("reference/sql/sql-facets.adoc", "Facets (RAF)"),
                 ]),
                 ("Reference", [
                     ("reference/sql/sql-script.adoc", "SQL Script"),
