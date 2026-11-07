@@ -58,18 +58,18 @@ CREATE INDEX ON Asset (brand) COLUMNAR METADATA {"maxCardinality": 5000000}
 Only the types that have a `COLUMNAR` index pay for it.
 On the measured workload (five `COLUMNAR` indexes on one type), the wall time of the same workload without the indexes grows by about:
 
-* *6%* for inserts;
-* *10%* for updates.
+* 6% for inserts;
+* 10% for updates.
 
 A commit only marks the changed pages; a background pass reads them and updates the projection later.
 There is no per-index switch to turn the maintenance off: to stop paying, drop the index.
-The projection is read through the operating system page cache, so it adds little heap: dictionaries (proportional to the number of distinct values) and a small in-memory overlay of the newest changes.
+The segments are read through the operating system page cache. The heap holds only the dictionaries (one entry per distinct value) and a small in-memory overlay of the newest changes.
 
 [[raf-projection]]
 ==== The projection
 
 The projection lives in a `columnar/` directory next to the database files, with one sub-directory for each bucket that has a `COLUMNAR` index.
-It is *derived data*: it is never part of the transaction log, never replicated, and can always be rebuilt from the records.
+It is derived data: it is not written to the transaction log, it is not replicated, and it can always be rebuilt from the records.
 The commit of a transaction does not wait for it.
 A background pass, normally within a fraction of a second, reads the changed pages and writes the changes into an in-memory overlay that is flushed to immutable, compressed segment files (`arcadedb.columnar.flush*` settings).
 Segments with many superseded rows are rewritten, and too many segments are merged (`columnar.mergeDeadRatio`, `columnar.mergeMaxSegments`).
@@ -98,7 +98,7 @@ NOTE: A replica can ask for an unnecessary rebuild after a long overlap with a r
 [[raf-exactness]]
 ==== Exactness
 
-Because the projection lags the commits, a `FACETS` query reads the records that changed and have not been applied yet, and corrects its counts with them (*patching*).
+Because the projection lags the commits, a `FACETS` query reads the records that changed and have not been applied yet, and corrects its counts with them ("patching").
 Your own uncommitted writes are read from the records in the same way.
 The answer says how much work that took, in `meta`: `patched` is the number of records read directly, and `lagMs` is the age of the oldest change the projection had not applied on the queried buckets.
 The answer is exact (`"exact": true`) unless the number of records to patch is above `max(columnar.patchBudget, columnar.patchBudgetRatio x matches)`.
@@ -110,8 +110,8 @@ Over the budget the query does not patch, counts from the projection alone and r
 
 Facets follow the bucket-level access of the user.
 Before reading the projection of a bucket, ArcadeDB checks that the user can read the bucket, as it does for a record read.
-A restricted user's facets, distinct counts and `PROFILE` figures never include a bucket the user cannot read, and no value of such a bucket appears in a bucket list.
-ArcadeDB has no property or record masking, so there is nothing else to filter.
+A restricted user's facets, distinct counts and `PROFILE` figures never include a bucket the user cannot read, and none of its values appear in the buckets of a facet.
+ArcadeDB has no property or record masking, so bucket access is the only restriction.
 
 A type with a `BEFORE READ` or `AFTER READ` <<sql-triggers,trigger>> or listener can hide or rewrite records, which only a real record read applies.
 For such a type the facets are answered by a scan of the matched records and not from the projection.
@@ -162,8 +162,8 @@ Typical reasons are a property with no `COLUMNAR` index, a projection that is be
 ===== Settings
 
 All the settings are in the <<setting-table,settings reference>> under the `columnar.` prefix.
-Most of them are internal and rarely need tuning: the flush, merge, dictionary, segment and thread settings keep sensible defaults.
-The ones worth knowing are:
+Most are internal: leave the flush, merge, dictionary, segment and thread settings at their defaults.
+The ones you may want to change are:
 
 * `columnar.queryMemoryBudget` (256 MB per JVM): memory all concurrent `FACETS` queries share for counting. When it is exhausted a facet waits `columnar.queryBudgetWait` and then reports `unavailable` with the reason `memory budget`.
 * `columnar.topMax` (1000): the largest `TOP` accepted.

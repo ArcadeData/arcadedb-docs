@@ -4,7 +4,7 @@
 _Since v26.12.1_
 
 The `FACETS` clause of <<sql-select,`SELECT`>> returns the rows of the query and, in the same request, one facet (a set of counts) for each property you ask for.
-The facets are computed by Real-time Aggregated Facets: see <<raf,the concepts page>> for the model, the `COLUMNAR` index they need, their cost and their exactness.
+Real-time Aggregated Facets (RAF) compute them. The <<raf,concepts page>> describes the `COLUMNAR` index they need, its cost and how exactness works.
 
 [[sql-facets-syntax]]
 ===== SQL - `FACETS`
@@ -82,7 +82,7 @@ A property with several values (a list indexed `BY ITEM`) counts *documents*, no
 * `TOP n`: number of buckets returned. The default is 10 and the maximum is `columnar.topMax` (1000); a larger value is a parse error.
 * `MIN_COUNT n`: drop the values counted fewer than `n` times. The default is 1.
 * `ORDER BY`: by `COUNT` (the default, descending) or by `VALUE`. Ties are always broken by value ascending, so the order is deterministic.
-* `INCLUDE [...]`: return exactly these values, in addition to nothing else, even at count 0.
+* `INCLUDE [...]`: return these values and no others, even at count 0.
 * `FILTER <condition>`: see <<sql-facets-filter,disjunctive facets>>.
 * `MISSING` adds the number of matches that have no value to the facet, as `missing`.
 * `AFTER <value>` pages through all the values of the property in value order: ask for `TOP n` values after the last value you got.
@@ -258,7 +258,7 @@ Values come back with the same type and encoding that a row value of the same pr
 |Reason |Meaning and what to do
 |`memory budget` |The counters did not fit in `columnar.queryMemoryBudget` after waiting `columnar.queryBudgetWait`. The other facets of the query are fine. Retry later, ask for fewer buckets or raise the budget.
 |`fallback scans capped` |The facet needed a scan of the records and `columnar.maxFallbackScans` scans were already running on the database. Retry later.
-|`projection unusable (...)` |The projection of a bucket cannot answer right now (for example, it is being checked after an unclean shutdown). It usually clears by itself; the facet is not wrong, just missing.
+|`projection unusable (...)` |The projection of a bucket cannot answer right now (for example, it is being checked after an unclean shutdown). It usually clears by itself. The facet is missing, not wrong.
 |`projection closed, dropped or replaced while the query read it` |The index was dropped or the database rebuilt the projection during the query. Retry.
 |`no hierarchy on <Type>.<property>` |A `HIERARCHY` facet on an index without a `hierarchy` in its metadata.
 |`hierarchy source not readable` |The user cannot read the vertices of the tree.
@@ -285,7 +285,7 @@ The meter `query.fallback.scans` counts them by reason.
 [[sql-group-by-acceleration]]
 ===== `GROUP BY` acceleration
 
-A plain `GROUP BY` on a property that has a `COLUMNAR` index is answered from the projection, with the same result as the normal plan and much faster on large types.
+A plain `GROUP BY` on a property that has a `COLUMNAR` index is answered from the projection, with the same result as the normal plan. It reads compact columns instead of every record.
 The acceleration is on by default for the types that have a `COLUMNAR` index. To turn it off, set the database setting `columnar.groupByAcceleration` to `false`.
 
 [source,sql]
