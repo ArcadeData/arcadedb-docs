@@ -74,6 +74,10 @@ ArcadeDB server release's contract:
 |===
 | Driver version | ArcadeDB server | Packages
 
+| 0.4.0
+| 26.11.1
+| All six
+
 | 0.3.0
 | 26.10.2
 | All six: `arcadedb-driver` and `arcadedb-driver-grpc` (PyPI), `@arcadedb/driver` and
@@ -94,6 +98,24 @@ versions share, but is not tested or supported. Install commands in these pages 
 unpinned; the registries carry the current version. The Go modules had no 0.1.0 release: their
 first published version is 0.2.0. Each release's changes are listed in the
 https://github.com/ArcadeData/arcadedb-drivers/releases[arcadedb-drivers release notes].
+
+===== Upgrading to 0.4.0
+
+0.4.0 is generated against ArcadeDB 26.11.1. It adds a transaction isolation level to
+`transaction()` in all six drivers (`READ_COMMITTED` or `REPEATABLE_READ`), and a row limit to
+`command` in the Python, TypeScript and Go HTTP drivers, with the same meaning as on `query`.
+The isolation level relies on a field that the 26.11.1 contract introduced, so older servers are not
+tested. Three changes can affect existing code:
+
+* *TypeScript: `limit` moved from `QueryOptions` to `CommandOptions`.* `QueryOptions` is still
+  exported, as an alias of `CommandOptions`, so existing imports keep compiling.
+* *Go HTTP: `WithLimit` now returns the exported `LimitOption`,* which is both a `QueryOption` and
+  a `CommandOption`. Only code that holds the function itself as a `func(int) QueryOption` breaks.
+* *Go gRPC: `Transaction` takes trailing `opts ...TransactionOption`.* Callers compile unchanged.
+
+On a 26.11.1 server, wrong Basic credentials answer 401 instead of 403, and committing a terminated
+transaction answers 404 instead of a silent 204. The driver READMEs describe both, and keep the
+old behaviour documented for earlier servers.
 
 ===== Upgrading to 0.3.0
 

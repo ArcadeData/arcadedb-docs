@@ -57,8 +57,9 @@ the wrong rows -- it runs the query with no bound value for `?` at all and comes
 [] 0 False
 ----
 
-The driver's own README shows `{"1": 21}`; it looks plausible and returns quietly, which is
-exactly what makes it easy to ship. Always start positional parameter keys at `"0"`.
+That form looks plausible and returns quietly, which is exactly what makes it easy to ship.
+The driver's README showed `{"1": 21}` up to 0.2.0, so examples copied from an older release may
+carry the mistake. Always start positional parameter keys at `"0"`.
 ====
 
 `basic_auth("root", "playwithdata")` builds the `Authorization` header for HTTP basic auth;
@@ -149,6 +150,11 @@ handle -- here, `tx` -- that carries the transaction's session id. The contract:
 The trap: calls made through the outer `db` handle while a transaction is open do not join that
 transaction -- they auto-commit individually, outside it. Only calls made through the handle
 `transaction()` gives you (`tx` above) take part.
+
+To choose the isolation level, pass `isolation_level="READ_COMMITTED"` or
+`isolation_level="REPEATABLE_READ"` to `db.transaction()` (driver 0.4.0 and later, against
+ArcadeDB 26.11.1 or later). Any other value raises `ValueError` before anything is sent. Without it
+the server begins the transaction at the database's default level.
 
 ===== Two error models
 
@@ -322,8 +328,9 @@ anything to undo:
 ====
 * *Each server sees only its own work.* These commands are not forwarded to the cluster leader, so
   behind a load balancer the server you reach may not be the one running the statement.
-* *A commit after `terminate_transaction` still reports success.* The transaction's writes are
-  rolled back, but the server answers its owner's commit with 204, as if it had committed
+* *A commit after `terminate_transaction` fails on ArcadeDB 26.11.1 and later.* The transaction's writes are
+  rolled back, and the server answers its owner's commit with 404. Earlier servers answered 204, as
+  if it had committed
   (https://github.com/ArcadeData/arcadedb/issues/10164[ArcadeData/arcadedb#10164]).
 ====
 
