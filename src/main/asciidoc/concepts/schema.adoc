@@ -187,8 +187,19 @@ REBUILD TYPE Person WITH batchSize = 1000
 *Tiered storage*
 
 External buckets can be placed on a different volume from the primary buckets — for example, topology on fast NVMe and heavy payloads on cheaper bulk storage.
-Set the database-scope configuration `arcadedb.externalPropertyBucketPath` to the target directory before creating the EXTERNAL property; new paired buckets are created there instead of in the database directory.
+Set the database-scope configuration `arcadedb.externalPropertyBucketPath` to the target directory before creating the EXTERNAL property; new paired buckets are created there, in a sub-directory named after the database, instead of in the database directory.
 Existing external buckets are not relocated when this setting changes; move the files manually if you need to migrate after the fact.
+
+The server-level value (`-Darcadedb.externalPropertyBucketPath=/mnt/bulk`, or the environment) applies to every database and is the directory a single database may choose from.
+A value set for one database, with `ALTER DATABASE` or `set database setting`, must lie inside that directory or inside the database's own directory, and `ALTER DATABASE` of it needs the `updateSecurity` permission:
+
+[source,sql]
+----
+-- server started with -Darcadedb.externalPropertyBucketPath=/mnt/bulk
+ALTER DATABASE `arcadedb.externalPropertyBucketPath` '/mnt/bulk/embeddings'
+----
+
+A directory outside both is refused, and so is one reached through `..` or a symbolic link that leads out.
 
 [[sql-external-properties-semantics]]
 *Transactional semantics*

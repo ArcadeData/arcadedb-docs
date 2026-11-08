@@ -27,6 +27,15 @@ Over the PostgreSQL protocol a schema change (`CREATE TYPE`, `CREATE PROPERTY`, 
 
 *Action:* read a schema change's outcome from the success of the statement rather than from a returned row. Clients that keyed on the old error codes should expect the new ones.
 
+[discrete]
+====== 26.12.1 - A database's directory settings must stay inside the server-level directory
+
+`arcadedb.externalPropertyBucketPath` and `arcadedb.pageSnapshotSpillPath` name a directory the server creates files in. A value set for one database (`ALTER DATABASE`, `set database setting`) must now lie inside the database's own directory or inside the directory the server-level value of the same setting names, compared after resolving `..` and symbolic links. `ALTER DATABASE` of either needs the `updateSecurity` permission, where `updateDatabaseSettings` was enough. A new bucket is never created over a file that already exists at its path.
+
+*Impact:* setting either one for a database to a directory outside both is refused. A value stored by an earlier version that lies outside both is not used to create anything: the database opens and reads the external-property buckets already there, but a new EXTERNAL property is refused with a `SecurityException` naming the setting, and a snapshot spills into the database directory, each with a WARNING in the log. Setting the server-level value itself is unaffected.
+
+*Action:* set the server-level value (`-Darcadedb.externalPropertyBucketPath=/mnt/bulk`, or the environment) to the directory the databases may tier into, and give each database a directory under it, or move the per-database value to the server level. Grant `updateSecurity` to the group that manages these settings. See <<sql-external-properties-tiered,Tiered storage>>.
+
 [[upgrade-timeseries-sealed-owner]]
 [discrete]
 ====== 26.12.1 - TIMESERIES sealed files record the type they belong to, which older builds cannot read
