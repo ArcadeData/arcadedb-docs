@@ -29,7 +29,7 @@ The matrix on this page summarizes the certified feature areas. Consult the gene
 | Certified
 
 | Transactions
-| Autocommit; explicit `BEGIN`/`COMMIT`/`ROLLBACK`; managed `executeRead`/`executeWrite` with retry-on-transient
+| Autocommit; explicit `BEGIN`/`COMMIT`/`ROLLBACK`; managed `executeRead`/`executeWrite` with retry-on-transient; READ access mode enforced (`Neo.ClientError.Statement.AccessMode`) and `tx_timeout` honoured (`Neo.ClientError.Transaction.TransactionTimedOut`) since 26.12.1, see <<bolt-access-mode-timeout,Access mode and transaction timeout>>
 | Certified
 
 | Causal consistency
@@ -41,7 +41,7 @@ The matrix on this page summarizes the certified feature areas. Consult the gene
 | Certified
 
 | Result handling
-| Streaming `PULL n`, `DISCARD`, accurate `ResultSummary` counters
+| Streaming `PULL n`, `DISCARD n` (keeps the stream open while records remain, since 26.12.1; before, it discarded everything), accurate `ResultSummary` counters
 | Certified
 
 | Type round-trip
@@ -119,6 +119,7 @@ These cells are deliberate, documented differences rather than defects:
 * **Heterogeneous HA BOLT ports** — clusters whose nodes expose BOLT on different ports must declare each node's client-reachable address in `arcadedb.ha.serverList` (see <<bolt-routing-ha,Routing and High Availability>>).
 * **`RID` / `UUID`** — serialized as strings (no native BOLT type).
 * **`BigDecimal` / oversized `BigInteger`** — down-converted to `double` (possible precision loss).
+* **Auto-commit commit point** - an auto-commit write commits when its `RUN` executes, not at the end of its result stream, so a `RESET` or a dropped connection between `RUN` and `PULL` does not roll it back. This keeps the server-side retry on MVCC conflicts; the official drivers send `PULL` right after `RUN`, and explicit transactions are unaffected. See <<bolt-autocommit-commit-point,When an auto-commit write commits>>.
 
 ===== Certified Drivers and Versions
 

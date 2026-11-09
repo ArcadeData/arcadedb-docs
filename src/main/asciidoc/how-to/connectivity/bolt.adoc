@@ -454,6 +454,46 @@ try (Transaction tx = session.beginTransaction()) {
 Each open result holds server-side resources until you read it to the end or discard it, so a single connection may
 keep at most `arcadedb.bolt.maxOpenStreams` of them open at once (1024 by default, far more than any driver uses).
 
+`DISCARD n` discards the next `n` records of a result and, like `PULL n`, keeps it open (`has_more = true`) while records
+remain, so a following `PULL` or `DISCARD` reads on from there, as Bolt 4.0 and later define it. `DISCARD` with `n = -1`
+discards the rest. _(Since v26.12.1; before, any `DISCARD` discarded every remaining record and closed the result.)_
+
+[[bolt-access-mode-timeout]]
+====== Access mode and transaction timeout
+
+_(Since v26.12.1.)_ The access mode and the timeout a driver declares are enforced:
+
+* **Access mode**: a write sent in a READ transaction (`BEGIN` with mode `r`, which is what `session.executeRead` and a
+  session opened with `AccessMode.READ` send) or as a READ auto-commit query (`RUN` with mode `r`) is refused before it
+  runs with `Neo.ClientError.Statement.AccessMode`, as Neo4j does.
+* **Transaction timeout**: the `tx_timeout` sent with `BEGIN` (`TransactionConfig.withTimeout()` in the drivers) bounds the
+  whole explicit transaction. A statement that runs past what is left of it is stopped with
+  `Neo.ClientError.Transaction.TransactionTimedOut`, and a `COMMIT` after the timeout is refused with the same code and the
+  transaction is rolled back. The `tx_timeout` of an auto-commit `RUN` bounds that query. The timeout is enforced through
+  the engine's command timeout (`arcadedb.command.timeout`): when both are set, the earlier one wins.
+
+[source,java]
+----
+// Refused with Neo.ClientError.Statement.AccessMode
+session.executeRead(tx -> tx.run("CREATE (n:Person {name: 'Heidi'})").consume());
+
+// The whole transaction must finish within 5 seconds
+try (Transaction tx = session.beginTransaction(TransactionConfig.builder().withTimeout(Duration.ofSeconds(5)).build())) {
+    tx.run("MATCH (p:Person) SET p.checked = true");
+    tx.commit();
+}
+----
+
+Before v26.12.1 both were ignored: a write ran in a READ transaction, and `tx_timeout` had no effect.
+
+[[bolt-autocommit-commit-point]]
+====== When an auto-commit write commits
+
+An auto-commit write commits when its `RUN` executes, not at the end of its result stream as the Bolt specification
+says, so a `RESET` or a dropped connection between `RUN` and `PULL` does not roll it back. This is deliberate: ArcadeDB runs
+an auto-commit write as one transaction with server-side retry on MVCC conflicts, which deferring the commit would give up.
+The official drivers send `PULL` right after `RUN`, so ordinary driver use is unaffected, and so are explicit transactions.
+
 [[bolt-terminate]]
 ===== Listing and terminating running statements
 
@@ -530,11 +570,12 @@ Server errors are mapped to Neo4j-style structured status codes so driver-side e
 | `Neo.ClientError.Statement.SyntaxError` | the Cypher statement failed to parse, or calls a function that does not exist (`Unknown function 'apoc.coll.sortMulti'`). A namespaced function, which may be a user-defined one, is checked before the statement runs; before v26.11.1 an unknown one failed while running, with `UnknownError`
 | `Neo.ClientError.Statement.SemanticError` | the statement parsed but is semantically invalid, or names a type, an index, a property or another schema object that does not exist. Since v26.12.1 the missing-object cases are all `SemanticError`; before, many were `UnknownError`
 | `Neo.ClientError.Procedure.ProcedureNotFound` | a `CALL` (or `OPTIONAL CALL`) of a procedure that does not exist. Since v26.12.1; before, `UnknownError`
+| `Neo.ClientError.Statement.AccessMode` | a write sent in a READ transaction or a READ auto-commit query (see <<bolt-access-mode-timeout,Access mode and transaction timeout>>). Since v26.12.1; before, the write ran
 | `Neo.ClientError.Statement.TypeError` | a value cannot be stored in a property (a map, or a list containing one, see <<cypher-compatibility,Map-Valued Properties>>), or an operation met a value of a type it is not defined for while the query ran: a property read off a list (`UNWIND [[1]] AS l RETURN l.x`), an index into a value that is no list. Since v26.11.1 the runtime cases are `TypeError` too; before, `UnknownError` or `ArgumentError`
 | `Neo.ClientError.Transaction.TransactionNotFound` | a transaction reference is unknown
 | `Neo.ClientError.Schema.ConstraintValidationFailed` | a unique-index (constraint) violation — this is permanent, so drivers should not retry
-| `Neo.ClientError.Schema.IndexWithNameAlreadyExists`, `Neo.ClientError.Schema.ConstraintWithNameAlreadyExists`, `Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists` | a create or rename onto a name already held by an index, by a constraint, or by another schema object (a type, a property, ...). Since v26.11.1; before, `SemanticError` or `UnknownError`
-| `Neo.ClientError.Transaction.TransactionTimedOut` | a query or transaction ran out of time
+| `Neo.ClientError.Schema.IndexWithNameAlreadyExists`, `Neo.ClientError.Schema.ConstraintWithNameAlreadyExists`, `Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists` | a create or rename onto a name already held by an index, by a constraint, or by another schema object (a type, a property, ...). Since v26.11.1; before, `SemanticError` or `UnknownError`. Since v26.12.1 an index or constraint equivalent to an existing one under a different name answers `EquivalentSchemaRuleAlreadyExists`, while a same-name duplicate keeps `IndexWithNameAlreadyExists` / `ConstraintWithNameAlreadyExists`
+| `Neo.ClientError.Transaction.TransactionTimedOut` | a query or transaction ran out of time, including the `tx_timeout` a driver sets (see <<bolt-access-mode-timeout,Access mode and transaction timeout>>)
 | `Neo.ClientError.Transaction.Terminated` | the statement was stopped by `TERMINATE TRANSACTIONS`, `terminate query` or a terminate from Studio; drivers do not retry it (see <<bolt-terminate,Listing and terminating running statements>>). Since v26.10.2
 | `Neo.ClientError.Request.Invalid` | a malformed or out-of-sequence protocol message
 | `Neo.TransientError.Transaction.DeadlockDetected` | a concurrent-modification / lock-timeout conflict — drivers retry managed transactions on this code
@@ -569,6 +610,7 @@ When the derived addresses cannot tell two peers apart - nodes that share a host
 * **Authentication**: the `none` scheme is not accepted — ArcadeDB always requires credentials. This is intentional, not a bug.
 * **Type fidelity**: `RID` and `UUID` are returned as strings; `BigDecimal` / oversized `BigInteger` are down-converted to `double`.
 * **Heterogeneous cluster ports**: see the note under <<bolt-routing-ha,Routing and High Availability>>.
+* **Auto-commit commit point**: an auto-commit write commits when its `RUN` executes, not at the end of its result stream; see <<bolt-autocommit-commit-point,When an auto-commit write commits>>.
 
 ===== Troubleshooting
 

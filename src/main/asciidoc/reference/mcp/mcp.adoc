@@ -229,6 +229,13 @@ curl -u root:arcadedb-password \
   http://localhost:2480/api/v1/mcp/config
 ----
 
+An update is written to `config/mcp-config.json` before it is applied. If the file cannot be written (a read-only
+configuration directory, such as a Kubernetes ConfigMap mount or a read-only root filesystem, or a full disk), the request
+answers HTTP `500` with an error naming the file, and the configuration in force is left unchanged. _(Since v26.12.1; before,
+the request answered `200` and applied the change in memory only, so the next restart reverted to the old file.)_ On first
+start with a read-only configuration directory the server still starts with the default configuration: writing the initial
+file is best effort.
+
 `config/mcp-config.json` is loaded all or nothing. A file that cannot be read or parsed, including one with a single
 malformed element in `allowedUsers` or `allowedOrigins` or a flag that is not a boolean, is rejected as a whole: MCP starts
 disabled with every setting at its default, the server logs a warning naming the file, and the file is left untouched so it

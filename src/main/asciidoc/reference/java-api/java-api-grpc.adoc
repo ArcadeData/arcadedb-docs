@@ -568,6 +568,13 @@ restored or being dropped) raises `com.arcadedb.exception.DatabaseNotAvailableEx
 state (`CLOSED`, `RESTORING`, `DROPPING`, ...), as over HTTP. It is not retried: `transaction()` fails once instead of
 retrying until an operator reopens the database. Previously it surfaced as a retryable `NeedRetryException`.
 
+Since 26.12.1 a failure that arrives on a later batch of a streamed read (`iterateType`, `iterateBucket`, `queryStream`) is
+mapped to the same exception a unary call raises, for example `com.arcadedb.exception.TimeoutException` for an expired
+deadline and `SecurityException` for an authentication or permission refusal, instead of a bare `RuntimeException`. An
+interrupt while waiting for a batch keeps the thread's interrupt flag set and surfaces as a `RemoteException`. A
+`UNAUTHENTICATED` status that carries no exception class from the server raises a `SecurityException`, as the HTTP client
+does, on every call including `RemoteGrpcServer.listDatabases()`.
+
 A create refused because the user, API token or database name is already taken raises
 `com.arcadedb.remote.RemoteAlreadyExistsException` (since 26.10.2), the same exception the HTTP client raises; see
 <<remote-server,RemoteServer Class>>.

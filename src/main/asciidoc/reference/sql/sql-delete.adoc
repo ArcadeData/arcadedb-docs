@@ -10,7 +10,7 @@ You can refine the set of records that it removes using the <<filtering,`WHERE`>
 ----
 DELETE FROM <Type>|BUCKET:<bucket>|INDEX:<index> [RETURN <returning>]
   [WHERE <Condition>*] [LIMIT <MaxRecords>] [BATCH <batch-size>]
-  [TIMEOUT <MilliSeconds>] [UNSAFE]
+  [TIMEOUT <MilliSeconds>] [UNSAFE] [RETURNING <projection>]
 
 ----
 
@@ -24,6 +24,9 @@ This is the default option.
 * *`BATCH`* Defines the number of records to delete in each transaction batch. When set, the command commits the current transaction every `<batch-size>` records and begins a new one. This is essential for deleting large datasets (e.g., millions of records) that would otherwise consume too much memory in a single transaction.
 * *`TIMEOUT`* Defines the time period to allow the operation to run, before it times out.
 * *`UNSAFE`* no use, is kept only for compatibility with OrientDB SQL and it could be removed in the future versions of the SQL language.
+* *`RETURNING`* PostgreSQL's trailing form: returns the deleted records as they were before the delete, projected by
+`<projection>` (`RETURNING *` for all their properties), where `RETURN BEFORE` returns each whole record. `RETURN` and
+`RETURNING` cannot be combined in the same statement. _(Since v26.12.1, issue #11392.)_
 
 [IMPORTANT]
 ====
@@ -58,4 +61,11 @@ ArcadeDB> DELETE FROM LargeDataset BATCH 20000
 [source,sql]
 ----
 ArcadeDB> DELETE FROM LogEntry WHERE createdAt < '2025-01-01' BATCH 10000
+----
+
+* Delete the profiles with the surname `unknown` and return the Record ID and name each one had:
+
+[source,sql]
+----
+ArcadeDB> DELETE FROM Profile WHERE surname = 'unknown' RETURNING @rid, name
 ----

@@ -673,6 +673,10 @@ the same case: `42P07` (`duplicate_table`) for a type, an index or a view, `4270
 (`duplicate_object`) for anything else, such as a constraint, a bucket, a trigger or a function. Before v26.11.1 it was `XX000`
 (internal error), or `42P01` (undefined table) for some of them.
 
+_(Since v26.12.1.)_ An index equivalent to an existing one under another name (for example `CREATE INDEX b ON T (a) NOTUNIQUE`
+when an index on the same property with the same definition already exists) fails with `42P07` too, like a same-name duplicate.
+Before v26.12.1 it answered `22023` (`invalid_parameter_value`).
+
 [[postgres-missing-name]]
 ===== Naming an object that does not exist
 
@@ -725,6 +729,15 @@ The command tag of a statement (`INSERT 0 n`, `UPDATE n`, `DELETE n`, `SELECT n`
 parsed, whatever its text looks like: a leading comment (`/* hint */ INSERT ...`, as Hibernate's
 `hibernate.use_sql_comments` writes), a line break or a doubled space between its keywords does not change it. Before
 v26.12.1 such a statement was tagged with an empty string, so JDBC reported 0 rows for rows it had written.
+
+[[postgres-generated-keys]]
+===== Generated keys (RETURNING)
+
+_(Since v26.12.1.)_ `INSERT`, `UPDATE` and `DELETE` accept PostgreSQL's trailing `RETURNING <projection>` clause (see
+<<sql-insert-command,`INSERT`>>, <<sql-update,`UPDATE`>> and <<sql-delete,`DELETE`>>). The PostgreSQL JDBC driver appends
+`RETURNING *` to a statement prepared with `Statement.RETURN_GENERATED_KEYS`, and `RETURNING "col"` for the columns named in
+`prepareStatement(sql, String[])`, so `getGeneratedKeys()` answers the written records, and Hibernate `IDENTITY` ids, Spring's
+`KeyHolder` and jOOQ's generated keys work. Before v26.12.1 such a statement was refused with a syntax error.
 
 ===== Postgres Tools Known to Work
 

@@ -74,6 +74,42 @@ A materialized view or a continuous aggregate stores its `SELECT` as text. Earli
 *Action:* drop and recreate any materialized view or continuous aggregate whose query has a bracketed `OR` or a `NOT (...)`. See <<sql-create-materialized-view,`CREATE MATERIALIZED VIEW`>>.
 
 [discrete]
+====== 26.12.1 - Bolt enforces the access mode and `tx_timeout`, and `DISCARD n` discards `n` records
+
+A write in a READ transaction or a READ auto-commit query (`session.executeRead`, a READ session) is refused with `Neo.ClientError.Statement.AccessMode`. The `tx_timeout` a driver sends (`TransactionConfig.withTimeout()`) bounds the explicit transaction or the auto-commit query, failing with `Neo.ClientError.Transaction.TransactionTimedOut`. `DISCARD n` discards the next `n` records and keeps the result open while records remain (issue #11392).
+
+*Impact:* code that wrote inside `executeRead`, or whose transactions ran longer than the timeout it declared, now fails. A client that relied on `DISCARD n` discarding the whole result gets `has_more = true` back.
+
+*Action:* move writes to `executeWrite` or a WRITE session, and size `tx_timeout` for the work. See <<bolt-access-mode-timeout,Access mode and transaction timeout>>.
+
+[discrete]
+====== 26.12.1 - An index equivalent to an existing one answers a duplicate code
+
+Creating an index or constraint equivalent to an existing one under a different name answers `Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists` over Bolt and `42P07` (`duplicate_table`) over PostgreSQL, as a same-name duplicate does (issue #11392).
+
+*Impact:* over PostgreSQL this was `22023` (`invalid_parameter_value`).
+
+*Action:* clients that keyed on the old code should expect the new one. See <<postgres-taken-name,Creating an object whose name is taken>>.
+
+[discrete]
+====== 26.12.1 - An MCP configuration update that cannot be saved is refused
+
+`POST /api/v1/mcp/config` writes `mcp-config.json` before applying the change. If the file cannot be written, the request answers HTTP `500` naming the file and the configuration in force is unchanged (issue #11390).
+
+*Impact:* with a read-only configuration directory (a ConfigMap mount, a read-only root filesystem) an update used to answer `200`, apply in memory only and be lost at the next restart; it is now refused.
+
+*Action:* make the configuration directory writable, or change the mounted file instead. See <<mcp-config-endpoint,Configuration Endpoint>>.
+
+[discrete]
+====== 26.12.1 - The gRPC client raises typed exceptions for streamed reads and `UNAUTHENTICATED`
+
+A failure on a later batch of `iterateType`, `iterateBucket` or `queryStream` raises the same exception a unary call does (`TimeoutException`, `SecurityException`, ...) instead of a bare `RuntimeException`, an interrupt raises a `RemoteException` with the interrupt flag kept, and a bare `UNAUTHENTICATED` status raises a `SecurityException`, also from `RemoteGrpcServer.listDatabases()` (issue #11393).
+
+*Impact:* code that caught `RemoteException` for an authentication failure no longer catches it; code that caught `RuntimeException` still does.
+
+*Action:* catch `SecurityException` for an authentication or permission refusal, and `TimeoutException` for an expired deadline. See <<java-api-grpc,Java API (gRPC)>>.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.

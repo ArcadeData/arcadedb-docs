@@ -14,6 +14,7 @@ UPDATE <type>|BUCKET:<bucket>|<recordID>
   [RETURN <returning> [<returning-expression>]]
   [WHERE <conditions>]
   [LIMIT <max-records>] [BATCH <batch-size>] [TIMEOUT <MilliSeconds>]
+  [RETURNING <returning-expression>]
 
 ----
 
@@ -58,6 +59,9 @@ case: the conflict is propagated to your application instead, since repeating th
 already committed records a second time. Since 26.10.1 a SQL Script
 <<sql-script-commit,`BEGIN ... COMMIT RETRY <n>`>> block behaves the same way.
 * `TIMEOUT` Defines the time you want to allow the update run before it times out.
+* `RETURNING` PostgreSQL's trailing form of `RETURN AFTER`: returns the records as the update left them, projected by
+`<returning-expression>` (`RETURNING *` for all their properties). `RETURN` and `RETURNING` cannot be combined in the same
+statement. _(Since v26.12.1, issue #11392.)_
 
 *Examples*
 
@@ -186,6 +190,12 @@ The newly created record is a real vertex, so it can immediately participate in 
 ArcadeDB> UPDATE #7:0 SET gender='male' RETURN AFTER @rid
 ArcadeDB> UPDATE #7:0 SET gender='male' RETURN AFTER @this
 ArcadeDB> UPDATE #7:0 SET gender='male' RETURN AFTER $current.exclude("really_big_field")
+----
+
+* The same with the PostgreSQL `RETURNING` clause, at the end of the statement:
+
+----
+ArcadeDB> UPDATE Profile SET nick = 'Luca' WHERE nick IS NULL RETURNING @rid, nick
 ----
 
 In the event that a single field is returned, ArcadeDB wraps the result-set in a record storing the value in the field `result`. This avoids introducing a new serialization, as there is no primitive values collection serialization in the binary protocol. Additionally, it provides useful fields like `version` and `rid` from the original record in corresponding fields. The new syntax allows for optimization of client-server network traffic.
