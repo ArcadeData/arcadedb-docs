@@ -31,6 +31,9 @@ PAGES = REPO / "docs" / "modules" / "ROOT" / "pages"
 
 MAX_LEN = 160
 MIN_LEN = 70
+# Bing Webmaster Tools flags descriptions well under 150-160 characters as
+# "too short", so keep adding text until a description reaches this length.
+TARGET_LEN = 120
 MARKER = "// description (auto-generated)"
 
 TITLE_RE = re.compile(r"^=\s+(.+?)\s*$")
@@ -104,7 +107,7 @@ def truncate(text: str) -> str:
     # Prefer ending on a sentence boundary that keeps most of the budget.
     cut = text[:MAX_LEN]
     sentence_end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
-    if sentence_end >= MIN_LEN:
+    if sentence_end >= TARGET_LEN:
         return cut[: sentence_end + 1]
     space = cut.rfind(" ")
     cut = cut[: space if space > 0 else MAX_LEN - 1].rstrip(",;:–- ")
@@ -219,13 +222,19 @@ def describe(text: str, title: str) -> str:
     cards = [html.unescape(c) for c in CARD_TITLE_RE.findall(text)]
 
     # 1. The page's own introduction (preamble), joined until it is long
-    #    enough to be useful.
+    #    enough to be useful. A short introduction is topped up with the
+    #    chapter cards or section titles so it reads as a summary of the page.
     intro = ""
     for paragraph, in_preamble in paragraphs:
-        if not in_preamble or len(intro) >= MIN_LEN:
+        if not in_preamble or len(intro) >= TARGET_LEN:
             break
         intro = f"{intro} {paragraph}".strip()
     if len(intro) >= MIN_LEN:
+        topics = cards or sections
+        if len(intro) < TARGET_LEN and topics:
+            if intro[-1] not in ".!?…":
+                intro += "."
+            intro = f"{intro} Covers {', '.join(topics)}."
         return truncate(sanitize(intro))
 
     subject = f"ArcadeDB {title}" if title else "ArcadeDB documentation"

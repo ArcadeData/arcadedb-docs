@@ -127,6 +127,12 @@ This pattern works in every modern browser and degrades gracefully (the diagram 
 
 Every page gets `<meta name="description">` from its `:description:` header attribute. `scripts/add-descriptions.py` (a `migrate.sh` step) generates one for every page that lacks it, from the page's intro paragraph, else its chapter cards or section titles. To override, put a hand-written `:description:` right under the page title in `src/main/asciidoc/`; explicit ones are never touched. The site root `/` is a real 301 to `/arcadedb/` via `scripts/templates/_redirects` (copied into `build/site/` by `npm run build`) instead of Antora's meta-refresh stub.
 
+Bing flags descriptions much shorter than 150-160 characters, so the generator keeps adding intro text up to ~120 characters and tops up a short intro with the section titles. Pages with no usable intro (chapter aggregators, SQL reference pages that open on a syntax block) get a generic "ArcadeDB X: A, B, C." summary; give those a hand-written `:description:` of 140-160 characters. For a chapter file with no heading in the source, put it on the first line.
+
+### URLs (no .html)
+
+Cloudflare Pages serves pages without `.html` and 308s `/page.html` to `/page`. The playbook sets `urls.html_extension_style: drop` so canonical tags, the sitemap and xrefs use the extensionless URL, and `scripts/drop-html-links.py` (part of `npm run build`) strips `.html` from relative links written by hand in passthrough HTML. Keep writing `page.html` in hand-written links; the build fixes them. `scripts/templates/robots.txt` adds the `Sitemap:` line (Cloudflare prepends its content-signal block).
+
 ### Full-text search (Pagefind)
 
 Search is powered by [Pagefind](https://pagefind.app) — a fully static, self-hosted search index. There is **no external service and no API key**: the index is built from the generated HTML as a post-build step and shipped as static files under `build/site/pagefind/`, deployed to Cloudflare Pages alongside the rest of the site.
