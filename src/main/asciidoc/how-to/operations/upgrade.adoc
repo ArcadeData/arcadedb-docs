@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - Naming an object that does not exist is the client's error on every protocol
+
+A statement that names a type, an index, a bucket, a property, a trigger or a view that does not exist raises a `SchemaException`, a missing record a `RecordNotFoundException`, an unknown method an `UnknownFunctionException`, and a Cypher `CALL` of an unknown procedure an `UnknownProcedureException` (issue #11384). Many of these raised a plain `CommandExecutionException` before.
+
+*Impact:* over PostgreSQL these answer `42P01` or `42883` instead of `XX000` (see <<postgres-missing-name,Naming an object that does not exist>>), over Bolt `Neo.ClientError.Statement.SemanticError` or `Neo.ClientError.Procedure.ProcedureNotFound` instead of `UnknownError`, and over HTTP `400` instead of `500`. Embedded Java code that caught `CommandExecutionException` for a missing type or index no longer catches it. `OPTIONAL CALL` of an unknown procedure now fails instead of returning a `null` row.
+
+*Action:* catch `SchemaException` (or `ArcadeDBException`) for a missing schema object, and expect the new error codes in clients that keyed on the old ones.
+
+[discrete]
 ====== 26.12.1 - `arcadedb.server.defaultDatabases` decodes `%XX` in its credentials and refuses an ambiguous one
 
 A user name, password or group of a `arcadedb.server.defaultDatabases` credential is percent-decoded, so a separator inside it can be written (`%3A` for `:`, `%2C` for `,`, `%3B` for `;`, `%5B` for `[`, `%5D` for `]`, `%25` for `%`), see issue #11269. A credential with more than three `:`-separated fields, an empty user name or an empty password is refused with a WARNING naming the user, and so is an entry with text after its `]` that opens no `{...}` command list.

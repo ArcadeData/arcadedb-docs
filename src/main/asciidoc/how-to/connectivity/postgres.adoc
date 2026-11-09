@@ -673,6 +673,14 @@ the same case: `42P07` (`duplicate_table`) for a type, an index or a view, `4270
 (`duplicate_object`) for anything else, such as a constraint, a bucket, a trigger or a function. Before v26.11.1 it was `XX000`
 (internal error), or `42P01` (undefined table) for some of them.
 
+[[postgres-missing-name]]
+===== Naming an object that does not exist
+
+_(Since v26.12.1.)_ A statement that names a type, an index, a bucket, a property, a trigger or a view that does not exist
+fails with `42P01` (`undefined_table`), an unknown method or Cypher procedure with `42883` (`undefined_function`), and an
+unknown `ALTER DATABASE` setting with `22023` (`invalid_parameter_value`). Before v26.12.1 many of these answered `XX000`
+(internal error), so a typo looked like a server fault.
+
 [[postgres-refused-value]]
 ===== A refused value and an unknown function
 
@@ -707,6 +715,11 @@ result set (`NoData` to a `Describe`), and a command tag naming the statement wi
 v26.12.1 it answered a result set with one row describing the change and an empty tag: `executeUpdate()` threw "A result was
 returned when none was expected", and a client that described the statement before running it (asyncpg, pgx, npgsql)
 received an error with SQLSTATE `0A000` after the change had been applied.
+
+The other statements that only acknowledge what they did are answered the same way: `DEFINE FUNCTION`, `DELETE FUNCTION`,
+`SLEEP`, `LOCK`, `SET GLOBAL`, `LET`, `CONSOLE`, `TRUNCATE RECORD`, `RESTORE ...`, `BEGIN`/`COMMIT`/`ROLLBACK`, and an
+`INSERT`, `UPDATE`, `DELETE` or `CREATE VERTEX` without a `RETURN`. Before v26.12.1 `DEFINE FUNCTION`, `DELETE FUNCTION`,
+`SLEEP`, `LOCK`, `SET GLOBAL`, `LET` and `RESTORE` still answered a result set, with the same consequences.
 
 The command tag of a statement (`INSERT 0 n`, `UPDATE n`, `DELETE n`, `SELECT n`) is the one of the statement the server
 parsed, whatever its text looks like: a leading comment (`/* hint */ INSERT ...`, as Hibernate's
