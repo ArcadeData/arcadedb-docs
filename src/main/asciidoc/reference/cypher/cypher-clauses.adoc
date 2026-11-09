@@ -743,6 +743,22 @@ MATCH (a:Person)-[:KNOWS]->(b:Person) CREATE (a)-[:SCORED]->(b)
 A call to a procedure that writes (`merge.node`, `merge.relationship`, the `refactor.*` procedures) always
 counts as a conflicting write, because what it creates is only known once it runs.
 
+A pattern is read wherever it appears, not only in a `MATCH`. _(Since v26.12.1)_ A `MATCH` inside a `CALL { ... }`
+body, an `EXISTS { ... }`, `COUNT { ... }` or `COLLECT { ... }` subquery, a pattern predicate and a pattern
+comprehension are weighed against a later `CREATE` or `MERGE` too:
+
+[source,cypher]
+----
+// With no Item nodes yet: 150 rows, because every row counts the Item nodes as they were before the MERGE.
+UNWIND range(1, 150) AS i
+WITH i WHERE COUNT { MATCH (:Item) } = 0
+MERGE (:Item {id: i})
+RETURN count(*)
+----
+
+Up to 26.11.1 such a query could stop after the first 100 rows, because the rows after them already saw the nodes
+the first rows created (issue #11463).
+
 A `MERGE` is a read too: it looks its pattern up once per row. A `SET` or `REMOVE` after it (directly, behind a
 `WITH`, or inside a `FOREACH`) that writes a property key or a label the `MERGE` pattern matches on therefore runs
 only after the `MERGE` has run for every row, exactly as if the two clauses ran one after the other:
