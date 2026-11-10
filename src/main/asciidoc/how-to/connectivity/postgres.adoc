@@ -501,6 +501,32 @@ are not run at all. This is what PostgreSQL does and what `BatchUpdateException`
 each statement in such a batch committed on its own, so a failure halfway left the earlier ones persisted; if you
 relied on that, split the batch into separate round trips.
 
+[[postgres-multi-statement-query]]
+_Since v26.12.1_, a simple query holding several statements separated by `;` runs them all, as PostgreSQL does. This is
+what psycopg2's `cursor.execute("...; ...")`, `psql -c` and the connect-time setup of psqlodbc 16 (the
+`odbc-postgresql` package of Debian 12/13 and Ubuntu 24.04: `SET DateStyle = 'ISO';SET extra_float_digits = 2;show
+transaction_isolation`) send:
+
+* the statements run in order and each one is answered on its own (its rows and its command tag), followed by one
+`ReadyForQuery` for the whole message;
+* outside an explicit `BEGIN` they form one transaction: they are committed together after the last one, and the first
+error stops the message and rolls back every statement before it, `SET` included. The statements after the error do
+not run;
+* a `BEGIN` among them turns that transaction into an explicit one, the statements before it included, and a `COMMIT`
+or `ROLLBACK` among them ends it (the next write opens a new one). Inside an explicit block an error aborts the block,
+as a single statement would;
+* `;` splits only outside string literals, quoted names, dollar-quoted literals, comments and ArcadeDB JSON objects or
+lists (`CONTENT {...}`, `[...]`), and an empty statement (a trailing or doubled `;`, or only a comment) is ignored; a
+message with no statement at all is the empty query;
+* a message that starts with a language marker other than `{sql}` is handed whole to that language, so a
+`{sqlscript}` script keeps its own `;` separators;
+* the extended query protocol takes one statement per `Parse`, as in PostgreSQL: a `Parse` of several statements is
+refused with `42601` (`cannot insert multiple commands into a prepared statement`).
+
+In v26.10.1 to v26.11.1 such a message was run as a single statement and refused as a syntax error (`42601`), which
+kept psqlodbc 16 from connecting. Before v26.10.1 a message starting with `SET` was answered as one `SET` that was
+ignored, and any other message of several statements was a syntax error.
+
 Since v26.10.1 a transaction-control statement is recognized in every spelling ArcadeDB SQL accepts, not only the
 bare keyword: with a leading or trailing comment (as added by sqlcommenter, OpenTelemetry or connection-pool routing
 hints, e.g. `COMMIT /*traceparent='...'*/`), with extra `;`, `BEGIN ISOLATION <level>` (which opens the transaction
@@ -607,7 +633,8 @@ database it is connected to, so `SHOW search_path` answers that database, as `cu
 number of milliseconds or a value with a unit (`30s`, `2min`), and `0` disables it. The shorter of it and
 `arcadedb.command.timeout` applies;
 * `DISCARD ALL` (what connection poolers such as pgbouncer send between two client sessions) resets every setting and drops
-the prepared statements and portals. It is refused inside a transaction block (`25001`). `DISCARD PLANS | SEQUENCES | TEMP`
+the prepared statements and portals. It is refused inside a transaction block (`25001`), which a
+<<postgres-multi-statement-query,simple query of several statements>> is too. `DISCARD PLANS | SEQUENCES | TEMP`
 are accepted without effect, and `DEALLOCATE [ALL | <name>]` and `CLOSE [ALL | <name>]` are supported;
 * a parameter PostgreSQL does not know is refused by `SET`, `SHOW` and `RESET` alike with
 `42704 unrecognized configuration parameter`, as in PostgreSQL (for example `SET bogus_param = 1` or `SHOW databases`).
