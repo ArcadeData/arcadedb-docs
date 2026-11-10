@@ -581,6 +581,23 @@ including for a declared property (see <<cypher-declared-string-comparison,Compa
 In v26.10.1 and earlier `MERGE` used a comparison of its own: it missed a stored `FLOAT` such as `0.1` that `MATCH` found,
 creating a duplicate, and matched a temporal against the text of a property declared `STRING`, which `MATCH` did not.
 
+[[cypher-merge-concurrency]]
+*Concurrent `MERGE` of a relationship.* _(Since v26.12.1)_ When several transactions `MERGE` the same relationship
+between two existing nodes at the same time, exactly one creates it. A transaction whose `MERGE` created a relationship that
+another transaction committed after it began is refused at commit with a retryable `ConcurrentModificationException`; its
+retry (the server retries an auto-committed request by itself, a driver retries a managed transaction) matches the
+relationship the other one created. The relationship is identified by its two endpoints, its type and the properties the
+`MERGE` matched it by, so a `MERGE` matching by type alone (`MERGE (a)-[:KNOWS]->(b)`) also finds a relationship of that type
+created concurrently with properties. The same guarantee covers `merge.relationship()` and SQL
+<<sql-create-edge,`CREATE EDGE ... IF NOT EXISTS`>>. In v26.11.1 and earlier, concurrent writers could commit the same
+relationship more than once when its endpoints already had relationships.
+
+NOTE: The one shape this does not detect is a concurrent `MERGE` whose identifying property map is a strict superset of
+another one's (`{uuid: 1}` against `{uuid: 1, kind: 'a'}`). A unique constraint on the identifying property
+(`CREATE CONSTRAINT FOR ()-[r:KNOWS]-() REQUIRE r.uuid IS UNIQUE`) is exact in every case, and remains the declaration to
+use where a property identifies the relationship. Concurrent `MERGE` of a node still needs a unique constraint, as in other
+Cypher databases.
+
 ---
 
 [[cypher-set]]
