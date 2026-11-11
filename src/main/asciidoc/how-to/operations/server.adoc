@@ -88,8 +88,29 @@ NOTE: A warning `WARNING: Using incubator modules: jdk.incubator.vector` in the 
 
 By default, the following components start with the server:
 
-- JMX Metrics, to monitor server performance and statistics (served via port 9999).
 - HTTP Server, that listens on port 2480 by default. If port 2480 is already occupied, then the next is taken up to 2489.
+
+[[remote-jmx]]
+*Remote JMX.* _(Since v26.12.1)_ `bin/server.sh`, `bin/server.bat` and the Docker image no longer open a remote JMX port.
+Earlier versions started every server with a JMX agent on ports 9999 and 9998, reachable from any host, with authentication and SSL disabled.
+A JMX client can invoke any MBean of the JVM, so that agent gave whoever reached the port code execution inside the server process.
+Local tools such as `jconsole`, VisualVM and `jcmd` still attach to a running server without any setting, as the same operating system user, and the server metrics are served over HTTP (Prometheus) when `arcadedb.serverMetrics` is enabled.
+
+To open remote JMX, pass the JVM flags in the `ARCADEDB_JMX` environment variable with authentication and SSL on, and publish the ports yourself when running in Docker:
+
+[source,shell]
+----
+$ export ARCADEDB_JMX="-Dcom.sun.management.jmxremote.port=9999 \
+    -Dcom.sun.management.jmxremote.rmi.port=9998 \
+    -Dcom.sun.management.jmxremote.authenticate=true \
+    -Dcom.sun.management.jmxremote.password.file=/path/to/jmxremote.password \
+    -Dcom.sun.management.jmxremote.access.file=/path/to/jmxremote.access \
+    -Dcom.sun.management.jmxremote.ssl=true \
+    -Djavax.net.ssl.keyStore=/path/to/keystore -Djavax.net.ssl.keyStorePassword=..."
+$ bin/server.sh
+----
+
+When the server finds a remote JMX agent with authentication disabled, however it was configured (`ARCADEDB_JMX`, `JAVA_OPTS` or a `com.sun.management.config.file`), it logs a `SEVERE` message at startup and records it in the server event log.
 
 In the output above, the name `ArcadeDB_0` is the server name.
 By default, `ArcadeDB_0` is used.
