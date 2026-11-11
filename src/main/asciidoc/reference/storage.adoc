@@ -55,9 +55,11 @@ If you have tooling that copies a database directory while the database is runni
 Since v26.10.1 a full backup archives `schema.prev.json` as well, so a restored database keeps the same fallback copy as the database it came from.
 A database whose schema has never been re-saved has no previous generation yet, and the archive simply does not contain one.
 
-The previous generation is saved by creating a second hard link to the bytes already on disk where the file system supports it, so `schema.json` and `schema.prev.json` can share one inode until the next DDL statement replaces `schema.json`.
-This is invisible to anything that reads or copies the files - `cp`, `tar`, a backup archive and a restore all produce two independent files - but a tool that reports inode identity or disk usage will see the two names counted once.
-File systems without hard links (FAT/exFAT, some network mounts) fall back to a byte copy automatically.
+The previous generation is saved as a byte copy of `schema.json`, never as a hard link: some file systems (a SeaweedFS FUSE mount, for one) accept a hard link and then lose its data once the original name is replaced, which would leave the fallback copy unreadable.
+
+`schema.prev.json` is read only when `schema.json` is missing, empty or unreadable, and the atomic replacement above never leaves `schema.json` in any of those states.
+Since v26.12.1 the copy is therefore not flushed to disk by every schema write: it is flushed once when the database is closed, and when a database is opened after a crash (it was not closed properly), a `schema.prev.json` whose content did not reach the disk is rebuilt from `schema.json`, and one that did is flushed.
+Until the database has seen one atomic replacement of `schema.json` since it was opened, and always on a file system that cannot rename atomically, the copy is still flushed by every write.
 
 On a file system that cannot rename atomically at all, ArcadeDB falls back to a plain replacement and logs a warning once per JVM.
 The schema still saves; only the crash-time guarantee is lost.
@@ -67,6 +69,7 @@ The schema still saves; only the crash-time guarantee is lost.
 
 Each schema write is durable: the new `schema.json` is flushed to disk and the directory that holds it is flushed once, after both files are published.
 On a real disk that is a few milliseconds to a few tens of milliseconds per write, depending on the device, against a fraction of a millisecond on `tmpfs`.
+Since v26.12.1 that is one file flush per write instead of two: the copy saved as `schema.prev.json` is flushed when the database closes rather than by every write (see <<schema-file-persistence>>).
 Since v26.10.1 every DDL statement writes the schema exactly once, however many bucket and index files and internal steps it involves.
 Before, a `CREATE TYPE` wrote it five or six times, a `CREATE PROPERTY` or a `CREATE INDEX` twice, and each write flushed the directory twice.
 
