@@ -16,7 +16,14 @@ Every vertex keeps its adjacency list (per direction) as a linked list of _edge 
 
 Two transactions that only _append_ edges to the same chunk do not really conflict: appends commute. When the only difference between the transaction's page and the newer committed version is concurrent in-chunk appends, ArcadeDB replays the transaction's appends on top of the newer version at commit time instead of failing it. Removals, chunk re-links and other structural changes never merge - those still conflict and retry, preserving correctness.
 
-This is controlled by `arcadedb.graph.edgeAppendMerge` (default `true`) and works with both the classic and the striped layout.
+The same holds for the rest of the bookkeeping that creating an edge does on its two vertices, which matters for any workload where concurrent transactions create edges between _shared_ vertices, hub or not (a bulk load from several writers, for example):
+
+* *Moving the head of an edge list.* The first edge of a vertex in a direction, and an edge that finds the head chunk full, point the vertex at a new chunk. When two transactions do that to the same vertex, the chunks of the second one are linked behind the head the first one committed, and the vertex keeps both. This needs the transaction to have changed nothing else of that vertex: a property written in the same transaction as the edge still conflicts and retries.
+* *A chunk filled by a concurrent transaction.* The appends that no longer fit grow the chunk inside its page when the page has room, and go in a new head chunk of the list otherwise.
+
+The counters `edgeAppendMerges`, `txPageSlotMerges` and `edgeListHeadMerges` of the server profiler (and the `arcadedb.engine.page.merges.*` metrics) count the conflicts merged instead of retried.
+
+This is controlled by `arcadedb.graph.edgeAppendMerge` (default `true`) and works with both the classic and the striped layout. Moving the head of an edge list also needs `arcadedb.txPageSlotMerge` (default `true`).
 
 ==== Adaptive striped edge list
 
