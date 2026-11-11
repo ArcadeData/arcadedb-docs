@@ -299,10 +299,23 @@ vectors each therefore still cost nothing, while a handful close to the 1,000-ve
 counter `smallRebuildsOverBudget` in the index statistics reports how often a small rebuild had to wait for this
 reason -- distinct from `searchRebuildsQueuedForPermit`, which says some *other* index was holding the slot.
 
-A query is never *refused* a rebuild, only delayed by one: with no graph there is nothing to search, so refusing
-would return an empty result set rather than a slow one. If no slot frees within `vectorIndex.rebuildPermitTimeoutMs`
-(ten minutes by default), the query builds anyway and logs a warning, because by then the slot is being held by a
-rebuild that is stuck rather than slow.
+A query is not *refused* a rebuild for want of a slot, only delayed by one: with no graph there is nothing to search,
+and answering from the vectors written since the last graph alone would return an incomplete result presented as a
+complete one. If no slot frees within `vectorIndex.rebuildPermitTimeoutMs` (ten minutes by default), the query builds
+anyway and logs a warning, because by then the slot is being held by a rebuild that is stuck rather than slow.
+
+The heap is a different matter. Before v26.12.1, a query-triggered rebuild that did not fit the heap allowed by
+`vectorIndex.rebuildMaxHeapPercent` -- even after giving up the whole page cache -- logged "It is built anyway" and
+built, and on a heap that full the build ended in an `OutOfMemoryError` that stopped every database of the server.
+Since v26.12.1 such a build is first made to fit: the page cache gives up what the build needs, and when that is not
+enough the build runs with a smaller build cache (never below 100,000 vectors, or the whole index if it is smaller),
+reading the rest of its vectors back from disk. The graph is the same, only the build is slower; it is counted as
+`searchRebuildsWithReducedCache`. Only when the graph itself does not fit is the query refused, with a
+`VectorGraphBuildRefusedException` that names the estimate and the setting. It is retryable (HTTP 503, and the
+equivalent on every other protocol): nothing was built, and the same query re-issued once the heap has room builds the
+graph and answers. Refusals are counted as `searchRebuildsRefusedForMemory`, and a warning is logged once until a build
+gets through. Setting `vectorIndex.rebuildMaxHeapPercent` to `0` disables the check, as it does for background
+rebuilds. The index statistic `lastGraphBuildCacheSize` reports the build cache the last build actually ran with.
 
 Since v26.10.2 that wait no longer outlives the query. A vector search -- `vector.neighbors()` in SQL,
 `db.index.vector.queryNodes` in Cypher, `select().nearestTo()` in the Java API -- stops within a fraction of a second
@@ -322,8 +335,8 @@ and the graph is loaded from its persisted copy, or rebuilt when that copy is st
 of DDL statements costs one warm-up, not one per statement, a search that arrives meanwhile joins the load in progress, and
 an index nobody searched is left alone. The Java API exposes the same step as `LSMVectorIndex.warmUp()`.
 
-The counters `searchRebuildsQueuedForPermit` and `searchRebuildsWithoutPermit` in the index statistics report how
-often each happened. Persisting the graph before a restart -- a clean `close()`, or `REBUILD INDEX` -- avoids the
+The counters `searchRebuildsQueuedForPermit`, `searchRebuildsWithoutPermit`, `searchRebuildsWithReducedCache` and
+`searchRebuildsRefusedForMemory` in the index statistics report how often each happened. Persisting the graph before a restart -- a clean `close()`, or `REBUILD INDEX` -- avoids the
 whole situation: there is then nothing to rebuild on the first query.
 ====
 
