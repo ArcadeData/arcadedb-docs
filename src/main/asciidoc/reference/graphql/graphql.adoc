@@ -178,6 +178,48 @@ The standard GraphQL escape sequences (`+\"+`, `+\\+`, `+\/+`, `+\b+`, `+\f+`, `
 { bookByName(name: "Line one\nLine two") { id } }
 ----
 
+An argument value can be any GraphQL literal: a string, a block string, a number, a boolean, `null`, an enum value, a
+list or an object. A block string is written between triple quotes and taken as written, with no escape sequence but
+`+\"""+`; the indentation its lines share and its blank first and last lines are removed, which makes it convenient for
+the multi-line statement of a <<graphql-sql,@sql>> directive:
+
+[source,graphql]
+----
+type Query {
+  bookByName(name: String): [Book] @sql(statement: """
+    select from Book
+    where name = :name
+    """)
+}
+----
+
+An integer literal is checked against the type of the argument it is written for: an `Int` argument accepts only a
+32-bit value, while a `Long` or an `ID` argument accepts a wider one, such as a timestamp in milliseconds:
+
+[source,graphql]
+----
+{ eventsAt(ts: 1700000000000) { id } }
+----
+
+[[graphql-argument-defaults]]
+An argument can declare a default value, used when the query leaves the argument out or binds it to a
+<<graphql-variables,variable>> that received no value, whether the field has a directive or not. An argument declared
+non-null (for example `id: ID!`) with no default must be provided and cannot be `null`, otherwise the query is refused.
+A nullable argument with no default that is left out adds no condition:
+
+[source,graphql]
+----
+type Query {
+  books(name: String = "Mr. brain"): [Book]
+  bookById(id: ID!): Book
+}
+----
+
+NOTE: _(since v26.12.1)_ Before, a field without a directive ignored the default of an argument left out and accepted a
+non-null argument left out, so both returned every record of the type; an argument bound to a variable that received no
+value was compared with `null`; the `null` literal and block strings were syntax errors; and an integer literal beyond 32
+bits failed the whole query, whatever the type of its argument (issues #11447 and #11451).
+
 [[graphql-where]]
 ===== The `where` argument
 
@@ -240,6 +282,10 @@ A variable can declare a default value, used when no value is passed:
 query($name: String = "Mr. brain") { bookByName(name: $name) { id } }
 ----
 
+A variable declared with neither a value nor a default leaves out the argument it is bound to, which then takes its own
+<<graphql-argument-defaults,default>>. A variable passed as an explicit `null`, or with `null` as its default, is the
+value `null`.
+
 Variables can also be used in the arguments of a directive written in the query:
 
 [source,graphql]
@@ -253,6 +299,7 @@ The value passed must match the type the variable is declared with, otherwise th
 - `Float` accepts any number, but not `NaN` or infinity
 - `Boolean` accepts only a boolean, `String` only a string
 - `ID` accepts a string or a whole number of any size
+- `Long` accepts a whole number in the 64-bit range
 - any other type name (a custom scalar, an enum, a list) is passed through unchecked
 
 A variable declared with `!` (for example `$name: String!`) must receive a value, and that value cannot be null.
