@@ -592,6 +592,13 @@ to the GraphSON exporter and write a GraphSON archive into the file you named `.
 The three filters are supported by the `jsonl` format only. `graphml` and `graphson` always export the whole graph and
 refuse them. _(Since v26.12.1: they were accepted and ignored, and the export wrote every record.)_
  ** *`verboseLevel`* How much the export logs, from `0` to `3`. Default is `2`. The value must be an integer in that range. _(Since v26.12.1: the setting was accepted and ignored.)_
+ ** *`compressionLevel`* Deflate level of the export file, from `0` (stored, no compression: the fastest and the biggest file) to `9` (the smallest file and the slowest). Default is `6`, the level every export was written at before the setting existed. Level `1` writes a file about 10% bigger in a fraction of the time. _(Since v26.12.1)_
+ ** *`compressionThreads`* Number of threads that compress the export file. `-1` (the default) sizes the pool automatically at half the available processors, capped at 8; `0` compresses on the thread that writes the records, as every export did before; any other value up to `256` is a pool of that size. With a pool the records are written while earlier parts of the file are compressed, which on a large database makes the export several times faster. The file is the same whichever value is used: one standard gzip stream, about the same size at the same level, read by `IMPORT DATABASE` and by any gzip tool. _(Since v26.12.1: the compression ran on the writing thread at the default level and took about 90% of the time of an export, issue #11539.)_
++
+The two settings apply to every format (`jsonl`, `graphml` and `graphson`), and are also available from the command line
+(`-compressionLevel`, `-compressionThreads`) and from the Java `Exporter` API (`setCompressionLevel`, `setCompressionThreads`).
+They are named like the `BACKUP DATABASE` ones, but the defaults differ: a backup favours speed (level `1`), an export is a
+portable dump and keeps the size it always had.
 +
 Since v26.12.1 a setting that is not in this list is refused with `Unknown export setting '<name>'`, naming the closest
 setting when the name looks like a typo of it (`Did you mean 'excludeTypes'?`). Before, an unknown setting was ignored, so
@@ -681,6 +688,13 @@ EXPORT DATABASE file://database.jsonl.tgz
 [source,sql]
 ----
 EXPORT DATABASE file://Movies.graphson.tgz WITH format = 'graphson', overwrite = true
+----
+
+* Export as fast as possible, trading file size for time (fastest level, 8 compression threads):
+
+[source,sql]
+----
+EXPORT DATABASE file://database.jsonl.tgz WITH compressionLevel = 1, compressionThreads = 8
 ----
 
 * Export overwriting a previously exported file without specifying a URL:
