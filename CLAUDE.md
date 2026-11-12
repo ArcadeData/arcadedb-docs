@@ -137,6 +137,10 @@ Bing flags descriptions much shorter than 150-160 characters, so the generator k
 - `head-title.hbs` drops the ` :: ArcadeDB Documentation` suffix when the page title equals the site title (the docs home).
 - `npm run seo` (part of `npm run build`) runs `scripts/sitemap-lastmod.py`, which replaces Antora's build-time `<lastmod>` with each page source's last git commit date (it needs full history, hence `fetch-depth: 0` in the deploy workflow, and skips itself on a shallow clone), and `scripts/generate-llms-txt.py`, which writes `/llms.txt` from the nav. It links the HTML pages: Cloudflare's WAF currently 403s every `*.md` path.
 
+### IndexNow
+
+The deploy workflow snapshots the live sitemaps before `wrangler pages deploy`, then `scripts/indexnow.py submit` posts only the URLs whose `lastmod` changed (plus new and removed URLs) to `api.indexnow.org`. Both steps are `continue-on-error`. The key is public: `scripts/templates/<key>.txt` (no trailing newline), copied to the site root by `npm run redirects`.
+
 ### URLs (no .html)
 
 Cloudflare Pages serves pages without `.html` and 308s `/page.html` to `/page`. The playbook sets `urls.html_extension_style: drop` so canonical tags, the sitemap and xrefs use the extensionless URL, and `scripts/drop-html-links.py` (part of `npm run build`) strips `.html` from relative links written by hand in passthrough HTML. Keep writing `page.html` in hand-written links; the build fixes them. `scripts/templates/robots.txt` adds the `Sitemap:` line and the `Content-Signal:` line (Cloudflare serves the file as is; it does not prepend a managed block).
