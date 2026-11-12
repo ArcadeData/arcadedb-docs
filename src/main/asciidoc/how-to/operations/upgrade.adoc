@@ -110,6 +110,33 @@ A failure on a later batch of `iterateType`, `iterateBucket` or `queryStream` ra
 *Action:* catch `SecurityException` for an authentication or permission refusal, and `TimeoutException` for an expired deadline. See <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
+====== 26.12.1 - The Java remote client does not resend a write after a proxy's `503` page
+
+When an ingress, a load balancer or a sidecar in front of the server answers an error with a page that is not JSON (a `502`, `503` or `504` page), the Java `RemoteDatabase` client now maps it on its HTTP status, and the exception names the status and quotes a short excerpt of the page (issue #11387). Before, it raised the JSON parser's `JSONException`, the status was lost, a `503` was never retried, and the log said it was retrying. A `503` page from such a hop is a `RemoteIntermediaryRefusalException`, a `NeedRetryException`.
+
+*Impact:* the hop may have answered `503` after it forwarded the request, so the page does not prove that the server did not run it. A read, a `begin` and a replay-protected command are retried. A command that may write and cannot be replayed safely, a streamed write, a time-series write and a `commit` are not sent again: the exception reaches the caller, and a `commit` fails with a `TransactionException` saying it may have been applied, without a rollback.
+
+*Action:* when a write or a `commit` fails this way, read back the data before retrying it. See <<remote-exception-types,exception types>>.
+
+[discrete]
+====== 26.12.1 - Cypher `PROFILE` of a write with no `RETURN` returns no rows
+
+`PROFILE` of a write that has no `RETURN` (`PROFILE CREATE (n:Person)`) returned the rows of its last write clause, while the same query without `PROFILE` returned none (issue #11386). It now returns no rows over every protocol. The query still runs in full and writes its changes, and the profile is unchanged.
+
+*Impact:* a client that read those rows gets none.
+
+*Action:* add a `RETURN` to the query to get rows back.
+
+[discrete]
+====== 26.12.1 - Bolt announces the column names of a result with no rows
+
+A Bolt `RUN` whose result has no rows announced `fields = []`. It now announces the names of its `RETURN` items (issue #11386), as a result with rows does. A zero-row `RETURN *` and a `CALL ... YIELD` with no `RETURN` still announce no names (#11543).
+
+*Impact:* `result.keys()` of an empty result now lists the columns.
+
+*Action:* none, unless a client relied on an empty key list to detect an empty result; check the records instead.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.

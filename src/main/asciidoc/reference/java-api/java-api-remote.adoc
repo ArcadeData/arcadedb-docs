@@ -48,6 +48,15 @@ the client cannot rebuild (a class of a newer server, or of a plugin). In 26.10.
 caller as a `RemoteException` that was not an `ArcadeDBException`, with a message of the form
 `Error on executing remote operation ... (cause:<class> detail:<message>)`.
 
+_(Since v26.12.1.)_ An error answer whose body is not JSON comes from a hop in front of the server (an ingress, a load
+balancer, a sidecar), not from the server. The client maps it on its HTTP status, and the message names the status and
+quotes up to 256 characters of the page. A `503` page is a `RemoteIntermediaryRefusalException`, a `NeedRetryException`:
+a read, a `begin` and a replay-protected command are retried on it. Because the hop may have forwarded the request
+before it answered, a command that may write and cannot be replayed safely, a streamed write, a time-series write and a
+`commit` are not sent again. A `commit` refused this way raises a `TransactionException` saying the commit may have been
+applied, and the transaction is not rolled back: read the data back before retrying. Before v26.12.1 such a page raised
+a bare `JSONException` with the status lost.
+
 _(Since v26.11.1.)_ `getType()` answers the record's type on a mutable remote record too (`newDocument()`,
 `newVertex()`, `modify()`), as it does on a record read from the server, instead of throwing
 `UnsupportedOperationException`. `toMap()` and `toJSON()` of a remote edge include `@in` and `@out`, as an embedded edge
