@@ -131,9 +131,15 @@ Every page gets `<meta name="description">` from its `:description:` header attr
 
 Bing flags descriptions much shorter than 150-160 characters, so the generator keeps adding intro text up to ~120 characters and tops up a short intro with the section titles. Pages with no usable intro (chapter aggregators, SQL reference pages that open on a syntax block) get a generic "ArcadeDB X: A, B, C." summary; give those a hand-written `:description:` of 140-160 characters. For a chapter file with no heading in the source, put it on the first line.
 
+### Structured data, social tags, sitemap dates, llms.txt
+
+- `docs/ui/supplemental/partials/head-meta.hbs` writes Open Graph and Twitter tags plus one JSON-LD `@graph` per page (WebSite, BreadcrumbList, TechArticle, or WebPage on a component home). The object is built in `docs/ui/supplemental/helpers/jsonld.js` and serialized with `JSON.stringify`, never templated by hand; Organization and SoftwareApplication are referenced by `@id` on arcadedb.com only. `@id`/`url`/`og:url` use `page.canonicalUrl`, so they stay extensionless. Antora loads each helper from a string, so a helper cannot `require()` a sibling helper.
+- `head-title.hbs` drops the ` :: ArcadeDB Documentation` suffix when the page title equals the site title (the docs home).
+- `npm run seo` (part of `npm run build`) runs `scripts/sitemap-lastmod.py`, which replaces Antora's build-time `<lastmod>` with each page source's last git commit date (it needs full history, hence `fetch-depth: 0` in the deploy workflow, and skips itself on a shallow clone), and `scripts/generate-llms-txt.py`, which writes `/llms.txt` from the nav. It links the HTML pages: Cloudflare's WAF currently 403s every `*.md` path.
+
 ### URLs (no .html)
 
-Cloudflare Pages serves pages without `.html` and 308s `/page.html` to `/page`. The playbook sets `urls.html_extension_style: drop` so canonical tags, the sitemap and xrefs use the extensionless URL, and `scripts/drop-html-links.py` (part of `npm run build`) strips `.html` from relative links written by hand in passthrough HTML. Keep writing `page.html` in hand-written links; the build fixes them. `scripts/templates/robots.txt` adds the `Sitemap:` line (Cloudflare prepends its content-signal block).
+Cloudflare Pages serves pages without `.html` and 308s `/page.html` to `/page`. The playbook sets `urls.html_extension_style: drop` so canonical tags, the sitemap and xrefs use the extensionless URL, and `scripts/drop-html-links.py` (part of `npm run build`) strips `.html` from relative links written by hand in passthrough HTML. Keep writing `page.html` in hand-written links; the build fixes them. `scripts/templates/robots.txt` adds the `Sitemap:` line and the `Content-Signal:` line (Cloudflare serves the file as is; it does not prepend a managed block).
 
 ### Full-text search (Pagefind)
 
