@@ -60,12 +60,16 @@ SELECT userId, totalLikes, _sourceRID FROM UserStats;
   to `User` as before v26.12.1. If such a column must stay current, refresh the view on a schedule.
 * *`_sourceRID` is visible to readers* (`SELECT *` returns it). A query that already projects a column named
   `_sourceRID`, or reads a type that declares a property with that name through `SELECT *`, keeps the full refresh.
+  On a per-record view the name is reserved: a schemaless source record that carries an undeclared `_sourceRID`
+  field, or a property of that name declared after the view was created, does not keep its value in the view. Under
+  `SELECT *` the link to the source record always wins.
 * *Large transactions.* When one transaction changes more source records than
   `arcadedb.materializedViewPerRecordMaxDelta` (default 10000), the pass rebuilds the whole view instead, on the
   committing thread, so the committer still reads its own write.
 * *Failures.* A failed per-record pass marks the view `STALE`; the next commit to a source type hands a full rebuild to
   the background scheduler (`ArcadeDB-MV-Scheduler`), so no commit waits on it, and the view stays `STALE` until it
-  succeeds. A per-record view that is not `VALID` when the database opens is rebuilt the same way.
+  succeeds. A per-record view that is not `VALID` when the database opens is rebuilt the same way, so it retries at
+  every open until a rebuild succeeds.
 * *Upgrading an existing view.* Views created before v26.12.1 keep the full refresh. Run
   `ALTER MATERIALIZED VIEW <name> REFRESH INCREMENTAL` to upgrade one that qualifies: it adds the `_sourceRID` column
   and its index and rewrites every row once, so the RIDs of the view rows change. The rewrite runs under the database
@@ -74,11 +78,21 @@ SELECT userId, totalLikes, _sourceRID FROM UserStats;
 * *Switching away and back.* `ALTER` to another refresh mode keeps the column, its index and the per-record flag. After
   switching back to `INCREMENTAL`, run `REFRESH MATERIALIZED VIEW`: the view was not maintained in between.
 
+*Recovery after a crash or a leader change.* Changes a per-record view has not applied yet are held in memory and are
+lost with the process. The view repairs itself with a full rebuild on the background scheduler, and reads `STALE`
+until the rebuild ends:
+
+* on a server outside a cluster, when the database opens after an unclean shutdown, every per-record view is rebuilt
+  (after a clean shutdown only the views that are not `VALID`). A `READ_ONLY` open does not rebuild;
+* in a highly available cluster, a node that becomes leader rebuilds the per-record views of every open database once
+  it has applied all the entries committed before its term. The rebuild writes through the cluster, so the followers
+  receive it.
+
 [WARNING]
 ====
-Changes a per-record view has not applied yet are held in memory. After a crash, or after a leader change in a highly
-available cluster, run `REFRESH MATERIALIZED VIEW` on per-record views: a view that was `VALID` is not re-checked on
-its own (tracked in issue #11550).
+In a highly available cluster, a database that the new leader opens only after the election (for example after it was
+closed for inactivity) does not get this rebuild yet: run `REFRESH MATERIALIZED VIEW` on its per-record views (tracked
+in issue #11555).
 ====
 
 *Which types are tracked.* An `INCREMENTAL` view is refreshed when a transaction changes a record of any type its query names, anywhere in the query: the top-level `FROM`, a subquery in `FROM`, and a subquery in `WHERE`, in the projection or in `LET`, at any depth. Each of these types is tracked together with all its subtypes, including subtypes created after the view. They are listed in the `sourceTypes` column of `schema:materializedViews`, and `DROP TYPE` on any of them is refused while the view exists.
