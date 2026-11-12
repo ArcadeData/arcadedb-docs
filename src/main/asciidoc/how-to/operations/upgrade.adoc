@@ -119,6 +119,15 @@ When an ingress, a load balancer or a sidecar in front of the server answers an 
 *Action:* when a write or a `commit` fails this way, read back the data before retrying it. See <<remote-exception-types,exception types>>.
 
 [discrete]
+====== 26.12.1 - Java remote client: a failed commit keeps the RIDs of the records it created
+
+A failed `commit()` on `RemoteDatabase` or `RemoteGrpcDatabase` reset the RIDs of every record created in the transaction, whatever the failure (issue #11541). After a commit that had in fact landed, saving the same objects again inserted them a second time. The RIDs are now reset only when the failure proves nothing was applied: a retryable refusal from the server, a duplicated key, a connection that was never established, or the gRPC server answering that it did not commit.
+
+*Impact:* after a replication timeout, a proxy's `503` page, a connection lost after the request was sent or a `409` "committed remotely", the records keep their RIDs. So do a few failures that did roll back but are not in the list above (a validation error at commit, a session the server no longer holds, an untyped `500`): saving those objects again now fails with `RecordNotFoundException` instead of inserting a duplicate.
+
+*Action:* after a failed commit, check whether the write landed before saving the same objects again. See <<remote-exception-types,exception types>>.
+
+[discrete]
 ====== 26.12.1 - Cypher `PROFILE` of a write with no `RETURN` returns no rows
 
 `PROFILE` of a write that has no `RETURN` (`PROFILE CREATE (n:Person)`) returned the rows of its last write clause, while the same query without `PROFILE` returned none (issue #11386). It now returns no rows over every protocol. The query still runs in full and writes its changes, and the profile is unchanged.
@@ -130,7 +139,7 @@ When an ingress, a load balancer or a sidecar in front of the server answers an 
 [discrete]
 ====== 26.12.1 - Bolt announces the column names of a result with no rows
 
-A Bolt `RUN` whose result has no rows announced `fields = []`. It now announces the names of its `RETURN` items (issue #11386), as a result with rows does. A zero-row `RETURN *` and a `CALL ... YIELD` with no `RETURN` still announce no names (#11543).
+A Bolt `RUN` whose result has no rows announced `fields = []`. It now announces the names of its `RETURN` items (issue #11386), as a result with rows does. A zero-row `RETURN *` announces the variables in scope at the `RETURN`, in the order the rows of the same query carry them, and a standalone `CALL ... YIELD` announces its yielded fields, all the procedure's outputs for `YIELD *` or no `YIELD` (issue #11543). A `RETURN *` inside a `CALL { }` subquery and `YIELD *` on a procedure whose outputs are unknown still announce no names (#11571).
 
 *Impact:* `result.keys()` of an empty result now lists the columns.
 

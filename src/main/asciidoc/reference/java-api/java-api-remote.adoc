@@ -223,6 +223,15 @@ The same happens when the server refuses the transaction before running it: the 
 
 A commit whose connection drops after the request was sent is different: the server may already have applied it. Over gRPC such a commit (status `UNAVAILABLE` with no error from the server) raises a `TransactionException` and is *not* retried, so the work is never applied twice. Read the data back to find out whether the commit landed. _(Since v26.10.1: before, it was reported as a retryable conflict.)_
 
+_(Since v26.12.1.)_ When a commit fails, the records created in the transaction keep the RIDs the server assigned to
+them, unless the failure proves nothing was applied: a retryable refusal from the server, a duplicated key, a
+connection that was never established, or the gRPC server answering that it did not commit. Only then are the RIDs
+reset, so saving the same objects again inserts them. After any other failure (a replication timeout, a `503` page
+from a proxy, a connection lost after the request was sent, a `409` saying the transaction was committed remotely)
+the records keep their RIDs, and saving them again updates those RIDs. If the commit did not land, that save fails
+with a `RecordNotFoundException` instead of silently inserting a duplicate. This applies to `RemoteDatabase` and
+`RemoteGrpcDatabase` (issue #11541).
+
 _(Since v26.10.2.)_ The gRPC client draws the same line for the other writes whose answer can be lost. A bare
 `UNAVAILABLE` (no error class from the server, and not a failure to connect) on an admin write of `RemoteGrpcServer`
 (creating or dropping a database, a user or a token, and the other server writes) or on a streaming write of
