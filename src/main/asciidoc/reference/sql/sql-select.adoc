@@ -14,7 +14,7 @@ SELECT [ [DISTINCT] <Projections> ]
     [ WHERE <Condition>* ]
     [ GROUP BY <Field>* ]
     [ ORDER BY <Fields>* [ ASC|DESC ] * ]
-    [ UNWIND <Field>* ]
+    [ UNWIND <Field> | <Expression> [AS] <Alias> [, ...] ]
     [ SKIP <SkipRecords> ]
     [ LIMIT <MaxRecords> ]
     [ TIMEOUT <MilliSeconds> [ <STRATEGY> ] ]
@@ -64,7 +64,7 @@ The `schema:*` targets support `WHERE`, `ORDER BY`, `SKIP` and `LIMIT` like any 
  An `ARRAY_OF_*` value (such as `ARRAY_OF_INTEGERS`) is ordered element by element, as a list is _(since v26.11.1; before, arrays were ordered by their identity text)_.
 * *`GROUP BY`* and *`ORDER BY`* may contain comments between the two words (`ORDER /* by id */ BY id`), like anywhere else in the statement.
 * *Integer literals* can be written in decimal or hexadecimal (`0xFF`, or `0xFFL` for a long). A hexadecimal value above `2147483647` is a long, it is not read as a negative number.
-* *<<sql-select-unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
+* *<<sql-select-unwind,`UNWIND`>>* Designates the fields or expressions whose collections are unwound, one result row per element.
 * *`SKIP`* Defines the number of records you want to skip from the start of the result-set. You may find this useful in <<sql-pagination,Pagination>>, when using it in conjunction with `LIMIT`.
 * *`LIMIT`* Defines the maximum number of records in the result-set. You may find this useful in <<sql-pagination,Pagination>>, when using it in conjunction with `SKIP`.
 * *`TIMEOUT`* Defines the maximum time in milliseconds for the query. By default, queries have no timeouts. If you don't specify a
@@ -326,3 +326,17 @@ ArcadeDB> SELECT name, OUT("Friend").name AS friendName FROM Person UNWIND frien
 ----
 
 `UNWIND` works the same way on the array types (`SHORT[]`, `INTEGER[]`, `LONG[]`, `FLOAT[]`, `DOUBLE[]`), giving one record per element. A `BINARY` property is left untouched: it is an opaque blob, not a sequence of values, so it is never split into one record per byte.
+
+*Unwinding an expression.* _(Since v26.12.1)_ Besides a bare field name, `UNWIND` accepts any expression with an alias: a nested path, an input parameter, a function call, a collection literal or a `CASE`. Each element of the expression's value becomes one row, with the element in the column named by the alias. The `AS` keyword is optional. Several items are separated by commas, and a bare field and an aliased expression can be mixed:
+
+[source,sql]
+----
+SELECT name FROM Person UNWIND address.phones AS phone
+SELECT FROM Person UNWIND :tags AS tag
+SELECT name FROM Person UNWIND out('Friend') AS friend
+SELECT FROM Person UNWIND tags, [name, 'guest'] AS label
+----
+
+An expression other than a bare field needs its alias: `UNWIND a.b` and `UNWIND :p` are refused with a syntax error, write `UNWIND a.b AS x`. _(Before v26.12.1 the parser kept only a bare field: `UNWIND a.b` unwound `a`, `UNWIND :p` did nothing, and the alias was dropped.)_
+
+The expression is evaluated against the record, so it can read a field, an `@rid` or an edge (`out('Friend')`) even when the projection does not select it. When it names a column the projection renames or computes (`SELECT a AS c ... UNWIND c.b AS x`), or the alias of an earlier `UNWIND` item, it reads the projected row instead. An expression that does both, reading such a column and the record (`UNWIND tags AS x, [x, @rid] AS y`), sees `null` for the record part; use `SELECT *` or project what it needs (issue #11563).
