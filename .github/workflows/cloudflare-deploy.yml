@@ -48,10 +48,26 @@ jobs:
         # which rebuilds the full-text search index on every commit.
         run: npm run build
 
+      # IndexNow (Bing, Yandex, ...): snapshot the live sitemaps before the
+      # deploy, then submit only the URLs whose lastmod changed, plus new and
+      # removed ones. Never fails the deploy.
+      - name: Snapshot live sitemaps for IndexNow
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'ArcadeData/arcadedb-docs'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: python3 scripts/indexnow.py snapshot "$RUNNER_TEMP/live-sitemaps"
+
       - name: Deploy to Cloudflare Pages (production)
+        id: deploy
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy build/site --project-name=arcadedb-docs --branch=main
+
+      - name: Submit changed URLs to IndexNow
+        if: steps.deploy.outcome == 'success' && github.repository == 'ArcadeData/arcadedb-docs'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: python3 scripts/indexnow.py submit "$RUNNER_TEMP/live-sitemaps" build/site
