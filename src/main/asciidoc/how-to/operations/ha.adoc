@@ -814,7 +814,7 @@ stands the node:
 `details.divergedDatabases` and `details.divergenceCauses` name the database and the cause;
 * refuses reads that need linearizability on that database instead of serving them stale, and does not checkpoint its Raft
 log;
-* keeps the quarantine across restarts: it is recorded in `.raft/applied-index`.
+* keeps the quarantine across restarts: it is recorded in `.raft/applied-index`. _(Since v26.12.1)_ The writes of that file that a restart depends on (while a quarantine or a read floor stands, the write that lifts it, a snapshot install, a resync) are flushed to disk with their directory, so a power loss cannot leave the file empty and lose the quarantine.
 
 Since v26.11.1 an index compaction on the leader is quarantined too when the cluster cannot say whether it accepted the
 compaction: the publication timed out and, after waiting up to the quorum timeout, the outcome is still unknown, or the entry
@@ -823,13 +823,12 @@ so a leader that crashes in between restarts on the same files as every other se
 alone and the old leader's index could silently miss entries written by the next leader.
 
 [[ha-power-loss]]
-*After a power loss.* _(Since v26.11.1)_ In production mode, the crash recovery of a database can abort on a gap in its write-ahead log. Before, the database opened anyway and the node served wrong property values and missing index data. Now a database whose crash recovery did not complete is quarantined under the cause `LOCAL_RECOVERY_INCOMPLETE`, and a database that opens with an unavailable unique index under `UNAVAILABLE_UNIQUE_INDEX`. The node refuses readiness, hands leadership off and resyncs the database from the leader, as for any other quarantine. A node that is the only voter has no leader to resync from and only logs a SEVERE message.
+*After a power loss.* _(Since v26.11.1)_ In production mode, the crash recovery of a database can abort on a gap in its write-ahead log. Before, the database opened anyway and the node served wrong property values and missing index data. Now a database whose crash recovery did not complete is quarantined under the cause `LOCAL_RECOVERY_INCOMPLETE`, and a database that opens with an unavailable unique index under `UNAVAILABLE_UNIQUE_INDEX`. The node refuses readiness, hands leadership off and resyncs the database from the leader, as for any other quarantine. A node that is the only voter has no leader to resync from and only logs a SEVERE message. _(Since v26.12.1)_ The unavailable unique index and the emptied dictionary are checked not only when the node starts, but also after a replicated schema change reloads the schema, whenever the database is opened again while the node runs (after an idle close, or a lazy open), and on a copy installed from a snapshot, which is rolled back instead of published if it opens damaged.
 Known limits, tracked upstream:
 
 * a recovery that throws on a torn page (a `SerializationException` while replaying the WAL) stops the node from starting on every restart instead of quarantining the database (#11280);
 * a quarantined database may still answer reads until its resync completes (#11281, not yet confirmed);
 * a first or header page lost after fsync, and a torn page with no WAL history, are not covered yet (#11258); the second one needs a per-page checksum (#11157);
-* an index that becomes unavailable after a later schema reload is not rechecked.
 
 The way out is a resync, which reinstalls the database from a peer and lifts the quarantine. The node starts one itself;
 to force it, run `POST /api/v1/cluster/resync/{database}` on that node. A leader cannot resync from itself: transfer

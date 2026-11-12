@@ -48,6 +48,15 @@ the client cannot rebuild (a class of a newer server, or of a plugin). In 26.10.
 caller as a `RemoteException` that was not an `ArcadeDBException`, with a message of the form
 `Error on executing remote operation ... (cause:<class> detail:<message>)`.
 
+_(Since v26.12.1.)_ An error answer whose body is not JSON comes from a hop in front of the server (an ingress, a load
+balancer, a sidecar), not from the server. The client maps it on its HTTP status, and the message names the status and
+quotes up to 256 characters of the page. A `503` page is a `RemoteIntermediaryRefusalException`, a `NeedRetryException`:
+a read, a `begin` and a replay-protected command are retried on it. Because the hop may have forwarded the request
+before it answered, a command that may write and cannot be replayed safely, a streamed write, a time-series write and a
+`commit` are not sent again. A `commit` refused this way raises a `TransactionException` saying the commit may have been
+applied, and the transaction is not rolled back: read the data back before retrying. Before v26.12.1 such a page raised
+a bare `JSONException` with the status lost.
+
 _(Since v26.11.1.)_ `getType()` answers the record's type on a mutable remote record too (`newDocument()`,
 `newVertex()`, `modify()`), as it does on a record read from the server, instead of throwing
 `UnsupportedOperationException`. `toMap()` and `toJSON()` of a remote edge include `@in` and `@out`, as an embedded edge
@@ -213,6 +222,15 @@ If the transaction fails because another client modified the same records, it is
 The same happens when the server refuses the transaction before running it: the `503` a node answers while it installs a snapshot, a leader change, or a `begin` whose connection could not be established. Each retry waits first, with the exponential backoff the embedded `transaction()` uses (`arcadedb.txRetryDelayBase` doubling up to `arcadedb.txRetryDelay`), and when the refusal carries a `Retry-After` header the retry waits at least that long, up to `arcadedb.network.retryAfterMaxWait` (30 seconds by default). A duplicated key is retried only once, since failing twice means the duplicate is genuine. A commit the server answered with an error also releases the server-side session right away instead of leaving it to the session timeout. _(Since v26.10.1: before, the retries ran back to back, so a node installing a snapshot used up the whole budget within milliseconds.)_
 
 A commit whose connection drops after the request was sent is different: the server may already have applied it. Over gRPC such a commit (status `UNAVAILABLE` with no error from the server) raises a `TransactionException` and is *not* retried, so the work is never applied twice. Read the data back to find out whether the commit landed. _(Since v26.10.1: before, it was reported as a retryable conflict.)_
+
+_(Since v26.12.1.)_ When a commit fails, the records created in the transaction keep the RIDs the server assigned to
+them, unless the failure proves nothing was applied: a retryable refusal from the server, a duplicated key, a
+connection that was never established, or the gRPC server answering that it did not commit. Only then are the RIDs
+reset, so saving the same objects again inserts them. After any other failure (a replication timeout, a `503` page
+from a proxy, a connection lost after the request was sent, a `409` saying the transaction was committed remotely)
+the records keep their RIDs, and saving them again updates those RIDs. If the commit did not land, that save fails
+with a `RecordNotFoundException` instead of silently inserting a duplicate. This applies to `RemoteDatabase` and
+`RemoteGrpcDatabase` (issue #11541).
 
 _(Since v26.10.2.)_ The gRPC client draws the same line for the other writes whose answer can be lost. A bare
 `UNAVAILABLE` (no error class from the server, and not a failure to connect) on an admin write of `RemoteGrpcServer`
