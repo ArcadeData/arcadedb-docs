@@ -23,6 +23,17 @@ PAGES = NAV_DIR / "pages"
 PDF_DIR = REPO / "docs" / "pdf"
 PDF_PAGES = PDF_DIR / "pages"  # stripped page copies for the PDF aggregator
 
+VERSION_FILE = REPO / "src" / "main" / "asciidoc" / "version.adoc"
+
+
+def read_revnumber() -> str:
+    """The current release, from version.adoc (the one place it is set)."""
+    m = re.search(r"^:revnumber:\s*(\S+)\s*$", VERSION_FILE.read_text(encoding="utf-8"), re.M)
+    if not m:
+        sys.exit(f"no :revnumber: line in {VERSION_FILE}")
+    return m.group(1)
+
+
 NAV_FILES = ["nav.adoc", "nav-query.adoc"]
 
 XREF_RE = re.compile(r"xref:([^\[\s#]+\.adoc)(?:#[^\[\s]+)?\[([^\]]*)\]")
@@ -101,7 +112,7 @@ def main() -> int:
 
     out: list[str] = [
         "= ArcadeDB Manual",
-        ":revnumber: 26.10.2",
+        f":revnumber: {read_revnumber()}",
         ":doctype: book",
         ":imagesdir: ../modules/ROOT/images",
         ":source-highlighter: rouge",

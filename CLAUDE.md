@@ -13,6 +13,8 @@ Two outputs, one source tree:
 - **HTML site (production)** — `docs.arcadedb.com` is the Antora build. The Antora playbook reads from `docs/modules/ROOT/{pages,images}/`, which is **regenerated from `src/main/asciidoc/` on every CI run by `scripts/migrate.sh`** (it wipes and rebuilds the `docs/modules/ROOT/` tree). Deploy workflow: `.github/workflows/cloudflare-deploy.yml` — on every push to `main` it does `npm ci` → `bash scripts/migrate.sh` → `npm run build` → `wrangler pages deploy build/site` to the `arcadedb-docs` Cloudflare Pages project.
 - **PDF (production)** — `ArcadeDB-Manual.pdf` is built by `mvn` from `src/main/asciidoc/` directly. Workflow: `.github/workflows/pdf.yml`.
 
+**Release number**: set the current ArcadeDB release once, in `src/main/asciidoc/version.adoc` (`:revnumber:`). The legacy build includes it, `generate-pdf-manual.py` reads it, and `scripts/sync-revnumber.py` (a `migrate.sh` step) copies it into `docs/antora.yml`. Write install and run snippets as `{revnumber}`; leave historical "since vX" notes as literals.
+
 **Where to edit content**: `src/main/asciidoc/` is the only place to edit. CI runs `scripts/migrate.sh` automatically on push to `main`, so you do **not** need to run it by hand. Only run it locally if you want to preview the Antora site before pushing.
 
 The legacy single-page Asciidoctor HTML build (`mvn generate-resources` → `target/generated-docs/index.html`) still works and is useful for quick local previews of `src/main/asciidoc/` edits, but it is no longer deployed anywhere — `docs.arcadedb.com` is Antora.

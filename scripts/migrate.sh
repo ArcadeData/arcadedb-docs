@@ -26,7 +26,6 @@ echo "==> Copying .adoc tree from $SRC"
 cp -R "$SRC"/tutorials       "$DEST_PAGES"/
 cp -R "$SRC"/use-cases       "$DEST_PAGES"/
 cp -R "$SRC"/concepts        "$DEST_PAGES"/
-cp -R "$SRC"/core-concepts   "$DEST_PAGES"/
 cp -R "$SRC"/how-to          "$DEST_PAGES"/
 cp -R "$SRC"/reference       "$DEST_PAGES"/
 cp -R "$SRC"/tools           "$DEST_PAGES"/
@@ -68,6 +67,9 @@ python3 scripts/add-descriptions.py
 
 echo "==> Generating nav.adoc"
 python3 scripts/generate-nav.py
+
+echo "==> Syncing revnumber into docs/antora.yml"
+python3 scripts/sync-revnumber.py
 
 echo "==> Generating PDF aggregator"
 python3 scripts/generate-pdf-manual.py
