@@ -427,6 +427,10 @@ RETURN p.name AS personName, p.age AS personAge
 MATCH (a:Person)-[r:KNOWS]->(b:Person)
 RETURN *
 
+// All variables plus more items
+MATCH (a:Person)-[r:KNOWS]->(b:Person)
+RETURN *, a.name + ' knows ' + b.name AS sentence
+
 // Return expressions
 MATCH (p:Person)
 RETURN p.name, toUpper(p.city) AS upperCity
@@ -450,6 +454,14 @@ RETURN count(DISTINCT n) AS uniqueCount, sum(DISTINCT n) AS uniqueSum
 // Standalone expressions (no MATCH)
 RETURN abs(-42), sqrt(16), range(1, 5)
 ----
+
+`RETURN *` stands for every variable in scope at the `RETURN`, including the columns a `CALL { ... }` subquery returns
+(also when the subquery itself ends in `RETURN *`). Items written after the star are added to those columns, and the
+query works the same with `DISTINCT` and with aggregations: `RETURN *, count(*) AS c` groups by every variable in scope.
+An item named like one of the star's variables (`RETURN *, b.name AS b`) is refused as a column defined twice, as in
+Neo4j. When the variables in scope are only known at run time (after `CALL ... YIELD *` of a user function, whose output
+no signature declares), the star is resolved while the query runs, and an aggregation over it is refused: list the
+grouping keys explicitly. _(Since v26.12.1; before, the items after the star were dropped.)_
 
 TIP: In a read-only query with `RETURN DISTINCT`, the clauses after the last one that binds a returned variable
 (`MATCH`, `OPTIONAL MATCH`, `UNWIND`, a `WITH` that only passes variables on) can only keep or drop a row. ArcadeDB
