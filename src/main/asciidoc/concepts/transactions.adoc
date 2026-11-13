@@ -119,6 +119,13 @@ database.transaction(() -> {
 Adding or removing edges on a vertex is never refused, and a record kept from an earlier transaction is refreshed as
 before. The check can be disabled with the `txStaleReadCheck` setting _(since v26.10.1)_.
 
+*Reads of a page the transaction has written.* Under `READ_COMMITTED`, once a transaction has written a bucket page, it reads
+that page from its own copy, taken at its first write, so records other transactions committed there afterwards are not seen
+by it. If its commit finds that a record it read that way changed meanwhile (or appeared, for a scan of the page), the commit
+fails with a retryable `ConcurrentModificationException` rather than being merged on the newer page, so nothing decided on a
+stale read is committed. A transaction whose reads of the page are still current commits through the merge
+(see `txPageSlotMerge` in <<arcadedb-settings,Settings>>) _(since v26.12.1; from v26.8.1 such a commit was merged)_.
+
 *Edges to a deleted vertex.* Creating an edge of a `UNIDIRECTIONAL` type to a vertex that another transaction deleted and
 committed meanwhile fails with a retryable `ConcurrentModificationException`, as it already did for bidirectional edges, so
 no edge is left pointing at a deleted vertex. A destination that no longer exists when the edge is created, deleted by a
