@@ -1753,6 +1753,8 @@ ArcadeDB maps Cypher constraints to its native schema features:
 * **IS NODE KEY** / **IS KEY** → Creates a unique index and sets the property as mandatory
 * **IS TYPED `<type>`** → Declares the property's data type in the schema (see <<cypher-is-typed,IS TYPED data types>>)
 
+Only `IS TYPED` declares a type you choose. `IS UNIQUE` leaves an undeclared property undeclared, like <<cypher-create-index-property-types,`CREATE INDEX`>>, so every value keeps the type it is written with. Its index keys such a property by the text of each value, so `2` and `2.0` are one key as Cypher wants, but `2` and `'2'`, or `true` and `'true'`, are one key too: the second of them is refused as a duplicate, where Neo4j accepts both. Declare the type first (`IS TYPED`) when a property must hold values of several kinds that read the same. `IS NOT NULL` and `IS NODE KEY` need a declared property to make it mandatory: on an undeclared property they declare it with the type every stored value shares (for example `LONG` over integers, the widest precision over datetimes), or `STRING` when no record has the property yet. A declared property converts every value written to it, so declare the type yourself first (`IS TYPED`, or SQL `CREATE PROPERTY`) when the inferred one is not the one you want. _(Since v26.12.1)_ Before 26.12.1 `IS UNIQUE` declared the property from the stored values too, so on a label of integers `2.5` was stored as `2` and then refused as a duplicate of the `2` already there.
+
 *Syntax:*
 
 [source,cypher]
@@ -2069,6 +2071,21 @@ Index and constraint names share one namespace, as in Neo4j:
 * `DROP INDEX` of a name no index has raises an error unless `IF EXISTS` is given;
 * the index a `UNIQUE` or `NODE KEY` constraint created is dropped with <<cypher-drop-constraint,`DROP CONSTRAINT`>>: `DROP INDEX` refuses it, since the constraint would stay listed with nothing enforcing it;
 * _(Since v26.12.1)_ `DROP INDEX` of the bucket index of an index (for example `S_0_4559193709411875`, the part of `S[k]` on one bucket) is refused, as in <<sql-drop-index,SQL>>: the index would miss every record of that bucket. Drop the index itself, which drops all its bucket indexes.
+
+[[cypher-create-index-property-types]]
+*Property types:*
+
+As in Neo4j, an index does not constrain the values of a property: `CREATE INDEX` on a property the schema does not declare leaves it undeclared, whether the label already has data or not, and every value keeps the type it is written with (`2.5`, `7`, `'7'`, `date('2024-05-06')` on the same property). The index keys such a property by the text of each value, with one key per number however it is written (`3`, `3.0`, `3.00`), and the query re-checks every row, so `n.x = 7` and `n.x = '7'` each find only their own node. Equality, `IN` and string ranges (`STARTS WITH`, `n.x > 'm'`) go through the index; a numeric or temporal range (`n.x > 10`, `n.ts > datetime(...)`) reads the whole index and filters it, with the right answer but without narrowing the scan.
+
+To keep typed keys, and with them indexed numeric and temporal ranges, declare the type before creating the index:
+
+[source,cypher]
+----
+CREATE CONSTRAINT FOR (p:Person) REQUIRE p.age IS :: INTEGER
+CREATE INDEX FOR (p:Person) ON (p.age)
+----
+
+A declared property converts every value written to it to its type. _(Since v26.12.1)_ Before 26.12.1, `CREATE INDEX` on a label that already held the property declared it with the type of the stored values, so every later write of another kind was converted silently: on a label of integers `2.5` was stored as `2`, `'7'` as the number `7` and a date as epoch milliseconds. A property declared that way by an earlier version stays declared: drop the declaration with SQL `DROP PROPERTY` (after dropping the index) if the values should keep their own types.
 
 [[cypher-create-vector-index]]
 ====== CREATE VECTOR INDEX / CREATE FULLTEXT INDEX
