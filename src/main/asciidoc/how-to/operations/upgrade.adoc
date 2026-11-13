@@ -110,6 +110,15 @@ A failure on a later batch of `iterateType`, `iterateBucket` or `queryStream` ra
 *Action:* catch `SecurityException` for an authentication or permission refusal, and `TimeoutException` for an expired deadline. See <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
+====== 26.12.1 - A vector index whose definition in `schema.json` is invalid is left out at open, alone
+
+When a database opens, the settings of each `LSM_VECTOR` index in `schema.json` are checked with the same rules as `CREATE INDEX` (`pqClusters` at most 256, `maxConnections`, `beamWidth`, `efSearch`, `pqTrainingLimit` at least 1, ...). An index whose definition breaks one is left out: it is not used, queries on its type scan instead, its definition and its file are kept, and a `SEVERE` log line names the index, the invalid value and the fix (issue #11568).
+
+*Impact:* such a definition, typically from a hand-edited or restored `schema.json`, used to be accepted as is, or, for a value already checked at open (an unknown similarity, a negative `rerankOversample`), to stop the schema load half way: the database opened without every index loaded after it, UNIQUE ones included. A left-out UNIQUE index does not enforce its constraint until it is fixed, and the log says so.
+
+*Action:* correct the value in `schema.json` and reopen the database, which brings the index back with its data, or create the index again with `CREATE INDEX`. See <<product-quantization-search,Product Quantization>>.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.
