@@ -123,8 +123,11 @@ before. The check can be disabled with the `txStaleReadCheck` setting _(since v2
 that page from its own copy, taken at its first write, so records other transactions committed there afterwards are not seen
 by it. If its commit finds that a record it read that way changed meanwhile (or appeared, for a scan of the page), the commit
 fails with a retryable `ConcurrentModificationException` rather than being merged on the newer page, so nothing decided on a
-stale read is committed. A transaction whose reads of the page are still current commits through the merge
-(see `txPageSlotMerge` in <<arcadedb-settings,Settings>>) _(since v26.12.1; from v26.8.1 such a commit was merged)_.
+stale read is committed. This covers the edge list of a vertex the transaction added a relationship to: traversing or counting
+that list afterwards, or checking a unique edge type against it, reads the list as it was before what other transactions
+appended to it meanwhile, so the commit is refused if they did. A transaction whose reads of the page are still current
+commits through the merge (see `txPageSlotMerge` in <<arcadedb-settings,Settings>>), and so do relationships added without
+reading the list _(since v26.12.1; from v26.8.1 such a commit was merged)_.
 
 *Edges to a deleted vertex.* Creating an edge of a `UNIDIRECTIONAL` type to a vertex that another transaction deleted and
 committed meanwhile fails with a retryable `ConcurrentModificationException`, as it already did for bidirectional edges, so
