@@ -281,7 +281,19 @@ What changes compared to the previous versions:
 * If the shared flush fails, the commits waiting for it fail and the database is fenced: close and reopen it to run
   recovery.
 * It applies to databases that are not replicated (embedded, or served by a single server) with the default
-  asynchronous page flush. The commits of an HA cluster are not affected.
+  asynchronous page flush. The commits of an HA cluster are not affected, see below.
+
+[[wal-flush-ha]]
+===== WAL flush in an HA cluster
+
+A replicated commit is made durable by the Raft log: a majority of the nodes flushes the entry before the commit
+completes, and a restarted node replays every entry past its last snapshot from that log. Since v26.12.1 the leader
+therefore writes the WAL record of a replicated commit without flushing it, whatever `arcadedb.txWalFlush` says, as the
+other nodes already applied it with no WAL record at all. Before, with `txWalFlush=1` (what production mode sets), the
+leader flushed the record of every commit, one at a time, on the single thread that applies the entries of every database
+of the node, which halved the commit rate of a cluster. The `forcedWALWrites` entry of the transaction manager's
+statistics (`DatabaseInternal.getTransactionManager().getStats()` in Java) counts the commits that flushed their own WAL
+record.
 
 [[wal-files-on-demand]]
 ===== WAL files opened on demand

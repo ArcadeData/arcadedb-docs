@@ -173,10 +173,17 @@ Executes an integrity check and in case of a repair of the database. This comman
 * cached record counters: _since v26.10.1_, the counter `count(*)` answers from is compared against the records the bucket scan
  actually found. See <<sql-check-database-record-counters,Cached record counters>> below.
 
-NOTE: the index check is *structural*: it validates the index's own pages, not that every record of the type appears in the index.
-An index that is intact but incomplete - for example one whose build was interrupted by a crash - is therefore reported as healthy.
-If you suspect that, run <<sql-rebuild-index,`REBUILD INDEX`>> on it: rebuilding re-reads every record and also preserves the index
-configuration.
+* index entries against records: _since v26.12.1_, the entries of every `LSM_TREE` index are compared with the records of its
+ buckets. An entry whose record does not exist (`danglingIndexEntries`), an entry whose record does not hold its key
+ (`staleIndexEntries`) and a key a record holds with no entry (`missingIndexEntries`) are reported, the index is listed under
+ `corruptedIndexes`, `warnings` names the entries and records involved, and `FIX` rebuilds it. Such entries make an indexed query
+ return a row whose value differs from the one asked for (a dangling entry names whatever record reuses its RID later) or miss a
+ row. A healthy index costs one scan of its buckets, shared by all their indexes, and one walk of its entries.
+
+NOTE: `HASH`, `FULL_TEXT`, vector, geospatial and columnar indexes get the *structural* check only: it validates the index's own
+pages, not that every record of the type appears in the index. If you suspect one of them is incomplete - for example its build was
+interrupted by a crash - run <<sql-rebuild-index,`REBUILD INDEX`>> on it: rebuilding re-reads every record and also preserves the
+index configuration.
 
 When a vertex's edge list is unreadable (for example a lost or corrupted chunk of the adjacency linked list), the `FIX` mode does
 not delete anything: every edge record stores its own endpoint identities, so the adjacency list is rebuilt from the surviving edge
@@ -322,6 +329,10 @@ The command returns the integrity check report in one record with the fields:
 | `corruptedIndexes` | names of the indexes the check found damaged on their own, independently of record corruption. The findings are
                        in `warnings`. A `FIX` rebuilds each of them, and they are listed in `rebuiltIndexes` as well.
                        See <<sql-check-database-vector-ids,Vector indexes>> for the `LSM_VECTOR` finding.
+| `danglingIndexEntries` | _since v26.12.1_, entries of an `LSM_TREE` index whose record does not exist.
+| `staleIndexEntries` | _since v26.12.1_, entries of an `LSM_TREE` index whose record does not hold the entry's key (or is in another
+                        bucket).
+| `missingIndexEntries` | _since v26.12.1_, keys records hold that have no entry in their `LSM_TREE` index.
 | `topMissingReferences` | records an edge points at that could not be loaded, each with the number of edges that
                            reference it - the usual shape after vertices were deleted while their edges survived.
                            One line per target rather than per edge, so a single missing vertex referenced by
