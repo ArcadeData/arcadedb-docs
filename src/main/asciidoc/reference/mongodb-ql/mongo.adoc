@@ -242,7 +242,15 @@ Notes:
 * Because MongoDB collections are schemaless, properties that are not yet declared on the type are kept free-form and the index serializes their keys as strings, preserving the stored value type.
 * The sort direction (`1` ascending, `-1` descending) is accepted for compatibility but ignored: ArcadeDB LSM-Tree indexes can be scanned in both directions.
 * Re-creating an existing index is a no-op, matching MongoDB semantics.
-* Specialized index types (`text`, `2dsphere`, `hashed`, ...) are created as standard LSM-Tree indexes on the indexed fields.
+* The supported index options are `key`, `name`, `unique`, `background`, `v` and `ns`; `sparse: false` and `hidden: false` are accepted too, since they ask for MongoDB's default.
+
+_(Since v26.12.1)_ An index the plugin cannot build with the requested semantics is refused instead of being built as a plain index and acknowledged with `ok: 1`:
+
+* any other option, such as `partialFilterExpression`, `expireAfterSeconds` (TTL), `sparse: true`, `hidden: true` or `collation`, is refused with error `67` (`CannotCreateIndex`) naming the option. Partial and TTL indexes are not supported;
+* a key value that is not a non-zero number, such as the specialized index kinds `text`, `hashed`, `2dsphere` and `2d`, or `0`, is refused with error `67` (`CannotCreateIndex`);
+* a specification with no `key` or an empty one, or an `indexes` field that is not an array of documents, is refused with error `9` (`FailedToParse`).
+
+Every specification of a `createIndexes` command is checked before anything is created, so a refused command creates neither the collection nor any of its indexes. In v26.11.1 and earlier these options were accepted and ignored: a partial unique index was enforced on every document and a TTL index never expired anything.
 
 [[mongodb-protocol-running-commands]]
 ===== Listing and terminating running commands
