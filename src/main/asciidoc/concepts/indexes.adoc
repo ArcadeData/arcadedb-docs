@@ -93,7 +93,11 @@ the scan stops at the first rows rather than reading the whole range (see <<cyph
 Over a whole label this holds in both directions when the property is declared `MANDATORY` and `NOTNULL` (the constraint is
 trusted: `ALTER PROPERTY` does not validate vertices written before it), when the only `WHERE` is `x IS NOT NULL`, and for an
 index created with `NULL_STRATEGY INDEX`, whose null keys are read from the end openCypher sorts them at (last ascending,
-first descending). Descending over a nullable property with the default null strategy still scans, because nulls sort first.
+first descending). Over a nullable property with the default null strategy the index holds no null key: ascending, the
+vertices without one follow the index entries, and descending, where nulls sort first, they are found by a scan of the label
+that keeps only them and precede the index entries read from the top (`PROFILE` shows `index order, descending, after null
+keys`). That scan stops at the `LIMIT` when enough vertices lack the key, and otherwise reads the label without sorting it;
+declaring the property `MANDATORY` and `NOTNULL`, or creating the index with `NULL_STRATEGY INDEX`, leaves nothing to scan.
 
 An OpenCypher `WHERE` that is an `OR` of equalities or `IN` lists on indexed properties is answered from the indexes, one
 seek per property with the vertices found by both returned once; with a disjunct on a property that has no index it scans.
