@@ -112,6 +112,14 @@ explicitly with `fileType` (or `documentsFileType` on the `documents` route). _(
 was not recognised, so a one-line array was imported as a CSV file whose header was the whole array, creating nothing
 while reporting success, and a JSON document opening with whitespace was not recognised either.)_
 
+An ArcadeDB export is recognised by its first line, the `"info"` header the exporter writes, whatever the file is named:
+`backup.tgz` imports like `backup.jsonl.tgz`. A JSON source holds one top-level value, so a source with more content
+after its first object or array, such as newline-delimited JSON that is not an ArcadeDB export, is refused rather than
+imported in part; wrap its objects in an array. An ArcadeDB export forced to `fileType = 'json'` is refused naming
+`jsonl`. _(Since v26.12.1, issue #11729: only the `.jsonl` extension recognised an export, so one named `backup.tgz` was
+read as JSON: its header line was imported as one `Document`, every record after it was dropped, and the import reported
+`OK`.)_
+
 Example of loading the Discogs dataset in the database on path "/temp/discogs":
 
 [source,sql]
@@ -164,6 +172,12 @@ Nothing is made durable until you commit, and rolling back discards the imported
 
 In that case `commitEvery` has no effect, since the import commits nothing of its own.
 For large imports prefer letting the import manage its own transaction, so it can commit in batches instead of holding everything in memory until you commit.
+
+Over HTTP, `IMPORT DATABASE` sent to `POST /api/v1/command` runs without the transaction the server otherwise opens around
+every command, so it commits in batches like the console does. Inside a session transaction (`/begin` ... `/commit`), or with
+`"autoCommit": true` in the request, it is added to that transaction as described above. _(Since v26.12.1, issue #11728: the
+transaction the server opened around the command was taken for yours, so the whole import was held in memory until it
+ended and a large one could run the server out of heap; `"autoCommit": false` was the workaround.)_
 
 An import that fails still leaves your transaction alone: it discards only its own pending work and reports the error.
 _(Since v26.10.1: a JSON import committed each record on its own even inside your transaction, so your rollback did
