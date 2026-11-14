@@ -23,7 +23,7 @@ CREATE MATERIALIZED VIEW [IF NOT EXISTS] <name>
 * *`IF NOT EXISTS`* Silently skips creation if a view with the same name already exists, instead of raising an error. See <<sql-if-not-exists-result,here>> for the shape of the result.
 * *`<select-query>`* A SQL `SELECT` statement that defines the data for the view. All source types referenced, including those in subqueries, must exist at creation time.
 * *`REFRESH MANUAL`* (default) The view is only refreshed when triggered explicitly.
-* *`REFRESH INCREMENTAL`* The view is automatically refreshed after each committed transaction that modifies a source type. Every type the query names is a source type, at any depth (top-level `FROM`, subqueries in `FROM`, `WHERE`, projection or `LET`), together with all its subtypes. Refused with an error when the query reads a source that cannot be tracked: a `TRAVERSE`, a `MATCH`, a function call, a bucket, an index, `schema:` metadata, record ids or parameters in `FROM`. See <<refresh-mode-incremental,INCREMENTAL>>.
+* *`REFRESH INCREMENTAL`* The view is automatically refreshed after each committed transaction that modifies a source type. Every type the query names is a source type, at any depth (top-level `FROM`, subqueries in `FROM`, `WHERE`, projection or `LET`), together with all its subtypes. Refused with an error when the query reads a source that cannot be tracked: a `TRAVERSE`, a `MATCH`, a function call, a bucket, an index, `schema:` metadata, record ids or parameters in `FROM`. _(Since v26.12.1)_ A view whose rows map one to one to the records of a single source type is refreshed per record and carries a `_sourceRID` column, see <<refresh-mode-incremental-per-record,per-record views>>. See <<refresh-mode-incremental,INCREMENTAL>>.
 * *`REFRESH EVERY <n> SECOND | MINUTE | HOUR`* The view is refreshed on a schedule at the given interval.
 * *`BUCKETS <n>`* Sets the number of buckets for the backing document type.
 
@@ -95,7 +95,7 @@ ALTER MATERIALIZED VIEW <name>
 
 * *`<name>`* The name of the materialized view to alter.
 * *`REFRESH MANUAL`* Switches the view to manual refresh mode.
-* *`REFRESH INCREMENTAL`* Switches the view to incremental refresh mode (automatic after each relevant commit). Refused with an error when the view's query reads a source that cannot be tracked, as on `CREATE MATERIALIZED VIEW`.
+* *`REFRESH INCREMENTAL`* Switches the view to incremental refresh mode (automatic after each relevant commit). Refused with an error when the view's query reads a source that cannot be tracked, as on `CREATE MATERIALIZED VIEW`. _(Since v26.12.1)_ On a view that qualifies for <<refresh-mode-incremental-per-record,per-record refresh>> and does not have it yet, it also adds the `_sourceRID` column and its index and rewrites every view row once, under the database write lock. If that rewrite fails, the statement reports an error but the view stays switched, in `ERROR`, until the next source commit or a `REFRESH MATERIALIZED VIEW` rebuilds it.
 * *`REFRESH EVERY <n> SECOND | MINUTE | HOUR`* Switches the view to periodic refresh mode at the specified interval.
 
 For more information, see:

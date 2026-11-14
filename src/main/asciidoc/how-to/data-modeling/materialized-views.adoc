@@ -29,11 +29,67 @@ The refresh is:
 
 * *Transactionally safe*: runs after the source transaction commits successfully; rolled-back transactions do not trigger a refresh
 * *Batched per transaction*: multiple record changes in a single transaction result in one refresh, not one per record
-* For *simple queries* (single source type, no aggregates, no `GROUP BY`, no subqueries, no `JOIN`s): performs a full refresh
-* For *complex queries* (aggregates, `GROUP BY`, etc.): also performs a full refresh (per-record incremental optimization is planned for a future release)
+* *Per record* for a view whose rows map one to one to source records (see below): only the rows of the source records the transaction changed are refreshed
+* A *full refresh* for every other view (aggregates, `GROUP BY`, `ORDER BY`, and so on)
 
 If the refresh fails, the view is marked `STALE` and a warning is logged.
 A manual refresh can recover it.
+
+[[refresh-mode-incremental-per-record]]
+*Per-record views.* _(Since v26.12.1)_ A `REFRESH INCREMENTAL` view is maintained per record when its query reads a
+single source type and has no `GROUP BY`, aggregate, `ORDER BY`, `LIMIT`, `SKIP`, `DISTINCT`, `LET`, `UNWIND`,
+`FACETS`, `expand()` or subquery in `FROM`. Each row of such a view then carries a `_sourceRID` column (a LINK to its
+source record, with a UNIQUE index), and a commit re-evaluates only the source records it created, updated or deleted:
+their rows are updated, created or deleted, and the rest of the view is not touched. The cost of the refresh a commit
+owes is proportional to the records it changed, not to the size of the view.
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW UserStats
+  AS SELECT id AS userId,
+            out('HasUploaded').in('Likes').size() AS totalLikes,
+            out('FriendOf').size() AS totalFriendships
+     FROM User
+  REFRESH INCREMENTAL;
+
+SELECT userId, totalLikes, _sourceRID FROM UserStats;
+----
+
+* *Link and edge columns refresh only with their own row.* In the view above, a new `Likes` edge shows in
+  `totalLikes` when that user's `User` record changes, or at the next `REFRESH MATERIALIZED VIEW`, not on every commit
+  to `User` as before v26.12.1. If such a column must stay current, refresh the view on a schedule.
+* *`_sourceRID` is visible to readers* (`SELECT *` returns it). A query that already projects a column named
+  `_sourceRID`, or reads a type that declares a property with that name through `SELECT *`, keeps the full refresh.
+  On a per-record view the name is reserved: a schemaless source record that carries an undeclared `_sourceRID`
+  field, or a property of that name declared after the view was created, does not keep its value in the view. Under
+  `SELECT *` the link to the source record always wins.
+* *Large transactions.* When one transaction changes more source records than
+  `arcadedb.materializedViewPerRecordMaxDelta` (default 10000), the pass rebuilds the whole view instead, on the
+  committing thread, so the committer still reads its own write.
+* *Failures.* A failed per-record pass marks the view `STALE`; the next commit to a source type hands a full rebuild to
+  the background scheduler (`ArcadeDB-MV-Scheduler`), so no commit waits on it, and the view stays `STALE` until it
+  succeeds. A per-record view that is not `VALID` when the database opens is rebuilt the same way, so it retries at
+  every open until a rebuild succeeds.
+* *Upgrading an existing view.* Views created before v26.12.1 keep the full refresh. Run
+  `ALTER MATERIALIZED VIEW <name> REFRESH INCREMENTAL` to upgrade one that qualifies: it adds the `_sourceRID` column
+  and its index and rewrites every row once, so the RIDs of the view rows change. The rewrite runs under the database
+  write lock, so other writers wait for it. If it fails, the `ALTER` reports an error but the view stays switched, in
+  `ERROR`, and the next source commit or a `REFRESH MATERIALIZED VIEW` rebuilds it.
+* *Switching away and back.* `ALTER` to another refresh mode keeps the column, its index and the per-record flag. After
+  switching back to `INCREMENTAL`, run `REFRESH MATERIALIZED VIEW`: the view was not maintained in between.
+
+*Recovery after a crash or a leader change.* Changes a per-record view has not applied yet are held in memory and are
+lost with the process. The view repairs itself with a full rebuild on the background scheduler, and reads `STALE`
+until the rebuild ends:
+
+* on a server outside a cluster, when the database opens after an unclean shutdown, every per-record view is rebuilt
+  (after a clean shutdown only the views that are not `VALID`). A `READ_ONLY` open does not rebuild;
+* in a highly available cluster, a node that becomes leader rebuilds the per-record views of every open database once
+  it has applied all the entries committed before its term. The rebuild writes through the cluster, so the followers
+  receive it.
+
+In a highly available cluster, a database that the new leader opens only after the election (for example after it was
+closed for inactivity) gets the same rebuild when it opens (issue #11555).
 
 *Which types are tracked.* An `INCREMENTAL` view is refreshed when a transaction changes a record of any type its query names, anywhere in the query: the top-level `FROM`, a subquery in `FROM`, and a subquery in `WHERE`, in the projection or in `LET`, at any depth. Each of these types is tracked together with all its subtypes, including subtypes created after the view. They are listed in the `sourceTypes` column of `schema:materializedViews`, and `DROP TYPE` on any of them is refused while the view exists.
 
@@ -178,7 +234,7 @@ view.getQuery();            // the defining SQL query
 view.getRefreshMode();      // MaterializedViewRefreshMode.PERIODIC
 view.getStatus();           // "VALID", "STALE", "BUILDING", or "ERROR"
 view.getLastRefreshTime();  // epoch millis of last successful refresh
-view.isSimpleQuery();       // true if eligible for per-record optimization
+view.isSimpleQuery();       // true when the query has no aggregate, GROUP BY, or subquery or function in FROM
 view.getSourceTypeNames();  // every type the query names, at any depth
 view.getBackingType();      // the underlying DocumentType
 ----
@@ -205,7 +261,7 @@ view.getBackingType();      // the underlying DocumentType
 
 ===== Limitations
 
-* Per-record incremental refresh (tracking `_sourceRID` to update individual view rows) is a planned future optimization. Currently, all refresh operations perform a full truncate-and-reload.
+* Only `REFRESH INCREMENTAL` views that qualify as <<refresh-mode-incremental-per-record,per-record>> refresh individual rows. Every other refresh (manual, periodic, or an incremental view with aggregates, `GROUP BY`, `ORDER BY` and so on) rebuilds the whole view.
 * No support for cross-database queries in the defining query.
 * Server replication: materialized view data lives in the local backing type and is replicated like any other document type in an HA cluster, but refresh triggering is local to the node that executes the write.
 
