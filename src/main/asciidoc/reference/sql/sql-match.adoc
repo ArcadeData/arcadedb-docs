@@ -370,11 +370,6 @@ ORDER BY noteRid           -- or ORDER BY n.@rid
 
 A bare record attribute such as `ORDER BY @rid` is refused on these rows with an error that suggests the two forms above. With `RETURN $elements` or `$pathElements` the rows are the records themselves, so `ORDER BY @rid` sorts them as expected.
 
-[NOTE]
-====
-Up to version 26.10.1 a bare `ORDER BY @rid` on a `RETURN` projection was accepted and silently ignored: every sort key was null, so the rows came back in pattern order. Queries that relied on it (for example keyset pagination) must switch to `ORDER BY <alias>.@rid` or to a projected column.
-====
-
 *Starting point and indexed functions*
 
 The engine starts the pattern from the node it expects to produce the fewest records. A node bound by `rid:` is the strongest candidate, followed by nodes whose `type:` and `where:` are estimated to be small. Small sets (under 100 records) are loaded upfront. A node filtered by an indexed function that cannot estimate its result, such as `SEARCH_INDEX()` on a full-text index or a geospatial predicate, is still preferred over a scan of a large type, but its records are streamed, never loaded upfront, so a `LIMIT` stops the pattern early instead of waiting for the whole index result.
@@ -387,7 +382,7 @@ When running these queries, you can use any of the following context variables:
 [%header,cols=2]
 |===
 | Variable | Description
-|`$matched`| Gives the current partial match: a record whose attributes are the aliases matched so far, so `$matched.<alias>` is the record bound to that alias and `$matched.<alias>.<property>` one of its properties. You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value. A `where:` that reads another alias through `$matched` is evaluated once that alias is bound, whether the two nodes are connected by a path or belong to different comma-separated patterns: in the latter case the pattern reading the alias runs once per match of the pattern binding it, which correlates the two patterns by property (v26.10.1).
+|`$matched`| Gives the current partial match: a record whose attributes are the aliases matched so far, so `$matched.<alias>` is the record bound to that alias and `$matched.<alias>.<property>` one of its properties. You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value. A `where:` that reads another alias through `$matched` is evaluated once that alias is bound, whether the two nodes are connected by a path or belong to different comma-separated patterns: in the latter case the pattern reading the alias runs once per match of the pattern binding it, which correlates the two patterns by property.
 |`$currentMatch`| Gives the current complete node during the match.
 |`$depth`| Gives the traversal depth, following a single path item where a `while:` condition is defined.
 |===

@@ -382,7 +382,7 @@ COPY (SELECT FROM Person) TO STDOUT CSV HEADER DELIMITER ';' NULL 'nil'
 The query in parentheses runs as it stands, in the session's query language (so a `{cypher}` prefix applies to it),
 and a type name with an optional column list stands for the equivalent `SELECT`. Quote the name if it is not a
 plain identifier - `COPY "My Type" TO STDOUT` - and any character is allowed in it, backslashes and backticks
-included (fixed in 26.10.1: such a name used to be misread or refused). The rows travel in PostgreSQL's
+included. The rows travel in PostgreSQL's
 own `text`, `csv` or `binary` COPY encoding, so anything that reads a PostgreSQL COPY stream reads them: `psql`'s
 `\copy` (`\copy (SELECT FROM Person) TO 'people.csv' CSV HEADER`), pgjdbc's `CopyManager`, pandas, and the Apache
 Arrow ADBC PostgreSQL driver, which reads every result set through `COPY ... TO STDOUT (FORMAT binary)` by
@@ -424,26 +424,23 @@ project it as a string.
 
 A column's advertised PostgreSQL type must not depend on whether the query happens to return any rows - a
 client that prepares a statement against an empty result (or a schema-discovery `DESCRIBE`) and later
-re-executes it against a populated one would otherwise see the column's type change under it. As of _v26.9.1_
-this holds for every type ArcadeDB maps onto a native PostgreSQL OID:
+re-executes it against a populated one would otherwise see the column's type change under it. This holds for every type ArcadeDB maps onto a native PostgreSQL OID:
 
 - `BINARY` is announced as `bytea` (with the standard `\x<hex>` text encoding), so
-  `ResultSet.getBytes()`/`PreparedStatement.setBytes()` round-trip it as raw bytes, rather than the lossy
-  `varchar`/`"char"[]` answers used before _v26.9.1_. _Since v26.11.1_, a `LIST OF BINARY` is announced as
+  `ResultSet.getBytes()`/`PreparedStatement.setBytes()` round-trip it as raw bytes, rather than lossy
+  `varchar`/`"char"[]` answers. _Since v26.11.1_, a `LIST OF BINARY` is announced as
   `bytea[]` (`_bytea`) whatever rows a query returns, and each element is sent as its bytes, so
   `ResultSet.getArray()` returns a `byte[][]`. Before, it was announced as `text[]`, `json` or `varchar` depending on
   the rows, and its elements were sent as JSON arrays of numbers.
 - `DECIMAL` is announced as `numeric` (OID 1700), with a real binary encoder/decoder, rather than the lossy
-  `double precision` or the text-only `varchar` used before _v26.9.1_ - `ResultSet.getBigDecimal()` round-trips
+  `double precision` or the text-only `varchar`: `ResultSet.getBigDecimal()` round-trips
   the full precision. A `NUMERIC` value is capped at 16,000 total decimal digits (well under PostgreSQL's own
   limit of 131,072 integer / 16,383 fractional digits), because ArcadeDB's `DECIMAL` type has no configured
   precision or scale limit of its own; a value beyond this cap is declined with an error rather than accepted
   and silently truncated.
 - `SHORT` and `BYTE` are announced as `int2` (`smallint`), matching the declared schema type, rather than
-  widening to `int4` (`integer`) as they did before _v26.9.1_.
-- `DATE` is announced as `date`. Before _v26.9.1_, a `DATE` property's value on a database left at its default
-  configuration (`arcadedb.dateImplementation=java.time.LocalDate`) was announced as `varchar` for a populated
-  result.
+  widening to `int4` (`integer`).
+- `DATE` is announced as `date`.
 - `DATETIME` is announced as `timestamp`. The one case where a `DATETIME` column's announced type can still
   depend on whether a row was sampled is a database explicitly configured with
   `arcadedb.dateTimeImplementation=java.util.Date` (the default is `java.time.LocalDateTime`): `java.util.Date`
@@ -497,9 +494,7 @@ transaction, send an explicit `BEGIN` ... `COMMIT` (or `ROLLBACK`).
 A client that PIPELINES several statements before waiting for their answers - a JDBC `executeBatch()`, psycopg3
 pipeline mode, asyncpg - groups them differently: everything between two `Sync` messages is one
 transaction, so a batch either lands whole or leaves nothing behind, and the statements after the one that failed
-are not run at all. This is what PostgreSQL does and what `BatchUpdateException` handling assumes. Before 26.10.1
-each statement in such a batch committed on its own, so a failure halfway left the earlier ones persisted; if you
-relied on that, split the batch into separate round trips.
+are not run at all. This is what PostgreSQL does and what `BatchUpdateException` handling assumes.
 
 [[postgres-multi-statement-query]]
 _Since v26.12.1_, a simple query holding several statements separated by `;` runs them all, as PostgreSQL does. This is
@@ -523,9 +518,8 @@ message with no statement at all is the empty query;
 * the extended query protocol takes one statement per `Parse`, as in PostgreSQL: a `Parse` of several statements is
 refused with `42601` (`cannot insert multiple commands into a prepared statement`).
 
-In v26.10.1 to v26.11.1 such a message was run as a single statement and refused as a syntax error (`42601`), which
-kept psqlodbc 16 from connecting. Before v26.10.1 a message starting with `SET` was answered as one `SET` that was
-ignored, and any other message of several statements was a syntax error.
+In v26.11.1 and earlier such a message was run as a single statement and refused as a syntax error (`42601`), which
+kept psqlodbc 16 from connecting.
 
 A transaction-control statement is recognized in every spelling ArcadeDB SQL accepts, not only the
 bare keyword: with a leading or trailing comment (as added by sqlcommenter, OpenTelemetry or connection-pool routing
@@ -544,14 +538,12 @@ Since v26.10.2 PostgreSQL's own transaction-control spellings are accepted too, 
 `ISOLATION LEVEL READ COMMITTED` and `READ UNCOMMITTED` open a `READ_COMMITTED` transaction (in PostgreSQL too
 `READ UNCOMMITTED` behaves as `READ COMMITTED`), and `REPEATABLE READ` a `REPEATABLE_READ` one. What this server cannot
 honor is refused with SQLSTATE `0A000` (feature not supported) instead of a syntax error: `ISOLATION LEVEL SERIALIZABLE`,
-`READ ONLY`, and `COMMIT AND CHAIN` / `ROLLBACK AND CHAIN`. In v26.10.1 and earlier only ArcadeDB's SQL spellings above
-were recognized.
+`READ ONLY`, and `COMMIT AND CHAIN` / `ROLLBACK AND CHAIN`.
 
 [[postgres-savepoints]]
 Savepoints are not supported. `SAVEPOINT <name>` and `RELEASE [SAVEPOINT] <name>` are accepted and do nothing, but
 `ROLLBACK TO [SAVEPOINT] <name>` is refused with SQLSTATE `0A000` (feature not supported) and the transaction is
-marked aborted, so the client must `ROLLBACK` it. _(Since v26.10.1; before, `ROLLBACK TO SAVEPOINT` reported success
-while every write made since the savepoint stayed pending and was persisted by the next `COMMIT`.)_ An ORM or driver
+marked aborted, so the client must `ROLLBACK` it. An ORM or driver
 that wraps statements in savepoints (for example a nested `transaction.atomic()` in Django, or psql's `ON_ERROR_ROLLBACK`)
 only works as long as it never rolls back to one.
 

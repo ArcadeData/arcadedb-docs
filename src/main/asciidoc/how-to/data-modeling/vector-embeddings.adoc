@@ -356,7 +356,7 @@ in distance order, so a search never returns a corpus older than the last write.
 buffer, which is what `mutationsBeforeRebuild`, `rebuildGraphRatio` and the inactivity timer between them decide.
 
 A graph build also occasionally leaves a vector with no incoming edges, which no search can reach at any `efSearch`
-however close it is to the query. Those are served from the delta buffer too, and since v26.10.1 the list of them is
+however close it is to the query. Those are served from the delta buffer too, and the list of them is
 stored next to the graph, so they stay findable after a restart. `unreachableGraphNodes` reports how many the current
 graph has, readable straight after a reopen and before the first query:
 
@@ -367,16 +367,7 @@ graph has, readable straight after a reopen and before the first query:
 SELECT unreachableGraphNodes, deltaVectorsCount FROM (SELECT expand(stats) FROM schema:indexes WHERE name = 'Document[embedding]')
 ----
 
-WARNING: Before v26.10.1 that list lived only in the memory of the session that built the graph. After a restart those
-vectors were absent from every search while the index still counted them, and since a query still returned `k` results
-there was nothing to indicate it.
-
-WARNING: Before v26.9.1 this was true of every query *except* a grouped one. Adding `groupBy` routed the search down a
-path that read the graph only, so it answered from the corpus as of the last rebuild while the same query without
-`groupBy`, on the same index at the same instant, returned the newer rows - with no error, no warning and nothing in
-the statistics to say so. On default settings the invisible window was as wide as `rebuildGraphRatio` allows the buffer
-to grow, and stayed open for as long as writes kept arriving. If you worked around this by dropping `groupBy` and
-grouping in the application, that workaround is no longer needed.
+A grouped search (one using `groupBy`) scores the delta buffer and merges it in the same way.
 
 The `groupedSearchesMergingDelta` counter reports how many grouped searches actually took rows out of the buffer:
 
@@ -393,11 +384,11 @@ extra rebuilds cost.
 
 ===== Rebuild Memory and Deferred Rebuilds
 
-A graph rebuild is the most memory-hungry thing a vector index does, and an _online_ rebuild - one triggered by the mutation threshold or the inactivity timer while the index keeps serving queries - is the most expensive kind. The graph being replaced stays resident so searches keep working, and the new build pays for its own working set on top of it (the build cache, the graph under construction, the ordinal map). Measured on a 50,000 x 128 corpus built and rebuilt inside one session, that is roughly 1.7x the peak of building the same index from nothing. It is much less after a reopen, where the graph being replaced is served from pages rather than from the heap: since v26.10.1 the gate measures what that graph actually costs instead of assuming a second copy of it in memory.
+A graph rebuild is the most memory-hungry thing a vector index does, and an _online_ rebuild - one triggered by the mutation threshold or the inactivity timer while the index keeps serving queries - is the most expensive kind. The graph being replaced stays resident so searches keep working, and the new build pays for its own working set on top of it (the build cache, the graph under construction, the ordinal map). Measured on a 50,000 x 128 corpus built and rebuilt inside one session, that is roughly 1.7x the peak of building the same index from nothing. It is much less after a reopen, where the graph being replaced is served from pages rather than from the heap: the gate measures what that graph actually costs instead of assuming a second copy of it in memory.
 
-Two behaviours follow from that, both new in v26.9.1:
+Two behaviours follow from that:
 
-* **The auto-sized search cache budgets against available heap, not total heap.** `searchCacheMaxHeapPercent` is a share of the heap actually free at the time, so a rebuild holding the old graph resident asks for a smaller cache instead of the same one. Previously it was a share of `-Xmx`, which meant a larger heap grew the cache proportionally and a rebuild that did not fit still did not fit after raising it.
+* **The auto-sized search cache budgets against available heap, not total heap.** `searchCacheMaxHeapPercent` is a share of the heap actually free at the time, so a rebuild holding the old graph resident asks for a smaller cache instead of the same one.
 * **A rebuild that will not fit is deferred instead of attempted.** Before starting, the estimated peak is compared against `arcadedb.vectorIndex.rebuildMaxHeapPercent` (default 90) of the available heap. If it does not fit, the cycle is skipped rather than run into an `OutOfMemoryError`. Nothing is lost: the pending vectors remain fully searchable through the in-memory delta buffer, so the cost is a longer brute-force scan per query until a later rebuild succeeds. Since v26.10.2, before deferring, the rebuild first tries to keep the old graph on disk instead of in memory (the persisted copy is read from pages while the new graph builds), which usually makes it fit. Searches are somewhat slower until the new graph is published; this is counted as `residentGraphDemotions` in the index statistics, and a deferral warning is logged only once until a rebuild gets through.
 
 Both sides of that comparison are more accurate, and a large index in a tight heap that used to log deferrals indefinitely may now rebuild:

@@ -22,7 +22,7 @@ The BOLT protocol implementation supports:
 
 ===== Choosing a protocol for low latency
 
-For single-row reads and writes from Python on the same host, a community measurement (ArcadeDB 26.10.1, loopback, one connection) ranked the options as follows, relative to HTTP with a persistent connection (lower is faster):
+For single-row reads and writes from Python on the same host, a community measurement (loopback, one connection) ranked the options as follows, relative to HTTP with a persistent connection (lower is faster):
 
 [%header,cols="2,1"]
 |===
@@ -118,8 +118,6 @@ A BOLT connection can only use the databases its user has access to, as with eve
 * Selecting a database the user has no access to (in the session, `RUN` or `BEGIN`) fails with `Neo.ClientError.Security.Forbidden`. The same error is returned for a database that does not exist, so a user cannot discover which databases the server hosts. The default database is checked the same way.
 * `SHOW DATABASES` lists only the databases the user has access to (plus the virtual `system` entry). _(Since v26.11.1)_ the list includes the databases that are on disk but not open (not opened at startup, or closed for idleness, see <<server-idle-databases,Closing idle databases>>), and the connection that names no database while `arcadedb.bolt.defaultDatabase` is not set picks the first database the user is granted among them too. The first request on such a database opens it.
 * <<cypher-show-indexes,`SHOW INDEXES`>>, <<cypher-show-constraints,`SHOW CONSTRAINTS`>>, `CALL db.labels()`, `db.relationshipTypes()`, `db.propertyKeys()` and `db.schema.visualization()` hide the types the user is not allowed to read.
-
-_(Since v26.10.1; before, these commands were not filtered by the user's permissions.)_
 
 _(Since v26.10.2.)_ The user is checked again on every request, so a user deleted, given a new password or stripped of a database grant after the connection logged in loses access on its next request. See <<server-wire-session-revalidation,User changes on open connections>>.
 
@@ -596,7 +594,7 @@ NOTE: In `production` server mode the message of a `FAILURE` raised by the engin
 
 The routing table's time-to-live is controlled by `arcadedb.bolt.routing.ttl` (default 300 s).
 
-A write that reaches a replica and is refused there, rather than forwarded, fails with `Neo.ClientError.Cluster.NotALeader` _(Since v26.10.2)_. The message ends with the leader's Bolt address when the routing table knows one (`Reconnect to the leader at '<address>' (Bolt address) and retry`), otherwise with its HTTP address. A `neo4j://` driver re-routes on this code by itself; a `bolt://` client, which talks to one node only, has to reconnect to the named leader. During an election, when no leader is known yet, the refusal names nobody and keeps the retryable `Neo.TransientError.Transaction.DeadlockDetected`: retry shortly. In 26.10.1 and earlier every such refusal was answered with `DeadlockDetected` and no address, so a driver retried the same replica. See <<ha-leader-refusal>>.
+A write that reaches a replica and is refused there, rather than forwarded, fails with `Neo.ClientError.Cluster.NotALeader` _(Since v26.10.2)_. The message ends with the leader's Bolt address when the routing table knows one (`Reconnect to the leader at '<address>' (Bolt address) and retry`), otherwise with its HTTP address. A `neo4j://` driver re-routes on this code by itself; a `bolt://` client, which talks to one node only, has to reconnect to the named leader. During an election, when no leader is known yet, the refusal names nobody and keeps the retryable `Neo.TransientError.Transaction.DeadlockDetected`: retry shortly. See <<ha-leader-refusal>>.
 
 [NOTE]
 ====

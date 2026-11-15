@@ -153,7 +153,7 @@ Every other node derived the peer's Raft host plus its *own* HTTP port, so two n
 A declared address reached only the node it was typed on and the leader.
 ====
 
-TIP: Ask *any* node when you want to compare what the nodes understand: every node asks the others, so every node can report each peer's `capabilities`. This is what lets you check "is the rolling upgrade finished" through a Kubernetes Service or a load balancer, neither of which routes you to the leader. _(Since v26.10.1: only the leader asked, so a follower omitted the field for every peer but itself and you had to find the leader first.)_
+TIP: Ask *any* node when you want to compare what the nodes understand: every node asks the others, so every node can report each peer's `capabilities`. This is what lets you check "is the rolling upgrade finished" through a Kubernetes Service or a load balancer, neither of which routes you to the leader.
 
 NOTE: Because every node asks, the probe traffic grows with the square of the cluster size. At normal Raft cluster sizes that is a few small HTTP calls every five seconds; it is worth knowing only if you run an unusually large voter set.
 
@@ -359,9 +359,6 @@ read only, min, max, regexp, custom values, type, hidden, compression and extern
 * the downsampling policy of a TimeSeries type (`ALTER TIMESERIES TYPE ... DOWNSAMPLING POLICY`);
 * the bucket selection strategy of a type (`ALTER TYPE ... BucketSelectionStrategy`).
 
-In 26.10.1 and earlier these changed the leader's schema only: a `MANDATORY` constraint set on one leader, for example,
-was not enforced by the next one after a failover.
-
 Calling one of these setters through the Java API on a follower's database now fails, as every other DDL does, with a
 `ServerIsNotTheLeaderException` (`Changes to the schema must be executed on the leader server`) instead of changing that
 follower alone. Send the statement through SQL instead, which a follower forwards to the leader. `Schema.setZoneId()` now
@@ -410,8 +407,8 @@ warmed in the background, one after the other, after `arcadedb.vectorIndex.warmU
 ===== Renaming a type on a cluster (from v26.10.2)
 
 `ALTER TYPE <name> NAME <new-name>` (and the Java `DocumentType.rename()`) renames the type's files as well as the type:
-its buckets, the files of its indexes and, for a vertex type, its edge buckets. In 26.10.1 and earlier only the leader
-renamed them. Since v26.10.2 the rename replicates with the schema change: the `SCHEMA_ENTRY` names every file that was
+its buckets, the files of its indexes and, for a vertex type, its edge buckets.
+Since v26.10.2 the rename replicates with the schema change: the `SCHEMA_ENTRY` names every file that was
 renamed, and each follower renames the same bucket, index and edge files before it loads the new schema. That load is a
 full one (reason `file_renamed`, see <<ha-schema-full-load>>). Sent to a follower, the statement is forwarded to the
 leader like any other DDL.
@@ -431,7 +428,7 @@ older build replaying the entry cannot apply the rename. Rebuild a node you need
 described for schema deltas below.
 
 [[ha-schema-delta]]
-===== Schema Delta Replication (from v26.10.1)
+===== Schema Delta Replication
 
 By default each `SCHEMA_ENTRY` carries the whole schema document, so on a schema of several megabytes a one-property
 `CREATE PROPERTY` costs megabytes on the leader's CPU, on the wire, in every node's Raft log and in each follower's rewrite of
@@ -443,12 +440,12 @@ becomes leader, an entry shipped in instalments, a compaction entry, or a change
 schema change and its schema would diverge from the leader's without an error. To prevent that, the leader asks every peer
 in the Raft configuration, through `POST /api/v1/cluster/capabilities`, whether it can decode a delta, and ships whole
 documents unless every peer has said yes. A peer that is unknown, unreachable, too old to have the endpoint, or whose
-answer has gone stale counts as no. During a rolling upgrade, deltas start on their own once the last node runs v26.10.1 or
-later.
+answer has gone stale counts as no. During a rolling upgrade, deltas start on their own once the last node runs a version
+that can decode them.
 
 [WARNING]
 ====
-*A rolling downgrade below v26.10.1 is not protected.* The negotiation controls what the leader writes from now on, not
+*A rolling downgrade to a version that predates the delta is not protected.* The negotiation controls what the leader writes from now on, not
 the delta entries already committed to the Raft log. A node restarted on an older build replays those entries with a
 decoder that cannot see the delta, applies empty schema changes and diverges silently. To roll a node back that far,
 rebuild it from a snapshot (reinstall its databases from a current leader and discard its Raft storage) instead of
@@ -468,9 +465,7 @@ through `RaftReplicatedDatabase.getSchemaDeltasShipped()` and `getSchemaDocument
 ===== Database settings (from v26.10.2)
 
 <<sql-alter-database,`ALTER DATABASE`>> and the `set database setting` server command change settings that the database
-keeps in its `configuration.json`. In 26.10.1 and earlier they wrote that file on the node that ran the command only, so
-the followers, and a new leader after a failover, kept the previous value. For `arcadedb.dateImplementation` and
-`arcadedb.dateTimeImplementation` that changed what reads returned, not only how the node was tuned.
+keeps in its `configuration.json`.
 
 Since v26.10.2 a changed setting is replicated as its own Raft entry, and every node, the one that ran the command
 included, applies exactly the keys the entry names. A setting the command did not change keeps each node's own value. The
@@ -586,8 +581,7 @@ The Java driver handles this transparently: `RemoteDatabase.getLastCommitIndex()
 Since v26.10.2 a replica relays such a streamed load to the leader in both directions at once, so a client that sends it to
 a replica receives the leader's `progress` lines while it is still uploading, as it does on the leader. A body that grows
 past `arcadedb.server.httpBodyContentMaxSize` after the leader started answering ends the stream with an `error` line
-carrying status `413` during the upload too. In 26.10.1 and earlier the replica handed back the leader's answer only
-once the whole upload had been sent.
+carrying status `413` during the upload too.
 
 ===== Load Shedding and Backpressure
 
@@ -621,11 +615,11 @@ followers are served at the same time; see <<performance-tuning,Performance Tuni
 A vector index's proximity graph is built by every node on its own, so it is not part of the data the nodes compare or
 share. Since v26.10.2 a snapshot ships the graph file (`.vecgraph`) empty, without its side files, and the follower builds
 and verifies a graph of its own on the first search of each vector index after the install, the way every node does after
-`CREATE INDEX`. That first search pays for one graph build. In 26.10.1 and earlier the follower received the leader's graph
-pages without the manifest that vouches for them and reused them unverified: each such reuse is counted in
+`CREATE INDEX`. That first search pays for one graph build. A follower that installed a snapshot on an earlier version holds the leader's graph
+pages without the manifest that vouches for them and reuses them unverified: each such reuse is counted in
 `unverifiedGraphReuses` in the index's `getStats()` and logged at `WARNING`
-(`Vector index <name> is reusing a persisted graph that carries no manifest ...`). A follower that installed a snapshot
-before upgrading keeps that graph until its next graph persist, a `REBUILD INDEX`, or its next snapshot install.
+(`Vector index <name> is reusing a persisted graph that carries no manifest ...`). Such a follower
+keeps that graph until its next graph persist, a `REBUILD INDEX`, or its next snapshot install.
 
 The leader also *auto-recovers a follower's replication channel* that is wedged on a stale peer address — for example after a Kubernetes pod is rescheduled onto a new IP: it re-resolves the peer and re-establishes the channel on its own, instead of leaving the follower silently disconnected and the cluster at bare quorum until an operator forces a leadership transfer. See <<ha-channel-self-healing,Replication-Channel Self-Healing>>.
 
@@ -724,16 +718,12 @@ address in the text or in a field of its own:
 |MCP |The tool error (`isError: true`, over HTTP `200`) ends with `. The leader is server '<address>'`, appended to the message, or to the production placeholder. See <<mcp-server>>.
 |===
 
-In 26.10.1 and earlier Bolt, MongoDB, PostgreSQL and Redis answered such a refusal as an ordinary write conflict (`Neo.TransientError.Transaction.DeadlockDetected`, `112 WriteConflict`, `40001`, `TRYAGAIN`) without the leader's address, so a client retried the same replica, which refused again. Gremlin Server and MCP answered it without the leader's address too, and in production mode with the bare placeholder.
-
 The address is added after the message is concealed in production mode, so it reaches the client in every mode. A
 refusal raised during an election, when no leader is known yet, names nobody and keeps its retryable answer (`503` over
 HTTP): retry shortly.
 
 NOTE: _(Since v26.10.2.)_ The PostgreSQL extended query protocol, which most drivers use for prepared statements, forwards
 a replica's DDL, and its writes outside an explicit transaction block, to the leader like the simple query protocol does.
-In 26.10.1 and earlier it ran them on the replica, so the same statement could succeed or fail depending on the driver's
-query mode.
 
 [[ha-running-queries]]
 ===== Running statements on a cluster
@@ -778,9 +768,9 @@ The bootstrap protocol handles the following cases automatically:
 * *Different-age peers*: the peer with the highest `lastTxId` is elected as the source. Older peers reinstall the leader-shipped full snapshot; subsequent transactions are picked up by native Raft replication.
 * *Late newer joiner*: a peer with a strictly newer `lastTxId` than the cluster's chosen baseline refuses to start and logs a SEVERE with the recovery procedure. This prevents a misconfigured rolling deploy from silently overwriting newer data with older data.
 * *Cluster restart*: the bootstrap path is gated on every peer's Raft log being empty. After the cluster has committed at least one Raft entry, restarts use the regular Raft log replay or leader-shipped snapshot path; the bootstrap path does not engage, and stale local data on a single pod cannot cause divergence.
-* *Databases created while the cluster forms*: an application that creates and seeds its databases right after the first leader election is not baselined against them. The peer that sourced the baseline is never refused for its own copy advancing past the sampled `lastTxId`, and a baseline committed for a database that already has Raft history on a node is ignored on every node alike, because replication - not bootstrap - keeps those copies in step. _(Since v26.9.1: before, the election could sample a database the leader had just created and then refuse the leader's own copy as "fresher", and the cluster never converged.)_
+* *Databases created while the cluster forms*: an application that creates and seeds its databases right after the first leader election is not baselined against them. The peer that sourced the baseline is never refused for its own copy advancing past the sampled `lastTxId`, and a baseline committed for a database that already has Raft history on a node is ignored on every node alike, because replication - not bootstrap - keeps those copies in step.
 
-While the cluster is deciding which copy to keep, *every* node - the leader included - answers `503` on `/api/v1/ready` and refuses client requests on the databases being decided, then serves normally as soon as the decision is applied. This usually takes seconds; if a peer is unreachable it can last up to `arcadedb.ha.bootstrapTimeoutMs`. _(Since v26.10.1 the leader is held too: before, it served its own copy while collecting, and a write accepted there could stop the cluster from ever agreeing on a baseline.)_
+While the cluster is deciding which copy to keep, *every* node - the leader included - answers `503` on `/api/v1/ready` and refuses client requests on the databases being decided, then serves normally as soon as the decision is applied. This usually takes seconds; if a peer is unreachable it can last up to `arcadedb.ha.bootstrapTimeoutMs`.
 
 The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is visible in the response to `GET /api/v1/cluster` and in the Studio cluster dashboard.
 
@@ -788,7 +778,7 @@ The committed bootstrap baseline (`fingerprint` and `lastTxId` per database) is 
 ===== When a node has stopped for good
 
 Most problems a node reports are temporary: it is catching up, or downloading a snapshot, and it rejoins on its own.
-Two are not, and since v26.10.1 `GET /api/v1/cluster` says so directly:
+Two are not, and `GET /api/v1/cluster` says so directly:
 
 * `criticalHalt` - a replicated change could not be applied, so this node has stopped applying changes altogether. Its databases are frozen at that point and stay there until the node is restarted. If the reason mentions an unknown entry type, a newer node is writing a format this one cannot read: upgrade this node first, or it stops again at the same place.
 * `raftLogFailure` - the node cannot write to its replication log, almost always a full or read-only disk. It recovers by itself once there is room again.
@@ -799,7 +789,7 @@ Both are `null` on a healthy node, and both raise a matching entry in `alerts`. 
 
 NOTE: The full text of the error behind `criticalHalt` and `raftLogFailure` is shown to the `root` user only. Other users see the condition, the position and the time, which is what a monitoring rule needs.
 
-A node in either state answers `503` on `/api/v1/ready`, so Kubernetes takes it out of the Service. _(Since v26.10.1 this no longer depends on `arcadedb.server.readinessRequiresHA`: a node whose replication has stopped is never ready, whatever that setting says.)_
+A node in either state answers `503` on `/api/v1/ready`, so Kubernetes takes it out of the Service. This does not depend on `arcadedb.server.readinessRequiresHA`: a node whose replication has stopped is never ready, whatever that setting says.
 
 [[ha-quarantine]]
 ====== Quarantined databases
@@ -958,15 +948,15 @@ All endpoints require authentication as the `root` user.
 
 |GET
 |`/api/v1/cluster`
-|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by a build predating v26.9.1 while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert, and is listed in `peers[]` with its `httpAddress` like any other peer _(since v26.11.1: it was listed without one)_. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. _(Since v26.10.1: two concurrent add-peer requests for one address under different ids could both commit; the add now refuses the second.)_ _(Since v26.9.1: previously every declared peer was reported as a healthy `FOLLOWER` regardless of the live configuration.)_ Since v26.10.2 the answer also carries `localInPlaceRestarts` (`{"recovered": <n>, "reformatted": <n>}`), `localReplicationPathUnproven` and `localLeaderUnreachableSinceRestart`, see <<ha-in-place-restart>>.
+|Return the current cluster status: current leader, peers and their roles, current term, commit and applied indices, per-follower replication lag, and the `alerts` array. Every peer carries `inConfiguration`: `true` for a member of the live Raft configuration, `false` for a peer that `arcadedb.ha.serverList` declares but the cluster no longer contains (removed with `DELETE /api/v1/cluster/peer/{peerId}`, or dropped by an earlier version while it was down). Such a peer has `role` `NOT_IN_CONFIGURATION` instead of `FOLLOWER`, and the divergence raises the `peers-not-in-configuration` alert (`critical` when the missing peer is the node answering, `warning` otherwise); a member added at runtime but absent from the server list raises the informational `peers-not-in-server-list` alert, and is listed in `peers[]` with its `httpAddress` like any other peer _(since v26.11.1: it was listed without one)_. Two peer ids on one Raft address raise the `peers-share-address` warning: only one process answers there but both ids vote, so remove the extra id with `DELETE /api/v1/cluster/peer/{peerId}`. Of two concurrent add-peer requests for one address under different ids, the second is refused. Since v26.10.2 the answer also carries `localInPlaceRestarts` (`{"recovered": <n>, "reformatted": <n>}`), `localReplicationPathUnproven` and `localLeaderUnreachableSinceRestart`, see <<ha-in-place-restart>>.
 
 |POST
 |`/api/v1/cluster/peer`
-|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>","priority":0}`. The optional `name` is the human-readable display name shown in logs and Studio. The optional `priority` (non-negative integer, default `0`) sets the new peer's leader-election priority the same way a `priority` in `arcadedb.ha.serverList` does - use `0` for a witness that must never become leader, a higher value for a preferred one. The new peer is seeded with the current user list so authentication works immediately. This call adds the named peer to *this* server's cluster; it does not make this server join another one, and an address that resolves to this server is refused with `400`. _(Since v26.10.1: `priority` can be set here too, and adding this server's own address is refused instead of silently doing nothing.)_ A peer that cannot join - it answers a connection but never catches up - is reported after `arcadedb.ha.membershipChangeTimeout` at the latest, and a peer that turns out to belong to a *different* cluster is refused at once, naming `arcadedb.ha.clusterName` as the thing to check. _(Since v26.10.1: the call could run about half a minute past the budget.)_
+|Add a peer to the running cluster. Body: `{"peerId":"<id>","address":"host:raftPort:httpPort","name":"<friendlyName>","priority":0}`. The optional `name` is the human-readable display name shown in logs and Studio. The optional `priority` (non-negative integer, default `0`) sets the new peer's leader-election priority the same way a `priority` in `arcadedb.ha.serverList` does - use `0` for a witness that must never become leader, a higher value for a preferred one. The new peer is seeded with the current user list so authentication works immediately. This call adds the named peer to *this* server's cluster; it does not make this server join another one, and an address that resolves to this server is refused with `400`. A peer that cannot join - it answers a connection but never catches up - is reported after `arcadedb.ha.membershipChangeTimeout` at the latest, and a peer that turns out to belong to a *different* cluster is refused at once, naming `arcadedb.ha.clusterName` as the thing to check.
 
 |DELETE
 |`/api/v1/cluster/peer/{peerId}`
-|Remove a peer from the cluster. The removed node also loses its access to the Raft port, including on Kubernetes, where the headless service keeps publishing a pod's address until the pod itself terminates. _(Since v26.10.1: on Kubernetes the peer was removed from the cluster but its address kept being admitted while its pod was running.)_
+|Remove a peer from the cluster. The removed node also loses its access to the Raft port, including on Kubernetes, where the headless service keeps publishing a pod's address until the pod itself terminates.
 
 |POST
 |`/api/v1/cluster/leader`
@@ -998,7 +988,7 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/accept-copy/{database}`
-|_(Since v26.10.1.)_ Leader only: accept the leader's closed copy of the database, which the last resync could not verify, as the cluster's copy without the other servers' confirmation. The next request that names the database reopens it. A follower answers `400`; a server with no such copy answers `404`. The body is ignored. Every use is logged at `WARNING`. See <<ha-accept-copy,Accepting the leader's unverified copy>>.
+|Leader only: accept the leader's closed copy of the database, which the last resync could not verify, as the cluster's copy without the other servers' confirmation. The next request that names the database reopens it. A follower answers `400`; a server with no such copy answers `404`. The body is ignored. Every use is logged at `WARNING`. See <<ha-accept-copy,Accepting the leader's unverified copy>>.
 
 |GET
 |`/api/v1/ha/snapshot/{database}`
@@ -1076,7 +1066,7 @@ commit can hold different ones, or one can have none. Since v26.10.2 they are le
 (`GET /api/v1/ha/snapshot/{database}/checksums`), so the verify no longer reports them as a divergence on a healthy
 cluster:
 
-* `statistics.json`, and `cached-count.json` from releases before 25.2.1: cached record counts and free-space hints, written
+* `statistics.json`, and `cached-count.json` from earlier releases: cached record counts and free-space hints, written
 when the node last closed the database;
 * `database.lck`, the exclusive-open marker;
 * a Graph Analytical View's persisted CSR (`gav-<view>.csr`) and its contraction-hierarchy orders (`.cchorder`), a cache
@@ -1096,7 +1086,7 @@ Two fields report how far that comparison got:
 [cols="1,4",options="header"]
 |===
 |Field |Meaning
-|`peers[].uncomparedSealedStores` |The peer runs a build older than 26.10.1 and does not report these files, so they were left out of the comparison with it. Present only during a rolling upgrade; the value is how many were skipped.
+|`peers[].uncomparedSealedStores` |The peer runs an older build that does not report these files, so they were left out of the comparison with it. Present only during a rolling upgrade; the value is how many were skipped.
 |`result.incompleteSealedStores`, `peers[].incompleteSealedStores` |A sealed store could not be read, so that side's answer is short of one. The peer is not rolled up as agreeing, and `overallStatus` becomes `VERIFICATION_INCOMPLETE`.
 |===
 
@@ -1140,14 +1130,9 @@ For a security-strict deployment that should reject from the very first connecti
 *Cluster security documents*:: The server users, groups and API tokens are held in `server-users.jsonl`, `server-groups.json` and `server-api-tokens.json`, in the server's `config/` directory.
 They live outside the databases, so a database snapshot does not carry them: they are replicated to the other nodes as their own Raft entries.
 +
-A node is seeded with the current set when it is admitted to the cluster, and, also re-seeds itself when it rejoins one it never left.
-That second case is the one that used to bite on Kubernetes: a pod whose data volume is persistent but whose `config/` directory is not comes back as an existing cluster member, so it is never re-admitted, and before v26.10.1 it was never re-seeded either.
-It came back holding only the users created from its own environment at bootstrap, and rejected logins that worked on every other node.
-A node now asks the leader for the current documents shortly after it first sees one, and again after it receives a snapshot, sending digests of the copies it already holds so that a node already in step costs one HTTP request and no Raft entries.
-+
-_(Since v26.10.1: a rare internal scheduling hiccup while queuing that request could silently drop it, leaving the
-node believing it had already asked when it never had, so it would not try again on its own until it saw another
-leader change or snapshot. This is now fixed, and the request is retried instead of dropped.)_
+A node is seeded with the current set when it is admitted to the cluster, and also re-seeds itself when it rejoins one it never left.
+That second case covers a Kubernetes pod whose data volume is persistent but whose `config/` directory is not: it comes back as an existing cluster member, so it is never re-admitted.
+A node asks the leader for the current documents shortly after it first sees one, and again after it receives a snapshot, sending digests of the copies it already holds so that a node already in step costs one HTTP request and no Raft entries.
 +
 With `arcadedb.server.readinessRequiresHA` on, a node that joined at runtime or was caught up by a snapshot is held NOT READY until its documents converge, for at most `arcadedb.ha.securityConvergenceReadinessTimeout` (30 s by default), so a load balancer does not route logins to it while it still enforces stale credentials. See <<observability-health-security-convergence,security-convergence readiness>>.
 +
@@ -1194,7 +1179,7 @@ One such line is logged per JVM for the whole family of side channels, naming wh
 NOTE: Declaring an HTTPS port that points at the plain HTTP port (e.g. `https:2480`) causes a TLS handshake failure (`Unsupported or unrecognized SSL message`). Always point `https` at the HTTPS listener's port.
 
 [[ha-grpc-mtls]]
-===== mTLS for the Raft gRPC transport (from v26.9.1)
+===== mTLS for the Raft gRPC transport
 
 The <<ha-ssl,previous section>> covers the HTTP side channels. This one covers the *Raft gRPC port* (`arcadedb.ha.raftPort`, default `2434`), which carries AppendEntries, RequestVote, InstallSnapshot and the Ratis admin/client calls.
 
@@ -1462,7 +1447,7 @@ While that marker exists, the database is *not opened by anything*: not the star
 
 The node still starts. HA snapshot recovery runs during startup and either completes the interrupted swap (the download had finished) or rolls it back to the previous copy (it had not); either way it removes the marker, and the database is opened before the server reports itself online. In the normal case the only trace is one INFO line naming the deferred database.
 
-This includes a swap interrupted by a release older than v26.10.1, which recorded no phase: recovery works out from the files whether the new copy was already going in (it finishes the install) or the old copy was still being moved aside (it restores the old database). In the rare case a file of the incoming copy has to be set aside to let the old database open, it is moved to `databases/<name>/.snapshot-orphans/` and a WARNING names it; it is safe to delete once the database is verified.
+This includes a swap interrupted by an earlier release that recorded no phase: recovery works out from the files whether the new copy was already going in (it finishes the install) or the old copy was still being moved aside (it restores the old database). In the rare case a file of the incoming copy has to be set aside to let the old database open, it is moved to `databases/<name>/.snapshot-orphans/` and a WARNING names it; it is safe to delete once the database is verified.
 
 The marker survives startup in two cases:
 
@@ -1492,9 +1477,9 @@ A node that cannot complete the reinstall -- no leader reachable yet, for exampl
 
 ====== Writes on a replica fail with a retry error during a schema change
 
-While the leader runs a schema change (for example `CREATE INDEX` on a large type), or drops or reinstalls a database, it refuses write transactions that other nodes send for that database with a retryable error, and accepts them again as soon as the operation ends. Retry the write; a long index build means retries for as long as it runs. _(Since v26.10.1: those writes were previously accepted and could be applied inconsistently around the schema change.)_
+While the leader runs a schema change (for example `CREATE INDEX` on a large type), or drops or reinstalls a database, it refuses write transactions that other nodes send for that database with a retryable error, and accepts them again as soon as the operation ends. Retry the write; a long index build means retries for as long as it runs.
 
-A write on a replica is also refused with a retryable error when its transaction began before the replica had applied a schema change the leader has already applied (for example a new index), so that it cannot leave a record out of that index. The retry waits for the schema change to be applied locally and then succeeds. Callers that do not retry see a `ConcurrentModificationException` during DDL bursts; set transaction retries accordingly. One peer that is older, not yet probed or offline turns this protection off for every writer, and it is best-effort across a leader restart. Set `arcadedb.ha.txSchemaCheck=false` on the writing nodes to switch it off. _(Since v26.10.1.)_
+A write on a replica is also refused with a retryable error when its transaction began before the replica had applied a schema change the leader has already applied (for example a new index), so that it cannot leave a record out of that index. The retry waits for the schema change to be applied locally and then succeeds. Callers that do not retry see a `ConcurrentModificationException` during DDL bursts; set transaction retries accordingly. One peer that is older, not yet probed or offline turns this protection off for every writer, and it is best-effort across a leader restart. Set `arcadedb.ha.txSchemaCheck=false` on the writing nodes to switch it off.
 
 A node whose Raft state machine is closed, or is being restarted in place, refuses every commit at once with a retryable
 `NeedRetryException`: `Database '<name>' cannot commit on this server: its Raft state machine is closed and has not been
@@ -1536,7 +1521,7 @@ Enable detailed HA logging for diagnostics via `arcadedb.ha.logVerbose`:
 [[ha-troubleshooting-missing-md5]]
 ====== Ratis warning: snapshot "has missing MD5 file"
 
-Versions before 26.10.1 log this WARNING on every checkpoint and every restart, more often the longer a node runs:
+Earlier versions log this WARNING on every checkpoint and every restart, more often the longer a node runs:
 
 ----
 Snapshot file SingleFileSnapshotInfo(t:1, i:7293):[.../sm/snapshot.1_7293] has missing MD5 file.

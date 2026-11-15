@@ -109,11 +109,8 @@ columns are in.
 
 [NOTE]
 ====
-Before 26.10.1 the statement had exactly one slot for each clause, in the order timestamp, tags, fields. A builder
-recipe that interleaved them was regrouped when rendered as SQL, so the remote builder could create a type whose
-columns were in a different order than the embedded one - and a JSONL restore of such a type into a remote database
-was refused rather than silently loading the values into the wrong columns. Every statement written against the old
-grammar parses and means exactly what it did.
+A statement written by an earlier version, with one clause of each kind in the order timestamp, tags, fields, parses
+and means exactly what it did.
 ====
 
 ==== Altering a TimeSeries Type
@@ -373,9 +370,7 @@ malformed. So does a `,` separator with nothing after it, in the tags or in the 
 
 [NOTE]
 ====
-Since v26.10.1. Before, a malformed line was only logged and the request answered `204`, and a field missing its value
-at the end of a line was stored as `0.0` instead of rejecting the line. A line cut right after a `,` separator was
-still stored without the entries after the comma until v26.10.2.
+A line cut right after a `,` separator is malformed since v26.10.2.
 ====
 
 _(Since v26.10.2)_ A tag with an empty value (`cpu,host= value=1`) makes the line malformed too, as InfluxDB rejects it
@@ -906,19 +901,15 @@ columns.
 
 [NOTE]
 ====
-Before 26.10.1 a `null` measurement was stored as a real `0.0` on every column type. `AVG` therefore divided by it
-and `MIN` returned the zero instead of the smallest real value; only an explicitly written `NaN` was treated as
-absent. Samples already stored as zero by an earlier version stay zero - they are indistinguishable from a real
-measurement of zero - so this affects data written from 26.10.1 onwards.
+An earlier version stored a `null` measurement as a real `0.0` on every column type. Samples already stored as zero
+that way stay zero after an upgrade - they are indistinguishable from a real measurement of zero.
 ====
 
 [NOTE]
 ====
-Before 26.10.1 `SUM` and `AVG` returned `NaN` for the whole window as soon as one of its samples was `NaN`, and the
-block statistics a sealed block carries recorded that poisoned sum, so the answer stayed `NaN` even for a bucket of
-thousands of real samples. Every sealed block also records the count of real samples per column, which
+Every sealed block records the count of real samples per column, which
 is what lets `AVG` be answered from the block statistics without decompressing the block. Blocks written by an
-earlier version are read as they are: a block whose recorded sum was poisoned is decompressed for every aggregate
+earlier version are read as they are: a block whose recorded sum is `NaN` because one of its samples was `NaN` is decompressed for every aggregate
 but `COUNT`, and the next compaction, downsampling or retention rewrite of the block records both statistics. The
 sealed store format version moved from 0 to 1 for this.
 ====
@@ -932,17 +923,9 @@ returned the rows it had reached and stopped there silently, with no error. Bloc
 have no identity recorded and one is derived from the block itself, so they behave the same way; the next
 compaction, downsampling or retention rewrite records it.
 
-The sealed store format version moved to 2 for this, so a store written by 26.10.1 cannot be opened by an earlier
+The sealed store format version moved to 2 for this, so a store in this format cannot be opened by an earlier
 version - deliberately, since the alternative is an older version reading it as if it held nothing. In a cluster,
 keep every node on the same version.
-====
-
-[NOTE]
-====
-Before 26.9.1 an all-`NaN` window returned an internal placeholder for `MIN`/`MAX` instead -
-`1.7976931348623157E308` from the multi-column aggregation, `+Inf`/`-Inf` from PromQL's
-`min_over_time`/`max_over_time` - and those placeholders were indistinguishable from real measurements. Different
-query paths could also disagree with each other on the same data.
 ====
 
 ===== Which Columns Can Be Aggregated
@@ -967,16 +950,11 @@ the query it simply falls back to the generic aggregation path, so `SELECT ... m
 
 [NOTE]
 ====
-Before 26.10.1 such a request was not refused, it was answered wrongly: the recent samples were read as a column
-of zeros, so `SUM` returned `0` and `AVG` returned `0` over data that had never been measured, and the same query
-failed with a server error once the samples had been compacted.
+`BOOLEAN` fields are stored as numbers, so a `SUM` over a boolean field answers the number of `true` samples,
+before compaction and after it.
 
-The same fix corrected `BOOLEAN` fields, which are stored as numbers but were being read as zero before
-compaction and as their real value afterwards - so a `SUM` over a boolean field could change on its own when
-compaction ran, with no new data. It now answers the number of `true` samples on both.
-
-*When upgrading*: a `BOOLEAN` field on a type created before 26.1 is stored as text rather than as a number, so
-`SUM`/`AVG` over it is now refused rather than silently returning `0`. Recreate the type to aggregate such a
+*When upgrading*: a `BOOLEAN` field on a type created by an early version is stored as text rather than as a number, so
+`SUM`/`AVG` over it is refused. Recreate the type to aggregate such a
 field. `COUNT` is unaffected.
 ====
 
@@ -1027,15 +1005,13 @@ timestamp and `1` onward are the non-`TIMESTAMP` columns in schema order. That i
 position in the schema unless the `TIMESTAMP` column is declared first, which is why the example above converts
 with `TimeSeriesGateway.aggregationRowIndex`.
 
-*When upgrading to 26.10.1*: before this release the two halves of the aggregation engine disagreed about this
-number, so a type whose `TIMESTAMP` column was not declared first answered one value before compaction and
-another after it. Code that passed a schema index must now convert. Nothing will warn you -- the request's shape
+*When upgrading from an earlier version*: code that passed a schema index must convert. Nothing will warn you -- the request's shape
 is unchanged, so such code still compiles and simply aggregates a different column. No change is needed for a
 type whose `TIMESTAMP` column is declared first, and none at all for the SQL, HTTP, Grafana and gRPC surfaces,
 which resolve the column by name.
 
-The single-column `TimeSeriesEngine.aggregate` and `TimeSeriesSealedStore.aggregate` methods, which counted
-columns a third way, were removed in the same release. Use `aggregateMulti` with a one-element list.
+The single-column `TimeSeriesEngine.aggregate` and `TimeSeriesSealedStore.aggregate` methods have been
+removed. Use `aggregateMulti` with a one-element list.
 ====
 
 [[timeseries-query-languages]]
@@ -1495,7 +1471,7 @@ In an HA cluster, TimeSeries data is handled as follows:
 * **Sealed store data** (`.ts.sealed` files) is replicated too, but by its own path: compaction, retention and downsampling run on the leader only, and the rewritten sealed file is shipped to the followers together with the change that clears the matching mutable data. Followers do not compact independently
 * **Reads are consistent after failover**: the engine queries both sealed and mutable layers, so a newly promoted leader returns correct results even before its first compaction cycle
 * **Compaction lag**: a node whose maintenance scheduler has not run yet (default: 60 seconds) serves the same results, just with more of the answer coming from the mutable layer
-* **Backups and snapshots taken on a follower** are consistent. Because the sealed file and the clearing of the mutable data arrive together, a copy taken across that moment used to be able to capture both and restore with duplicated samples; since 26.10.1 the copy waits for the install to finish
+* **Backups and snapshots taken on a follower** are consistent. The sealed file and the clearing of the mutable data arrive together, and a copy taken across that moment waits for the install to finish
 
 [[timeseries-integrity]]
 ==== Integrity Checking
@@ -1561,7 +1537,7 @@ Each of those produces a wrong *answer* rather than an error, which is why nothi
 
 [NOTE]
 ====
-`DEEP` also reports a block written before 26.9.1 whose column holds only `NaN` samples: such a block stored an
+`DEEP` also reports a block written by an earlier version whose column holds only `NaN` samples: such a block stored an
 internal placeholder as its `min`/`max`, and aggregation push-down returns that placeholder as if it were a
 measurement. The check names the column and the remedy - recompacting or downsampling the block rewrites its
 header. Existing data is not corrected until then.

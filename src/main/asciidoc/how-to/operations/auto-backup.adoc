@@ -172,13 +172,6 @@ of every tier, and deletes the backups no tier keeps (the most recent backup is 
 For example, with `hourly: 24`, it keeps one backup per hour for the last 24 hours. Weeks are ISO weeks, starting on
 Monday, so a week that spans a year end is one bucket.
 
-[NOTE]
-====
-Since v26.10.1. Before, a weekly bucket was labelled by calendar year plus ISO week number, so the last days of
-December and the first week of January of the same year shared one bucket and a recent backup could be deleted in
-favor of one a year older.
-====
-
 ====== Per-Database Overrides
 
 The `databases` section allows overriding any default setting for specific databases.
@@ -309,7 +302,7 @@ backups/
 The backup filename format is: `<database>-backup-<YYYYMMDD>-<HHMMSSmmm>.zip`, where the last three digits are
 milliseconds.
 
-NOTE: Before 26.9.1 the name stopped at the second. Archives created by an older version keep their name and are still
+NOTE: Archives created by an older version, whose name stops at the second, keep their name and are still
 listed and rotated normally, so nothing needs to be renamed after an upgrade.
 
 ===== Monitoring
@@ -387,14 +380,10 @@ that exists but cannot be reached or listed fails the command with an error nami
 
 [NOTE]
 ====
-The SQL `BACKUP DATABASE` statement is on this chain too. Before that it read
-`arcadedb.server.backupDirectory` directly, so whenever `config/backup.json` named a different directory the archive
-it wrote landed where `list backups` did not look and `delete backup` and `restore backup` could not reach: invisible
-through the API and never retention-pruned.
-
-As a consequence `BACKUP DATABASE` now fails, rather than quietly writing elsewhere, when the configured directory
+The SQL `BACKUP DATABASE` statement is on this chain too.
+As a consequence `BACKUP DATABASE` fails, rather than quietly writing elsewhere, when the configured directory
 fails the validation above. Embedded databases and remote connections are unaffected: with no server configuration in
-play the statement uses `arcadedb.server.backupDirectory` exactly as before.
+play the statement uses `arcadedb.server.backupDirectory`.
 ====
 
 Retention runs only while the scheduler is enabled: with auto-backup off, an on-demand archive stays on disk until it is

@@ -121,7 +121,7 @@ When a database opens, the settings of each `LSM_VECTOR` index in `schema.json` 
 [discrete]
 ====== 26.12.1 - A `READ_COMMITTED` commit is refused when it read stale records from a page it had written
 
-Once a `READ_COMMITTED` transaction has written a bucket page, it reads that page from its own copy, taken at its first write, which does not show what other transactions committed there afterwards. Since 26.8.1 the commit-time merge (`txPageSlotMerge`, and `arcadedb.graph.edgeAppendMerge` for edge lists) re-applied the transaction's writes on the newer page and the commit succeeded, so a statement decided on those stale reads was committed: an `UPDATE` or `DELETE` that matched none of the rows committed before it ran, a Cypher `MERGE` that created a second node, a relationship `DELETE` that found nothing (issue #11590). Now such a commit fails with a retryable `ConcurrentModificationException`, as it did in 26.7.2. A page whose records the transaction read still hold the same content on the committed page keeps merging, and so do blind inserts and updates.
+Once a `READ_COMMITTED` transaction has written a bucket page, it reads that page from its own copy, taken at its first write, which does not show what other transactions committed there afterwards. The commit-time merge (`txPageSlotMerge`, and `arcadedb.graph.edgeAppendMerge` for edge lists) used to re-apply the transaction's writes on the newer page and the commit succeeded, so a statement decided on those stale reads was committed: an `UPDATE` or `DELETE` that matched none of the rows committed before it ran, a Cypher `MERGE` that created a second node, a relationship `DELETE` that found nothing (issue #11590). Now such a commit fails with a retryable `ConcurrentModificationException`. A page whose records the transaction read still hold the same content on the committed page keeps merging, and so do blind inserts and updates.
 
 *Impact:* a transaction that writes a page and then reads records of the same page that another transaction changed meanwhile can now be refused where it used to commit, and so can a transaction that adds a relationship to a vertex and then traverses or counts that vertex's relationships in the same direction while another transaction adds one there too. `database.transaction(...)` and the other retrying APIs retry it, and the retry reads the committed records. `REPEATABLE_READ` is unchanged.
 
@@ -972,7 +972,7 @@ back.
 
 openCypher used to store `time()`, `localtime()`, zoned `datetime()` and `duration()` values as Strings and guessed the type back from the text, so a String such as `"09:00-17:00"` read back as a time. They are now stored in four new property types, `OFFSET_TIME`, `LOCAL_TIME`, `ZONED_DATETIME` and `DURATION`, and a new database never reinterprets a String (issues #8572, #9462, #9636). A zoned `datetime()` written to a `DATETIME` property is stored as an instant and reads back as the UTC wall clock; before, it kept the local wall clock.
 
-*Impact:* a database written by 26.10.1 or earlier keeps the old reading of undeclared properties until it is migrated, so existing queries keep working after the upgrade. The migration is one-way and converts every String with a temporal shape on an undeclared property, including one meant as text.
+*Impact:* a database written by an earlier version keeps the old reading of undeclared properties until it is migrated, so existing queries keep working after the upgrade. The migration is one-way and converts every String with a temporal shape on an undeclared property, including one meant as text.
 
 *Action:* take a backup, quiesce writers, and run `CALL db.migrateLegacyTemporals() YIELD records, properties` once per database (under HA, on the leader; the user needs `updateDatabaseSettings`). To convert only some properties, declare each with its new type and copy the values through a scratch property instead. See <<cypher-temporal-migration,Migrating Cypher temporals stored as Strings>>.
 
@@ -1062,7 +1062,7 @@ SQL decided whether a statement reads, writes or changes the schema from its top
 
 A named Cypher constraint now records what its `CREATE CONSTRAINT` created, and `DROP CONSTRAINT <name>` removes exactly that; before, it did nothing (issues #9646, #9707). Creating a constraint under a name in use and dropping an unknown name now raise an error, unless `IF NOT EXISTS` or `IF EXISTS` is given.
 
-*Impact:* a named constraint created by 26.10.1 or earlier has no such record, so `DROP CONSTRAINT <name>` raises an error for it.
+*Impact:* a named constraint created by an earlier version has no such record, so `DROP CONSTRAINT <name>` raises an error for it.
 
 *Action:* drop an old constraint by its index name, or through SQL (`DROP INDEX`, `ALTER PROPERTY ... MANDATORY false`). See <<cypher-drop-constraint,`DROP CONSTRAINT`>>.
 
@@ -1185,7 +1185,7 @@ A snapshot install now ships a vector index graph file (`.vecgraph`) empty, and 
 
 *Impact:* the first search on a vector index after a snapshot install, or after a restore whose graph could not be archived, pays one graph build. Archives taken before 26.10.2 restore the old graph unverified (counted in `unverifiedGraphReuses` and logged at `WARNING`).
 
-*Action:* after restoring an archive taken with 26.10.1 or earlier, run `REBUILD INDEX` on its vector indexes. See <<restore,Restore>>.
+*Action:* after restoring an archive taken with an earlier version, run `REBUILD INDEX` on its vector indexes. See <<restore,Restore>>.
 
 [discrete]
 ====== 26.10.2 - A follower's write refusal is a redirect on every protocol
@@ -1267,11 +1267,11 @@ The Docker images are built on `eclipse-temurin:25-alpine` instead of Java 21, w
 *Action:* check custom JVM options against Java 25. To try a custom policy without blocking, set `arcadedb.server.httpContentSecurityPolicyReportOnly=true`. See <<upgrade-docker,Docker / Kubernetes>>.
 
 [discrete]
-====== 26.10.2 - New and rebuilt hash indexes use page layout 3, which 26.10.1 cannot open
+====== 26.10.2 - New and rebuilt hash indexes use page layout 3, which older servers cannot open
 
 A `NOTUNIQUE_HASH` key whose record ids would take more than a quarter of a page now keeps them in a chain of pages of their own, so adding a record to a key costs the same whatever the key already holds (issue #9228). Before, the cost of an insert grew with the record ids the key already held: 49 pages were written per insert into a key with 20,000 of them. Every hash index created or rebuilt by 26.10.2, `UNIQUE_HASH` included, is written at page layout version 3. Hash indexes created by older versions keep working at their layout and move to version 3 only on `REBUILD INDEX`.
 
-*Impact:* none on upgrade. A 26.10.1 server knows layouts 1 and 2 only, and refuses a hash index at layout 3 (see <<downgrade-hash-indexes>>).
+*Impact:* none on upgrade. A server older than 26.10.2 knows layouts 1 and 2 only, and refuses a hash index at layout 3 (see <<downgrade-hash-indexes>>).
 
 *Action:* to get the new layout on an existing `NOTUNIQUE_HASH` index with large keys, run `REBUILD INDEX` on it. See <<index-hash,Hash index>>.
 
@@ -1296,7 +1296,7 @@ A `NeedRetryException` now tells whether retrying on the same server can succeed
 [discrete]
 ====== 26.10.2 - GraphQL introspection reports real types, and Cypher typed constraints keep a property's attributes
 
-* GraphQL introspection of a type with no `.gql` declaration reports `MAP` and untyped `EMBEDDED` as the new `JSON` scalar, `EMBEDDED OF <T>` as an object, `LINK` as `ID`, `DECIMAL` as the new `BigDecimal` scalar and `BINARY` as a list of `Int`; in 26.10.1 and earlier they were all `String`. A sub-selection on a `LINK` property now resolves the linked record (issues #8756, #9467, #9468). See <<graphql-introspection-types,GraphQL type mapping>>.
+* GraphQL introspection of a type with no `.gql` declaration reports `MAP` and untyped `EMBEDDED` as the new `JSON` scalar, `EMBEDDED OF <T>` as an object, `LINK` as `ID`, `DECIMAL` as the new `BigDecimal` scalar and `BINARY` as a list of `Int`; before, they were all `String`. A sub-selection on a `LINK` property now resolves the linked record (issues #8756, #9467, #9468). See <<graphql-introspection-types,GraphQL type mapping>>.
 * `CREATE CONSTRAINT ... REQUIRE n.x IS :: <TYPE>` keeps the property's earlier attributes (`MANDATORY`, `READONLY`, `REGEXP`, `MIN`, `MAX`, `DEFAULT`) instead of dropping them, and checks the records already stored: when one fails, the constraint is refused and the old declaration stays (issue #9304). See <<cypher-is-typed-retype>>.
 
 *Action:* regenerate GraphQL client code built from introspection, and expect a typed constraint over existing data that does not fit to be refused.
@@ -1319,166 +1319,6 @@ A `NeedRetryException` now tells whether retrying on the same server can succeed
 * PostgreSQL: `SERIALIZABLE`, `READ ONLY` and `AND CHAIN` in `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK` are refused with SQLSTATE `0A000` instead of a syntax error (issues #9631, #9753).
 
 *Action:* do not retry a write the client reports as possibly applied without checking its outcome, and branch on the `error` field or the status instead of the `message` text.
-
-[discrete]
-====== 26.10.1 — Sparse-vector top-K scores a window of documents at a time
-
-`vector.sparseNeighbors` on an `LSM_SPARSE_VECTOR` index now scores documents in windows (setting `arcadedb.sparseVectorScoringWindow`, default `16384`). On wide queries this is about twice as fast, and queries no longer wait for a `COMPACT INDEX` or a memtable flush to finish (issues #9200, #9209, #9210).
-
-*Impact:* scores can differ from earlier versions in the last bit, so documents with exactly equal scores may rank in a different order.
-
-*Action:* none. Set `arcadedb.sparseVectorScoringWindow` to `0` to go back to the previous traversal.
-
-[discrete]
-====== 26.10.1 — The remote `ArcadeGraph` connects to the Gremlin port the server is bound to
-
-The remote `ArcadeGraph` client used to connect to Gremlin Server on the fixed port `8182`. It now uses the port the server advertises (`GET /api/v1/server?mode=cluster`, `ports.gremlin`), and falls back to `8182` when the server advertises none (issue #8578).
-
-*Impact:* only a client that reaches Gremlin Server through a port mapping (for example a container or load balancer publishing `8182` to a different internal port), which worked by accident before.
-
-*Action:* set the client setting `arcadedb.gremlin.client.port` to the port the client must connect to.
-
-[discrete]
-====== 26.10.1 — Negative zero equals zero, and a few query results change
-
-`-0.0` is now equal to `0.0` everywhere (SQL and Cypher, `=`, `IN`, ordering, indexed or not), as IEEE 754 and openCypher define it.
-
-*Action:* a HASH index over a `FLOAT` or `DOUBLE` property that already stores `-0.0`, or an LSM index that stored both `-0.0` and `0.0`, should be rebuilt once after upgrading:
-
-[source,sql]
-----
-REBUILD INDEX `Measure[value]`
-----
-
-Other results that change:
-
-* `vector.neighbors`, `vector.sparseNeighbors` and `db.index.vector.queryNodes` on a parent type spec (`Parent[prop]`) now also search the records of its sub-types. Use the sub-type name in the spec to search only that sub-type.
-* A `FLOAT` property is equal to the `DOUBLE` bound that narrows to it, so `<`, `<=`, `>` and `>=` agree with `=` and with an index (`v = 16777217.0` finds `16777216f`, and `v < 16777217.0` no longer does).
-* An integer bound above 2^53 on a `DOUBLE` property, or above 2^24 on a `FLOAT` property, is answered by a scan instead of the index, so the result is exact.
-
-====== 26.10.1 — HASH indexes on a DECIMAL property need one `REBUILD INDEX` after upgrading
-
-A `DECIMAL` keeps the scale it was written with, so `5` and `5.00` are the same number stored two different ways. The `LSM_TREE` index family already treated them as one key; the `HASH` family did not, because it settles key identity on the serialized bytes and the two spell out differently. A `UNIQUE_HASH` index on a `DECIMAL` property therefore accepted both as separate rows, and a lookup for one spelling could not find a row stored under the other. Fixed in 26.10.1 (issue #7767).
-
-*Impact:* any `HASH`/`UNIQUE_HASH`/`NOTUNIQUE_HASH` index on a `DECIMAL` property created before 26.10.1. `LSM_TREE`/`UNIQUE`/`NOTUNIQUE` indexes are unaffected.
-
-*Action:* run `REBUILD INDEX` once, after upgrading, on every HASH index over a `DECIMAL` property:
-
-[source,sql]
-----
-REBUILD INDEX `Invoice[amount]`
-----
-
-Until it is rebuilt, the index file still holds the keys in their original form and lookups stay unreliable. If duplicates slipped in while a `UNIQUE_HASH` constraint was not being enforced, the rebuild reports them as a duplicated key — correct the data, then rebuild again.
-
-[discrete]
-====== 26.10.1 — Case-insensitive HASH indexes need one `REBUILD INDEX` after upgrading
-
-A `HASH`/`UNIQUE_HASH`/`NOTUNIQUE_HASH` index created with `COLLATE CI` did not actually fold case: an existing key and its differently-cased duplicate could both be inserted into a `UNIQUE_HASH` index, and a case-insensitive query answered through such an index could return fewer rows than the same query without an index. Fixed in 26.10.1 (issue #7766).
-
-*Impact:* any `HASH`-family index with `COLLATE CI` created before 26.10.1. `LSM_TREE`/`UNIQUE`/`NOTUNIQUE` indexes with `COLLATE CI` already folded case correctly and are unaffected.
-
-*Action:* run `REBUILD INDEX` once, after upgrading, on every case-insensitive HASH index:
-
-[source,sql]
-----
-REBUILD INDEX `Product[name]`
-----
-
-This rewrites the index with the keys folded correctly. See <<case-insensitive-indexes,Case-insensitive indexes>>.
-
-[discrete]
-====== 26.10.1 - Writes that used to store NULL or a coerced value now fail
-
-A value that the declared property type cannot take is refused with an error naming the property, instead of being stored silently as `NULL` or coerced (issues #8090, #9110). This covers:
-
-* an unparsable datetime string written to a `DATETIME`/`DATE` property (the SQL timestamp form `2024-02-29 13:45:10.123456`, which PostgreSQL clients send, is now parsed instead of being stored as `NULL`);
-* a number that overflows a `LONG`, `FLOAT` or `DOUBLE` property, an empty string written to a number, a fraction written to a `BOOLEAN`, and wrong-typed values written to `DECIMAL`, `DATETIME`, `BINARY` or `LINK` properties;
-* a typed property set from a bare sub-query, for example `UPDATE Order SET id = (SELECT max(id) FROM Order)`, which used to store `NULL` and now fails with `Cannot convert type ArrayList to INTEGER`.
-
-Schemaless properties are unaffected.
-
-*Action:* fix the statements that now fail. For a sub-query, extract the scalar, for example `SET id = (SELECT max(id) AS m FROM Order)[0].m`.
-
-[discrete]
-====== 26.10.1 - A write computed from a stale read is refused
-
-A property write on a record that another transaction changed after the current transaction read it is refused with a retryable `ConcurrentModificationException`, instead of silently overwriting the concurrent change (issue #8610). SQL `UPDATE` and Cypher `SET`/`MERGE`/`REMOVE` are not affected, since they compute their values from the latest data. See <<isolation,Isolation>>.
-
-*Action:* retry the transaction on `ConcurrentModificationException` (the `database.transaction(..., retries)` API does). Set `arcadedb.txStaleReadCheck=false` to restore the previous last-writer-wins behavior.
-
-[discrete]
-====== 26.10.1 - `TRUNCATE TYPE` refuses a vertex or edge type that holds records
-
-The refusal was documented but never fired, so `TRUNCATE TYPE` silently emptied live vertex and edge types (issue #8042).
-
-*Action:* add `UNSAFE` where the truncation is intended. See <<sql-truncate-type,TRUNCATE TYPE>>.
-
-[discrete]
-====== 26.10.1 - Postgres wire: `ROLLBACK TO SAVEPOINT` is refused
-
-It used to answer success while keeping every write made since the savepoint, so the next `COMMIT` persisted them. It now fails with SQLSTATE `0A000` and the transaction must be rolled back. See <<postgres-savepoints,Savepoints>>.
-
-[discrete]
-====== 26.10.1 - Stricter authorization for schema DDL and Gremlin scripting
-
-* `ALTER TYPE` (including the edge-type `lightweight` and `unique` settings) and `REBUILD TYPE` require the `updateSchema` permission (security advisory GHSA-9c7g-grf7-j2r5).
-* Gremlin capabilities that run code or touch files on the host are reserved to `root`: the `groovy` engine (and the `auto` fallback to it) over HTTP, Gremlin Server scripts in a language other than `gremlin-lang`, bytecode that carries a lambda, and the `io()` step on every engine (security advisory GHSA-h2j4-28h8-cj5v). Plain `gremlin-lang` traversals are unchanged. Embedded use without a bound user is unaffected.
-
-*Action:* grant `updateSchema` to the users that manage types, and run Groovy scripts, lambdas and `io()` as `root` or rewrite them as `gremlin-lang` traversals. See <<gremlin-security,Gremlin security>>.
-
-[discrete]
-====== 26.10.1 - API tokens minted over plain HTTP are logged
-
-`POST /api/v1/server/api-tokens` over plain HTTP from a non-loopback peer still works, but logs a WARNING. The new gRPC `CreateApiToken` RPC always requires TLS or a loopback peer. With `arcadedb.server.apiTokenRequireSecureTransport=true` it is refused with `412`, and *the default of that setting is scheduled to change to `true` in 27.1.1*.
-
-*Action:* mint tokens over HTTPS, from localhost, or through a reverse proxy listed in `arcadedb.server.apiTokenTrustedProxies`. See <<http-api-tokens,Create an API token>> and, for the Docker first-run flow on `http://localhost:2480`, <<docker-api-token,Docker>>.
-
-[discrete]
-====== 26.10.1 - HA defaults that changed
-
-[cols="1,1,2",options="header"]
-|===
-|Setting|Before 26.10.1|From 26.10.1
-|`ha.securityConvergenceReadinessTimeout`|no gate|With `server.readinessRequiresHA` on, a node that joined at runtime or installed a snapshot reports NOT READY for up to 30 s until its users, groups and API tokens match the leader's (issues #7819, #8414). `0` disables it.
-|`ha.securityEntryCapabilityGate`|n/a|`true`: creating or changing a group or API token is refused with `409` while any peer is down or still runs an older version, so a rolling upgrade never halts an old node. It succeeds once every node is up on 26.10.1.
-|`ha.txSchemaCheck`|n/a|`true`: a replica transaction prepared before a schema change the leader already applied is refused with a retryable `ConcurrentModificationException`. Expect retries on replicas during DDL.
-|`ha.divergedFollowerRecoveryDurationMs`|shared `ha.staleFollowerRecoveryDurationMs` (60000)|separate window, default 20000. A deployment that raised the old setting to delay the reformat of a diverged follower must raise this one.
-|`ha.grpcMaxConnectionIdleMs`|unbounded|300000: an idle inbound Raft gRPC connection is closed with a GOAWAY and reopened on the next call. `0` restores the old behavior.
-|`ha.jvmPauseCloseThresholdMs`|Ratis closed the Raft division after a 60 s JVM pause|`0`: the division is not closed; a long pause still steps a leader down and the health monitor decides on recovery. Set `60000` to restore the old behavior.
-|===
-
-See <<upgrade-ha-cluster,HA cluster upgrade>> for the rolling-upgrade procedure.
-
-[discrete]
-====== 26.9.1 — Sparse-vector indexes need one `REBUILD INDEX` after upgrading
-
-A partial compaction of an `LSM_SPARSE_VECTOR` index could give the merged segment a position ahead of a segment it had not merged. When that skipped segment held the tombstone for a document an older merged segment still had a live posting for, the delete was overruled and the document reappeared in `vector.sparseNeighbors` results — permanently, because the next full compaction then discarded the tombstone as the loser. The same inversion could restore a stale weight after an update. Fixed in 26.9.1 (issue #6379).
-
-*Impact:* `LSM_SPARSE_VECTOR` indexes on databases created before 26.9.1 that have seen deletes or updates. Upgrading corrects the ordering for every new merge, but a segment already written under the old rule cannot be repaired automatically — the record of where it should have sat is gone.
-
-*How to tell:* the server reports it once per affected index, when the index is opened:
-
-[source]
-----
-Sparse-vector index 'Doc[tokens,weights]' holds 3 segment(s) whose precedence predates the
-recency-epoch fix (issue #6379); a document deleted before those segments were merged may still
-be returned by queries. Run 'REBUILD INDEX Doc[tokens,weights]' once to rewrite them in the
-correct order.
-----
-
-The flag behind that message is stored in the segment and inherited by any later merge, so ordinary write traffic compacting the affected segments away does not silence it. Nothing else distinguishes an affected index: queries succeed and the data looks intact.
-
-*Action:* run once per sparse-vector index, after upgrading:
-
-[source,sql]
-----
-REBUILD INDEX `Doc[tokens,weights]`
-----
-
-This collapses the existing segments into a single correctly ordered segment. Indexes that have only ever been appended to are unaffected, as are databases created on 26.9.1 or later. See <<sparse-vector-search,Sparse Vector Search>>.
-
-*HA rolling upgrade:* the corrected ordering is recorded in the segment file, but reading it correctly requires the fix. During a staged rollout, a node still on the older build that receives a segment merged by an upgraded leader falls back to ordering by segment id and can still return a deleted document, until it is upgraded too. Upgrade every node before running the `REBUILD INDEX` above, and treat sparse-vector query results from a mixed-version cluster as provisional.
 
 [[upgrade-single-server]]
 ===== Single-server upgrade
@@ -1589,7 +1429,7 @@ Recommended rolling upgrade flow (zero downtime, requires quorum at all times):
 
 [NOTE]
 ====
-From 26.10.1, a node that receives replicated TIMESERIES data for a type it does not have -- or for a type that
+A node that receives replicated TIMESERIES data for a type it does not have -- or for a type that
 exists locally but is not a TIMESERIES one -- refuses the entry, which quarantines that database and triggers an
 automatic resync from the leader. Earlier releases logged the problem and carried on, which left the node's copy
 of that type permanently behind the leader's with nothing but a log line to say so.
@@ -1620,31 +1460,31 @@ For Kubernetes specifics (StatefulSet, headless service, init container for pre-
 ==== Downgrade ArcadeDB
 
 In case you need to downgrade to an older version of ArcadeDB, check the binary compatibility between the versions.
-ArcadeDB uses calendar versioning in the format `YY.M.S` (year, month, serial: for example `26.10.1` is the first release of October 2026), with 100% on-disk compatibility for migration of databases up or down between *serial* releases of the same year and month (the `S` in `YY.M.S`).
+ArcadeDB uses calendar versioning in the format `YY.M.S` (year, month, serial: for example `26.12.1` is the first release of December 2026), with 100% on-disk compatibility for migration of databases up or down between *serial* releases of the same year and month (the `S` in `YY.M.S`).
 For downgrades across months the safest path is to export the database with the newer version and re-import it with the older version.
 See <<versioning-policy,Versioning, Compatibility and Deprecation Policy>> for the full compatibility rules.
 
 [[downgrade-ha]]
 ===== Downgrading a node of an HA cluster
 
-A cluster running v26.10.1 or later replicates schema changes in a compact format that earlier builds cannot read.
+A cluster replicates schema changes in a compact format that older builds cannot read.
 Those entries stay in the Raft log, so a node that is restarted on an older build replays them and ends up with a schema that no longer matches the rest of the cluster - silently.
 
-*A node of a cluster that has run v26.10.1 or later must not be rolled back below it by restarting it on its existing Raft log.*
-If you have to go back that far, rebuild the node instead: stop it, delete its `raft-storage-<peerId>/` directory and its `databases/` folder, and start the older build so it rejoins empty and takes a fresh copy from the leader.
+*A node of a cluster must not be rolled back to an older build by restarting it on its existing Raft log.*
+If you have to go back, rebuild the node instead: stop it, delete its `raft-storage-<peerId>/` directory and its `databases/` folder, and start the older build so it rejoins empty and takes a fresh copy from the leader.
 
 NOTE: This applies only to the Raft log, not to your data. Database files themselves keep the usual serial-release compatibility described above.
 
 [[downgrade-hash-indexes]]
-===== Downgrading from 26.10.2 to 26.10.1 with hash indexes
+===== Downgrading from 26.10.2 or later with hash indexes
 
-Since v26.10.2 every hash index (`UNIQUE_HASH` or `NOTUNIQUE_HASH`) that is created or rebuilt is written at page layout version 3, which 26.10.1 does not know.
-A 26.10.1 server refuses such an index with:
+Since v26.10.2 every hash index (`UNIQUE_HASH` or `NOTUNIQUE_HASH`) that is created or rebuilt is written at page layout version 3, which older servers do not know.
+A server that predates this layout refuses such an index with:
 
 ----
 Hash index '<name>' has the page layout version 3, which this server does not support (it knows 1 and 2). It was created by a newer version: open the database with that version, or drop and recreate the index.
 ----
 
-Hash indexes that 26.10.2 opened but did not rebuild keep their older layout and still open on 26.10.1.
-Before going back, drop the hash indexes created or rebuilt by 26.10.2 (the layout version is part of the index file name) and recreate them once the database runs on 26.10.1, or export the database and re-import it.
-Do not open a database holding a hash index created or rebuilt by 26.10.1 or later with a server older than 26.10.1, which does not check the layout version: see <<index-hash,Hash index>>.
+Hash indexes that 26.10.2 opened but did not rebuild keep their older layout and still open on an older server.
+Before going back, drop the hash indexes created or rebuilt by 26.10.2 (the layout version is part of the index file name) and recreate them once the database runs on the older server, or export the database and re-import it.
+Do not open a database holding a hash index created or rebuilt at layout 3 with a server that predates the layout check, because it does not verify the layout version: see <<index-hash,Hash index>>.

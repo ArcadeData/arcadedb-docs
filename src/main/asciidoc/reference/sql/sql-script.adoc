@@ -160,7 +160,7 @@ COMMIT [RETRY <n> [ELSE { <statements> } [AND] (FAIL | CONTINUE)]]
 
 * Without arguments, `COMMIT` simply commits the current transaction.
 * `RETRY <n>` makes the server re-run the whole `BEGIN ... COMMIT` block on a retryable failure, up to `n` times. Retryable failures include `NeedRetryException` (concurrent modification, MVCC conflicts) and transient transaction-lock timeouts. A `DuplicatedKeyException` is retried once, as by the Java API's `db.transaction()`: for example an `UPSERT` that lost a race to a concurrent insert of the same key finds the committed record on the second attempt _(since v26.11.1)_. Between attempts the server waits a random delay capped by `arcadedb.txRetryDelay` (default 100 ms).
-* A refusal that holds on this server until something outside it changes is not retried: an HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader raises its `ServerIsNotTheLeaderException` on the first attempt, without running `ELSE` and without `AND CONTINUE` suppressing it, so the client can send the work to the leader. A refusal raised during an election, which names no leader, is still retried. _(Since v26.10.2)_ In 26.10.1 and earlier such a refusal was retried the full `<n>` times, and the `ELSE` block then ran.
+* A refusal that holds on this server until something outside it changes is not retried: an HA follower that refuses leader-only work (a schema change, a security mutation) and names the leader raises its `ServerIsNotTheLeaderException` on the first attempt, without running `ELSE` and without `AND CONTINUE` suppressing it, so the client can send the work to the leader. A refusal raised during an election, which names no leader, is still retried. _(Since v26.10.2)_
 * `ELSE { ... }` is the fallback block executed when retries are exhausted.
 * `AND FAIL` (the default when `ELSE` is omitted) re-throws the original exception after the fallback runs.
 * `AND CONTINUE` swallows the exception and lets the script keep going.
@@ -179,9 +179,6 @@ only one able to compensate for the part that is already stored. In that case th
 `AND CONTINUE` does not suppress the error either -- `ELSE` statements are written for a block that did nothing,
 and returning an empty result would hide a conflict you need to see. A block that committed nothing before failing
 is still retried the full `<n>` times, as before.
-
-Before 26.10.1 the block was replayed, applying the already stored records a second time on every remaining
-attempt, and the script could still report success.
 ====
 
 Examples:

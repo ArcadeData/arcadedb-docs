@@ -47,8 +47,7 @@ ALTER DATABASE <setting-name> <setting-value>
 * *`&lt;setting-value&gt;`* The new value to set
 
 NOTE: Only *database* settings can be set this way. A setting that belongs to the whole server or to the JVM
-is refused, naming its scope: use `SET SERVER SETTING` for a server setting, or a `-D` JVM property for a JVM one. Before
-v26.10.1 such a value was accepted and saved into the database configuration, where nothing would ever read it back.
+is refused, naming its scope: use `SET SERVER SETTING` for a server setting, or a `-D` JVM property for a JVM one.
 
 NOTE: The value reported back is the one that took effect, which is not always the one you sent: a setting with a valid
 range is corrected to fit. For example `arcadedb.maxPageRAM` is reduced when the page cache asked for is larger than the
@@ -285,8 +284,8 @@ The optional clauses must appear in the order shown above.
  `FIX`: nothing this tier finds is repairable
 * *`COMPRESS`* Optional, if used compresses the database with the check, packing every page to reclaim the space a
  deleted or shrunk record left behind. Independent of `FIX`: while it runs, it also removes any record-table slot
- whose declared size cannot fit the page - a physical-corruption shape it walked past and left in place before
- `26.9.1` - so a database compressed with this release repairs that class of corruption even without `FIX`
+ whose declared size cannot fit the page, so compressing a database repairs that class of physical corruption even
+ without `FIX`
 
 The command returns the integrity check report in one record with the fields:
 
@@ -427,7 +426,7 @@ A record can end up in that state three ways, and only the first is a fault:
 * an openCypher `CREATE`/`MERGE` pattern commits the record before the `SET` that completes it has run - which is what
  makes the standard `MERGE (n:L {id: $id}) SET n.prop = $v` upsert work the way it does in Neo4j - and the process
  dies, or the connection is killed, before the end of the statement;
-* a `RESTORE DOCUMENT`/`VERTEX`/`EDGE` run by a release older than `26.9.1`, which did not apply the schema contract;
+* a `RESTORE DOCUMENT`/`VERTEX`/`EDGE` run by an earlier release, which did not apply the schema contract;
 * a schema change that no existing record was measured against: `ALTER PROPERTY ... MANDATORY TRUE` on a type that
  already holds records, which does not validate them, or renaming a `MANDATORY` property, which relabels the schema
  and leaves every record that predates it carrying the old name. Every one of them becomes a finding while holding
@@ -488,12 +487,12 @@ the two sides of the comparison describe different moments. The same applies to 
 transaction committed into while it was scanning, so running `CHECK DATABASE` on a live node under write load does not
 raise a false alarm.
 
-*Counters written by a release older than 26.10.1*
+*Counters written by an earlier release*
 
-Releases up to and including `26.9.1` could fold a replicated transaction's record-count delta twice when a
+Earlier releases could fold a replicated transaction's record-count delta twice when a
 <<howto-high-availability,Raft>> entry was replayed on a node that had been restarted *cleanly*, which includes every
 rolling upgrade and every Kubernetes pod rotation. Nothing in `statistics.json` says which counters that happened to,
-so `26.10.1` does not trust any of them: the file now carries a format version, counts written without one are
+so none of them is trusted: the file carries a format version, counts written without one are
 discarded when the database is opened, and each affected bucket recomputes on its next `+count(*)+`. That is one extra
 bucket scan, once, and the marker is written back on the next clean close. A `WARNING` in the server log says how many
 buckets it applied to, so the first `+count(*)+` that changes after an upgrade is not a mystery.
@@ -593,8 +592,7 @@ EXPORT DATABASE [<url>] [WITH ( <setting-name> = <setting-value> [,] )* ]
   *** *`graphson`* exports in the https://tinkerpop.apache.org/docs/current/dev/io/#graphson[GraphSON] format supported by all the major Graph DBMS
 +
 `graphml` and `graphson` are provided by the optional `arcadedb-gremlin` module. Without it on the classpath the
-export is refused, naming the format and the module. _(Since v26.10.1: a failed `graphml` lookup could fall through
-to the GraphSON exporter and write a GraphSON archive into the file you named `.graphml`.)_
+export is refused, naming the format and the module.
  ** *`overwrite`* Set to `true` to overwrite the export file if it already exists. Default is `false`. The value must be `true` or `false`; any other value is refused. _(Since v26.12.1: `overwrite = false` overwrote an existing file just like `overwrite = true`, because only the name of the setting was read, issue #11523.)_
  ** *`includeTypes`* Comma-separated list of the types to export. Every other type is skipped. Cannot be combined with `excludeTypes`.
  ** *`excludeTypes`* Comma-separated list of the types not to export.
@@ -792,9 +790,5 @@ IMPORT DATABASE file://empty.csv WITH vertices="file://vertices.csv", verticesFi
 The statement returns a single row with a `result` column: `OK` when the import completed, or `FAIL` when the
 source or one of the settings could not be used, in which case a `reason` column explains why. Any other failure
 raises an error.
-
-_(Since v26.10.1: the `FAIL` answer was overwritten with `OK` before it reached the client, so an import of an
-unusable source reported success with no rows and no statistics. Scripts that check `result` now detect these
-failures.)_
 
 See also <<importer,Importer>> for a description of the settings.

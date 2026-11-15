@@ -25,10 +25,8 @@ Located on:
 - **remote**, by specifying `http://` or `https://` in the URL
 - **classpath**, by using `classpath://` as a prefix
 
-_(Since v26.10.1: format detection on a remote (`http://`/`https://`) source could stop reading in the middle of
-the stream on a slow or chunked connection, and guess the file's format from a partial first line. A local file was
-never affected. One consequence of the fix: a remote source that stops sending data without closing the connection
-now makes the import wait rather than fail immediately - there is no read timeout yet.)_
+A remote source that stops sending data without closing the connection makes the import wait rather than fail
+immediately - there is no read timeout yet.
 
 To import one specific entry out of a ZIP archive that contains several, append `:::` and the entry name to the URL:
 
@@ -58,7 +56,7 @@ URLs can be local paths (use `file://`) or from the Internet by using `http://` 
 
 NOTE: For security reasons, importing from an `http://`/`https://` URL refuses by default to reach a local-file, loopback, link-local, or private-network address, including a redirect that lands on one. This protects the server from being made to fetch from internal-only hosts (e.g. a cloud metadata endpoint) via a crafted or hijacked import URL. Running `IMPORT DATABASE` directly (from the console or the SQL API) is gated by `arcadedb.server.security.importBlockLocalNetworks`, which defaults to `true`; set it to `false` on the server if you need to import from such an address (for example, an internal artifact server). The `import database <dbname> <url>` <<http-servercommand,server command>> is gated instead by `arcadedb.server.restoreImportAllowLocalUrls` - the same setting documented for <<restore,restoring a database>> - which must be set to `true` for the equivalent override.
 
-NOTE: the `import:` startup command of `arcadedb.server.defaultDatabases` obeys `arcadedb.server.security.importBlockLocalNetworks` as set on that server. Before v26.10.1 it read the process-wide value instead, so setting the flag on a single server instance did not apply to that server's own boot-time import.
+NOTE: the `import:` startup command of `arcadedb.server.defaultDatabases` obeys `arcadedb.server.security.importBlockLocalNetworks` as set on that server.
 
 Example of loading the Freebase RDF dataset:
 
@@ -82,28 +80,19 @@ Parsed 362000 (54256/sec) - 0 documents (0/sec) - 164118 vertices (5260/sec) - 3
 An RDF source is recognised from the shape of its first statement - `subject predicate object` with an optional
 closing `.` - so quoted literal objects, language tags (`@en`), typed literals (`^^<datatype>`), blank nodes (`+_:b1+`)
 and Windows (CRLF) line endings are all read as RDF, and the character separating the terms is used as the field
-delimiter. _(Since v26.10.1: a file using any of those was analysed as delimited text instead and the import failed
-with a number-parsing error naming an IRI. If a file still cannot be recognised, set the separator explicitly with
-the `delimiter` setting.)_
+delimiter. If a file still cannot be recognised, set the separator explicitly with
+the `delimiter` setting.
 
 Every line of an RDF source is data: unlike CSV, these formats have no header row, so nothing is skipped unless you
 ask for it - with `edgesSkipEntries` on the `edges` route, `verticesSkipEntries` on `vertices`, or
-`documentsSkipEntries` on `documents` and on a plain `url` import. _(Since v26.10.1: the first statement of every
-RDF file was dropped as if it were a header, so N triples produced N-1 edges. If you were passing
-`edgesSkipEntries = 0` to work around that, you can remove it. Also: an RDF file imported through
-`vertices` or `documents` only honoured `edgesSkipEntries`, ignoring the matching option for that route.)_
+`documentsSkipEntries` on `documents` and on a plain `url` import.
 
 If you supply the column names yourself - with `documentsHeader`, `verticesHeader` or `edgesHeader` - the file is
-taken to have no header row, so its first line is imported as data. _(Since v26.10.1: on the `vertices` and `edges`
-routes the first line was dropped regardless, so supplying a header silently cost you one record. If you were
-passing `verticesSkipEntries = 0` or `edgesSkipEntries = 0` together with a header to work around that, you can
-remove it.)_ Setting a `...SkipEntries` option explicitly always wins over both defaults.
+taken to have no header row, so its first line is imported as data.
+Setting a `...SkipEntries` option explicitly always wins over both defaults.
 
 Lines at the top of a source that start with `#` or `//` are treated as comments and ignored, for every format -
-CSV, RDF, XML, JSON and JSONL alike. _(Since v26.10.1: the comment was examined as if it were the first line of
-data, which could make the file be recognised as the wrong format and fail to import. Also: once
-recognised, the comment lines were still handed to the importer for every format except CSV and RDF, and could
-make XML and JSON imports fail.)_
+CSV, RDF, XML, JSON and JSONL alike.
 
 A JSON source is recognised by its first character that is not whitespace: `{` for an object, `[` for an array of
 records. A source whose name ends in `.json` or `.xml` but whose content does not begin like that format is refused,
@@ -180,11 +169,6 @@ transaction the server opened around the command was taken for yours, so the who
 ended and a large one could run the server out of heap; `"autoCommit": false` was the workaround.)_
 
 An import that fails still leaves your transaction alone: it discards only its own pending work and reports the error.
-_(Since v26.10.1: a JSON import committed each record on its own even inside your transaction, so your rollback did
-not take them back. A JSON import whose commit failed could roll your transaction back instead, silently discarding the
-changes you had pending. A failed GraphSON import could leave its own transaction open on top of yours, so your next
-commit published the failed import's partial work and discarded your own. A CSV import as edges or documents whose
-own periodic or final commit failed could similarly leak its own open transaction instead of rolling it back.)_
 _(Since v26.10.2: a GraphML import, or a GraphSON import with RID ids, committed your open transaction, so your
 rollback did not take the imported records back. A standalone GraphML or GraphSON import that failed could leave its
 last batch open on the thread instead of rolling it back.)_
@@ -206,11 +190,8 @@ A row with *more* columns than the header cannot be imported as it stands - the 
 stored under - so by default the import fails, naming the line and both column counts. Set `onRowError` to `skip` to
 have such rows skipped and counted under `errors` instead.
 
-_(Since v26.10.1: a row with more columns used to abort the import with an error naming neither the file nor the line,
-and `onRowError = skip` could not reach it, because the failure happened while the schema was being analysed. A row
-with fewer columns used to abort as well. Note the consequence for large files: `analysisLimitEntries` and
-`analysisLimitBytes` bound only the analysis, so a row with extra columns beyond that window now fails the import
-where it previously imported with the extra values silently dropped.)_
+Note the consequence for large files: `analysisLimitEntries` and
+`analysisLimitBytes` bound only the analysis, so a row with extra columns beyond that window fails the import too.
 
 If the analysis reads only rows it has to refuse, it cannot derive any property and the import fails saying so,
 naming the analysis limit when one is set - widening it is usually the fix.
@@ -266,16 +247,12 @@ setting the importer never read now fails with `Unknown importer setting`. That 
 ====
 
 `parsedRecords` counts every row read from every file of the import, including any header row and any row that was
-skipped. It is therefore normally higher than the number of records created. _(Since v26.10.1: when an import read
-more than one file - for instance `vertices` and `edges` - this counted only the last file's rows for most formats,
-so the same import could report the figure two different ways depending on which file came last.)_
+skipped. It is therefore normally higher than the number of records created.
 
 `skippedRecords` counts rows that were skipped on purpose - by a `*SkipEntries` setting, or by the default header-row
 skip - and `skippedEdges` counts edges that were not created because their `from` or `to` reference did not match
 any vertex. Neither is counted as an error: `parsedRecords` equals `createdDocuments` + `createdVertices` +
-`createdEdges` + `skippedRecords` + `skippedEdges` + `errors`. _(New in v26.10.1: before this, a row missing from the
-created count for either of these two reasons looked identical to a row dropped by `onRowError = skip`, and the
-usual explanation - "the file has a bad row" - was wrong for the first two.)_
+`createdEdges` + `skippedRecords` + `skippedEdges` + `errors`.
 
 Below you can find all the supported settings for the Importer.
 
@@ -288,32 +265,32 @@ Below you can find all the supported settings for the Importer.
 | forceDatabaseCreate|false | If true, the database is created brand new at every import
 | wal | false | Use the WAL (journal) for the importing. If the WAL is enabled the importing process will be much slower and will require much more RAM
 | commitEvery | 5000 | Create transactions that commit every X records
-| onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL and CSV importers. _(Since v26.10.1 it also governs a CSV row with more columns than the header - see <<importer-csv-column-count,CSV rows and the header>>. It does not rescue a source from which the analysis could derive no property at all: that fails either way, since the alternative is an import that completes having produced nothing.)_
+| onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL and CSV importers. It also governs a CSV row with more columns than the header - see <<importer-csv-column-count,CSV rows and the header>>. It does not rescue a source from which the analysis could derive no property at all: that fails either way, since the alternative is an import that completes having produced nothing.
 | parallel| Half of the available cores - 1. If you have 8 cores, the default is 3 | The number of concurrent threads used
-| typeIdProperty| | Property that represents the ID of the vertex. Also used by an RDF/N-Triples source to key its subjects and objects, where it defaults to `id`. _(Since v26.10.1: an explicit value is honoured for RDF too; before, recognising a source as RDF silently replaced it with `id`, and that replacement then applied to the other files of the same import as well)_
+| typeIdProperty| | Property that represents the ID of the vertex. Also used by an RDF/N-Triples source to key its subjects and objects, where it defaults to `id`. An explicit value is honoured for RDF too
 | typeIdUnique| false | True creates a unique index on the type id property, otherwise a non unique index
 | typeIdType| String | Type of the id property
 | trimText| true | True if the imported text is trimmed from heading and tailing spaces
 | maxProperties| 512 | Maximum number of properties per type (CSV)
 | maxPropertySize| 4096 | Maximum size of a property in bytes (CSV)
-| delimiter| `,` | Delimiter used to separate fields  (CSV). When not set, it is auto-detected from the first line for files whose name does not end in `.csv`. A delimiter set explicitly always wins over the detected one; the precedence is the per-entity delimiter (`documentsDelimiter`, `verticesDelimiter`, `edgesDelimiter`), then `delimiter`, then the detected one. Each file of the same import resolves its own delimiter. A delimiter longer than one character is supported _(since v26.10.1; before, the schema analysis used only its first character while the load used the whole string, so values could land under the wrong property names with no error reported)_. An empty delimiter is refused with an error
-| analysisLimitBytes| 100,000| Maximum number of bytes parsed from the source to determine the source file type. _(Since v26.10.1 also applies to XML sources; before it was CSV-only and XML analysis was unbounded)_
-| analysisLimitEntries|10,000 |Maximum number of entries (if applicable) parsed from the source to determine the source file type. _(Since v26.10.1 also applies to XML sources)_
-| parsingLimitBytes| |Maximum number of bytes parsed from the source to be imported. _(Since v26.10.1 enforced on every format; before it had no effect at all)_
-| parsingLimitEntries| |Maximum number of entries imported. _(Since v26.10.1 this is a cap of exactly N entries, enforced on every format; before it only worked on XML, and there it imported N+1)_
+| delimiter| `,` | Delimiter used to separate fields  (CSV). When not set, it is auto-detected from the first line for files whose name does not end in `.csv`. A delimiter set explicitly always wins over the detected one; the precedence is the per-entity delimiter (`documentsDelimiter`, `verticesDelimiter`, `edgesDelimiter`), then `delimiter`, then the detected one. Each file of the same import resolves its own delimiter. A delimiter longer than one character is supported. An empty delimiter is refused with an error
+| analysisLimitBytes| 100,000| Maximum number of bytes parsed from the source to determine the source file type. It also applies to XML sources
+| analysisLimitEntries|10,000 |Maximum number of entries (if applicable) parsed from the source to determine the source file type. It also applies to XML sources
+| parsingLimitBytes| |Maximum number of bytes parsed from the source to be imported. Enforced on every format
+| parsingLimitEntries| |Maximum number of entries imported. This is a cap of exactly N entries, enforced on every format
 | mapping | null |
 | probeOnly | false | Only probe if url is reachable or file path is readable
 | documents| |url of the file to import containing documents only. This is useful when the database is split in separate files
-| documentsFileType| | The format of the file containing documents (csv, json, jsonl, xml, graphml, graphson). `graphml` and `graphson` require the optional `arcadedb-gremlin` module on the classpath; without it the import is refused _(since v26.10.1: it used to be read as generic XML and reported as successful, losing the graph)_
+| documentsFileType| | The format of the file containing documents (csv, json, jsonl, xml, graphml, graphson). `graphml` and `graphson` require the optional `arcadedb-gremlin` module on the classpath; without it the import is refused
 | documentsDelimiter| | Delimiter used to separate documents
-| documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
+| documentsHeader| |Header containing the properties in the CSV document. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data. The names are separated by the delimiter in force, not by a comma
 | documentsSkipEntries| |Number of rows to skip from the documents file. When not set, the first line is skipped as the header for delimited text - unless you supplied `documentsHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | documentPropertiesInclude| `*` | List of property to import from documents. `*` means all
 | documentType| Document| Name of the type defined in the schema when importing documents
 | vertices| |url of the file to import containing vertices only. This is useful when the database is split in separate files
 | verticesFileType| | The format of the file containing vertices (csv, graphml, graphson). See `documentsFileType` for the `arcadedb-gremlin` requirement
 | verticesDelimiter| | Delimiter used to separate vertices
-| verticesHeader| |Header containing the properties in the CSV vertices. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
+| verticesHeader| |Header containing the properties in the CSV vertices. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data. The names are separated by the delimiter in force, not by a comma
 | verticesSkipEntries| |Number of rows to skip from the vertices file. When not set, the first line is skipped as the header for delimited text - unless you supplied `verticesHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | expectedVertices| 0 | Number of vertices expected. This is useful to determine the ETA of the importing process of vertices. 0 means unknown
 | vertexType| Vertex| Name of the type defined in the schema when importing vertices
@@ -321,7 +298,7 @@ Below you can find all the supported settings for the Importer.
 | edges| |url of the file to import containing edges only. This is useful when the database is split in separate files
 | edgesFileType| | The format of the file containing edges (csv, graphml, graphson). See `documentsFileType` for the `arcadedb-gremlin` requirement
 | edgesDelimiter| | Delimiter used to separate edges
-| edgesHeader| |Header containing the properties in the CSV edges. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data _(Since v26.10.1: on the `vertices` and `edges` routes the first line was dropped anyway, silently losing one record)_. The names are separated by the delimiter in force, not by a comma _(since v26.10.1; before, a header for a source using any other delimiter came back as a single column)_
+| edgesHeader| |Header containing the properties in the CSV edges. One property per column. If not defined it is parsed from the first line. When you do define it, the file is assumed to contain no header row, so its first line is imported as data. The names are separated by the delimiter in force, not by a comma
 | edgesSkipEntries| |Number of rows to skip from the edges file. When not set, the first line is skipped as the header for delimited text - unless you supplied `edgesHeader`, in which case nothing is skipped - and nothing is skipped for RDF sources, which have no header row. Setting it explicitly always wins
 | expectedEdges| 0 | Number of edges expected. This is useful to determine the ETA of the importing process of edges. 0 means unknown
 | maxRAMIncomingEdges| 256MB | Maximum RAM used to create edges. The more RAM, the faster.

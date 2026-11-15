@@ -51,11 +51,9 @@ before.
 +
 [NOTE]
 ====
-Up to 26.10.1 a query walking a unidirectional edge type from its target returned no rows and raised no error, and the
-planners could pick that direction on their own for a pattern written from the source. Those patterns
-return every matching edge. Up to 26.10.1 the graph algorithms, path procedures and path-finding functions listed above
-saw a unidirectional edge from its source only, and `refactor.mergeNodes`, `refactor.cloneNodesWithRelationships` and a
-Cypher label change dropped the incoming unidirectional edges of the node; since 26.10.2 they answer and keep both sides.
+Since 26.10.2 the graph algorithms, path procedures and path-finding functions listed above answer both sides of a
+unidirectional edge, and `refactor.mergeNodes`, `refactor.cloneNodesWithRelationships` and a Cypher label change keep
+the incoming unidirectional edges of the node.
 ====
 * *LIGHTWEIGHT* Defines an edge type (only) whose edges are stored inside the two vertices they connect, with no edge record and therefore no properties. Orthogonal to `UNIDIRECTIONAL`. See <<lightweight-edges,Lightweight Edges>>.
 * *UNIQUE* Defines an edge type (only) that allows at most one edge per ordered `(out, in)` pair of vertices. On a regular edge type this creates a unique index on `(@out, @in)`; on a `LIGHTWEIGHT` type there are no records to index and the check scans the source vertex's edge list instead. See <<lightweight-edges,Lightweight Edges>>.
@@ -371,16 +369,13 @@ By default, every type has an associated bucket with the same name. This command
 
 Truncation is not permitted on a vertex or edge type that holds records, but you can force its execution using the `UNSAFE` keyword. Forcing truncation is strongly discouraged, as it can leave the graph in an inconsistent state. With `POLYMORPHIC`, the refusal covers the whole hierarchy below the type, and the error names the type that actually holds the records.
 
-[IMPORTANT]
-====
-*Behaviour change in v26.10.1.* This refusal never actually fired before that release: the check asked whether the type inherited from types named `V` or `E`, which no type ArcadeDB creates does, so `TRUNCATE TYPE` silently emptied live vertex and edge types without the `UNSAFE` its own error message promised to require. It now refuses as documented, which means a statement that used to succeed can start failing. Add `UNSAFE` where the truncation is intended:
+Add `UNSAFE` where the truncation is intended:
 
 ----
 TRUNCATE TYPE Person UNSAFE
 ----
 
-Note that <<sql-truncate-bucket,`TRUNCATE BUCKET`>> has always refused correctly, so the two commands now agree on the same data.
-====
+<<sql-truncate-bucket,`TRUNCATE BUCKET`>> refuses in the same way, so the two commands agree on the same data.
 
 *Syntax*
 
@@ -403,8 +398,6 @@ TRUNCATE TYPE <type> [ POLYMORPHIC ] [ UNSAFE ]
 Over HTTP the request's auto-commit transaction is what makes the command transactional; pass `"autoCommit": false` in the request payload to select the faster, non-undoable path for a bulk clear.
 
 IMPORTANT: *On a TIMESERIES type* (since 26.11.1) the command removes samples, and it never takes part in the transaction it runs in, whatever the paragraphs above say of other types: the samples are gone, durably, when the statement returns, and a `ROLLBACK` does not bring them back (the result carries `transactional: false`, with the `count` of the samples removed). `DELETE FROM` a TIMESERIES type behaves the same way. See <<timeseries-deleting-samples,Deleting Samples>>.
-
-NOTE: Before v26.9.1 the command always took the second path, even inside a transaction - it committed the caller's transaction from the inside, so a `ROLLBACK` after a `TRUNCATE TYPE` recovered at most the records of the last uncommitted batch, and none at all when the type had any index.
 
 NOTE: A <<lightweight-edges,lightweight edge>> type with a subtype is an exception to "ignores sub-types by default": since a lightweight edge has no bucket of its own, the command refuses without `POLYMORPHIC` instead of silently truncating only part of the hierarchy.
 

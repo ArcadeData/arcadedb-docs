@@ -116,9 +116,9 @@ Since 26.11.1 a graph rebuild of a PRODUCT index keeps the PQ codebook while it 
 
 `REBUILD INDEX` always trains a new codebook. PQ training and encoding run on the index's graph-build pool, so `vectorIndex.graphBuildParallelism` bounds the CPU of the whole rebuild; before 26.11.1 PQ training ran on JVector's own default executors. See <<setting-database,the database settings>>.
 
-NOTE: With `rerankOversample: 0`, or `rerank: 0` on a query, the distances returned by a PRODUCT-quantized index are the approximate PQ ones. Before v26.9.1 records written since the last index rebuild were measured exactly while the rest were measured approximately, so two records at the same true distance could come back with different values and the newer one ranked ahead of the older. If you filter on distance with `maxDistance`, your threshold was being applied to two different measurements. All records are now measured the same way.
+NOTE: With `rerankOversample: 0`, or `rerank: 0` on a query, the distances returned by a PRODUCT-quantized index are the approximate PQ ones. All records are measured the same way, whether they were written before or after the last index rebuild.
 
-NOTE: A rebuild replaces the graph and its PQ codes a moment apart. Before v26.10.1 a query landing in between could fail with `Error performing PQ approximate search`, most often on a busy index being rebuilt in the background. Such a query now answers from the exact vectors instead, so it returns normally -- a single query may take longer while the rebuild finishes, and the fast path resumes on its own.
+NOTE: A rebuild replaces the graph and its PQ codes a moment apart. A query landing in between answers from the exact vectors instead, so it returns normally -- a single query may take longer while the rebuild finishes, and the fast path resumes on its own.
 
 .Memory and performance example: 100K vectors with 384 dimensions
 [cols="1,1,1"]
@@ -248,27 +248,22 @@ because vectors were added after it was last built -- and ArcadeDB can verify on
 describes exactly the records it was built from -- the graph is put straight back to work and only the
 missing vectors are searched separately, while the full rebuild runs in the background. Results are complete from
 the first query: a vector written after the last build is found whether it is already in the graph or still
-waiting to be folded into it. This applies to any session, including one that inserts before it searches, which
-before v26.9.1 was the one shape that still paid for a full rebuild on the querying thread.
+waiting to be folded into it. This applies to any session, including one that inserts before it searches.
 ====
 
 [[delete-does-not-force-rebuild]]
 [NOTE]
 ====
-Before v26.10.1, deleting a single vector forced a full graph rebuild on the first query after the next restart,
-however large the index. Updating a vector did the same, because an update is a delete followed by an insert. The
-reason was that what each node of the persisted graph stood for was worked out again on every open, from the list
-of vectors as it then stood -- and a delete shifts that list, so the graph and the list no longer agreed. Several
-large indexes reopening together could therefore rebuild at the same time and exhaust the heap.
+Deleting a vector does not force a graph rebuild on the first query after the next restart, however large the
+index. Neither does updating one, which is a delete followed by an insert.
 
 The graph records what its nodes stand for, in a small file stored beside it, so nothing has to be
-worked out again and nothing has to be rebuilt. A deleted vector becomes a node that searches skip -- which they
-already did correctly while the database stayed open; only restarts were affected. Those skipped nodes are removed
+worked out again on open and nothing has to be rebuilt. A deleted vector becomes a node that searches skip. Those skipped nodes are removed
 later by the ordinary background rebuild, on the schedule and within the memory limits it already uses, rather
 than all at once on whichever query happens to run first.
 
-Existing indexes rebuild once on their first open after the upgrade, write the new file, and are covered from then
-on. Nothing needs to be run by hand. Searches return the same results either way.
+An index created by an earlier version rebuilds once on its first open after the upgrade, writes that file, and is
+covered from then on. Nothing needs to be run by hand. Searches return the same results either way.
 
 Indexes using `PRODUCT` quantization are the exception and still rebuild after a deletion, because their
 compressed vectors are tied to the same node numbering the rebuild reassigns.
@@ -278,11 +273,10 @@ compressed vectors are tied to the same node numbering the rebuild reassigns.
 [NOTE]
 ====
 `vectorIndex.maxConcurrentRebuilds` (1 by default) limits how many vector index graphs are rebuilt at the same
-time anywhere in the JVM, because concurrent rebuilds are what exhaust the heap. Before v26.10.1 that limit
-covered only the rebuilds ArcadeDB started in the background. A rebuild that a *query* had to run itself, because
-the index had no usable graph on disk, ignored it entirely -- and that is the rebuild every index of a database
-runs at once, on the first query to reach each of them after a restart. A cluster that reopened eight large
-indexes this way filled its heap and had its nodes restarted under it.
+time anywhere in the JVM, because concurrent rebuilds are what exhaust the heap. That limit
+covers the rebuilds ArcadeDB starts in the background and also a rebuild that a *query* has to run itself, because
+the index has no usable graph on disk -- and that is the rebuild every index of a database
+runs at once, on the first query to reach each of them after a restart.
 
 Such a query waits its turn like any other rebuild. The first query to need a graph of 1,000
 vectors or more takes one of the `maxConcurrentRebuilds` slots and holds it for the build; the others wait, and
@@ -290,9 +284,8 @@ answer as soon as a slot frees. Smaller indexes are exempt and keep building imm
 threaten the heap and would only be delayed by whatever larger rebuild is running. Before the build starts, the
 page cache is asked to give up whatever heap the build needs, the same way a background rebuild does.
 
-That exemption is itself bounded, from v26.10.1 on. "Too small to matter" describes one rebuild and says nothing
-about how many run at once, so a database of hundreds of small vector indexes reopening together used to start one
-rebuild per index with nothing limiting them. Exempt rebuilds now draw on a shared allowance of 1,000 vectors per
+That exemption is itself bounded. "Too small to matter" describes one rebuild and says nothing
+about how many run at once. Exempt rebuilds draw on a shared allowance of 1,000 vectors per
 `maxConcurrentRebuilds` slot: while the allowance lasts they keep building immediately, and once it is spent the
 next one waits for a slot like a large rebuild, because together they have become one. A thousand indexes of a few
 vectors each therefore still cost nothing, while a handful close to the 1,000-vector line already count. The
@@ -344,22 +337,13 @@ whole situation: there is then nothing to rebuild on the first query.
 [NOTE]
 ====
 A transaction that fails and is rolled back -- most often with a concurrent-modification error, when two
-transactions write the same record -- leaves the vector index exactly as it was. Before v26.10.1 it did not: the
-index had already applied the change in memory by the time the conflict was detected, and the rollback did not
-take it back. The index was then left holding a deletion marker for an embedding that was never replaced, so it
-believed vectors had been deleted and scheduled a full graph rebuild. On a busy index, retried transactions alone
-were enough to cause rebuild after rebuild, with no deletes anywhere in the application.
+transactions write the same record -- leaves the vector index exactly as it was.
 
 Note also that rewriting a vector property with a value identical to the stored one never marks anything deleted:
 ArcadeDB compares the two embeddings and skips the index when they are equal. Avoiding redundant writes in your
 application therefore does not reduce rebuilds; reducing write conflicts does.
 
-Sparse vector indexes (`LSM_SPARSE_VECTOR`) had the same defect, with a different symptom, and it is fixed in the
-same release. A rolled-back insert could leave its entries searchable, and a rolled-back delete or embedding
-rewrite could leave deletion markers behind -- which is the damaging half, because a marker on any dimension hides
-the whole document from every query mentioning that dimension, so a live document nobody deleted silently stopped
-being found. Neither was temporary: the index writes its in-memory entries out to disk on its own schedule, so a
-rolled-back transaction's work could be made permanent. A sparse vector index holds the entries of a
+The same holds for sparse vector indexes (`LSM_SPARSE_VECTOR`): a sparse vector index holds the entries of a
 transaction back until the transaction has actually committed, so a rollback has nothing to undo.
 ====
 
@@ -368,13 +352,6 @@ transaction back until the transaction has actually committed, so a rollback has
 ====
 Searching a vector index from inside an open transaction is safe: what the index keeps afterwards is built only
 from committed data.
-
-Before v26.10.1 it was not. A search can trigger a rebuild of the index graph, and when that happened inside a
-transaction the rebuild read the embeddings through that transaction -- so values written but not yet committed
-were baked into the index. A rollback took the records back but not the index, which was then left describing a
-row by an embedding the database does not hold: searching for that embedding returned the row, searching for its
-real one did not. Rolled-back inserts could be left in the index the same way. The damage was permanent for the
-life of the database, and survived a reopen and a backup for indexes storing their vectors in the graph file.
 ====
 
 [[search-reads-own-writes]]
@@ -384,28 +361,21 @@ A search issued inside a transaction also finds the rows that transaction has wr
 committed, for both dense (`LSM_VECTOR`) and sparse (`LSM_SPARSE_VECTOR`) indexes. You can insert or re-embed rows
 and search them in the same unit of work.
 
-Before that, you could not. Writes reach the index only when the transaction commits, so a search issued before
-that simply did not see them -- and it did not report an error either: it returned *fewer* results, which an
-application cannot tell apart from "nothing matched". Full-text indexes have always merged their own
-transaction's writes this way; vector indexes now do too.
+Full-text indexes merge their own transaction's writes the same way.
 
 The two guarantees hold together: what the search *returns* includes your uncommitted rows, while what the index
 *stores* is still built only from committed data. Roll the transaction back and both the rows and their
 embeddings are gone, with nothing left behind in the index.
 
-A related fix in the same release covers re-embedding: rewriting one record's embedding several times inside a
-single transaction now leaves the index holding the *last* value written. Previously every rewrite was kept, so
-the record could be ranked by an embedding it no longer had, and one search could return it more than once.
+Rewriting one record's embedding several times inside a
+single transaction leaves the index holding the *last* value written.
 ====
 
 [[delta-scan-bound]]
 [NOTE]
 ====
 Vectors written since the last rebuild are searched by scanning them one by one, so that part of a query grows with
-how many are waiting, while the graph search it supplements grows only with the logarithm of the index size. Before
-v26.9.1 nothing bounded that scan: the settings that decide when to rebuild are all counted in mutations, and
-`vectorIndex.maxPendingMutations` is a fixed number, so from 250,000 vectors upward the same scan cost landed on an
-index of any size. On a 200,000-vector index at that ceiling the scan was about four fifths of query time.
+how many are waiting, while the graph search it supplements grows only with the logarithm of the index size.
 
 A rebuild is also triggered when the scan grows past what the graph search itself costs -- measured,
 from the nodes searches actually visit, not estimated -- and once those scans have cost as much as the rebuild will.
@@ -526,7 +496,7 @@ SELECT vector.neighbors(
        )
 ----
 
-The `filter` value accepts a list of RIDs, RID strings, or any `Identifiable`. It can be produced by a subquery, a query parameter, or built programmatically. A subquery may project the RID (`SELECT @rid FROM ...`), the whole record (`SELECT FROM ...`), or a list of RIDs that is flattened one level (`(SELECT list(@rid) AS l FROM ...).l`); a `LET` variable bound to such a subquery works the same way (v26.10.1). Projecting anything that is not a RID raises an error rather than silently filtering nothing.
+The `filter` value accepts a list of RIDs, RID strings, or any `Identifiable`. It can be produced by a subquery, a query parameter, or built programmatically. A subquery may project the RID (`SELECT @rid FROM ...`), the whole record (`SELECT FROM ...`), or a list of RIDs that is flattened one level (`(SELECT list(@rid) AS l FROM ...).l`); a `LET` variable bound to such a subquery works the same way. Projecting anything that is not a RID raises an error rather than silently filtering nothing.
 
 TIP: A `filter` narrower than `vectorIndex.prefilterMaxSelectivity` (20% of the index's live vectors by default) bypasses the HNSW walk automatically: ArcadeDB scores the filtered candidates directly instead, which gets faster as the filter narrows rather than slower. Above that threshold, a selective filter can still starve the beam trying to fill `k` from a narrower-than-expected pool; combine `filter` with a higher `efSearch` to preserve recall in that range, or lower `vectorIndex.prefilterMaxSelectivity` to route more filters through the direct-scoring path. See <<settings-sql,Settings Reference>>.
 
@@ -803,9 +773,9 @@ A query validates the segment data it reads as it goes. A damaged segment is rep
 
 [WARNING]
 ====
-Databases created before v26.9.1 may hold sparse-vector segments that were merged under the previous ordering, which could let a partial compaction outrank the segment holding a tombstone and make a deleted document reappear in `vector.sparseNeighbors` results (issue #6379). Upgrading fixes the ordering for all new merges, but a segment already written under the old rule cannot be repaired automatically -- the information about where it should have sat is gone.
+Databases created by an earlier version may hold sparse-vector segments that were merged under the previous ordering, which could let a partial compaction outrank the segment holding a tombstone and make a deleted document reappear in `vector.sparseNeighbors` results (issue #6379). Upgrading fixes the ordering for all new merges, but a segment already written under the old rule cannot be repaired automatically -- the information about where it should have sat is gone.
 
-The server identifies such segments when the index is opened and logs a warning naming the index and the `REBUILD INDEX` to run. The marker is stored in the segment and inherited by any later merge, so it survives the affected segments being compacted away by ordinary write traffic. If a database predates v26.9.1 and its sparse-vector index has seen deletes or updates, run once per affected index:
+The server identifies such segments when the index is opened and logs a warning naming the index and the `REBUILD INDEX` to run. The marker is stored in the segment and inherited by any later merge, so it survives the affected segments being compacted away by ordinary write traffic. If a database was created by an earlier version and its sparse-vector index has seen deletes or updates, run once per affected index:
 
 [source,sql]
 ----

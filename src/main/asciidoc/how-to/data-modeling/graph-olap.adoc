@@ -63,7 +63,6 @@ a list of names prefixed with `!`, quoted with backticks, copies every property 
 
 _(Since v26.10.2)_ an empty list, `PROPERTIES ()`, copies no vertex property: the view holds only the graph's structure,
 which is all that algorithms such as `algo.pagerank()` or `algo.wcc()` need, and it builds faster and takes less memory.
-In v26.10.1 and earlier `PROPERTIES ()` was a parsing error.
 
 [source,sql]
 ----
@@ -247,9 +246,8 @@ waits behind it (issue #8403); before, the view served during a blocking rebuild
 finished. A rebuild superseded by a newer one while it scans waits for the newer one and reports its outcome (success
 or error); a rebuild interrupted by the database closing fails with an error rather than reporting success.
 
-NOTE: Before 26.10.1, a transaction committed while a view was building could be missing from the view permanently,
-with the view still reporting itself READY and not stale (issue #8378). Rebuild a view created on an earlier version
-while writes were running if its answers must match the graph exactly.
+NOTE: A view created by an earlier version while writes were running can be missing transactions committed during
+its build (issue #8378): rebuild it if its answers must match the graph exactly.
 When the overlay accumulates too many changes (configurable threshold, default 10,000 edges), a background compaction rebuilds the full CSR.
 
 Until then the overlay costs whole-graph reads (the Cypher count operators, the `algo.*` procedures) one copy of the adjacency per committed change, made on the first read after the change: the overlay applied to the base CSR, kept with that snapshot for every later read. Before v26.11.1 a view with any overlay sent those reads down the per-vertex path instead (a 2-hop count measured about a quarter slower), from the first committed edge until the compaction (issue #10411).
@@ -278,14 +276,12 @@ nothing else left an *OFF* view READY (issue #9572). Rebuild a view on such a gr
 
 NOTE: Available.
 
-Before v26.9.1, a named view's CSR was never itself persisted: only its definition (types, properties, update mode) was, in `schema.json`. Every database open therefore rebuilt the CSR from a full graph scan, and because `shutdown()` waits for any in-flight rebuild, the cost of that scan landed on `close()` rather than `open()` - at 1M vertices, closing a database with a view took over 4 seconds even for a session that ran no query at all.
-
-A `READY` view (with no pending overlay changes) now writes its CSR to disk at a clean database close, alongside a freshness certificate: the database's last committed transaction id at the time the CSR was built. On the next open, if a persisted file plausibly applies (see arcadedb.gavPersistCsr below), the view is marked `READY` immediately, but the file itself is not read yet - see <<gav-csr-lazy-restore,Lazy Restore>>. That deferred read either:
+A `READY` view (with no pending overlay changes) writes its CSR to disk at a clean database close, alongside a freshness certificate: the database's last committed transaction id at the time the CSR was built. On the next open, if a persisted file plausibly applies (see arcadedb.gavPersistCsr below), the view is marked `READY` immediately, but the file itself is not read yet - see <<gav-csr-lazy-restore,Lazy Restore>>. That deferred read either:
 
 * finds the database's current last committed transaction id still matches the certificate - nothing was committed to the database in between, so the persisted CSR is loaded from disk as-is instead of being rebuilt; or
-* finds a mismatch - anything was committed in between, to any type, not only the ones the view covers - and falls back to the previous behavior: an async rebuild.
+* finds a mismatch - anything was committed in between, to any type, not only the ones the view covers - and falls back to an async rebuild.
 
-This means the speedup only applies to reopening a database that was **not written to** since its last clean close. A database that receives writes between every session still pays the rebuild on every open, exactly as before v26.9.1.
+This means the speedup only applies to reopening a database that was **not written to** since its last clean close. A database that receives writes between every session still pays the rebuild on every open.
 
 Persistence is controlled by the `arcadedb.gavPersistCsr` <<arcadedb-settings,database-level setting>> (default `true`). Set it to `false` to skip writing the CSR file, for example to avoid its disk footprint or the extra write at close.
 
@@ -341,13 +337,10 @@ a query over the view could read `2` where the record held `2.5` (issue #10255).
 [[gav-edge-properties-pending-changes]]
 ===== Edge Properties and Pending Changes
 
-NOTE: Behavior changed in ArcadeDB v26.9.1.
-
 Edge property columns (`EDGE PROPERTIES (...)`, used as weights by the shortest-path and spanning-tree algorithms) are laid out in the order the graph had when the view was built.
 In `SYNCHRONOUS` mode a commit is absorbed into a pending-changes overlay rather than rebuilding, so from that moment the neighbour list and the columns describe two different orderings.
 
-Before v26.9.1 the view resolved this by reporting no edge properties at all as soon as an overlay existed, and every weighted algorithm silently went back to reading edge records - after every single commit.
-The view now reconciles the two instead: an edge already in the base graph keeps answering from its column, and an edge the overlay added answers from the value recorded when it was committed.
+The view reconciles the two: an edge already in the base graph keeps answering from its column, and an edge the overlay added answers from the value recorded when it was committed.
 Weighted algorithms therefore keep the fast columnar path while a view is being updated.
 
 Two cases remain that the view cannot answer, and for those the algorithm reads the edge records directly - exact, only slower:
@@ -416,17 +409,10 @@ int[] distances = algos.bfs(gav, sourceNodeId);
 
 ===== Algorithms and Pending Changes
 
-NOTE: Behavior changed in ArcadeDB v26.9.1.
-
 In `SYNCHRONOUS` mode a committed change is absorbed into a pending-changes overlay rather than rebuilding the view.
 The overlay keeps the slot of a deleted vertex and numbers an added vertex above the base graph, so from that moment the view's vertex count and the range of its internal vertex numbers stop being the same figure.
 
-Before v26.9.1 the `algo.*` procedures took them for one and the same, with two consequences:
-
-* a vertex added after the view was built could be missing from the answer of every procedure, with no error to say so;
-* once the additions outnumbered the deletions, the CSR-accelerated procedures (`algo.wcc`, `algo.pagerank`, `algo.labelpropagation`, `algo.localClusteringCoefficient`, `algo.bfs`) failed with an `ArrayIndexOutOfBoundsException` - one added vertex was enough.
-
-Both are fixed. The vertices a view holds are renumbered onto a gapless range before any algorithm sees them, so every `algo.*` procedure answers for exactly the vertices that are live at the time of the call - the added ones included, the deleted ones excluded.
+The vertices a view holds are renumbered onto a gapless range before any algorithm sees them, so every `algo.*` procedure answers for exactly the vertices that are live at the time of the call - the added ones included, the deleted ones excluded.
 
 While a view is holding pending changes the whole-graph procedures also stop using the parallel kernels listed above, which read the base CSR arrays directly and know nothing of the overlay: they would otherwise answer for the graph as it stood at the last build.
 Those calls still run off the view's adjacency, single-threaded rather than parallel, and the compaction that folds the overlay back into the base graph (by default after 10,000 pending edges) restores the parallel path.
@@ -503,7 +489,7 @@ No query changes are needed — the optimizer transparently accelerates matching
 
 *Relationship uniqueness.* Cypher binds a relationship at most once per `MATCH` clause, so
 `MATCH (a)-[:KNOWS]-(b)-[:KNOWS]-(c)` never walks back to `a` over the edge it just took. A view holds adjacency, not
-edge records, so since v26.10.1 a hop that could reuse a relationship of another hop in its clause - they share an edge
+edge records, so a hop that could reuse a relationship of another hop in its clause - they share an edge
 type, or either is untyped - is walked one edge type and direction at a time and remembers which relationship it took,
 and `EXPLAIN` marks it `unique relationships`. Such a clause is served from the view when every one of those hops is
 anonymous and has a fixed length; a named relationship variable or a variable-length relationship among them sends all
@@ -511,9 +497,6 @@ of them to the records instead. Hops that cannot collide - `(a)-[:KNOWS]->(b)-[:
 Since v26.11.1 this also holds for an edge type with sub-types: a hop on `KNOWS` with `KNOWS_WELL EXTENDS KNOWS` walks
 the slice of each concrete type on its own and names a relationship after the type it actually has, so a hop on the
 parent and a hop on the sub-type recognize the same edge. Before, such a clause walked the edge records (issue #10213).
-Before v26.10.1 a view answered such patterns without the rule, counting for example every friend-of-a-friend path that
-returns to its start over the same edge, and every path that took a self-loop twice (issue #8394). An undirected chain
-of several hops also counted each self-loop once per adjacency list it sits in, even across separate `MATCH` clauses.
 
 *Views over some of the vertex types.* A view built with `VERTEX TYPES (...)` holds only the vertices of those types, so
 the edges that leave them are missing from its adjacency. Edge types do not declare which vertex types they connect, so
@@ -531,8 +514,7 @@ vertex type that holds vertices.
 or after a failed rebuild) is not used by the
 planner unless `arcadedb.gavUseWhenStale` is `true`, in which case queries read the snapshot as of its last build.
 The setting is per database, and applies to every view of that database immediately, including views already built
-and views restored at open (since v26.10.1; before, only the JVM-wide `-Darcadedb.gavUseWhenStale` had any effect,
-issue #7875):
+and views restored at open:
 
 [source,sql]
 ----

@@ -200,9 +200,6 @@ and the pods already running accept them without any change to `ha.serverList`.
 This relies on the headless service publishing the address of a pod that is not Ready yet
 (`publishNotReadyAddresses: true`, which the chart sets), because a pod becomes Ready only once it has joined.
 
-NOTE: Before v26.10.1 the running pods rejected the new pod's connection, so it never joined and stayed
-`NOT_READY`. If you are on an older version, upgrade or restart every pod with the enlarged `ha.serverList`.
-
 [[kubernetes-values-credentials]]
 ====== Credentials
 
@@ -411,7 +408,7 @@ persistence:
 ====== Resources
 
 Container resource requests and limits are deliberately left unset in the chart defaults (`resources: {}`), so you must supply them for any production deployment.
-Set `limits.memory` first: _since v26.9.1_ the container image derives the JVM heap from it
+Set `limits.memory` first: the container image derives the JVM heap from it
 (`-XX:MaxRAMPercentage=75`) unless you pin the heap yourself, so the limit is what decides how much
 memory ArcadeDB actually uses. Then size the memory request to the heap you expect, so the scheduler
 places the pod on a node with enough RAM.
@@ -502,7 +499,7 @@ Prefer the dedicated liveness endpoint `/api/v1/health` for the liveness probe: 
 
 On a High Availability cluster, set `arcadedb.server.readinessRequiresHA=true` (env `ARCADEDB_SERVER_READINESSREQUIRESHA=true`) to withhold traffic from a node until it has joined the Raft group and, once joined, until it is a member of the current Raft configuration and has caught up to within `arcadedb.server.readinessHAMaxLag` log entries (default `100`, env `ARCADEDB_SERVER_READINESSHAMAXLAG`) of the commit index. This keeps a restarted follower with a wiped or lagging log out of Service endpoints during a rolling update, so the write quorum is not dropped. The check also fails closed if the node's internal Raft engine is unhealthy, even while the server process itself is still running and responding.
 
-This setting decides how strict the probe is about a node that is merely *behind*. It does not apply to a node whose replication has *stopped* - one that cannot write its replication log, or that hit an error it cannot apply. Such a node answers `503` whatever this setting says, because waiting for it would never help. See <<ha-node-stopped,When a node has stopped for good>> for the two fields that name the cause. _(Since v26.10.1: with this setting off, such a node used to keep answering as ready.)_
+This setting decides how strict the probe is about a node that is merely *behind*. It does not apply to a node whose replication has *stopped* - one that cannot write its replication log, or that hit an error it cannot apply. Such a node answers `503` whatever this setting says, because waiting for it would never help. See <<ha-node-stopped,When a node has stopped for good>> for the two fields that name the cause.
 ====
 
 [[kubernetes-values-autoscaling]]
@@ -935,8 +932,8 @@ For the manifests, the openssl equivalent, and the certificate-rotation caveat, 
 
 *Users and API tokens on a restarted pod*::
 The server users, groups and API tokens live in the server's `config/` directory, not in a database, so a pod whose data volume is persistent but whose `config/` directory is not comes back without them.
-Because it is still a member of the Raft group, it is not re-admitted, and before 26.10.1 it was never re-seeded either: it served only the users created from its own environment at bootstrap and rejected logins that worked on every other pod.
-Such a pod now asks the leader for the current documents shortly after it first sees one, so no action is needed.
+Because it is still a member of the Raft group, it is not re-admitted.
+Such a pod asks the leader for the current documents shortly after it first sees one, so no action is needed.
 With `arcadedb.server.readinessRequiresHA=true`, a pod added by auto-join on scale-up, or one caught up by a snapshot, also stays out of the Service endpoints until those documents arrive, for at most `arcadedb.ha.securityConvergenceReadinessTimeout` (30 s by default); see <<observability-health-security-convergence,security-convergence readiness>>.
 Persisting `config/` is still worth doing if you want a pod to come back with them already in place; see <<ha-security-documents,Cluster security documents>>.
 You can mount a persistent volume through the chart's `volumes` / `volumeMounts` (see <<kubernetes-values-extras,Extras>>) and point `arcadedb.server.configDirectory` at it with an entry in `arcadedb.extraCommands`; see <<docker-config-directory,Relocating the configuration directory>> for what moves and what does not.

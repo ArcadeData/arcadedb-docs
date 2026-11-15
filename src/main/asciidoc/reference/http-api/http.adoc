@@ -128,7 +128,7 @@ name, or a `-N` / `_N` suffix giving the position in the list (the Kubernetes He
 A token whose name matches no member is refused without asking anyone. Tokens in the previous `AU-<uuid>` form
 are still accepted, but only by the server that issued them.
 
-API tokens (`at-` prefix) work the same way on every server: since 26.10.1 they are replicated to the whole cluster, like users and groups (see <<ha-security-documents,Cluster security documents>>).
+API tokens (`at-` prefix) work the same way on every server: they are replicated to the whole cluster, like users and groups (see <<ha-security-documents,Cluster security documents>>).
 ====
 
 *Number of concurrent tokens:*
@@ -308,7 +308,7 @@ The `code` of an `errors` entry is one of:
 |===
 |Code|Meaning
 |CONFLICT| The record's key is already taken (`conflictMode` `error` or `abort`), or the commit of the chunk found a duplicated key.
-|NOT_LEADER| _(Since v26.10.2.)_ The node is a follower of a replicated cluster and refused the write. The entry carries a `leaderAddress` field with the address of the leader to send the load to. In v26.10.1 and earlier this case was reported as `DB_ERROR`, without the address.
+|NOT_LEADER| _(Since v26.10.2.)_ The node is a follower of a replicated cluster and refused the write. The entry carries a `leaderAddress` field with the address of the leader to send the load to.
 |DB_ERROR| Any other failure.
 |===
 
@@ -420,7 +420,6 @@ repeated id from that cache. The remote Java driver (`RemoteDatabase`, `RemoteSe
 `command` call, outside a transaction, and once it has seen that header it sends the same call again, with the same id,
 to the same server when the response was lost, instead of failing with "the server may already have applied it".
 The retry names the server process in `X-ArcadeDB-Replay-Instance`: a server that restarted, or that no longer holds the answer (too large to keep, expired or evicted), answers `412` and does not run the request again.
-_(Since v26.10.1.)_
 
 Use a new id for every distinct request. The OpenAPI document declares the header and the `409` on every `POST`
 operation that honours them.
@@ -747,8 +746,8 @@ Return:
 ----
 
 If a database with that name already exists, the command fails with `409` and `"error": "Database already exists"`;
-the label stays readable in production mode, where `detail` is concealed. _(Since v26.10.2)_ In 26.10.1 and earlier it
-answered `400`. Restoring a backup into a name that is taken (`restore database`, or `restore backup` without overwrite) still answers `400`.
+the label stays readable in production mode, where `detail` is concealed. _(Since v26.10.2)_
+Restoring a backup into a name that is taken (`restore database`, or `restore backup` without overwrite) still answers `400`.
 
 ====== Drop database
 
@@ -848,9 +847,7 @@ Return:
 ----
 
 If a user with that name already exists, the command fails with `409` and `"error": "User already exists"`, on a single
-server and on a cluster alike; `POST /api/v1/server/users` answers the same. _(Since v26.10.2)_ In 26.10.1 and earlier it
-answered `403` with `"error": "Security error"`, the status a non-root caller gets, so the two could only be told apart
-by the message text.
+server and on a cluster alike; `POST /api/v1/server/users` answers the same. _(Since v26.10.2)_
 
 ====== Drop user
 
@@ -1440,7 +1437,7 @@ it. The transport counts as protected when the request came over HTTPS, from a l
 listed in `arcadedb.server.apiTokenTrustedProxies` that reports `https` for every hop through `X-Forwarded-Proto` or the
 RFC 7239 `Forwarded` header. What happens otherwise depends on `arcadedb.server.apiTokenRequireSecureTransport`:
 
-* `false` (the default in 26.10.1): the token is minted and the server logs `Minting an API token over an unprotected
+* `false` (the default): the token is minted and the server logs `Minting an API token over an unprotected
   transport (scheme=..., peer=...)` at WARNING.
 * `true`: the mint is refused with `412` and a body explaining the three ways out: connect over TLS, list the proxy, or
   turn the check off.
@@ -1510,8 +1507,7 @@ nested in a `LET`, a projection, a `FROM` subquery, a `CASE`, a `RETURN` or a sc
 makes the whole statement a write, so `/api/v1/query` refuses it with `400` (the query is not idempotent) and writes
 nothing, for example `SELECT FROM Account LET $x = (INSERT INTO Log SET a = 1)` or `SELECT FROM (INSERT INTO Log SET a = 1)`.
 Send such a statement to <<http-executecommand,`/api/v1/command`>>. A nested read, such as
-`SELECT $c FROM Account LET $c = (SELECT count(*) FROM Account)`, still runs. In v26.10.1 and earlier these nested
-writes ran through the query endpoint.
+`SELECT $c FROM Account LET $c = (SELECT count(*) FROM Account)`, still runs.
 
 NOTE: `POST /api/v1/query` runs without an implicit transaction, like `GET /api/v1/query`, so a full scan of a large type can use several threads and is as fast as with `GET`. Inside a session (`/begin`) a scan stays sequential to keep it consistent with the transaction. `POST /api/v1/command` still runs in a transaction.
 
@@ -1519,8 +1515,7 @@ NOTE: `POST /api/v1/query` runs without an implicit transaction, like `GET /api/
 in the `explain` (indented text) and `explainPlan` (structured) members of the response envelope, and `result` is
 empty -- the plan is the answer, not a row. Requesting it with `Accept: application/x-ndjson` is refused with `400`
 ("EXPLAIN produces a plan, not a row stream"), because a stream of rows plus a stats trailer has nowhere to carry
-one. Before 26.10.1 the `GET` variant reached neither rule: it serialized the plan as an ordinary result row, and
-streamed it as an ndjson `record` line that no consumer of that encoding can read.
+one.
 
 To receive the rows one at a time as they are produced, instead of one JSON document at the end, send
 `Accept: application/x-ndjson`. See <<http-streaming-results,Stream query results (NDJSON)>>.
@@ -1605,7 +1600,7 @@ The completion of the command is noted in the log, yet no results of the command
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 - `retries` (optional), is the number of times the command (transaction) is retried. When omitted it follows the
 `arcadedb.txRetries` <<setting-database,database setting>> (3 by default), the same attempt count the embedded and
-the remote Java APIs take it from; up to v26.9.0 it was hard-coded to 1, so nothing was ever retried.
+the remote Java APIs take it from.
 Only a concurrent-modification conflict is retried (`NeedRetryException` and `DuplicatedKeyException`, the latter
 capped at a single retry), and always after a full rollback, so a retried attempt starts from committed state with
 nothing of the failed one surviving. Note the consequence for side effects *outside* the database: a SQL or
@@ -1872,7 +1867,7 @@ The gRPC service carries the same counters in the write-result summary of `Execu
 
 ==== Numbers and arrays in `params`
 
-Parameters keep the numbers as written: an integer beyond the `long` range, or a decimal with more than 17 significant digits, is read as a `DECIMAL` (`BigDecimal`) instead of being wrapped or rounded to a double. A number token with more than 1000 characters or an exponent beyond 1000 is refused with `400`. A JSON array given as a parameter is a list, as when the statement runs embedded: written to a `LIST` property it is stored as that list, and `[0.1, 3.141592653589793]` keeps both doubles. _(Since v26.10.1: before, such integers wrapped around and arrays with a fraction were narrowed to float32.)_
+Parameters keep the numbers as written: an integer beyond the `long` range, or a decimal with more than 17 significant digits, is read as a `DECIMAL` (`BigDecimal`) instead of being wrapped or rounded to a double. A number token with more than 1000 characters or an exponent beyond 1000 is refused with `400`. A JSON array given as a parameter is a list, as when the statement runs embedded: written to a `LIST` property it is stored as that list, and `[0.1, 3.141592653589793]` keeps both doubles.
 
 [[http-positional-params]]
 ===== Positional parameters
@@ -2199,13 +2194,13 @@ If the session (and therefore the server side transaction) is unknown, expired o
 
 The commit ends the session, whether it succeeds or fails: a commit that fails rolls the transaction back, and the
 answer carries the header `arcadedb-session-closed: true`, so there is no need to send a <<http-rollback,/rollback>>
-afterwards. _(Since v26.10.1: before, the session of a failed commit stayed registered until it timed out.)_
+afterwards.
 
 A command that fails inside a session rolls the session's transaction back. When the transaction held changes, they are
 lost, so the session is marked as rolled back: the next command naming it is refused with `404`, and `/commit` answers
 `404` with a message saying that the transaction was rolled back, instead of `204`. Send a <<http-rollback,/rollback>> (or
 the `/commit`) to end it. When nothing was lost (a failed read, an error before the first write) the session goes on in a
-fresh transaction. _(Since v26.10.1: before, the commands after the failure ran in autocommit and `/commit` answered `204`.)_
+fresh transaction.
 
 A `/commit` retried while the first one is still running (a client that timed out and sent it again) waits up to 5
 seconds for the first one to finish, then answers `204` if that commit succeeded and `404` if it failed. A retry that
@@ -2248,7 +2243,7 @@ If the session (and therefore the server side transaction) is expired, then an i
 
 The commit ends the session, whether it succeeds or fails: a commit that fails rolls the transaction back, and the
 answer carries the header `arcadedb-session-closed: true`, so there is no need to send a <<http-rollback,/rollback>>
-afterwards. _(Since v26.10.1: before, the session of a failed commit stayed registered until it timed out.)_
+afterwards.
 
 Response:
 
@@ -2317,9 +2312,8 @@ Each line is a JSON object with the following meta fields:
 All other fields are treated as properties.
 
 IMPORTANT: A control key sent on the kind of line that cannot use it is refused with `400`, naming the line:
-`@id` on an edge, `@from` or `@to` on a vertex. Before 26.10.1 such a key was silently dropped -- neither stored
-nor reported -- so a client that models both line shapes with one struct got a load that looked clean while the
-value was gone. A key carrying *nothing* is still accepted, so JSON `null` and the empty string are ignored.
+`@id` on an edge, `@from` or `@to` on a vertex.
+A key carrying *nothing* is still accepted, so JSON `null` and the empty string are ignored.
 
 Example:
 

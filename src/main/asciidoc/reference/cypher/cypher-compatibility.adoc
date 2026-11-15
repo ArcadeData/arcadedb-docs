@@ -231,12 +231,6 @@ keep the two apart as well. Compare `d.epochMillis` (or test with `<=` and `>=`)
 regardless of zone. A `java.util.Date` or `java.time.Instant` query parameter carries no time zone and is equal to any
 `DATETIME` at its instant.
 
-[NOTE]
-====
-Since v26.10.1. Before, `=`, `<>` and `IN` compared the instant only and called the two values above equal, while
-`DISTINCT` and grouping counted them as two values.
-====
-
 [[cypher-statement-clock]]
 ===== Current Date and Time in a Query
 
@@ -315,9 +309,9 @@ the property types `OFFSET_TIME`, `LOCAL_TIME`, `ZONED_DATETIME` and `DURATION` 
 String such as an opening-hours range `'09:00-17:00'` or a code `'P100D'` stays a String and compares, filters and sorts
 as one.
 
-In v26.10.1 and earlier these values were stored as their ISO-8601 text (for example `10:35-08:00` or `PT1M30.5S`) and
-turned back into a temporal value by their shape when an undeclared property was read. A database written by those
-versions keeps that reading after the upgrade until `CALL db.migrateLegacyTemporals()` converts the stored text to the
+A database written by an earlier version holds these values as their ISO-8601 text (for example `10:35-08:00` or
+`PT1M30.5S`), turned back into a temporal value by their shape when an undeclared property is read. It keeps that
+reading after the upgrade until `CALL db.migrateLegacyTemporals()` converts the stored text to the
 native types (see <<cypher-temporal-migration,Migrating Cypher Temporals Stored as Strings>>). Until then, declare a
 property `STRING` when its values may look like a time or a duration but are plain text: a declared `STRING` is never
 converted.
@@ -340,15 +334,6 @@ the offset the zone has now (`+09:00`), as in Neo4j.
 
 `duration.between(a, b)` splits the interval into whole months, then whole days, then the remaining time, as Neo4j
 does, so `a + duration.between(a, b)` is always `b`.
-
-[NOTE]
-====
-Since v26.10.1. Before, a declared `STRING` property whose value looked like a time or a duration read back as a
-temporal value, `duration.between()` could be off by one or two days when the interval crossed a month that is not
-30 days long, and a duration with more than about 2.1 seconds given in `milliseconds`, `microseconds` or `nanoseconds`
-wrapped around. So did a sub-second field of `time()`, `datetime()` and the other temporal constructors: for example
-`time({hour: 12, millisecond: 5000})` answered `12:00:00.705032704Z`, and `time({hour: 4294967308})` answered `12:00`.
-====
 
 ===== Strict Numeric Types
 
@@ -412,8 +397,6 @@ hop by hop or with a variable-length quantifier, as in Neo4j:
 MATCH (n)-[*2]-() RETURN count(*)       // same count as the fixed-length form below
 MATCH (n)-[]-()-[]-() RETURN count(*)
 ----
-
-Before 26.10.1 the variable-length form counted each self-loop twice, once from each end.
 
 ===== Indexes Inherited from a Parent Type
 

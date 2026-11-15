@@ -33,8 +33,7 @@ database (`create`). The server answers these with `409 Conflict`, and the gRPC 
 `RemoteGrpcServer` raises the same exception from `createUser`, `createApiToken` and `createDatabase`, where it used to
 report a duplicated key (or, for `createDatabase`, a plain `RuntimeException`). It extends `RemoteException`, so code
 that caught `RemoteException` for these cases keeps working, and a provisioning tool can catch it to treat "already
-there" as success. In 26.10.1 and earlier a taken user name answered `403` (`Security error`) and a taken database name
-`400`. Restoring a backup into a database name that is taken still answers `400`.
+there" as success. Restoring a backup into a database name that is taken still answers `400`.
 
 [[remote-exception-types]]
 _(Since v26.11.1.)_ A failing statement raises the same exception remotely as embedded: a syntax error is a
@@ -210,9 +209,9 @@ The `transaction` method encloses the lambda function with a `begin` - `commit`,
 
 If the transaction fails because another client modified the same records, it is rolled back and the lambda is executed again, up to `arcadedb.txRetries` times (3 by default). There is one exception: when `transaction(lambda, true)` is called from inside a transaction you opened yourself, the error is thrown to you instead of being retried, because re-executing the lambda inside your still open transaction would leave the effects of the failed attempt behind. In that case catch the exception and retry the whole unit of work.
 
-The same happens when the server refuses the transaction before running it: the `503` a node answers while it installs a snapshot, a leader change, or a `begin` whose connection could not be established. Each retry waits first, with the exponential backoff the embedded `transaction()` uses (`arcadedb.txRetryDelayBase` doubling up to `arcadedb.txRetryDelay`), and when the refusal carries a `Retry-After` header the retry waits at least that long, up to `arcadedb.network.retryAfterMaxWait` (30 seconds by default). A duplicated key is retried only once, since failing twice means the duplicate is genuine. A commit the server answered with an error also releases the server-side session right away instead of leaving it to the session timeout. _(Since v26.10.1: before, the retries ran back to back, so a node installing a snapshot used up the whole budget within milliseconds.)_
+The same happens when the server refuses the transaction before running it: the `503` a node answers while it installs a snapshot, a leader change, or a `begin` whose connection could not be established. Each retry waits first, with the exponential backoff the embedded `transaction()` uses (`arcadedb.txRetryDelayBase` doubling up to `arcadedb.txRetryDelay`), and when the refusal carries a `Retry-After` header the retry waits at least that long, up to `arcadedb.network.retryAfterMaxWait` (30 seconds by default). A duplicated key is retried only once, since failing twice means the duplicate is genuine. A commit the server answered with an error also releases the server-side session right away instead of leaving it to the session timeout.
 
-A commit whose connection drops after the request was sent is different: the server may already have applied it. Over gRPC such a commit (status `UNAVAILABLE` with no error from the server) raises a `TransactionException` and is *not* retried, so the work is never applied twice. Read the data back to find out whether the commit landed. _(Since v26.10.1: before, it was reported as a retryable conflict.)_
+A commit whose connection drops after the request was sent is different: the server may already have applied it. Over gRPC such a commit (status `UNAVAILABLE` with no error from the server) raises a `TransactionException` and is *not* retried, so the work is never applied twice. Read the data back to find out whether the commit landed.
 
 _(Since v26.10.2.)_ The gRPC client draws the same line for the other writes whose answer can be lost. A bare
 `UNAVAILABLE` (no error class from the server, and not a failure to connect) on an admin write of `RemoteGrpcServer`
