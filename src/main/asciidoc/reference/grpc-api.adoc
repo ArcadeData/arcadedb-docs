@@ -450,7 +450,7 @@ Text tagged with one of these types that cannot be parsed is returned as a plain
 |===
 | Enum | Values
 
-| `RetrievalMode` | `CURSOR` (streaming), `MATERIALIZE_ALL` (all at once), `PAGED` (paginated)
+| `RetrievalMode` | `CURSOR` (streaming), `MATERIALIZE_ALL` (all at once), `PAGED` (same as `CURSOR`)
 | `ProjectionEncoding` | `PROJECTION_AS_LINK`, `PROJECTION_AS_MAP`, `PROJECTION_AS_JSON`
 | `TransactionIsolation` | `READ_UNCOMMITTED`, `READ_COMMITTED`, `REPEATABLE_READ`, `SERIALIZABLE`
 | `ConflictMode` | `CONFLICT_ERROR`, `CONFLICT_UPDATE`, `CONFLICT_IGNORE`, `CONFLICT_ABORT`
@@ -463,11 +463,11 @@ runs at is returned in `BeginTransactionResponse.effective_isolation`. `SERIALIZ
 `INVALID_ARGUMENT`, as is a value the server does not know, instead of starting the transaction at a weaker level than the
 one asked for _(since v26.11.1)_. HTTP, SQL, openCypher and PostgreSQL refuse it the same way.
 
-NOTE: `PAGED` retrieval keeps the `ORDER BY` your query specifies. When the query specifies none, rows are ordered by
-`@rid`, because cutting pages needs a stable order or a row could be skipped or repeated across pages. `PAGED` also
-reserves the parameter names `_skip` and `_limit`, and applies to SQL only: a query in another language falls back to
-`CURSOR`. If you order by a column with duplicate values, rows that tie can still move between pages, since every page
-re-runs the query; add a unique tie-break such as `ORDER BY createdAt DESC, @rid` when pages must be reproducible.
+NOTE: `PAGED` retrieval is the same as `CURSOR` _(since v26.12.1)_: the query runs once, in any language, and its rows
+are streamed in batches of `batch_size`, in the order the query returns them. Earlier versions re-ran a SQL query with
+`SKIP`/`LIMIT` for every page, so the time of a stream grew with the square of its rows. As a consequence a `PAGED`
+stream now carries the facets of a `FACETS` query on its last batch, `_skip` and `_limit` are ordinary parameter names,
+and a query with no `ORDER BY` is no longer sorted by `@rid`: add an `ORDER BY` when you need an order.
 
 [[grpc-projection-settings]]
 ===== Projected records
