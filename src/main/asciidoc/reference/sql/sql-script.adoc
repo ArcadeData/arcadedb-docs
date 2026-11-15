@@ -33,7 +33,7 @@ See <<schema-change-cost>>.
 [[sql-script-ddl-batching]]
 ===== Schema-only scripts run as one schema change
 
-Since v26.10.1 a script of two or more statements that are *all* schema definition DDL runs as a single schema change: the schema file is written once for the whole script and, under High Availability, the batch is replicated as one Raft entry instead of one per statement.
+A script of two or more statements that are *all* schema definition DDL runs as a single schema change: the schema file is written once for the whole script and, under High Availability, the batch is replicated as one Raft entry instead of one per statement.
 The database write lock is held for the whole script, so keep such scripts to schema definition and out of data loads.
 If a statement fails, the statements before it are kept and published to the cluster as one change, so every node agrees on the same partially applied schema, and the original error is returned.
 Set the database setting `schemaBulkDDLScript` to `false` to go back to one schema change per statement.
@@ -174,7 +174,7 @@ A statement with an explicit batch boundary -- <<sql-update,`UPDATE`>>, <<sql-de
 <<sql-move-vertex,`MOVE VERTEX`>> with `BATCH <n>` -- commits as it goes, so part of the block is already stored by the
 time a later statement fails, and a rollback cannot take it back.
 
-Since 26.10.1, when that has happened the block is *not* retried: the conflict is raised to the caller, who is the
+When that has happened the block is *not* retried: the conflict is raised to the caller, who is the
 only one able to compensate for the part that is already stored. In that case the `ELSE` block does not run and
 `AND CONTINUE` does not suppress the error either -- `ELSE` statements are written for a block that did nothing,
 and returning an empty result would hide a conflict you need to see. A block that committed nothing before failing

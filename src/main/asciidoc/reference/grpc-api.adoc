@@ -50,13 +50,13 @@ The main service for database operations: querying, record CRUD, bulk inserts, t
 | `CommitTransaction` | `CommitTransactionRequest` | `CommitTransactionResponse` | Commit the current transaction
 | `RollbackTransaction` | `RollbackTransactionRequest` | `RollbackTransactionResponse` | Roll back the current transaction
 | `GraphBatchLoad` | stream `GraphBatchChunk` | `GraphBatchResult` | Client-streaming bulk load of vertices and edges (see below)
-| `VectorSearch` | `VectorSearchRequest` | `VectorSearchResponse` | _Since 26.10.1._ k-nearest-neighbor search over a dense or sparse vector index
-| `HybridSearch` | `HybridSearchRequest` | `HybridSearchResponse` | _Since 26.10.1._ Fused vector, full-text, and graph-expansion search
-| `FullTextSearch` | `FullTextSearchRequest` | `FullTextSearchResponse` | _Since 26.10.1._ Lucene-syntax search over a `FULL_TEXT` index
-| `TimeSeriesWrite` | `TimeSeriesWriteRequest` | `TimeSeriesWriteSummary` | _Since 26.10.1._ Write a batch of time-series points
-| `TimeSeriesWriteStream` | stream `TimeSeriesWriteChunk` | `TimeSeriesWriteSummary` | _Since 26.10.1._ Client-streaming time-series ingest
-| `TimeSeriesQuery` | `TimeSeriesQueryRequest` | stream `TimeSeriesQueryResult` | _Since 26.10.1._ Range query, raw or aggregated into buckets, streamed back
-| `TimeSeriesLatest` | `TimeSeriesLatestRequest` | `TimeSeriesLatestResponse` | _Since 26.10.1._ Latest sample of a time-series type, optionally filtered by tags
+| `VectorSearch` | `VectorSearchRequest` | `VectorSearchResponse` | k-nearest-neighbor search over a dense or sparse vector index
+| `HybridSearch` | `HybridSearchRequest` | `HybridSearchResponse` | Fused vector, full-text, and graph-expansion search
+| `FullTextSearch` | `FullTextSearchRequest` | `FullTextSearchResponse` | Lucene-syntax search over a `FULL_TEXT` index
+| `TimeSeriesWrite` | `TimeSeriesWriteRequest` | `TimeSeriesWriteSummary` | Write a batch of time-series points
+| `TimeSeriesWriteStream` | stream `TimeSeriesWriteChunk` | `TimeSeriesWriteSummary` | Client-streaming time-series ingest
+| `TimeSeriesQuery` | `TimeSeriesQueryRequest` | stream `TimeSeriesQueryResult` | Range query, raw or aggregated into buckets, streamed back
+| `TimeSeriesLatest` | `TimeSeriesLatestRequest` | `TimeSeriesLatestResponse` | Latest sample of a time-series type, optionally filtered by tags
 |===
 
 A record that a `BeforeRecordCreateListener` or a `BeforeRecordUpdateListener` vetoed was refused on purpose, and the replies say so
@@ -87,7 +87,7 @@ with `partial_commit` set.
 [[grpc-search]]
 ====== Vector, hybrid, and full-text search
 
-_Since 26.10.1._ These three unary RPCs run the same server-side implementation as the HTTP `/api/v1/vector/*`
+These three unary RPCs run the same server-side implementation as the HTTP `/api/v1/vector/*`
 routes and the MCP search tools, so a request that is legal on one protocol is legal on all of them and is rejected
 with the same message. Every hit is a `SearchHit` with `rid`, `record`, and either `distance` (dense index, lower is
 better) or `score` (sparse, full-text, or fused, higher is better); the response's `scoring` field says which.
@@ -121,7 +121,7 @@ transaction reads, including its uncommitted changes. A transaction id the serve
 [[grpc-timeseries]]
 ====== Time series
 
-_Since 26.10.1._ The time-series RPCs read and write `TIMESERIES` types (see <<timeseries,Time series>>).
+The time-series RPCs read and write `TIMESERIES` types (see <<timeseries,Time series>>).
 
 * *`TimeSeriesWrite` / `TimeSeriesWriteStream`*: each `TimeSeriesPoint` carries `type` (the measurement, defaulting to
 the request or chunk `type`), `timestamp`, and `tags` / `fields` maps of `GrpcValue`. `precision` defaults to
@@ -183,11 +183,11 @@ report a write a follower refused differently: the refused row or commit comes b
 | `ExistsDatabase` | `ExistsDatabaseRequest` | `ExistsDatabaseResponse` | Check if a database exists
 | `CreateDatabase` | `CreateDatabaseRequest` | `CreateDatabaseResponse` | Create a new database (see below)
 | `DropDatabase` | `DropDatabaseRequest` | `DropDatabaseResponse` | Drop an existing database (see below)
-| `OpenDatabase` | `OpenDatabaseRequest` | `OpenDatabaseResponse` | _Since 26.10.1._ Open the named database
-| `CloseDatabase` | `CloseDatabaseRequest` | `CloseDatabaseResponse` | _Since 26.10.1._ Close the named database's open instance; the files stay, and a later request reopens it
-| `AlignDatabase` | `AlignDatabaseRequest` | `AlignDatabaseResponse` | _Since 26.10.1._ Run `ALIGN DATABASE` on the named database
+| `OpenDatabase` | `OpenDatabaseRequest` | `OpenDatabaseResponse` | Open the named database
+| `CloseDatabase` | `CloseDatabaseRequest` | `CloseDatabaseResponse` | Close the named database's open instance; the files stay, and a later request reopens it
+| `AlignDatabase` | `AlignDatabaseRequest` | `AlignDatabaseResponse` | Run `ALIGN DATABASE` on the named database
 | `GetDatabaseInfo` | `GetDatabaseInfoRequest` | `GetDatabaseInfoResponse` | Schema, types, and database statistics
-| `GetProgress` | `GetProgressRequest` | `GetProgressResponse` | _Since 26.10.1._ Long-running operations (CHECK DATABASE, REBUILD INDEX, backup, import, ...) running on the database, as `GET /api/v1/progress/{database}`. Empty when nothing runs
+| `GetProgress` | `GetProgressRequest` | `GetProgressResponse` | Long-running operations (CHECK DATABASE, REBUILD INDEX, backup, import, ...) running on the database, as `GET /api/v1/progress/{database}`. Empty when nothing runs
 |===
 
 `GetDatabaseInfoResponse.records` is the sum of the record counts of the database's types, read from the bucket counters
@@ -224,16 +224,16 @@ database on disk, while `CreateDatabase` with `if_not_exists` failed `ALREADY_EX
 |===
 | RPC | Request | Response | Description
 
-| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user. A name already taken is `ALREADY_EXISTS` _(since 26.10.2; in 26.10.1 and earlier `PERMISSION_DENIED`, the status of an authorization refusal)_
-| `UpdateUser` | `UpdateUserRequest` | `UpdateUserResponse` | _Since 26.10.1._ Update a user's `password` and/or `databases` grants. Each field is optional and an absent one is left untouched; a present but empty `databases` clears the grants
+| `CreateUser` | `CreateUserRequest` | `CreateUserResponse` | Create a new user. A name already taken is `ALREADY_EXISTS` _(since 26.10.2)_
+| `UpdateUser` | `UpdateUserRequest` | `UpdateUserResponse` | Update a user's `password` and/or `databases` grants. Each field is optional and an absent one is left untouched; a present but empty `databases` clears the grants
 | `DeleteUser` | `DeleteUserRequest` | `DeleteUserResponse` | Delete a user
-| `ListUsers` | `ListUsersRequest` | `ListUsersResponse` | _Since 26.10.1._ List users with their per-database groups. Password hashes are never included
-| `ListGroups` | `ListGroupsRequest` | `ListGroupsResponse` | _Since 26.10.1._ The whole group document, as JSON in `groups_json`
-| `SaveGroup` | `SaveGroupRequest` | `SaveGroupResponse` | _Since 26.10.1._ Create or replace one group of a database (`*` for all) from `group_json`
-| `DeleteGroup` | `DeleteGroupRequest` | `DeleteGroupResponse` | _Since 26.10.1._ Delete one group of a database
-| `ListApiTokens` | `ListApiTokensRequest` | `ListApiTokensResponse` | _Since 26.10.1._ List API tokens as `ApiTokenInfo` (hash, last four characters, expiry, `expired` flag), never the token itself
-| `CreateApiToken` | `CreateApiTokenRequest` | `CreateApiTokenResponse` | _Since 26.10.1._ Mint an API token. The plaintext `token` is returned once only. Refused with `FAILED_PRECONDITION` unless the channel uses TLS or the client is on loopback; a duplicate name is `ALREADY_EXISTS`
-| `DeleteApiToken` | `DeleteApiTokenRequest` | `DeleteApiTokenResponse` | _Since 26.10.1._ Revoke a token by its `token_hash` (the plaintext token is not accepted)
+| `ListUsers` | `ListUsersRequest` | `ListUsersResponse` | List users with their per-database groups. Password hashes are never included
+| `ListGroups` | `ListGroupsRequest` | `ListGroupsResponse` | The whole group document, as JSON in `groups_json`
+| `SaveGroup` | `SaveGroupRequest` | `SaveGroupResponse` | Create or replace one group of a database (`*` for all) from `group_json`
+| `DeleteGroup` | `DeleteGroupRequest` | `DeleteGroupResponse` | Delete one group of a database
+| `ListApiTokens` | `ListApiTokensRequest` | `ListApiTokensResponse` | List API tokens as `ApiTokenInfo` (hash, last four characters, expiry, `expired` flag), never the token itself
+| `CreateApiToken` | `CreateApiTokenRequest` | `CreateApiTokenResponse` | Mint an API token. The plaintext `token` is returned once only. Refused with `FAILED_PRECONDITION` unless the channel uses TLS or the client is on loopback; a duplicate name is `ALREADY_EXISTS`
+| `DeleteApiToken` | `DeleteApiTokenRequest` | `DeleteApiTokenResponse` | Revoke a token by its `token_hash` (the plaintext token is not accepted)
 |===
 
 *Settings*
@@ -242,8 +242,8 @@ database on disk, while `CreateDatabase` with `if_not_exists` failed `ALREADY_EX
 |===
 | RPC | Request | Response | Description
 
-| `SetServerSetting` | `SetServerSettingRequest` | `SetServerSettingResponse` | _Since 26.10.1._ Set a server setting. `key` and `value` are separate fields, so a value with spaces needs no quoting
-| `SetDatabaseSetting` | `SetDatabaseSettingRequest` | `SetDatabaseSettingResponse` | _Since 26.10.1._ Set a setting of one database
+| `SetServerSetting` | `SetServerSettingRequest` | `SetServerSettingResponse` | Set a server setting. `key` and `value` are separate fields, so a value with spaces needs no quoting
+| `SetDatabaseSetting` | `SetDatabaseSettingRequest` | `SetDatabaseSettingResponse` | Set a setting of one database
 |===
 
 *Backup, restore, and import*
@@ -252,14 +252,14 @@ database on disk, while `CreateDatabase` with `if_not_exists` failed `ALREADY_EX
 |===
 | RPC | Request | Response | Description
 
-| `GetBackupConfig` | `GetBackupConfigRequest` | `GetBackupConfigResponse` | _Since 26.10.1._ Auto-backup configuration as JSON, and whether the auto-backup plugin is running
-| `SetBackupConfig` | `SetBackupConfigRequest` | `SetBackupConfigResponse` | _Since 26.10.1._ Save the auto-backup configuration from `config_json`
-| `ListBackups` | `ListBackupsRequest` | `ListBackupsResponse` | _Since 26.10.1._ Backup archives of a database, with retention totals
-| `TriggerBackup` | `TriggerBackupRequest` | `TriggerBackupResponse` | _Since 26.10.1._ Back up a database now; returns the archive path
-| `DeleteBackup` | `DeleteBackupRequest` | `DeleteBackupResponse` | _Since 26.10.1._ Delete one archive by plain file name (path separators and traversal are refused)
-| `RestoreBackup` | `RestoreBackupRequest` | stream `RestoreProgress` | _Since 26.10.1._ Restore a database's backup archive into `target_database`; `overwrite` replaces an existing target only after the restore succeeded
-| `RestoreDatabase` | `RestoreDatabaseRequest` | stream `RestoreProgress` | _Since 26.10.1._ Create a new database from an archive at a `url`
-| `ImportDatabase` | `ImportDatabaseRequest` | stream `ImportProgress` | _Since 26.10.1._ Create a new database and import the source at a `url` into it; progress carries importer lines and `parsed` / `vertices` / `edges` counters. A name already taken is `ALREADY_EXISTS` _(since 26.10.2; in 26.10.1 and earlier `INVALID_ARGUMENT`)_
+| `GetBackupConfig` | `GetBackupConfigRequest` | `GetBackupConfigResponse` | Auto-backup configuration as JSON, and whether the auto-backup plugin is running
+| `SetBackupConfig` | `SetBackupConfigRequest` | `SetBackupConfigResponse` | Save the auto-backup configuration from `config_json`
+| `ListBackups` | `ListBackupsRequest` | `ListBackupsResponse` | Backup archives of a database, with retention totals
+| `TriggerBackup` | `TriggerBackupRequest` | `TriggerBackupResponse` | Back up a database now; returns the archive path
+| `DeleteBackup` | `DeleteBackupRequest` | `DeleteBackupResponse` | Delete one archive by plain file name (path separators and traversal are refused)
+| `RestoreBackup` | `RestoreBackupRequest` | stream `RestoreProgress` | Restore a database's backup archive into `target_database`; `overwrite` replaces an existing target only after the restore succeeded
+| `RestoreDatabase` | `RestoreDatabaseRequest` | stream `RestoreProgress` | Create a new database from an archive at a `url`
+| `ImportDatabase` | `ImportDatabaseRequest` | stream `ImportProgress` | Create a new database and import the source at a `url` into it; progress carries importer lines and `parsed` / `vertices` / `edges` counters. A name already taken is `ALREADY_EXISTS` _(since 26.10.2)_
 |===
 
 The three restore and import RPCs are server-streaming: they send progress messages while the operation runs, then
@@ -274,12 +274,12 @@ hosts are accepted. See also <<backup,Backup>>.
 |===
 | RPC | Request | Response | Description
 
-| `ProfilerStart` | `ProfilerStartRequest` | `ProfilerStateResponse` | _Since 26.10.1._ Start recording. `timeout_seconds` of 0 or less applies the server default; the effective timeout is returned
-| `ProfilerStop` | `ProfilerStopRequest` | `ProfilerDocumentResponse` | _Since 26.10.1._ Stop recording and return the run as JSON
-| `ProfilerReset` | `ProfilerResetRequest` | `ProfilerStateResponse` | _Since 26.10.1._ Reset the profiler
-| `ProfilerResults` | `ProfilerResultsRequest` | `ProfilerDocumentResponse` | _Since 26.10.1._ Current profiler results as JSON, without stopping
-| `ProfilerList` | `ProfilerListRequest` | `ProfilerListResponse` | _Since 26.10.1._ Saved profiler runs on disk, newest first
-| `ProfilerLoad` | `ProfilerLoadRequest` | `ProfilerDocumentResponse` | _Since 26.10.1._ Load a saved run by file name
+| `ProfilerStart` | `ProfilerStartRequest` | `ProfilerStateResponse` | Start recording. `timeout_seconds` of 0 or less applies the server default; the effective timeout is returned
+| `ProfilerStop` | `ProfilerStopRequest` | `ProfilerDocumentResponse` | Stop recording and return the run as JSON
+| `ProfilerReset` | `ProfilerResetRequest` | `ProfilerStateResponse` | Reset the profiler
+| `ProfilerResults` | `ProfilerResultsRequest` | `ProfilerDocumentResponse` | Current profiler results as JSON, without stopping
+| `ProfilerList` | `ProfilerListRequest` | `ProfilerListResponse` | Saved profiler runs on disk, newest first
+| `ProfilerLoad` | `ProfilerLoadRequest` | `ProfilerDocumentResponse` | Load a saved run by file name
 |===
 
 *Server lifecycle and cluster*
@@ -288,13 +288,13 @@ hosts are accepted. See also <<backup,Backup>>.
 |===
 | RPC | Request | Response | Description
 
-| `GetServerEvents` | `GetServerEventsRequest` | `GetServerEventsResponse` | _Since 26.10.1._ Server events as a JSON array, from the current event file or a named one, plus the list of event files
-| `Shutdown` | `ShutdownRequest` | `ShutdownResponse` | _Since 26.10.1._ Shut down this server (empty `server_name`) or the named HA peer. The local shutdown is scheduled asynchronously, so the response arrives first
-| `DisconnectCluster` | `DisconnectClusterRequest` | `DisconnectClusterResponse` | _Since 26.10.1._ Disconnect this server from the cluster. `FAILED_PRECONDITION` when the server does not run HA
+| `GetServerEvents` | `GetServerEventsRequest` | `GetServerEventsResponse` | Server events as a JSON array, from the current event file or a named one, plus the list of event files
+| `Shutdown` | `ShutdownRequest` | `ShutdownResponse` | Shut down this server (empty `server_name`) or the named HA peer. The local shutdown is scheduled asynchronously, so the response arrives first
+| `DisconnectCluster` | `DisconnectClusterRequest` | `DisconnectClusterResponse` | Disconnect this server from the cluster. `FAILED_PRECONDITION` when the server does not run HA
 | `AcceptDivergedDatabase` | `AcceptDivergedDatabaseRequest` | `AcceptDivergedDatabaseResponse` | _Since 26.10.2._ Root only. Lifts the quarantine, and its read floor, standing on `database` of a node that is the only voter of its cluster (or whose every voter holds the same database quarantined), accepting the local copy as it is without a resync. The response carries `local_server`, `applied_index`, `divergence_cause` and `read_floor`. `NOT_FOUND` when nothing stands on the database, `FAILED_PRECONDITION` when the node has peers it can resync from or runs without HA, `INVALID_ARGUMENT` on a malformed name. The RPC twin of `POST /api/v1/cluster/accept-diverged/{database}`, see <<ha-accept-diverged,Lifting a quarantine without a resync>>
 | `AcceptStaleSnapshot` | `AcceptStaleSnapshotRequest` | `AcceptStaleSnapshotResponse` | _Since 26.10.2._ Root only. Lifts the node-wide stale-snapshot read floor of a node that is the only voter of its cluster, accepting its databases as they are without a resync. The response carries `local_server`, `read_floor`, `snapshot_index` and `applied_index`. `NOT_FOUND` when no floor stands, `FAILED_PRECONDITION` when the node has peers it can resync from, while a snapshot download runs, or without HA. The RPC twin of `POST /api/v1/cluster/accept-stale-snapshot`, see <<ha-accept-stale-snapshot,Lifting the stale-snapshot read floor>>
-| `ConnectCluster` | `ConnectClusterRequest` | `ConnectClusterResponse` | _Since 26.10.1._ Join the server at `server_address` (an `arcadedb.ha.serverList` entry) to the cluster. `FAILED_PRECONDITION` when HA is not running or cannot change membership at runtime; empty address is `INVALID_ARGUMENT`
-| `ListSessions` | `ListSessionsRequest` | `ListSessionsResponse` | _Since 26.10.1._ Open HTTP authentication sessions, including their bearer tokens. Enable TLS before calling it across an untrusted network
+| `ConnectCluster` | `ConnectClusterRequest` | `ConnectClusterResponse` | Join the server at `server_address` (an `arcadedb.ha.serverList` entry) to the cluster. `FAILED_PRECONDITION` when HA is not running or cannot change membership at runtime; empty address is `INVALID_ARGUMENT`
+| `ListSessions` | `ListSessionsRequest` | `ListSessionsResponse` | Open HTTP authentication sessions, including their bearer tokens. Enable TLS before calling it across an untrusted network
 |===
 
 *Health probes*
@@ -303,8 +303,8 @@ hosts are accepted. See also <<backup,Backup>>.
 |===
 | RPC | Request | Response | Description
 
-| `Health` | `HealthRequest` | `HealthResponse` | _Since 26.10.1._ Unauthenticated liveness probe; `ok` is `false` only when the HA layer escalated a crash loop
-| `Ready` | `ReadyRequest` | `ReadyResponse` | _Since 26.10.1._ Unauthenticated readiness probe; a not-ready node answers `ready = false` with a `reason` rather than an error status
+| `Health` | `HealthRequest` | `HealthResponse` | Unauthenticated liveness probe; `ok` is `false` only when the HA layer escalated a crash loop
+| `Ready` | `ReadyRequest` | `ReadyResponse` | Unauthenticated readiness probe; a not-ready node answers `ready = false` with a `reason` rather than an error status
 |===
 
 *Error statuses*

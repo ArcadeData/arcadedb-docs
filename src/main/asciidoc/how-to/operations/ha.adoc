@@ -55,7 +55,7 @@ Fields are unordered and all optional, with these defaults:
 |`http` |HTTP port, used by replicas to forward non-idempotent requests to the leader. Omit if not needed.
 |`https` |HTTPS port, used for *encrypted* peer-to-peer transfers (e.g. snapshot download) when `arcadedb.ssl.enabled=true`. See <<ha-ssl,TLS/SSL>>.
 |`bolt` |Client-reachable BOLT port, advertised in the BOLT routing table so `neo4j://` drivers find the leader and the followers. See <<ha-client-routing-ports,Client Routing Ports>>.
-|`grpc` |Client-reachable gRPC port, advertised when a gRPC call refused on a follower names the leader to retry against. See <<ha-client-routing-ports,Client Routing Ports>>. _(Since v26.9.1)_
+|`grpc` |Client-reachable gRPC port, advertised when a gRPC call refused on a follower names the leader to retry against. See <<ha-client-routing-ports,Client Routing Ports>>.
 |`priority` |Leader-election preference (integer, default `0`). The node with the highest priority is preferred as leader.
 |===
 +
@@ -106,7 +106,7 @@ With the field omitted, a peer's address for that protocol is derived as _that p
 
 On a cluster like that one, leaving the ports undeclared makes every peer derive to the *same* address - and an address two peers both claim identifies neither of them, since two listening sockets cannot share one `host:port`.
 Rather than advertise a leader address that is really the address of the node answering (which would send a self-redirecting client straight back to the node that just refused it), ArcadeDB advertises nothing for that protocol: BOLT then offers this node as READ and ROUTE but never as writer, and a refused gRPC call falls back to naming the leader's HTTP address.
-A WARNING naming the field to declare is logged once per protocol. _(Since v26.9.1)_
+A WARNING naming the field to declare is logged once per protocol.
 
 TIP: A declared address always wins over a derived one. Declaring the ports of the nodes that differ is enough; the rest may keep deriving.
 
@@ -116,7 +116,7 @@ A peer that joined the Raft group at runtime (a Kubernetes scale-up beyond `arca
 ===== Peer-to-Peer Endpoints (`http`, `https`)
 
 The same derive-from-this-node's-port fallback applies to the endpoints the *nodes* use to reach each other: a follower downloading a snapshot from the leader, a cluster verify comparing checksums with a peer, and the database presence matrix (`GET /api/v1/cluster?presence=true`).
-When two peers resolve to one `host:port`, that address identifies at most one of them and nothing can say which, so ArcadeDB *withholds* it rather than guessing: the operation is refused and reported as refused - a peer comes back `ERROR` / "not verified" from a verify, and unreachable from a presence matrix - instead of quietly answering for the wrong node. _(Since v26.9.1)_
+When two peers resolve to one `host:port`, that address identifies at most one of them and nothing can say which, so ArcadeDB *withholds* it rather than guessing: the operation is refused and reported as refused - a peer comes back `ERROR` / "not verified" from a verify, and unreachable from a presence matrix - instead of quietly answering for the wrong node.
 
 The presence matrix lists every server the node knows: the server list plus any server that joined at runtime (a Kubernetes scale-up, `connect cluster`). Each one is either a column of the matrix or listed in `unreachable`, and a declared server the cluster no longer counts as a member is also listed in `notInConfiguration`, since a database it lacks is not a replication gap. _(Since v26.11.1: before, a pod that joined at runtime was missing from the matrix.)_
 
@@ -130,12 +130,12 @@ NOTE: `http` and `https` are checked independently, because they are read from i
 
 One request is exempt: the *capability check*, in which the leader asks each peer which replication formats its build understands so it can use a compact one only when every node can read it.
 That call changes nothing on the peer and its reply says who answered, so ArcadeDB dials the shared address anyway and credits the answer to the node that identified itself.
-A cluster that has never declared its `http` ports therefore still gets the compact formats, instead of falling back to the verbose ones forever with nothing to explain why. _(Since v26.10.1)_
+A cluster that has never declared its `http` ports therefore still gets the compact formats, instead of falling back to the verbose ones forever with nothing to explain why.
 
 On the common single-host layout where every node shares an address and the Raft and HTTP ports move in step (`2434/2480`, `2435/2481`, ...), the capability check derives each peer's HTTP port from that same offset, so it reaches the peers the shared-address fallback cannot name.
-The derived port is used for the capability check only - never for a snapshot download, a cluster verify or a forwarded write, which keep refusing a shared address. _(Since v26.10.1)_
+The derived port is used for the capability check only - never for a snapshot download, a cluster verify or a forwarded write, which keep refusing a shared address.
 
-A peer that still did not answer carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port. _(Since v26.10.1)_
+A peer that still did not answer carries `capabilitiesUnknownReason` next to its entry in `GET /api/v1/cluster`, saying whether it is unreachable, running an older build, or not identified by any address of its own - the last being the one you fix by declaring its `http` port.
 
 Every node also *learns* the HTTP address of a peer it cannot reach where it resolves it, the same way on every node. _(Since v26.10.2)_
 Each node states its own HTTP port and address in the capability check it sends to the others, and each answer carries the addresses the answering node holds for the other members.
@@ -243,7 +243,7 @@ The log is used for recovery after restart and to replicate state to peers that 
 
 [NOTE]
 ====
-Size the Raft storage volume for the log, not only for the databases. If the volume fills, Ratis marks the log as failed at the first entry it could not write and the node rejects every following append while still reporting itself `RUNNING`. Since v26.9.1 the node recovers from that state on its own: the health monitor (`arcadedb.ha.healthCheckInterval`) restarts the Raft server in place as soon as the volume has room for two log segments again - which the periodic log compaction (`arcadedb.ha.snapshotInterval`, escalated below `arcadedb.ha.raftStorageMinFreeSpacePerc`) normally provides - and logs a throttled SEVERE while it is waiting. The in-place restarts are bounded by `arcadedb.ha.ratisRestartMaxRetries` per incident, so a failure that is not about space (a failing disk, a permission change) is left to the operator instead of restarting the node on every tick. For the same reason, a follower that reinstalls a database from the leader's snapshot first purges its own Raft log when that volume is under pressure, and refuses the download up front when the volume cannot hold the archive, instead of failing halfway through the extraction.
+Size the Raft storage volume for the log, not only for the databases. If the volume fills, Ratis marks the log as failed at the first entry it could not write and the node rejects every following append while still reporting itself `RUNNING`. The node recovers from that state on its own: the health monitor (`arcadedb.ha.healthCheckInterval`) restarts the Raft server in place as soon as the volume has room for two log segments again - which the periodic log compaction (`arcadedb.ha.snapshotInterval`, escalated below `arcadedb.ha.raftStorageMinFreeSpacePerc`) normally provides - and logs a throttled SEVERE while it is waiting. The in-place restarts are bounded by `arcadedb.ha.ratisRestartMaxRetries` per incident, so a failure that is not about space (a failing disk, a permission change) is left to the operator instead of restarting the node on every tick. For the same reason, a follower that reinstalls a database from the leader's snapshot first purges its own Raft log when that volume is under pressure, and refuses the download up front when the volume cannot hold the archive, instead of failing halfway through the extraction.
 ====
 
 Any read (query) can execute on any server in the cluster.
@@ -332,7 +332,7 @@ Schema DDL does not travel through the WAL pages described above. A schema chang
 session*, and when the outermost session on the thread closes, the leader replicates it as its own Raft entry type
 (`SCHEMA_ENTRY`), carrying the schema document and any bucket or index files the change created. One session is one entry.
 
-Normally each DDL statement is one session. Since v26.10.1 a SQL script made only of schema definition statements runs as a
+Normally each DDL statement is one session. A SQL script made only of schema definition statements runs as a
 single session when `arcadedb.schemaBulkDDLScript` is on (the default), and so does a Java `Schema.bulkChange()` block: the
 whole batch is one Raft entry (see <<sql-script-ddl-batching>>). The trade-off is that the database write lock is held for
 the whole script.
@@ -344,7 +344,7 @@ runs longer than that leaves concurrent writers racing the schema entry. A long 
 so this is not new, but batching makes long sessions more common. Keep DDL scripts to schema definition, run data loads
 separately, or set `arcadedb.schemaBulkDDLScript=false` to go back to one entry per statement.
 
-On the follower, since v26.10.1, a DDL entry is applied incrementally: only the components for the files the entry created
+On the follower, a DDL entry is applied incrementally: only the components for the files the entry created
 are instantiated, instead of every component in the database being rebuilt (`arcadedb.ha.schemaIncrementalApply`, on by
 default). Building a large schema used to cost time quadratic in the number of types.
 
@@ -910,7 +910,7 @@ The same override is available over gRPC as `AcceptStaleSnapshot` (see <<grpc-ap
 could not verify, carries a marker file (`.ha-unverified-closed-copy`). Before such a node, once leader, reopens the copy
 and makes it the cluster's copy, it asks every peer of the configuration about its own, and refuses while a peer does
 not answer or holds a copy that cannot be ordered against it (the critical `unverified-closed-copy-refused` alert). A
-peer that is gone for good but still in the configuration keeps the database closed on every node. Since v26.10.1 the
+peer that is gone for good but still in the configuration keeps the database closed on every node. The
 operator override is `POST /api/v1/cluster/accept-copy/{database}`:
 
 * It requires the `root` user, runs on the leader only (a follower answers `400`), and the body is ignored. It removes
@@ -1006,12 +1006,12 @@ All endpoints require authentication as the `root` user.
 
 |POST
 |`/api/v1/cluster/security-seed`
-|Leader-only: replicate the cluster security documents to the calling node. Requires the cluster token and is called by peers, not by operators. The caller may send digests of the copies it already holds, in which case a node already in step is answered without anything being written. Any other server answers `409` and names the current leader. _(Since v26.10.1.)_ See <<ha-security-documents,Cluster security documents>>.
+|Leader-only: replicate the cluster security documents to the calling node. Requires the cluster token and is called by peers, not by operators. The caller may send digests of the copies it already holds, in which case a node already in step is answered without anything being written. Any other server answers `409` and names the current leader. See <<ha-security-documents,Cluster security documents>>.
 |===
 
 [NOTE]
 ====
-*Send leadership changes to the leader.* Since 26.10.1, `/api/v1/cluster/leader` and `/api/v1/cluster/stepdown`
+*Send leadership changes to the leader.* `/api/v1/cluster/leader` and `/api/v1/cluster/stepdown`
 answer `409 Conflict` when the server receiving them is not the leader, and the message names the leader to
 retry against.
 
@@ -1060,7 +1060,7 @@ $ curl -u root:<password> \
 |`overallStatus` |Meaning
 |`ALL_CONSISTENT` |Every peer was contacted and every peer's checksums match this node's.
 |`INCONSISTENCY_DETECTED` |At least one peer was contacted and its checksums differ - a divergence somebody has actually observed.
-|`VERIFICATION_INCOMPLETE` |No divergence was observed, but at least one peer could not be verified: it was unreachable, or its address does not identify it (see <<ha-peer-endpoint-ambiguity,Peer-to-Peer Endpoints>>). Such a peer is reported with `status: ERROR` and an `error` naming what to fix. _(Since v26.9.1)_ It is also reported when the TimeSeries sealed stores could not be fully compared - see below. _(Since v26.10.1)_
+|`VERIFICATION_INCOMPLETE` |No divergence was observed, but at least one peer could not be verified: it was unreachable, or its address does not identify it (see <<ha-peer-endpoint-ambiguity,Peer-to-Peer Endpoints>>). Such a peer is reported with `status: ERROR` and an `error` naming what to fix. It is also reported when the TimeSeries sealed stores could not be fully compared - see below.
 |===
 
 `ALL_CONSISTENT` therefore means what it says: it is not reachable while any peer is unverified.
@@ -1088,7 +1088,7 @@ which every node builds on its own. The vectors themselves live in the index pag
 [[ha-verify-timeseries]]
 ====== TimeSeries Sealed Stores
 
-_(Since v26.10.1)_ The verify also compares the TimeSeries sealed stores (`.ts.sealed`), the files holding compacted historical samples.
+The verify also compares the TimeSeries sealed stores (`.ts.sealed`), the files holding compacted historical samples.
 They were previously left out, which mattered because they are replicated by their own path rather than with the data pages: a node whose sealed store failed to install, or was repaired by hand, reported a perfect match while holding different history from the leader.
 
 Two fields report how far that comparison got:
@@ -1140,7 +1140,7 @@ For a security-strict deployment that should reject from the very first connecti
 *Cluster security documents*:: The server users, groups and API tokens are held in `server-users.jsonl`, `server-groups.json` and `server-api-tokens.json`, in the server's `config/` directory.
 They live outside the databases, so a database snapshot does not carry them: they are replicated to the other nodes as their own Raft entries.
 +
-A node is seeded with the current set when it is admitted to the cluster, and, since v26.10.1, also re-seeds itself when it rejoins one it never left.
+A node is seeded with the current set when it is admitted to the cluster, and, also re-seeds itself when it rejoins one it never left.
 That second case is the one that used to bite on Kubernetes: a pod whose data volume is persistent but whose `config/` directory is not comes back as an existing cluster member, so it is never re-admitted, and before v26.10.1 it was never re-seeded either.
 It came back holding only the users created from its own environment at bootstrap, and rejected logins that worked on every other node.
 A node now asks the leader for the current documents shortly after it first sees one, and again after it receives a snapshot, sending digests of the copies it already holds so that a node already in step costs one HTTP request and no Raft entries.
@@ -1458,11 +1458,11 @@ A follower that is killed while it is installing a snapshot from the leader -- a
 
 _(Since v26.11.1)_ A snapshot install is also verified before the previous copy is given up. The leader sends the name and size of every file, and the install compares the live files against that account right after the swap and before the reopen. On a mismatch, such as zero-length page files or a corrupt `schema.json`, it rolls back to the previous copy. The leader's file account is kept as `.snapshot-manifest` through the swap, so the crash-recovery roll-forward compares against it too and restores the backup instead of keeping a half-installed copy. An install without a manifest falls back to the check that the database reopens.
 
-While that marker exists, the database is *not opened by anything*: not the startup scan, not the default-database configuration (`arcadedb.server.defaultDatabases`), and not a client request naming it. A request for it is answered with `Database '<name>' is not available: an interrupted HA snapshot install left '.snapshot-pending' in its directory`. The refusal lasts as long as the marker does -- it is a statement about the directory, not about a phase of startup. _(Since v26.10.1)_
+While that marker exists, the database is *not opened by anything*: not the startup scan, not the default-database configuration (`arcadedb.server.defaultDatabases`), and not a client request naming it. A request for it is answered with `Database '<name>' is not available: an interrupted HA snapshot install left '.snapshot-pending' in its directory`. The refusal lasts as long as the marker does -- it is a statement about the directory, not about a phase of startup.
 
 The node still starts. HA snapshot recovery runs during startup and either completes the interrupted swap (the download had finished) or rolls it back to the previous copy (it had not); either way it removes the marker, and the database is opened before the server reports itself online. In the normal case the only trace is one INFO line naming the deferred database.
 
-This includes a swap interrupted by a release older than v26.10.1, which recorded no phase: recovery works out from the files whether the new copy was already going in (it finishes the install) or the old copy was still being moved aside (it restores the old database). In the rare case a file of the incoming copy has to be set aside to let the old database open, it is moved to `databases/<name>/.snapshot-orphans/` and a WARNING names it; it is safe to delete once the database is verified. _(Since v26.10.1)_
+This includes a swap interrupted by a release older than v26.10.1, which recorded no phase: recovery works out from the files whether the new copy was already going in (it finishes the install) or the old copy was still being moved aside (it restores the old database). In the rare case a file of the incoming copy has to be set aside to let the old database open, it is moved to `databases/<name>/.snapshot-orphans/` and a WARNING names it; it is safe to delete once the database is verified.
 
 The marker survives startup in two cases:
 
@@ -1480,7 +1480,7 @@ To resolve it, let the cluster replace the copy: on a follower joined to a healt
 
 [NOTE]
 ====
-_(Since v26.10.1.)_ Deleting `databases/<name>/` and restarting now reliably brings the database back on a node that
+Deleting `databases/<name>/` and restarting now reliably brings the database back on a node that
 had it before. Earlier versions could restart without it: the node kept a record, stored next to the database
 directories rather than inside them, saying the database had already been checked, so deleting the directory left that
 record behind and the node concluded there was nothing to do. It logged that the check had completed and carried on
@@ -1544,7 +1544,7 @@ Snapshot file SingleFileSnapshotInfo(t:1, i:7293):[.../sm/snapshot.1_7293] has m
 
 It never meant corruption. ArcadeDB's real snapshot is the set of database files the transaction manager has already
 flushed to disk. The file Ratis inspects is a zero-byte marker whose name carries the `(term, index)` pair used to decide
-which Raft log segments can be purged, and it deliberately has no `.md5` companion. Since 26.10.1 the warning is filtered
+which Raft log segments can be purged, and it deliberately has no `.md5` companion. The warning is filtered
 out (see <<logging-levels,Per-package verbosity>>); other messages from the same Ratis logger are still logged.
 
 ===== HA Settings
@@ -1661,23 +1661,23 @@ A complete list of all HA parameters is available in <<arcadedb-settings,Server 
 |null
 
 |`+arcadedb.ha.tls.enabled+`
-|Negotiate TLS on the Raft gRPC transport (AppendEntries, RequestVote, and the Ratis admin/client calls). When true, the three file settings below must all name a readable PEM file or the node refuses to start. Independent of `arcadedb.ssl.enabled`, which covers the HTTP side channels. See <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>. _Since v26.9.1_
+|Negotiate TLS on the Raft gRPC transport (AppendEntries, RequestVote, and the Ratis admin/client calls). When true, the three file settings below must all name a readable PEM file or the node refuses to start. Independent of `arcadedb.ssl.enabled`, which covers the HTTP side channels. See <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>.
 |false
 
 |`+arcadedb.ha.tls.certChainFile+`
-|PEM file with this node's Raft certificate followed by any intermediate CAs. The certificate needs a SAN matching the address peers dial in `arcadedb.ha.serverList`, and both the `serverAuth` and `clientAuth` extended key usages. Required when `arcadedb.ha.tls.enabled` is true. _Since v26.9.1_
+|PEM file with this node's Raft certificate followed by any intermediate CAs. The certificate needs a SAN matching the address peers dial in `arcadedb.ha.serverList`, and both the `serverAuth` and `clientAuth` extended key usages. Required when `arcadedb.ha.tls.enabled` is true.
 |(empty)
 
 |`+arcadedb.ha.tls.privateKeyFile+`
-|PEM file with the *PKCS#8* private key matching `certChainFile`. Required when `arcadedb.ha.tls.enabled` is true. A `WARNING` is logged if the file is readable beyond its owner. _Since v26.9.1_
+|PEM file with the *PKCS#8* private key matching `certChainFile`. Required when `arcadedb.ha.tls.enabled` is true. A `WARNING` is logged if the file is readable beyond its owner.
 |(empty)
 
 |`+arcadedb.ha.tls.trustCertCollectionFile+`
-|PEM file with the cluster CA certificate(s) signing every node certificate. Required when `arcadedb.ha.tls.enabled` is true, including with `mutualAuth=false`. _Since v26.9.1_
+|PEM file with the cluster CA certificate(s) signing every node certificate. Required when `arcadedb.ha.tls.enabled` is true, including with `mutualAuth=false`.
 |(empty)
 
 |`+arcadedb.ha.tls.mutualAuth+`
-|Require the dialing peer to present a client certificate signed by the cluster CA, binding peer identity to a certificate rather than a source IP. `false` gives server-only TLS, which encrypts the traffic but leaves the Raft port open to any client trusting the cluster CA. See <<ha-grpc-mtls-mutual-auth,Server-only TLS>>. _Since v26.9.1_
+|Require the dialing peer to present a client certificate signed by the cluster CA, binding peer identity to a certificate rather than a source IP. `false` gives server-only TLS, which encrypts the traffic but leaves the Raft port open to any client trusting the cluster CA. See <<ha-grpc-mtls-mutual-auth,Server-only TLS>>.
 |true
 
 |`+arcadedb.ha.logVerbose+`

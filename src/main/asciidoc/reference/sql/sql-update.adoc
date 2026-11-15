@@ -45,7 +45,7 @@ Practically `UPSERT` means: `UPDATE` if the `WHERE` condition is fulfilled, othe
 * <<filtering,`WHERE`>> Defines the subset of records to be updated.
 * `LIMIT` Defines the maximum number of records to update.
 +
-NOTE: Since 26.10.1, when an index serves the `WHERE` and the statement changes a property of that index (for example
+NOTE: When an index serves the `WHERE` and the statement changes a property of that index (for example
 `UPDATE V SET a = a + 10 WHERE a BETWEEN 0 AND 1000`), the set of records to update is fixed before the first one is
 changed. Each record is updated once, even when its new key falls inside the range. Records are then updated in storage
 order rather than in index order, which can change the order of the rows returned by `RETURN BEFORE` and `RETURN AFTER`.
@@ -56,7 +56,7 @@ leaves the records committed up to the last batch boundary in place. For the sam
 a transaction opened by your application makes that transaction no longer atomic either, and a rollback
 cannot undo what the batches already committed. A `transaction()` block with retries does not retry in that
 case: the conflict is propagated to your application instead, since repeating the block would apply the
-already committed records a second time. Since 26.10.1 a SQL Script
+already committed records a second time. A SQL Script
 <<sql-script-commit,`BEGIN ... COMMIT RETRY <n>`>> block behaves the same way.
 * `TIMEOUT` Defines the time you want to allow the update run before it times out.
 * `RETURNING` PostgreSQL's trailing form of `RETURN AFTER`: returns the records as the update left them, projected by
@@ -222,6 +222,6 @@ ArcadeDB> UPDATE Person SET name = 'Luca', email = 'luca@example.com'
 
 Additional restrictions:
 
-* the `WHERE` condition must be a non-null equality on *every* property of a `UNIQUE` index. A non-unique index, a partial match of a composite index (key prefix), a range, an `IN` list or a null value is rejected with the error "Upsert must involve a UNIQUE index to retrieve the records", because it could create duplicate records. _(Since v26.10.2; in v26.10.1 and earlier an `UPSERT` whose `WHERE` was not a sub-query accepted any index, a non-unique one included, and could create duplicates.)_
+* the `WHERE` condition must be a non-null equality on *every* property of a `UNIQUE` index. A non-unique index, a partial match of a composite index (key prefix), a range, an `IN` list or a null value is rejected with the error "Upsert must involve a UNIQUE index to retrieve the records", because it could create duplicate records. _(Since v26.10.2)_
 * the `WHERE` condition cannot use `OR`. Only an `AND` chain of equality conditions is supported, because each equality term is also reused as the initial value of the property when a new record has to be created.
 * `UPSERT` is not available on edge types. To create an edge only if it does not already exist, use <<sql-create-edge,`CREATE EDGE ... IF NOT EXISTS`>>.

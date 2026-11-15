@@ -46,7 +46,7 @@ ALTER DATABASE <setting-name> <setting-value>
  characters, surround the setting name with ```.
 * *`&lt;setting-value&gt;`* The new value to set
 
-NOTE: Only *database* settings can be set this way. Since v26.10.1 a setting that belongs to the whole server or to the JVM
+NOTE: Only *database* settings can be set this way. A setting that belongs to the whole server or to the JVM
 is refused, naming its scope: use `SET SERVER SETTING` for a server setting, or a `-D` JVM property for a JVM one. Before
 v26.10.1 such a value was accepted and saved into the database configuration, where nothing would ever read it back.
 
@@ -87,7 +87,7 @@ right after.
 
 [NOTE]
 ====
-Since 26.10.1, one database runs one whole-database maintenance operation at a time: backup, restore, import, export and
+One database runs one whole-database maintenance operation at a time: backup, restore, import, export and
 `drop database`. A second one on the same database is refused immediately with an `operation in progress` error naming the one
 already running, rather than proceeding alongside it - simply retry once the first has finished. Two exceptions: several exports
 of one database may run together (they read only), and a `drop database` conflicts with everything, including another drop.
@@ -119,7 +119,7 @@ API directly (not through SQL) if a full path is genuinely needed.
 
 [NOTE]
 ====
-Since 26.10.1 the backup directory is the one every other backup command uses - the running auto-backup plugin's
+The backup directory is the one every other backup command uses - the running auto-backup plugin's
 configuration, then `config/backup.json` even when the schedule is off, then `arcadedb.server.backupDirectory` - so
 an archive written here is visible to `list backups` and reachable by `delete backup` and `restore backup`. See
 <<backup-directory-resolution,Where an On-Demand Backup Goes>>.
@@ -168,9 +168,9 @@ Executes an integrity check and in case of a repair of the database. This comman
  precision, a vector index's dimensions. _Since v26.11.1_, an `LSM_TREE`, `FULL_TEXT`, `GEOSPATIAL` or `HASH` index is instead
  rebuilt in place without blocking the database (see <<sql-rebuild-index,`REBUILD INDEX`>>), and an index missing the part of some
  of its type's buckets has only those parts created and filled.
-* existence constraints: _since v26.10.1_, every record of a type that declares a `MANDATORY` or `NOTNULL` property is checked
+* existence constraints: every record of a type that declares a `MANDATORY` or `NOTNULL` property is checked
  against it. See <<sql-check-database-constraints,Existence constraints>> below.
-* cached record counters: _since v26.10.1_, the counter `count(*)` answers from is compared against the records the bucket scan
+* cached record counters: the counter `count(*)` answers from is compared against the records the bucket scan
  actually found. See <<sql-check-database-record-counters,Cached record counters>> below.
 
 * index entries against records: _since v26.12.1_, the entries of every `LSM_TREE` index are compared with the records of its
@@ -218,7 +218,7 @@ The other shape is a *dangling reference*: an adjacency entry that points at a r
 by a vertex deleted by an old release, before edge removal became strict. There is nothing to rebuild in that case - the record the
 entry names is gone - so `FIX` drops the entry instead.
 
-_Since v26.9.1_, an application that reaches such a record before the repair has run is told so plainly, and always in the same
+An application that reaches such a record before the repair has run is told so plainly, and always in the same
 way. Removing an entry from the edge list of a vertex whose own record is missing, adding one to it, and deleting that vertex
 outright all raise `VertexNotFoundException`, a `RecordNotFoundException` (answered as HTTP `404`) that names the vertex and points
 at `CHECK DATABASE FIX`. Creating an edge whose *endpoint* is such a record raises it too, naming the endpoint - which is not the
@@ -273,7 +273,7 @@ The optional clauses must appear in the order shown above.
  vertex that merely lost its head-chunk pointer, whose edges are still recoverable. Without it a `FIX` relinks those
  records into their vertices' edge lists instead _(since v26.11.1; before, it left them untouched)_, and without `FIX`
  the finding is only reported, under `unreachableEdgeRecords`
-* *`DELETE INVALID RECORDS`* Optional, requires `FIX`, _since v26.10.1_. Removes the records that do not satisfy their
+* *`DELETE INVALID RECORDS`* Optional, requires `FIX`,. Removes the records that do not satisfy their
  own type's existence constraints. A clause of its own because `ALTER PROPERTY ... MANDATORY TRUE` on a type that
  already holds records makes every one of them a finding while they hold real data - see
  <<sql-check-database-constraints,Existence constraints>>. Without it the finding is still reported, under
@@ -377,7 +377,7 @@ The command returns the integrity check report in one record with the fields:
 | `repairedTimeSeries` | number of TimeSeries repairs a `FIX` applied. Deliberately not folded into `autoFix`, which
                          counts record actions only.
 | `timeSeriesRepairs` | one line per repair applied, naming the type, the shard and what was rewritten.
-| `constraintViolatingRecords` | _since v26.10.1_, records that load correctly but do not satisfy an existence
+| `constraintViolatingRecords` | Records that load correctly but do not satisfy an existence
                                  constraint (`MANDATORY`, `NOTNULL`) of their own type. Deliberately not listed under
                                  `corruptedRecords`: such a record reads, deserialises and indexes correctly, and
                                  flagging it as corrupt would have `FIX` rebuild every index on its bucket for nothing.
@@ -393,7 +393,7 @@ The command returns the integrity check report in one record with the fields:
 [[sql-check-database-vector-ids]]
 *Vector indexes*
 
-_Since v26.10.1_ the check reads the pages of every `LSM_VECTOR` index and reports one that has two records on the same
+The check reads the pages of every `LSM_VECTOR` index and reports one that has two records on the same
 vector id. The index appears under `corruptedIndexes`, and `warnings` carries how many records are affected and the
 first few RIDs, each with the record that took its id.
 
@@ -417,7 +417,7 @@ rebuilt index reaches the followers as replicated data like any other `FIX` of a
 [[sql-check-database-constraints]]
 *Existence constraints*
 
-_Since v26.10.1_ the check also asks a schema question: does every record satisfy the `MANDATORY` and `NOTNULL`
+The check also asks a schema question: does every record satisfy the `MANDATORY` and `NOTNULL`
 constraints its own type declares? It is the one question nothing else in the database could answer, and a record that
 fails it is not merely untidy - every later write to it fails, because the update path validates the whole document,
 so the record reads as broken to the application long before anyone thinks to look at the schema.
@@ -464,7 +464,7 @@ counter is what the query answers from. That counter is persisted in the databas
 when the database is opened, so a counter that goes wrong stays wrong across restarts and nothing recomputes it until
 something invalidates it.
 
-_Since v26.10.1_ the bucket pass compares the two. It already reads every slot of every bucket, so the authoritative
+The bucket pass compares the two. It already reads every slot of every bucket, so the authoritative
 number is in hand, and a disagreement is reported as an error naming the bucket, both numbers and the direction:
 
 ----
@@ -618,7 +618,7 @@ only: `file` and `f` are not settings of `EXPORT DATABASE`, and neither is the c
 
 [NOTE]
 ====
-Since 26.10.1 an export claims its target file for its duration, so two exports that resolve to the same file no longer write
+An export claims its target file for its duration, so two exports that resolve to the same file no longer write
 into it at the same time - the second one fails immediately with `Another export to '<file>' is already in progress` instead of
 producing a corrupt archive. This applies with `overwrite = true` as well, which previously skipped the check altogether.
 
@@ -628,7 +628,7 @@ name. A running export now also publishes its progress, so it is visible on the 
 
 [NOTE]
 ====
-Since 26.9.1 the `jsonl` export includes TIMESERIES types: their definition (columns, shards, precision, retention,
+The `jsonl` export includes TIMESERIES types: their definition (columns, shards, precision, retention,
 compaction interval and downsampling tiers) and their samples, so a JSONL export is a complete backup of a
 TIMESERIES type. Earlier versions wrote a file that could not be imported at all when the database contained one.
 
@@ -639,7 +639,7 @@ densely connected graph they were the bulk of the file. Edges are unaffected and
 
 [NOTE]
 ====
-Since 26.10.1 importing a `jsonl` export also restores the parts of the schema that live outside the types:
+Importing a `jsonl` export also restores the parts of the schema that live outside the types:
 triggers, materialized views, continuous aggregates, `DEFINE FUNCTION` libraries and module extensions. The export
 has always contained them; earlier versions simply skipped them on import and still reported success.
 
@@ -716,7 +716,7 @@ EXPORT DATABASE WITH overwrite = true
 ----
 
 NOTE: A `jsonl` export of a <<timeseries,TimeSeries>> type records each column's compression codec, because it
-cannot be worked out again from the column's data type alone. _(Since v26.10.1)_ importing such an export into a
+cannot be worked out again from the column's data type alone. Importing such an export into a
 remote database preserves that codec exactly, even if the default codec for that data type changed between the
 two versions. Earlier versions could silently give the restored column the newer default instead.
 

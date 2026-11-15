@@ -136,13 +136,13 @@ For this reason this plugin was created by reading the available documentation o
 NOTE: Both the "simple" query protocol and the extended query protocol (`Parse`/`Bind`/`Describe`/`Execute`/
 `Sync`, what `PreparedStatement` uses) are supported.
 
-_Since v26.10.1_, `BEGIN`, `COMMIT` and `ROLLBACK` sent through the extended query protocol are acknowledged
+`BEGIN`, `COMMIT` and `ROLLBACK` sent through the extended query protocol are acknowledged
 the way PostgreSQL acknowledges them. Previously a libpq-based client - psycopg3, asyncpg, the Apache Arrow
 ADBC PostgreSQL driver - could fail to open a transaction with `Failed to begin transaction`. In the same
 release, a statement the server rejects no longer leaves the previously prepared statement usable under the
 same name, so a client can no longer receive the earlier statement's rows in answer to one that was refused.
 
-_Since v26.10.1_, a portal (the bound statement `Execute` runs) lives only as long as the transaction it was
+A portal (the bound statement `Execute` runs) lives only as long as the transaction it was
 created in, as in PostgreSQL: in autocommit it ends at `Sync`, inside `BEGIN` it ends at `COMMIT`/`ROLLBACK`.
 Fetching a large result in chunks (JDBC `setFetchSize()`) therefore needs a transaction, which is what the
 PostgreSQL JDBC driver already requires. Binding from a prepared statement that does not exist is refused
@@ -183,11 +183,11 @@ cursor does not hold a slot of `arcadedb.queryMaxConcurrent`: each fetch is admi
 transaction makes between two fetches can be seen by the rows not fetched yet, unless the query sorts (`ORDER BY`
 reads every row on the first fetch).
 
-_Since v26.10.1_, running a prepared statement without asking for its row description again (what the PostgreSQL
+Running a prepared statement without asking for its row description again (what the PostgreSQL
 JDBC driver does once a statement has run `prepareThreshold` times, 5 by default) no longer sends an unrequested
 row description. Before, the JDBC connection failed with `NoSuchElementException` from the 6th execution on.
 
-_Since v26.10.1_, when a prepared statement is described (`Describe` on the statement, what asyncpg, npgsql and pgx
+When a prepared statement is described (`Describe` on the statement, what asyncpg, npgsql and pgx
 do) and the server answers that it returns no rows, running it keeps that promise. An `INSERT`, `UPDATE`, `DELETE`,
 `CREATE VERTEX` or `CREATE EDGE` without `RETURN` answers only its command tag with the number of affected records
 (e.g. `INSERT 0 1`), like PostgreSQL. A statement whose columns cannot be known before it runs (e.g. a `{cypher}`
@@ -196,7 +196,7 @@ JDBC driver, libpq and psycopg do), which runs the statement first and reports i
 
 ===== System catalog and schema introspection
 
-_Since v26.9.1_, queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
+Queries against `pg_catalog` and `information_schema` - the ones a client's driver sends to
 discover schemas, tables, columns and types, typically via
 `DatabaseMetaData.getSchemas()`/`getTables()`/`getColumns()`/`getTypeInfo()`
 - are answered by recognizing the *shape* of the query (which relations it names, which columns it projects,
@@ -238,7 +238,7 @@ view reads (including types read only in a subquery), so a tool asking what is b
 dropping it, finds the views that depend on it. Dependencies are listed per type, not per column.
 `pg_get_ruledef(oid)` prints the rule.
 
-_Since v26.10.1_, `pg_type` can also be queried on its own, and not only as part of a column list. Some
+`pg_type` can also be queried on its own, and not only as part of a column list. Some
 clients build a map of every type the server has before they run a single query, and refuse to connect if
 that map comes back empty - the Apache Arrow ADBC PostgreSQL driver is one of them. Such a query is answered
 with the types this protocol can actually produce (see <<postgres-column-type-mapping,Column type mapping>> below),
@@ -246,7 +246,7 @@ each described the way PostgreSQL describes it. A filter the server cannot inter
 than every type, so a client asking whether an extension type such as `hstore` exists is correctly told it
 does not.
 
-_Since v26.10.1_, the `regclass` and `regtype` casts resolve, in both directions: `'mytable'::regclass` is
+The `regclass` and `regtype` casts resolve, in both directions: `'mytable'::regclass` is
 that type's OID and `attrelid::regclass` is its name, and likewise `'int4'::regtype` and
 `atttypid::regtype` for types. The function spellings `to_regclass()` and `to_regtype()` do the same. Some
 drivers ask for a table's columns by writing the name as a `regclass` cast and comparing it against
@@ -260,7 +260,7 @@ Type names are matched case-sensitively first, as ArcadeDB stores them, and only
 name to lower case. If two types differ only in case, an unquoted name that matches neither of them exactly
 resolves to nothing rather than picking one; quote the name to say which you mean.
 
-_Since v26.10.1_, a query that joins a catalog relation to `pg_roles` or `pg_user` to name an owner - what a
+A query that joins a catalog relation to `pg_roles` or `pg_user` to name an owner - what a
 GUI browser sends to list tables with their owner - answers with the connected user rather than `NULL`:
 
 [source,sql]
@@ -369,7 +369,7 @@ unique constraint.
 [[postgres-copy-to-stdout]]
 ===== COPY ... TO STDOUT
 
-`COPY` in its export direction is supported (since 26.10.1), in every form PostgreSQL accepts for it:
+`COPY` in its export direction is supported, in every form PostgreSQL accepts for it:
 
 [source,sql]
 ----
@@ -452,11 +452,11 @@ this holds for every type ArcadeDB maps onto a native PostgreSQL OID:
   ordinary column selection; a column reached through a table alias, a computed expression, or a multi-table
   `JOIN` can still fall back to the value-only answer in that one configuration.
 
-_Since v26.10.1_, a column is typed from all the rows of a result, not from the first one, and a list from all its
+A column is typed from all the rows of a result, not from the first one, and a list from all its
 elements: `[1, 2.5]` is announced as `float8[]`, `[1, 3000000000]` as `int8[]`, and a list that also holds a
 `DECIMAL` as `numeric[]`. A list or column that mixes values no common number type can hold is announced as text.
 
-_Since v26.10.1_, a prepared statement keeps ONE layout for all its rows, because a client may describe it once and
+A prepared statement keeps ONE layout for all its rows, because a client may describe it once and
 reuse that description. A property the type does not declare (ArcadeDB is schemaless) can hold an integer in one record
 and a long, a double or a string in the next, so such a property is announced as `varchar` (a list as `text[]`) when
 the statement is described (`Describe` on the statement, or on a portal of a named statement, which is what the
@@ -495,7 +495,7 @@ transaction otherwise holds every modified page until the statement ends. To spa
 transaction, send an explicit `BEGIN` ... `COMMIT` (or `ROLLBACK`).
 
 A client that PIPELINES several statements before waiting for their answers - a JDBC `executeBatch()`, psycopg3
-pipeline mode, asyncpg - groups them differently (since 26.10.1): everything between two `Sync` messages is one
+pipeline mode, asyncpg - groups them differently: everything between two `Sync` messages is one
 transaction, so a batch either lands whole or leaves nothing behind, and the statements after the one that failed
 are not run at all. This is what PostgreSQL does and what `BatchUpdateException` handling assumes. Before 26.10.1
 each statement in such a batch committed on its own, so a failure halfway left the earlier ones persisted; if you
@@ -527,7 +527,7 @@ In v26.10.1 to v26.11.1 such a message was run as a single statement and refused
 kept psqlodbc 16 from connecting. Before v26.10.1 a message starting with `SET` was answered as one `SET` that was
 ignored, and any other message of several statements was a syntax error.
 
-Since v26.10.1 a transaction-control statement is recognized in every spelling ArcadeDB SQL accepts, not only the
+A transaction-control statement is recognized in every spelling ArcadeDB SQL accepts, not only the
 bare keyword: with a leading or trailing comment (as added by sqlcommenter, OpenTelemetry or connection-pool routing
 hints, e.g. `COMMIT /*traceparent='...'*/`), with extra `;`, `BEGIN ISOLATION <level>` (which opens the transaction
 with that isolation level, e.g. `BEGIN ISOLATION REPEATABLE_READ`) and `COMMIT RETRY <n>` (a plain `COMMIT` outside a
@@ -567,7 +567,7 @@ conn.setAutoCommit(true);
 ===== Session settings (SET, SHOW, RESET)
 
 `SET` changes a setting for the current connection only: it never changes the database or any other connection,
-and `SHOW` reads it back. Since v26.10.1 it follows PostgreSQL's rules:
+and `SHOW` reads it back. It follows PostgreSQL's rules:
 
 * a `SET` made inside a transaction that is rolled back, or that fails, is undone;
 * `SET LOCAL` lasts only until the end of the current transaction (outside a transaction it has no lasting effect);
@@ -608,7 +608,7 @@ literally: write them in an `E'...'` literal, or set `standard_conforming_string
 Values bound as parameters were never affected.
 ====
 
-A `SET` is answered `SET` only when it did what it asked. Since v26.10.1 every other `SET` is answered with an error,
+A `SET` is answered `SET` only when it did what it asked. Every other `SET` is answered with an error,
 on both the simple and the extended query protocol, rather than accepted and ignored:
 
 * a `SET` the server cannot parse (for example `SET x`, with neither `=` nor `TO`) is a syntax error (`42601`),

@@ -243,7 +243,7 @@ then runs the next time that index is actually searched, after any reopen. A ses
 searches the index again pays nothing at all. Below 1,000 vectors, `close()` keeps rebuilding synchronously as
 before.
 
-Since v26.9.1 that first query after a reopen does not wait for the rebuild. If the persisted graph is behind only
+That first query after a reopen does not wait for the rebuild. If the persisted graph is behind only
 because vectors were added after it was last built -- and ArcadeDB can verify on disk that the graph still
 describes exactly the records it was built from -- the graph is put straight back to work and only the
 missing vectors are searched separately, while the full rebuild runs in the background. Results are complete from
@@ -261,7 +261,7 @@ reason was that what each node of the persisted graph stood for was worked out a
 of vectors as it then stood -- and a delete shifts that list, so the graph and the list no longer agreed. Several
 large indexes reopening together could therefore rebuild at the same time and exhaust the heap.
 
-Since v26.10.1 the graph records what its nodes stand for, in a small file stored beside it, so nothing has to be
+The graph records what its nodes stand for, in a small file stored beside it, so nothing has to be
 worked out again and nothing has to be rebuilt. A deleted vector becomes a node that searches skip -- which they
 already did correctly while the database stayed open; only restarts were affected. Those skipped nodes are removed
 later by the ordinary background rebuild, on the schedule and within the memory limits it already uses, rather
@@ -284,7 +284,7 @@ the index had no usable graph on disk, ignored it entirely -- and that is the re
 runs at once, on the first query to reach each of them after a restart. A cluster that reopened eight large
 indexes this way filled its heap and had its nodes restarted under it.
 
-Since v26.10.1 such a query waits its turn like any other rebuild. The first query to need a graph of 1,000
+Such a query waits its turn like any other rebuild. The first query to need a graph of 1,000
 vectors or more takes one of the `maxConcurrentRebuilds` slots and holds it for the build; the others wait, and
 answer as soon as a slot frees. Smaller indexes are exempt and keep building immediately, since they cannot
 threaten the heap and would only be delayed by whatever larger rebuild is running. Before the build starts, the
@@ -359,7 +359,7 @@ same release. A rolled-back insert could leave its entries searchable, and a rol
 rewrite could leave deletion markers behind -- which is the damaging half, because a marker on any dimension hides
 the whole document from every query mentioning that dimension, so a live document nobody deleted silently stopped
 being found. Neither was temporary: the index writes its in-memory entries out to disk on its own schedule, so a
-rolled-back transaction's work could be made permanent. Since v26.10.1 a sparse vector index holds the entries of a
+rolled-back transaction's work could be made permanent. A sparse vector index holds the entries of a
 transaction back until the transaction has actually committed, so a rollback has nothing to undo.
 ====
 
@@ -380,7 +380,7 @@ life of the database, and survived a reopen and a backup for indexes storing the
 [[search-reads-own-writes]]
 [NOTE]
 ====
-Since v26.10.1 a search issued inside a transaction also finds the rows that transaction has written but not yet
+A search issued inside a transaction also finds the rows that transaction has written but not yet
 committed, for both dense (`LSM_VECTOR`) and sparse (`LSM_SPARSE_VECTOR`) indexes. You can insert or re-embed rows
 and search them in the same unit of work.
 
@@ -407,7 +407,7 @@ v26.9.1 nothing bounded that scan: the settings that decide when to rebuild are 
 `vectorIndex.maxPendingMutations` is a fixed number, so from 250,000 vectors upward the same scan cost landed on an
 index of any size. On a 200,000-vector index at that ceiling the scan was about four fifths of query time.
 
-Since v26.9.1 a rebuild is also triggered when the scan grows past what the graph search itself costs -- measured,
+A rebuild is also triggered when the scan grows past what the graph search itself costs -- measured,
 from the nodes searches actually visit, not estimated -- and once those scans have cost as much as the rebuild will.
 The second condition is what keeps the first affordable: the extra rebuild work this can introduce is bounded by the
 query work it removes. Because it is evaluated when queries run, a write-only workload is unaffected and keeps the
@@ -422,7 +422,7 @@ the cost of more rebuilds, or raise it for the opposite trade.
 [[open-time-lazy-load]]
 [NOTE]
 ====
-Since v26.9.1, opening a database does not read a vector index at all. Both structures the index keeps in memory --
+Opening a database does not read a vector index at all. Both structures the index keeps in memory --
 the graph and the map of where each vector lives -- are built the first time something actually uses that index: a
 search, an insert, a count. Before this, every open rebuilt the location map by reading through every page of every
 `LSM_VECTOR` index, which took time proportional to the number of indexed vectors (around 1.4 seconds for 10
@@ -436,7 +436,7 @@ the graph dominates it. A session that never touches a vector index never pays f
 
 [NOTE]
 ====
-Since v26.10.1, the first search after a reopen no longer re-reads the document of every indexed vector to
+The first search after a reopen no longer re-reads the document of every indexed vector to
 rebuild the graph's ordinal map, which took about 2.8 seconds at 1 million vectors and 18 seconds at 10 million. When
 nothing was deleted and the persisted graph still matches the index, the map saved next to the graph is verified
 and reused instead. Indexes with deletions or vectors added since the graph was saved use the previous paths.
@@ -785,7 +785,7 @@ NOTE: Earlier releases used pivot-based WAND. It was replaced because learned-sp
 
 Large indexes additionally split a query across RID ranges scored in parallel, which is exact -- it changes latency, not results.
 
-Posting-weight quantization is configurable via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against the precision of the stored weights. Since v26.10.1 the quantized weights only select candidates: a search rescores `k * rescoreOversample` of them exactly from the records' own weights (default `2` for `INT8` and `FP16`), so the returned ranking and scores are exact and do not depend on how the data was committed or compacted. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
+Posting-weight quantization is configurable via the `weightQuantization` index `METADATA` key (`INT8` — the default — `FP16`, or `FP32`), trading index size against the precision of the stored weights. The quantized weights only select candidates: a search rescores `k * rescoreOversample` of them exactly from the records' own weights (default `2` for `INT8` and `FP16`), so the returned ranking and scores are exact and do not depend on how the data was committed or compacted. See <<sql-create-index,`CREATE INDEX`>> for the values and their trade-offs.
 
 ===== Durability of recent writes
 
@@ -799,7 +799,7 @@ Sealed segments are merged in the background by a size-tiered policy: segments o
 
 A delete is recorded as a *tombstone* in the segment that is current when it happens, not in the segment holding the posting it removes, so which of two segments is newer is what decides whether a document is visible. Compaction preserves that order: a merged segment takes the position of its newest input rather than moving to the front, and a partial merge only ever takes segments that are adjacent in write order.
 
-Since v26.9.1 a query validates the segment data it reads as it goes. A damaged segment is reported as an error naming the index and segment rather than silently producing wrong results; the fix is `REBUILD INDEX` on the named index.
+A query validates the segment data it reads as it goes. A damaged segment is reported as an error naming the index and segment rather than silently producing wrong results; the fix is `REBUILD INDEX` on the named index.
 
 [WARNING]
 ====
@@ -814,7 +814,7 @@ REBUILD INDEX `Doc[tokens,weights]`
 
 This collapses the existing segments into a single correctly ordered segment. Indexes that have only ever been appended to are unaffected.
 
-Since v26.9.1, this is also queryable at any time, not only visible as a one-time log line at startup: `schema:indexes` (and Studio's index view) report the affected index in `upgradeWarning`, and its stats include an `untrustedSegments` count:
+This is also queryable at any time, not only visible as a one-time log line at startup: `schema:indexes` (and Studio's index view) report the affected index in `upgradeWarning`, and its stats include an `untrustedSegments` count:
 
 [source,sql]
 ----

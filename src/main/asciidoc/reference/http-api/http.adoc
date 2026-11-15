@@ -99,7 +99,7 @@ See <<settings-sql,`server.httpAuthSessionExpireTimeout`>> to configure this tim
 
 [IMPORTANT]
 ====
-Since version 26.9.1, deleting a user or changing its password immediately invalidates every token already
+Deleting a user or changing its password immediately invalidates every token already
 issued to that user, on every server of a cluster. Previously such a token kept working until it expired on
 its own. This applies however the change is made: the `/api/v1/server/users` endpoints, the `create user` /
 `drop user` server commands, the Cypher `CREATE USER` / `ALTER USER ... SET PASSWORD` / `DROP USER`
@@ -110,7 +110,7 @@ statements, or an edit to `server-users.jsonl`.
 
 [IMPORTANT]
 ====
-Since version 26.10.1 a token issued by one server of a cluster is honoured by every other server, so a load
+A token issued by one server of a cluster is honoured by every other server, so a load
 balancer in front of the cluster needs no sticky sessions. The token names the server that issued it,
 `AU-<server name>-<uuid>`, where the server name is the value of `arcadedb.server.name` (any character outside
 letters, digits, `.`, `+_+` and `-` is replaced with `+_+`). A server that receives a token it has never seen asks
@@ -135,7 +135,7 @@ API tokens (`at-` prefix) work the same way on every server: since 26.10.1 they 
 
 [IMPORTANT]
 ====
-Since version 26.9.1 the server bounds how many authentication tokens it keeps.
+The server bounds how many authentication tokens it keeps.
 A single user may hold up to <<settings-sql,`server.httpAuthSessionMaxPerUser`>> tokens (default `100`);
 past that, its own oldest token is invalidated to make room for the new one, and no other user is ever
 affected. Across all users the server keeps up to <<settings-sql,`server.httpAuthSessionMax`>> tokens
@@ -163,7 +163,7 @@ not be resolved, so a client can tell it apart from a read that ran inside its t
 
 The time-series and observability endpoints accept a session id so they run under that session's user and keep it
 from expiring while you use it, but they do *not* take part in its transaction: samples are durable as soon as they
-are written, and the reads only read. Since 26.10.1 an error on one of them therefore leaves your open transaction
+are written, and the reads only read. An error on one of them therefore leaves your open transaction
 exactly as it was. Before, it rolled the transaction back while leaving the session alive, so a later `/commit`
 reported success and the work was silently gone. The endpoints this covers:
 
@@ -247,7 +247,7 @@ Once subscribed, you will get JSON messages for any matching changes with the fo
 |record| The full record that generated the change event.
 |===
 
-A subscription is not permanent. Starting from v26.9.1, the server re-checks on every event that the connected
+A subscription is not permanent. The server re-checks on every event that the connected
 user is still allowed to read the database: if that access is revoked, or the user is deleted, the subscription is
 dropped and the connection closed instead of continuing to stream.
 
@@ -269,7 +269,7 @@ log for the details" instead of the engine's message, which is written to the se
 [[websocket-insert-session]]
 ==== Streaming Inserts over WebSocket
 
-Starting from v26.10.1, the same `ws://SERVER:PORT/ws` connection can run a duplex insert session: the client sends
+The same `ws://SERVER:PORT/ws` connection can run a duplex insert session: the client sends
 records in chunks and gets one acknowledgement per chunk while it is still sending the next, and it decides when
 the session commits. This is the WebSocket counterpart of the gRPC `InsertBidirectional` RPC. Each frame is a JSON
 object whose `action` is one of:
@@ -315,6 +315,9 @@ The `code` of an `errors` entry is one of:
 `leaderAddress` is a field of its own, outside `message`, so production mode does not hide it. A `per_stream` session
 whose `commit` frame is refused by a follower is answered with an `error` frame whose `error` is "Not the leader" and
 which carries `leaderAddress` too (since v26.10.2).
+Since v26.12.1 a `start` or `commit` frame refused for a reason that clears by itself (on an HA server, a database being
+replaced from the leader's snapshot or quarantined) is answered with `"error": "Retry later"` and the reason in `detail`,
+and a load that committed cluster-wide but failed to apply locally with an `error` that ends in "do not retry".
 
 *Terminating a chunk.* _(Since v26.10.2.)_ While a chunk runs it is listed by the <<http-running-queries,`list queries`>>
 server command, in every transaction mode, and `terminate query` stops it. The termination undoes what the session's
@@ -568,7 +571,7 @@ because the setting was given an explicit value - in the server configuration fi
 or at runtime with `set server setting`.
 Secrets are masked: settings that are secrets in their entirety (the HA cluster token, any key containing
 `password`) report `+*****+`, and `arcadedb.server.defaultDatabases`, whose value merely *embeds* credentials, keeps
-its database names, user names and groups while each password is replaced _(since v26.10.1)_.
+its database names, user names and groups while each password is replaced.
 
 Responses:
 
@@ -635,7 +638,7 @@ Responses:
 * https://httpstatuses.io/409[`409`] the name is taken: `create database` on an existing database (`"error": "Database already exists"`) or `create user` on an existing user (`"error": "User already exists"`) _(Since v26.10.2)_
 * https://httpstatuses.io/400[`500`] invalid JSON request body
 
-NOTE: Since 26.10.1, a command naming a database that does not exist - `open database nosuchdb`, for example -
+NOTE: A command naming a database that does not exist - `open database nosuchdb`, for example -
 answers `404` instead of `500`. Naming a database the server has not got is a mistake in the request, not a
 server fault. Adjust any monitoring that alerts on `5xx` from this endpoint. Since 26.11.1 a database that is there and
 held - closed, being restored or dropped - answers `503`, not `404` (see <<http-unavailable-database,a database that is not
@@ -972,7 +975,7 @@ Return:
 {"result": "ok"}
 ----
 
-NOTE: This adds the given server to *this* server's cluster; it does not make this server join another cluster. _(Since v26.10.1)_ An address that resolves to this server itself is refused with `400` instead of being silently accepted as a no-op.
+NOTE: This adds the given server to *this* server's cluster; it does not make this server join another cluster. An address that resolves to this server itself is refused with `400` instead of being silently accepted as a no-op.
 
 ====== Disconnect cluster
 
@@ -1181,7 +1184,7 @@ cluster>>.
 [[http-cluster-auth-session]]
 ===== Cluster authentication session lookup (POST, internal)
 
-_(Since v26.10.1)_ `POST /api/v1/cluster/auth-session` is a cluster-internal route that lets servers share authentication tokens (see _Tokens in a cluster_ under <<token-authentication,Token-Based Authentication>>). It is not meant for clients and is listed here only so it is not mistaken for a public API. The request must arrive through the cluster-token channel (`X-ArcadeDB-Cluster-Token` header) on behalf of the root user: a request without that header is refused with `403`, even with root credentials, and an invalid cluster token gets `401`.
+`POST /api/v1/cluster/auth-session` is a cluster-internal route that lets servers share authentication tokens (see _Tokens in a cluster_ under <<token-authentication,Token-Based Authentication>>). It is not meant for clients and is listed here only so it is not mistaken for a public API. The request must arrive through the cluster-token channel (`X-ArcadeDB-Cluster-Token` header) on behalf of the root user: a request without that header is refused with `403`, even with root credentials, and an invalid cluster token gets `401`.
 
 The body is `{"token": "<AU-... token>", "action": "validate" | "revoke"}` (`action` defaults to `validate`). `validate` answers `200` with `{"user": ..., "createdAt": ...}` when this server issued the session, and `404` otherwise (including for a copy held on behalf of another server); `revoke` drops the session and answers `204`. A missing token or an unknown action answers `400`.
 
@@ -1311,7 +1314,7 @@ Responses:
 * https://httpstatuses.io/200[`200`] OK - returns token and username
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/503[`503`] the server holds the maximum number of concurrent authentication
-sessions and none could be reclaimed - see <<settings-sql,`server.httpAuthSessionMax`>> _(since v26.9.1)_
+sessions and none could be reclaimed - see <<settings-sql,`server.httpAuthSessionMax`>>
 
 Example:
 
@@ -1423,7 +1426,7 @@ Responses:
 * https://httpstatuses.io/403[`403`] forbidden (non-root user)
 * https://httpstatuses.io/409[`409`] a token with that name already exists. _(Since v26.10.2)_ the body also names the exception in `exception`, like the other error bodies
 * https://httpstatuses.io/412[`412`] the request did not arrive over a protected transport and
-  `arcadedb.server.apiTokenRequireSecureTransport` is on _(since v26.10.1)_
+  `arcadedb.server.apiTokenRequireSecureTransport` is on
 
 [source,shell]
 ----
@@ -1432,7 +1435,7 @@ $ curl -X POST https://localhost:2490/api/v1/server/api-tokens \
        -d '{"name":"etl-job","database":"mydb"}'
 ----
 
-*Transport check (since v26.10.1).* The token authenticates whoever holds it, so the server checks how the mint reached
+*Transport check.* The token authenticates whoever holds it, so the server checks how the mint reached
 it. The transport counts as protected when the request came over HTTPS, from a loopback address, or from a reverse proxy
 listed in `arcadedb.server.apiTokenTrustedProxies` that reports `https` for every hop through `X-Forwarded-Proto` or the
 RFC 7239 `Forwarded` header. What happens otherwise depends on `arcadedb.server.apiTokenRequireSecureTransport`:
@@ -1510,7 +1513,7 @@ Send such a statement to <<http-executecommand,`/api/v1/command`>>. A nested rea
 `SELECT $c FROM Account LET $c = (SELECT count(*) FROM Account)`, still runs. In v26.10.1 and earlier these nested
 writes ran through the query endpoint.
 
-NOTE: _(since v26.10.1)_ `POST /api/v1/query` runs without an implicit transaction, like `GET /api/v1/query`, so a full scan of a large type can use several threads and is as fast as with `GET`. Inside a session (`/begin`) a scan stays sequential to keep it consistent with the transaction. `POST /api/v1/command` still runs in a transaction.
+NOTE: `POST /api/v1/query` runs without an implicit transaction, like `GET /api/v1/query`, so a full scan of a large type can use several threads and is as fast as with `GET`. Inside a session (`/begin`) a scan stays sequential to keep it consistent with the transaction. `POST /api/v1/command` still runs in a transaction.
 
 `EXPLAIN` is answered the same way by the `GET` and the `POST` variants and by `/api/v1/command`: the plan arrives
 in the `explain` (indented text) and `explainPlan` (structured) members of the response envelope, and `result` is
@@ -1685,7 +1688,7 @@ $ curl -X POST http://localhost:2480/api/v1/command/mydb \
 [[http-streaming-results]]
 ===== Stream query results (NDJSON)
 
-_(Since v26.10.1.)_ `GET /api/v1/query`, `POST /api/v1/query` and `POST /api/v1/command` can stream the result as
+`GET /api/v1/query`, `POST /api/v1/query` and `POST /api/v1/command` can stream the result as
 newline-delimited JSON (NDJSON, also called JSON Lines) instead of building one JSON document. Send the request header
 `Accept: application/x-ndjson`; the response comes back with `Content-Type: application/x-ndjson` and
 `Transfer-Encoding: chunked`. The server holds one row in memory at a time, and the client can process each row as soon
@@ -1944,7 +1947,7 @@ Malformed markers (invalid base64, non-numeric `$int8` element, value out of `[-
 [[http-vector-search]]
 ===== Vector search (POST)
 
-_(Since v26.10.1)_ Returns the nearest neighbors of a query vector in a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index, without writing the `vector.neighbors` SQL by hand. ArcadeDB does not compute embeddings: the caller supplies the vector. The same request body and limits apply to the MCP `vector_search` tool and the gRPC `VectorSearch` RPC.
+Returns the nearest neighbors of a query vector in a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index, without writing the `vector.neighbors` SQL by hand. ArcadeDB does not compute embeddings: the caller supplies the vector. The same request body and limits apply to the MCP `vector_search` tool and the gRPC `VectorSearch` RPC.
 
 URL Syntax: `/api/v1/vector/{database}/search`
 
@@ -2007,7 +2010,7 @@ Return:
 [[http-vector-hybrid]]
 ===== Hybrid search (POST)
 
-_(Since v26.10.1)_ Fuses a vector leg, an optional full-text leg and an optional graph expansion leg into one ranked list, using the engine's `vector.fuse` function. The same request body and limits apply to the MCP `hybrid_search` tool and the gRPC `HybridSearch` RPC.
+Fuses a vector leg, an optional full-text leg and an optional graph expansion leg into one ranked list, using the engine's `vector.fuse` function. The same request body and limits apply to the MCP `hybrid_search` tool and the gRPC `HybridSearch` RPC.
 
 URL Syntax: `/api/v1/vector/{database}/hybrid`
 
@@ -2088,7 +2091,7 @@ Return (abridged):
 [[http-vector-fulltext]]
 ===== Full-text search (POST)
 
-_(Since v26.10.1)_ Runs a Lucene-syntax query against a `FULL_TEXT` index and returns the matching documents, highest score first (ties ordered by RID). The same request body and limits apply to the MCP `full_text_search` tool and the gRPC `FullTextSearch` RPC.
+Runs a Lucene-syntax query against a `FULL_TEXT` index and returns the matching documents, highest score first (ties ordered by RID). The same request body and limits apply to the MCP `full_text_search` tool and the gRPC `FullTextSearch` RPC.
 
 URL Syntax: `/api/v1/vector/{database}/fulltext`
 
@@ -2391,7 +2394,7 @@ All parameters are optional and map directly to <<java-batch-importer,GraphBatch
 
 | `bidirectional`
 | true
-| Connect the incoming side of the edges whose type is declared bidirectional; a `UNIDIRECTIONAL` type never gets it. Set to `false` only to load unidirectional edge types: an edge of a bidirectional type is then refused with HTTP 400 (since 26.10.1)
+| Connect the incoming side of the edges whose type is declared bidirectional; a `UNIDIRECTIONAL` type never gets it. Set to `false` only to load unidirectional edge types: an edge of a bidirectional type is then refused with HTTP 400
 
 | `commitEvery`
 | 50000

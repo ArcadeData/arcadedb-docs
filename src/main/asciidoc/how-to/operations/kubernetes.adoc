@@ -924,7 +924,7 @@ A pod that joined beyond the peers of `arcadedb.ha.serverList` is routed to like
 *Auto-leave on scale-down*::
 The chart installs a `preStop` hook that calls `POST /api/v1/cluster/leave` so the terminating pod cleanly transfers leadership (if it holds it) and removes itself from the Raft group before shutdown.
 
-*Securing the Raft port with mTLS* (since `26.9.1`)::
+*Securing the Raft port with mTLS*::
 The Raft gRPC port carries AppendEntries, RequestVote and the Ratis admin/client calls in plaintext by default, guarded only by an IP-based peer allowlist.
 On a shared cluster, enable mTLS with `+arcadedb.ha.tls.*+` and pair it with a `NetworkPolicy` restricting the port to the StatefulSet's own pods.
 cert-manager is the natural issuer here: a `Certificate` writes a `Secret` holding exactly the three files the settings need (`tls.crt`, `tls.key`, `ca.crt`).
@@ -933,13 +933,13 @@ Mount the `Secret` read-only through the chart's `volumes` / `volumeMounts` (see
 Auto-join needs no extra configuration: the join probe inherits the server's transport settings, so it speaks TLS exactly when the cluster does.
 For the manifests, the openssl equivalent, and the certificate-rotation caveat, see <<ha-grpc-mtls,mTLS for the Raft gRPC transport>>.
 
-*Users and API tokens on a restarted pod* (since `26.10.1`)::
+*Users and API tokens on a restarted pod*::
 The server users, groups and API tokens live in the server's `config/` directory, not in a database, so a pod whose data volume is persistent but whose `config/` directory is not comes back without them.
 Because it is still a member of the Raft group, it is not re-admitted, and before 26.10.1 it was never re-seeded either: it served only the users created from its own environment at bootstrap and rejected logins that worked on every other pod.
 Such a pod now asks the leader for the current documents shortly after it first sees one, so no action is needed.
 With `arcadedb.server.readinessRequiresHA=true`, a pod added by auto-join on scale-up, or one caught up by a snapshot, also stays out of the Service endpoints until those documents arrive, for at most `arcadedb.ha.securityConvergenceReadinessTimeout` (30 s by default); see <<observability-health-security-convergence,security-convergence readiness>>.
 Persisting `config/` is still worth doing if you want a pod to come back with them already in place; see <<ha-security-documents,Cluster security documents>>.
-Since 26.10.1 you can mount a persistent volume through the chart's `volumes` / `volumeMounts` (see <<kubernetes-values-extras,Extras>>) and point `arcadedb.server.configDirectory` at it with an entry in `arcadedb.extraCommands`; see <<docker-config-directory,Relocating the configuration directory>> for what moves and what does not.
+You can mount a persistent volume through the chart's `volumes` / `volumeMounts` (see <<kubernetes-values-extras,Extras>>) and point `arcadedb.server.configDirectory` at it with an entry in `arcadedb.extraCommands`; see <<docker-config-directory,Relocating the configuration directory>> for what moves and what does not.
 
 For the rest of the Raft semantics -- quorum, named peers, snapshot threshold, election timeouts, cluster token, replication failure handling -- see <<howto-high-availability,High Availability>>.
 

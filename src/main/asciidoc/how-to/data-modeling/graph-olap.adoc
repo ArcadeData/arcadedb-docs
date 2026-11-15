@@ -33,7 +33,7 @@ GraphAnalyticalView gav = GraphAnalyticalView.builder(database)
 ----
 
 Named views are persisted in `schema.json` and automatically restored on database restart.
-As of ArcadeDB v26.9.1, a `READY` view's CSR snapshot itself can also be persisted to disk at a clean database close and reused on the next open without rescanning the graph; see <<gav-csr-persistence,CSR Persistence>>.
+A `READY` view's CSR snapshot itself can also be persisted to disk at a clean database close and reused on the next open without rescanning the graph; see <<gav-csr-persistence,CSR Persistence>>.
 
 ==== SQL
 
@@ -242,8 +242,7 @@ or a lightweight edge that stayed counted; issues #10340 and #10339), a transact
 (issue #10335). Rebuild a view with `REBUILD GRAPH ANALYTICAL VIEW` if it served such commits on an earlier version.
 
 In *SYNCHRONOUS* and *ASYNCHRONOUS* modes the view being rebuilt keeps serving queries, and keeps absorbing commits, until the rebuild
-publishes its new CSR: only the caller of `REBUILD GRAPH ANALYTICAL VIEW` (or of `build()`) waits for the scan. Since
-v26.10.1 the scan no longer runs while holding the view's lock, so neither a committing transaction nor a status check
+publishes its new CSR: only the caller of `REBUILD GRAPH ANALYTICAL VIEW` (or of `build()`) waits for the scan. The scan no longer runs while holding the view's lock, so neither a committing transaction nor a status check
 waits behind it (issue #8403); before, the view served during a blocking rebuild lagged the commits until the rebuild
 finished. A rebuild superseded by a newer one while it scans waits for the newer one and reports its outcome (success
 or error); a rebuild interrupted by the database closing fails with an error rather than reporting success.
@@ -277,7 +276,7 @@ nothing else left an *OFF* view READY (issue #9572). Rebuild a view on such a gr
 [[gav-csr-persistence]]
 ==== CSR Persistence
 
-NOTE: Available since ArcadeDB v26.9.1.
+NOTE: Available.
 
 Before v26.9.1, a named view's CSR was never itself persisted: only its definition (types, properties, update mode) was, in `schema.json`. Every database open therefore rebuilt the CSR from a full graph scan, and because `shutdown()` waits for any in-flight rebuild, the cost of that scan landed on `close()` rather than `open()` - at 1M vertices, closing a database with a view took over 4 seconds even for a session that ran no query at all.
 
@@ -295,7 +294,7 @@ Serving queries against a stale CSR while a delta is applied in the background (
 [[gav-csr-lazy-restore]]
 ===== Lazy Restore
 
-NOTE: Available since ArcadeDB v26.9.1.
+NOTE: Available.
 
 A persisted CSR that plausibly applies is not read from disk during `open()`. Reading and deserializing it is a real, if bounded, cost - up to roughly a second at 10M vertices - and a session that opens a database and never queries the view got nothing for paying it. Instead, `open()` marks the view `READY` immediately without touching the file, and the actual read is deferred to whichever of these happens first:
 
@@ -552,7 +551,7 @@ WHERE p.city = f.city
 RETURN p.city AS city, avg(f.age) AS avgAge, count(*) AS n
 ----
 
-is read entirely from the view since v26.10.1: the sources are the view's nodes carrying the source label, both
+is read entirely from the view: the sources are the view's nodes carrying the source label, both
 endpoints read their properties from the view's columns, and every edge reaches the aggregation as a lightweight row
 rather than a copied record. `EXPLAIN` shows it as `GAV ONE-HOP SCAN`. This applies when the statement is a single
 `MATCH` of one fixed-length relationship feeding an aggregating `RETURN`, with no relationship or path variable and no
