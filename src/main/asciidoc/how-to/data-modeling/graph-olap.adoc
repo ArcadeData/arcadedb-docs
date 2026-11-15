@@ -606,6 +606,12 @@ triangle), and without a `WHERE` the six walks of every triangle and the walks o
 must be undirected, anonymous and of one type, and the three variables carry one label or none; `EXPLAIN` shows
 `COUNT TRIANGLES (CSR sorted intersection)` with the order it counts.
 
+Since v26.12.1 a chain count with an end pinned by a UNIQUE key, such as `MATCH (c:Chunk)-[:OF_RECORD]->(r:Record
+{external_id: $id}) RETURN count(c)`, looks that vertex up through the index and counts only its own paths, whichever end
+the key is written on (inline or in `WHERE`, as a literal or a parameter). Its cost no longer grows with the size of the
+labels; `EXPLAIN` shows `seeded anchor: unique key Record[external_id] = [...]` (issue #11594). A count anchored by an
+`IN` list or a non-unique key runs as an index seek plus expansion instead.
+
 *Multi-hop chains on the view.* A chain of labeled hops such as `MATCH (a:P)-[:K]->(b:P)-[:K]->(c:P)` is walked on the
 view (`EXPLAIN` shows `GAVFusedChain`). Since v26.10.2 a `+count(*)+`, or `count(x)` of a variable of the chain, is counted
 during the walk with up to two grouping keys that are chain variables, in a `RETURN` or a `WITH`
