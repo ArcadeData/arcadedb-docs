@@ -1634,6 +1634,12 @@ Responses:
 property, index, constraint, bucket, trigger, view or function. `error` names the kind (for example `"Type already exists"`, kept in production mode),
 `exception` is `com.arcadedb.exception.AlreadyExistsException` and `exceptionArgs` the kind (`TYPE`, `PROPERTY`, `INDEX`, ...). Not retryable.
 Before v26.11.1 these answered `500` (`"Cannot execute command"` or `"Internal error"`), and a rename onto a taken type name `400`
+* https://httpstatuses.io/409[`409`] _(since v26.12.1)_ the command is refused for what the database holds now: `TRUNCATE TYPE`, `TRUNCATE BUCKET`
+or `DROP TYPE` of a vertex or edge type that still has records (without `UNSAFE`), `DROP PROPERTY` of a property an index uses (without `FORCE`).
+`error` is `"Object in use"` and `exception` `com.arcadedb.exception.ObjectInUseException`; the detail says how to resolve it. Not retryable. Before
+v26.12.1 these answered `500`. In the same release a `LIMIT`/`SKIP` that is not a number, a `CREATE EDGE`/`CREATE VERTEX` on a type of the other
+kind, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a setting it cannot change (the type of a property included) and
+`IMPORT DATABASE` of a source that does not exist answer `400` instead of `500`
 * https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
 * https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
@@ -2287,7 +2293,7 @@ Each line is a JSON object with the following meta fields:
 
 | `@id`
 | No
-| Client-assigned temporary ID for vertices. Used by edges to reference newly created vertices.
+| Client-assigned temporary ID for vertices. Used by edges to reference newly created vertices. Each ID names one vertex: a vertex declaring an ID an earlier vertex of the same payload already declared is refused with `400`, naming both lines (since 26.12.1; before, the later vertex silently took the ID over and the edges naming it attached to it).
 
 | `@from`
 | Edges only
@@ -2331,7 +2337,13 @@ vertex,Person,t2,Bob,25
 edge,KNOWS,t1,t2,2020
 ----
 
-CSV parsing supports RFC 4180 quoting (double-quote escaping). Numeric values are auto-detected as integers or floats. Boolean values (`true`/`false`) are also auto-detected.
+CSV parsing supports RFC 4180 quoting (double-quote escaping). A CSV field is text, and the declared type of the property it is written to decides how it is read (since 26.12.1):
+
+* a `STRING` or `DECIMAL` property stores the text exactly as sent: `007`, `1.50` and `False` stay `007`, `1.50` (scale 2 for a `DECIMAL`) and `False`;
+* any other declared type reads the text as leniently as before and converts it: `007` and `+5` for an `INTEGER`, `TRUE` for a `BOOLEAN`, `1e3` for a `DOUBLE`;
+* a property the schema does not declare is read as the JSON literal the text spells, if it spells one: `true` and `false` become booleans, a JSON number (`42`, `-2.5E-3`, `1e3`) a `Long` when it is an integer that fits one and a `Double` otherwise. Anything else stays text, so `007`, `+5`, `5.`, `TRUE` and an integer beyond the `Long` range are not rewritten.
+
+Before 26.12.1 every field was converted by its shape before the declared type was applied, so a `STRING` property stored `7` for `007` and `1000.0` for `1e3`.
 
 The same rule as JSONL applies to a control *value*, not to the column: a row carrying a value in a control column
 its kind cannot use -- `@id` on an edge row, `@from`/`@to` on a vertex row -- is refused with `400`, while an empty
