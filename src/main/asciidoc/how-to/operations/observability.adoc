@@ -264,6 +264,18 @@ Two span types are produced and nest correctly (query spans are children of the 
 | `arcadedb.query` | `protocol`, `db`, `language`, `type`, and `db.statement` (the full query/command text)
 |===
 
+A failure marks its span with the `ERROR` status and records the exception as a span event (`exception.type`, `exception.message`,
+`exception.stacktrace`), which is what tracing backends filter and colour error traces by _(since v26.12.1; before, a failed request or
+query was exported like a successful one)_:
+
+* an `arcadedb.query` span fails when the query or command throws while it is executed, a statement that does not parse included;
+* an `arcadedb.http.server.requests` span fails when the request is answered with a `5xx` status. A `4xx` answer is the client's mistake and
+does not mark the HTTP span failed, as the OpenTelemetry HTTP server conventions prescribe, although the query span under it carries the
+failure.
+
+A query span ends when the query or command returns its result set: an error raised later, while the caller reads rows that are produced
+lazily, is not recorded on it.
+
 [WARNING]
 ====
 The `db.statement` span attribute contains the full query/command text, which may include sensitive data. Secure your OTLP collector endpoint and apply collector-side redaction if required.
