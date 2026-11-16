@@ -119,6 +119,30 @@ database.transaction(() -> {
 Adding or removing edges on a vertex is never refused, and a record kept from an earlier transaction is refreshed as
 before. The check can be disabled with the `txStaleReadCheck` setting.
 
+This protection comes from the record object: the embedded record keeps the image it was read with, and its `save()` compares
+that image with the stored one. It does not cover the remote clients (`RemoteDatabase` over HTTP, `RemoteGrpcDatabase` over
+gRPC, and the drivers of other languages): there the read and the write are two requests, the record that comes back carries
+no image of what was read, and the `UPDATE` that `save()` sends reads the record again on the server, where under
+`READ_COMMITTED` it finds the latest committed version. A remote read-modify-write under `READ_COMMITTED` therefore
+overwrites a change another transaction committed between the read and the write, without an error. To make it safe, either:
+
+- run the transaction under `REPEATABLE_READ` (`database.setTransactionIsolationLevel(Database.TRANSACTION_ISOLATION_LEVEL.REPEATABLE_READ)`
+  before `begin()`, or the isolation level of the `transaction()` call of the drivers): the server keeps what the
+  transaction read, so the write of a record changed meanwhile fails with a retryable `ConcurrentModificationException`, and
+  `transaction(...)` retries it;
+- or let the server compute the new value in one statement, so there is no gap between the read and the write:
+  `UPDATE Account SET balance = balance + 50 WHERE @rid = #1:0`.
+
+[source,java]
+----
+RemoteDatabase database = new RemoteDatabase("localhost", 2480, "bank", "root", "password");
+database.setTransactionIsolationLevel(Database.TRANSACTION_ISOLATION_LEVEL.REPEATABLE_READ);
+database.transaction(() -> {
+  MutableDocument account = database.lookupByRID(rid, true).asDocument().modify();
+  account.set("balance", account.getInteger("balance") + 50).save(); // retried, never lost
+});
+----
+
 *Reads of a page the transaction has written.* Under `READ_COMMITTED`, once a transaction has written a bucket page, it reads
 that page from its own copy, taken at its first write, so records other transactions committed there afterwards are not seen
 by it. If its commit finds that a record it read that way changed meanwhile (or appeared, for a scan of the page), the commit

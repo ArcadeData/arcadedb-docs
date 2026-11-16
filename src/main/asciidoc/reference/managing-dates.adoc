@@ -341,6 +341,18 @@ Returns `1212113.232000000`.
 
 if the date supports the fractional part of the second, then it's returned as nanoseconds as decimal part. In the example above, `sysdate()` function returns a datetime with, by default, precision to the millisecond.
 
+The difference is a duration (a `java.time.Duration` in Java). Over HTTP and in JSON it is written as its exact number of seconds, to the nanosecond. _(Since v26.12.1)_ it is a number of seconds in SQL too, so it can be compared and computed with:
+
+- compared with a number, the number is a count of seconds, on either side of the operator and with `=`, `<>`, `<`, `<=`, `>`, `>=`, `IN` and `BETWEEN`: `WHERE sysdate() - lastActivity < 3600` selects the activities of the last hour. A duration also compares with another duration: `WHERE sysdate() - lastActivity < duration(1, 'hour')`;
+- `+` and `-` with a number of seconds or with another duration answer a duration: `(sysdate() - lastActivity) + 60`;
+- `*`, `/` and `%` with a number scale it into a duration: `(sysdate() - lastActivity) / 3600` is the hours, shown as their number. A duration divided by a duration is a plain number: `(sysdate() - lastActivity) / duration(1, 'hour')`;
+- a datetime plus or minus a duration is the datetime that much later or earlier, of the same type: `sysdate() - duration(7, 'day')` is a week ago. A `DATE` moved by whole days stays a `DATE`, and is otherwise that day at midnight moved by the duration;
+- a datetime plus or minus a number moves it by that many *milliseconds*, the unit a number has against a datetime everywhere else in SQL (comparisons, a number written into a `DATETIME` property, JSON): `lastActivity + 1000` is one second later. Prefer a `duration()`, which names its unit.
+
+Adding two datetimes, subtracting a datetime from a number or from a duration, multiplying two durations and dividing a duration by zero are refused with an error. A result out of the range of a datetime or of a duration is refused too.
+
+Before 26.12.1 a duration compared greater than every number and less than none, so `WHERE sysdate() - lastActivity < 3600` never matched; `+` with a number concatenated the two as text (`'PT24H1'`); `-`, `*`, `/` and `%` with a number answered `null`; a datetime plus or minus a number answered a duration counted from 1970 instead of a datetime; and a datetime plus or minus a `duration()` failed with an internal error. JSON wrote a duration as a floating point number, which lost the last digits of a duration longer than about 100 days.
+
 [[time-units]]
 [discrete]
 #### Time Units
