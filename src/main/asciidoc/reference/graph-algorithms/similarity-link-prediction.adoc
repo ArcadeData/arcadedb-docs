@@ -48,7 +48,7 @@ YIELD node1, node2, similarity
 
 *Description*
 
-Computes the Jaccard similarity between the given source vertex and all other vertices, based on neighborhood overlap. Formula: `similarity = |N(src) ∩ N(v)| / |N(src) ∪ N(v)|`. Pairs with similarity below `cutoff` are filtered out.
+Computes the Jaccard similarity between the given source vertex and all other vertices, based on neighborhood overlap. Formula: `similarity = |N(src) ∩ N(v)| / |N(src) ∪ N(v)|`. Pairs with similarity below `cutoff` are filtered out. Results are listed in RID order. Since v26.12.1 only the vertices two hops from the source are read, since no other vertex can share a neighbour with it, so the call costs the size of the neighbourhood rather than of the database, with or without a Graph Analytical View (issue #12176).
 
 *Use Cases*
 
@@ -119,7 +119,7 @@ YIELD node1, node2, score
 
 *Description*
 
-Computes the Adamic-Adar link prediction score between the source vertex and all non-adjacent vertices. For each pair, the score is the sum over common neighbors w of `1/log(degree(w))`. Highly-connected common neighbors contribute less than rare common neighbors. Results are sorted by score descending.
+Computes the Adamic-Adar link prediction score between the source vertex and all non-adjacent vertices. For each pair, the score is the sum over common neighbors w of `1/log(degree(w))`. Highly-connected common neighbors contribute less than rare common neighbors. Results are sorted by score descending, equal scores in RID order. Since v26.12.1 only the vertices two hops from the source are read (issue #12176).
 
 *Use Cases*
 
@@ -190,7 +190,7 @@ YIELD node1, node2, commonNeighbors
 
 *Description*
 
-Counts the number of common neighbors between the source vertex and all other vertices. Pairs with fewer than `cutoff` common neighbors are excluded. Results are sorted by count descending.
+Counts the number of common neighbors between the source vertex and all other vertices. Pairs with fewer than `cutoff` common neighbors are excluded. Results are sorted by count descending, equal counts in RID order. Since v26.12.1 only the vertices two hops from the source are read (issue #12176).
 
 *Use Cases*
 
@@ -331,7 +331,7 @@ YIELD node1, node2, score
 
 *Description*
 
-Computes the resource allocation link prediction score: `score = Σ 1/degree(w)` over all common neighbors w. Models the fraction of "resources" that each common neighbor can send to both endpoints if it distributes equally to all its neighbors. Conceptually similar to Adamic-Adar but uses degree directly rather than its logarithm.
+Computes the resource allocation link prediction score: `score = Σ 1/degree(w)` over all common neighbors w. Models the fraction of "resources" that each common neighbor can send to both endpoints if it distributes equally to all its neighbors. Conceptually similar to Adamic-Adar but uses degree directly rather than its logarithm. Results are sorted by score descending, equal scores in RID order. Since v26.12.1 only the vertices two hops from the source are read (issue #12176).
 
 *Use Cases*
 
@@ -472,7 +472,7 @@ CALL algo.knn([k, relTypes, direction]) YIELD node1, node2, similarity
 
 *Description*
 
-Constructs a k-Nearest Neighbours (KNN) graph using Jaccard similarity on neighbourhood sets. For each pair of nodes, the similarity is computed as `|N(u) ∩ N(v)| / |N(u) ∪ N(v)|`. Each node retains only its top-k neighbours by similarity score. This produces a new graph representing approximate structural proximity, useful as a pre-processing step for community detection or recommendation.
+Constructs a k-Nearest Neighbours (KNN) graph using Jaccard similarity on neighbourhood sets. For each pair of nodes, the similarity is computed as `|N(u) ∩ N(v)| / |N(u) ∪ N(v)|`. Each node retains only its top-k neighbours by similarity score. This produces a new graph representing approximate structural proximity, useful as a pre-processing step for community detection or recommendation. Since v26.12.1 each vertex is compared only with the vertices two hops away, the only ones that can share a neighbour with it, instead of with every other vertex: the call is no longer cubic in the vertex count (21 s at 10,000 vertices before), and `k = 0` returns no rows instead of failing (issue #12172).
 
 *Use Cases*
 
@@ -613,7 +613,7 @@ CALL algo.totalNeighbors(node1, node2 [, relTypes, direction]) YIELD node1, node
 
 *Description*
 
-Computes `|N(u) ∪ N(v)|` — the total number of distinct neighbours across both nodes. This is the denominator of Jaccard similarity and is used as a link-prediction feature measuring total neighbourhood reach. Calculated as `|N(u)| + |N(v)| − |N(u) ∩ N(v)|` using a BitSet intersection.
+Computes `|N(u) ∪ N(v)|` — the total number of distinct neighbours across both nodes. This is the denominator of Jaccard similarity and is used as a link-prediction feature measuring total neighbourhood reach. Calculated as `|N(u)| + |N(v)| − |N(u) ∩ N(v)|`. Since v26.12.1 only the neighbours of the two vertices are read, not the whole graph (issue #12176).
 
 *Use Cases*
 
