@@ -182,6 +182,8 @@ YIELD node, communityId, modularity
 
 Detects communities by maximizing modularity using the Louvain method: a greedy phase where each node is moved to the neighboring community that maximally increases modularity, iterated until no improvement is found. Community IDs are remapped to sequential 0-based integers.
 
+Since 26.12.1 the total degree of each community is kept up to date as vertices move, so a pass costs O(E), and the graph is read once, through a Graph Analytical View when one covers it. Before 26.12.1 every candidate community of every vertex summed the degrees of all the vertices, and every pass read the edge records again: the call took over 90 seconds at 160,000 vertices of average degree 6. When several communities offer the same gain, the one with the lowest identifier is chosen. The vertices are visited in the order the graph numbers them, which a Graph Analytical View does its own way, so the partition can differ with and without a view.
+
 *Use Cases*
 
 - Social community discovery
@@ -369,7 +371,7 @@ RETURN node.name AS record, communityId AS predictedLabel
 
 | Procedure | `algo.hierarchicalClustering`
 | Category | Community Detection
-| Complexity | CPU+RAM
+| Complexity | CPU
 | Min Args | 0
 | Max Args | 2
 |===
@@ -404,7 +406,9 @@ YIELD nodeId, cluster
 
 *Description*
 
-Performs agglomerative (bottom-up) hierarchical clustering using single-linkage: each vertex starts in its own cluster, and the two clusters with the highest Jaccard similarity between their neighbor sets are merged iteratively until the target number of clusters is reached. Uses Union-Find for efficient cluster management.
+Performs agglomerative (bottom-up) hierarchical clustering using single-linkage: each vertex starts in its own cluster, and the two clusters linked by the edge of highest similarity are merged iteratively until the target number of clusters is reached, or until no edge links two clusters (then one cluster per connected component is returned). The similarity of an edge is the number of neighbors its two ends share, each end counted in its own neighborhood. Among edges of equal similarity, the one met first scanning the vertices in order wins.
+
+Since 26.12.1 the similarity of every edge is computed once, triangles are counted with the forward algorithm, and the merges run as Kruskal's algorithm over the edges in decreasing similarity: O(E^1.5^) time and memory linear in the edges, with the same clusters as before. Before 26.12.1 every merge rescanned all the edges against a vertex-count by vertex-count bit matrix, which took 43 seconds at 10,000 vertices of average degree 6.
 
 *Use Cases*
 
