@@ -12,14 +12,14 @@
 | Category | Network Flow
 | Complexity | CPU+RAM
 | Min Args | 2
-| Max Args | 4
+| Max Args | 5
 |===
 
 *Syntax*
 
 [source,cypher]
 ----
-CALL algo.maxFlow(sourceNode, sinkNode [, relTypes, capacityProperty])
+CALL algo.maxFlow(sourceNode, sinkNode [, relTypes, capacityProperty, direction])
 YIELD maxFlow, sourceId, sinkId
 ----
 
@@ -33,6 +33,7 @@ YIELD maxFlow, sourceId, sinkId
 | `sinkNode` | Vertex | Yes | — | Flow sink vertex
 | `relTypes` | String | No | all types | Comma-separated relationship types
 | `capacityProperty` | String | No | uniform capacity | Edge property for flow capacity
+| `direction` | String | No | `OUT` | How a relationship carries flow: `OUT` from its source to its target, `IN` from its target to its source, `BOTH` either way (an undirected pipe)
 |===
 
 *Yield Fields*
@@ -48,7 +49,9 @@ YIELD maxFlow, sourceId, sinkId
 
 *Description*
 
-Computes the maximum flow from a source to a sink using the Edmonds-Karp algorithm (BFS-based Ford-Fulkerson). Time complexity is O(V·E²). Builds a V×V capacity matrix (O(V²) memory). Returns a single row with the maximum achievable flow.
+Computes the maximum flow from a source to a sink using Dinic's algorithm over a sparse residual network: O(V²·E) time and O(V+E) memory. Every relationship is a pipe from its source to its target (with the default `direction` `OUT`), so flow never runs against a relationship, and relationships between the same two nodes in the same direction add their capacities. A self loop, or a capacity that is not positive, carries nothing. The flow from a node to itself is `0`. Returns a single row with the maximum achievable flow.
+
+NOTE: Before 26.12.1 every relationship was read as an undirected pipe, the behavior `direction` `BOTH` now selects (issue #11798).
 
 *Use Cases*
 
@@ -68,6 +71,6 @@ RETURN maxFlow, sourceId, sinkId
 
 *References*
 
-- https://en.wikipedia.org/wiki/Edmonds%E2%80%93Karp_algorithm[Edmonds-Karp algorithm – Wikipedia]
+- https://en.wikipedia.org/wiki/Dinic%27s_algorithm[Dinic's algorithm – Wikipedia]
 
 '''
