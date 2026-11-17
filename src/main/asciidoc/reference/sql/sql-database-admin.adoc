@@ -179,6 +179,22 @@ Executes an integrity check and in case of a repair of the database. This comman
  return a row whose value differs from the one asked for (a dangling entry names whatever record reuses its RID later) or miss a
  row. A healthy index costs one scan of its buckets, shared by all their indexes, and one walk of its entries.
 
+* a compacted sub-index the index could not load: _since v26.12.1_, an `LSM_TREE` index whose compacted file was missing when the
+ database opened (the server log says `Invalid sub-index ... File with id N was not found`) is listed under `corruptedIndexes`, and
+ `warnings` says that the entries of that file are not served. Until then such an index answered from its newest entries alone,
+ and a `UNIQUE` one did not refuse a duplicate of a key only the lost file held, while the check reported it healthy. `FIX`
+ rebuilds it, and so does `REBUILD INDEX`. The index is not compacted meanwhile, because a compaction would write the partial
+ index out as the whole one. On a <<howto-high-availability,cluster>> node, a `UNIQUE` index in this state also quarantines the
+ database, which is then re-installed from the cluster, and the node hands leadership off rather than lead with it.
+
+[[sql-check-database-ha]]
+*`CHECK DATABASE` on a cluster*
+
+_Since v26.12.1_, `CHECK DATABASE` without `FIX` (and without `COMPRESS`) runs on the node it is sent to, and reports that node's
+files. Before, a replica forwarded it to the leader like any write, so it reported the *leader's* copy: a replica whose record
+counter or index had drifted was reported clean, which is the question the check exists to answer. `FIX` and `COMPRESS` are
+still forwarded to the leader, so their repairs replicate to every node.
+
 NOTE: `HASH`, `FULL_TEXT`, vector, geospatial and columnar indexes get the *structural* check only: it validates the index's own
 pages, not that every record of the type appears in the index. If you suspect one of them is incomplete - for example its build was
 interrupted by a crash - run <<sql-rebuild-index,`REBUILD INDEX`>> on it: rebuilding re-reads every record and also preserves the
@@ -468,11 +484,11 @@ number is in hand, and a disagreement is reported as an error naming the bucket,
 
 ----
 cached record count of bucket 'Order_0' is 10869 but the bucket holds 10906 records:
-count(*) on this bucket under-reports by 37; run CHECK DATABASE FIX to recompute the counter
+count(*) on this bucket under-reports by 37 - the counter is recomputed
 ----
 
-`FIX` recomputes it - the counter is invalidated, and the next `+count(*)+` rescans and republishes it. A read-only run
-only reports, and the report carries `staleRecordCounters` and, under `FIX`, `staleRecordCountersFixed`. Both count
+The check recomputes it - the counter is invalidated, and the next `+count(*)+` rescans and republishes it. The report
+carries `staleRecordCounters` and `staleRecordCountersFixed`. Both count
 *buckets*, not records: one per bucket whose counter disagreed, whatever the size of the disagreement. They sit next to
 record tallies such as `totalActiveRecords` in the same JSON, so the distinction is worth reading twice.
 
@@ -480,6 +496,14 @@ This is the symptom to look for when `+count(*)+` disagrees with a forced full s
 `+SELECT count(*) FROM <type> WHERE @rid IS NOT NULL+`, in *either* direction. On a replicated database the drift is
 per node and per bucket, so the replicas disagree with each other while holding identical data, which looks exactly
 like <<howto-high-availability,HA>> state divergence until a full scan rules it out.
+
+[NOTE]
+====
+_Since v26.12.1_ a read-only `CHECK DATABASE` recomputes a counter it proves wrong, as `FIX` does; before, only `FIX` did and a
+read-only run reported it with the advice to run `CHECK DATABASE FIX`. The counter is a cache of the node alone: no replication
+carries it and a restart reloads it as it was, so on a cluster replica, where `FIX` runs on the leader, a wrong counter had no
+repair at all. Recomputing it changes no record, so it is done whatever the mode.
+====
 
 NOTE: a bucket whose counter has never been computed is not reported - there is nothing to be wrong yet - and neither
 is one the current transaction has pending changes on, nor one this same run has just repaired, since in those cases
