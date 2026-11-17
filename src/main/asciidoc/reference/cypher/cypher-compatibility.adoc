@@ -230,6 +230,19 @@ RETURN true OR null AS c     // true
 RETURN null = null AS d      // null
 ----
 
+[[cypher-predicate-types]]
+A predicate must be a `BOOLEAN` (or `null`), wherever it is written: `WHERE`, the operands of `AND` / `OR` / `XOR` / `NOT`, `CASE WHEN`, and the `WHERE` of a list predicate or comprehension. As in Neo4j, a `LIST` is the one exception, read as `true` when it is not empty, and any other value (`INTEGER`, `FLOAT`, `STRING`, `MAP`, a node, ...) is a type error (`TypeError: Type mismatch: expected Boolean but was INTEGER`, a client error on every protocol). A literal operand (`RETURN 1 OR false`) is refused before the query runs.
+
+[source,cypher]
+----
+MATCH (n:Node) WHERE n.active RETURN n   // a BOOLEAN property: fine
+MATCH (n:Node) WHERE n.tags RETURN n     // a LIST property: the nodes with at least one tag
+MATCH (n:Node) WHERE n.v RETURN n        // an INTEGER property: type error
+MATCH (n:Node) WHERE n.v <> 0 RETURN n   // what the previous line usually means
+----
+
+NOTE: Before 26.12.1 a non-`BOOLEAN` value was not refused, and its truth value depended on where it was written: any non-null value was `true` under `AND` / `OR` / `NOT` / `XOR` and in `CASE WHEN`, while `WHERE` read every non-`BOOLEAN` value, a non-empty list included, as `false`. A query relying on either reading now fails with the type error above; compare the value explicitly instead (`n.v <> 0`, `size(n.name) > 0`). The same release fixes `COUNT { ... } > 0` written as an operand of `AND` / `OR` without parentheses, which was read as the bare count, so a count of zero passed as `true`.
+
 The list predicates `all()`, `any()`, `none()` and `single()` follow the same rule: if the inner condition is
 `null` for one or more elements and no element decides the result outright (a `false` for `all()`, a `true` for
 `any()`/`none()`), the predicate itself evaluates to `null` rather than `true`/`false`. A definite mismatch always
