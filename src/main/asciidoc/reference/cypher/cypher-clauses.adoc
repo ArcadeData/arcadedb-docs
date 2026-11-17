@@ -1004,6 +1004,19 @@ element by element, as a list is. A `BINARY` or array value is one value whereve
 same bytes or elements are equal under `=`, one row under `DISTINCT`, `UNION` and `collect(DISTINCT ...)`, one group under an
 aggregation, and `min()` / `max()` (and `coll.min()` / `coll.max()`) order them like `ORDER BY` does. A `BINARY` value is not a list: it compares with another `BINARY` value by its unsigned bytes, and is never equal to a list. A `FLOAT` is keyed by its decimal form, as `=` reads it, so `0.1` stored as a `FLOAT` and as a `DOUBLE` are one group. Before v26.11.1 (issue #10380) they were distinct and `min()` / `max()` answered the first row met. _(Since v26.11.1)_
 
+*After a `DISTINCT` or aggregating `RETURN`/`WITH`*, `ORDER BY` can still use any expression built only from the grouping keys, also
+through the variable a key was projected from. The expression is read from the projected column:
+
+[source,cypher]
+----
+MATCH (n)
+RETURN n AS node, count(*) AS c
+ORDER BY n:Person DESC, n.name   // sorts on node:Person, node.name
+----
+
+This covers label checks (static and `$(...)`), `IN`, `IS NULL`, `STARTS WITH`, `=~`, `CASE`, list and map expressions, map projections,
+list comprehensions, `any()`/`all()` and `reduce()`. Before v26.12.1 most of these failed with `UndefinedVariable`. _(Since v26.12.1)_
+
 ---
 
 [[cypher-skip-limit]]
