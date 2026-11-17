@@ -161,6 +161,29 @@ Before v26.11.1 both were accepted. The view kept serving a CSR that no longer m
 SELECT FROM schema:graphAnalyticalViews
 ----
 
+*Managing views from Cypher*
+
+Since v26.12.1 the same operations are available as Cypher procedures, so a Cypher-only client does not need to switch to SQL:
+
+[source,cypher]
+----
+CALL db.analyticalView.create('roads', ['City'], ['ROAD'], {properties: ['name'], updateMode: 'SYNCHRONOUS', cch: ['distance']})
+CALL db.analyticalView.list()
+CALL db.analyticalView.rebuild('roads')
+CALL db.analyticalView.drop('roads', {ifExists: true})
+----
+
+[%header,cols="3,5"]
+|===
+| Procedure | Description
+| `db.analyticalView.create(name [, vertexTypes, edgeTypes, config])` | Same as `CREATE GRAPH ANALYTICAL VIEW`. `vertexTypes` and `edgeTypes` are lists of type names (omitted or `null`: all types). `config` accepts `properties`, `edgeProperties`, `updateMode` (`OFF`, `SYNCHRONOUS`, `ASYNCHRONOUS`), `compactionThreshold`, `cch` and `ifNotExists`. Like the SQL statement, it returns while the view is still building.
+| `db.analyticalView.list()` | One row per view, with the same fields as `SELECT FROM schema:graphAnalyticalViews`.
+| `db.analyticalView.rebuild(name)` | Same as `REBUILD GRAPH ANALYTICAL VIEW`: waits for the build.
+| `db.analyticalView.drop(name [, {ifExists: true}])` | Same as `DROP GRAPH ANALYTICAL VIEW [IF EXISTS]`.
+|===
+
+The procedures share their implementation with the SQL statements, so both languages give the same permissions, checks and results: `create`, `rebuild` and `drop` need the `UPDATE_SCHEMA` permission, and `list` needs none. An unknown config key, update mode or type name, a blank name or a negative `compactionThreshold` is refused before anything is written. A view name that already exists is refused unless `ifNotExists` is `true`. A `CALL` of `create`, `rebuild` or `drop` counts as a schema change, so in an HA cluster a follower forwards it to the leader like the SQL statement. As with SQL, a view's definition is not transactional: rolling back the caller's transaction keeps the view.
+
 ==== Builder Options
 
 [%header,cols="3,5,2"]
