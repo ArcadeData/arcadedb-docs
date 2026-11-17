@@ -5,11 +5,12 @@
 ===== SQL - `ALIGN DATABASE`
 
 
-Executes a distributed alignment of the database. It must be executed on the Leader server. The alignment computes a checksum of
-each file and sends them to the replica nodes. Each replica node will compute the checksum on its own files. The files that are
-mismatching are requested by the replica to the leader. In the future single pages could be transferred instead of the entire file.
+Reserved for a distributed alignment of the database's replicas.
 
-NOTE: Align Database command is available only when the server is running with the <<howto-high-availability,HA module>> active.
+NOTE: _(Since v26.12.1.)_ No database implements it, and the statement is refused with an error that says so (HTTP 400, it used
+to answer 500 with a bare `UnsupportedOperationException`). With <<howto-high-availability,Raft replication>> a replica is realigned
+by the cluster itself, by replaying the leader's log or by installing a snapshot of the leader, and a database with no replicas has
+nothing to align. To inspect the copy of a node, run <<sql-check-database,CHECK DATABASE>> on that node.
 
 *Syntax*
 
@@ -79,7 +80,8 @@ ArcadeDB> ALTER DATABASE `arcadedb.bucketDefaultPageSize` 262144
 
 Executes a backup of the current database. The resulting file is a compressed archive using ZIP as algorithm. The archive contains
 the database directory without the transaction logs. The backup is executed taking a snapshot of the database at the time the
-command is executed. Any pending transaction will not be in the backup archive. ArcadeDB allows to execute a non-stop backup of a
+command is executed. Any pending transaction will not be in the backup archive. _(Since v26.12.1)_ a backup taken inside a transaction
+leaves that transaction as it was, and its writes are committed with it: it used to be rolled back before the backup. ArcadeDB allows to execute a non-stop backup of a
 database while it is used without blocking writes or affecting performance. A close requested while a backup is running waits for
 the backup to complete, and the database keeps serving in the meantime: the archive is always complete, and the close goes ahead
 right after.
@@ -171,6 +173,11 @@ Executes an integrity check and in case of a repair of the database. This comman
  against it. See <<sql-check-database-constraints,Existence constraints>> below.
 * cached record counters: the counter `count(*)` answers from is compared against the records the bucket scan
  actually found. See <<sql-check-database-record-counters,Cached record counters>> below.
+
+NOTE: _(Since v26.12.1.)_ Inside a transaction (`BEGIN ... COMMIT` in a script, `database.transaction(...)`, an HTTP session),
+`CHECK DATABASE`, with or without `FIX` and `COMPRESS`, runs outside that transaction and leaves it as it was: it checks the
+committed database, and the writes made in the transaction before and after it are committed with it. It used to roll the
+transaction back, losing those writes, and the next statement failed with `Transaction not begun`.
 
 * index entries against records: _since v26.12.1_, the entries of every `LSM_TREE` index are compared with the records of its
  buckets. An entry whose record does not exist (`danglingIndexEntries`), an entry whose record does not hold its key
