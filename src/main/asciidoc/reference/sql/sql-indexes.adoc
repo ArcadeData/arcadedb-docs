@@ -143,6 +143,15 @@ ArcadeDB> SELECT FROM Movie WHERE actors = 'Keanu Reeves'
 
 The key type of a `BY ITEM` index is the declared item type of the list (`LIST OF DOUBLE` is keyed as DOUBLE), so `WHERE prices CONTAINS 7` finds a stored `7.0` with or without the index. A list without a declared item type is keyed as STRING. An index created before this rule keeps its STRING keys until it is rebuilt (`REBUILD INDEX`).
 
+* A composite index can expand more than one collection: several `BY KEY` / `BY VALUE` properties, of different maps or of the same one, and `BY ITEM` properties of one list next to them. A record is indexed under every combination of the elements, so a conjunction of membership tests uses the index:
+
+----
+ArcadeDB> CREATE INDEX ON Doc (m1 BY KEY, m2 BY VALUE) NOTUNIQUE
+ArcadeDB> SELECT FROM Doc WHERE m1 CONTAINSKEY 'k1' AND m2 CONTAINSVALUE 'wanted'
+----
+
+The index holds one entry per key of `m1` times value of `m2`, so it grows with the product of the two sizes. A record whose collection has no element has no entry, which is why a filter that leaves such a column out (`WHERE m1 CONTAINSKEY 'k1'` alone) is answered without this index. _(Since v26.12.1: before, only the last modified property was expanded and the others were indexed as whole collections, so the index answered such a query with no rows. Rebuild an existing index of this shape with `REBUILD INDEX`.)_
+
 * Create a series of properties and on them create a composite index:
 
 ----
