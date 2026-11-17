@@ -578,6 +578,32 @@ The one endpoint where it is not a header is the streaming bulk load, `POST /api
 There the response has already started by the time the commit index is known, and a header set at that point would be dropped silently, so the value travels in the body instead, as `commitIndex` on the terminal `summary` or `error` line.
 The Java driver handles this transparently: `RemoteDatabase.getLastCommitIndex()` advances the same way whichever encoding was used.
 
+[[ha-read-consistency-grpc]]
+gRPC clients use the same contract through call metadata, with the same names in lower case:
+
+[%header,cols="30%,12%,58%"]
+|===
+| Metadata key | Direction | Purpose
+
+| `x-arcadedb-read-consistency`
+| request
+| Overrides the server default for this call. Accepts `eventual`, `read_your_writes`, or `linearizable`.
+
+| `x-arcadedb-read-after`
+| request
+| The Raft commit index the replica must have applied before serving the call.
+
+| `x-arcadedb-commit-index`
+| response
+| The applied commit index of the database the call reached. It is sent in the response headers, or in the trailers when the call ends without headers (an error).
+|===
+
+A commit answers the bookmark that covers it, so a client can send it back as `x-arcadedb-read-after` on a read sent to a replica.
+The consistency applies to every statement the call runs: unary and streamed queries, and statements of an open transaction.
+A call without metadata uses the server's `arcadedb.ha.readConsistency`, as an HTTP request without headers does.
+A value that is not a number, or not one of the three levels, is refused with `INVALID_ARGUMENT`.
+_(Since v26.12.1: gRPC calls answered no bookmark, ignored both request keys, and did not apply `arcadedb.ha.readConsistency`, so a read on a replica right after a commit could miss it.)_
+
 Since v26.10.2 a replica relays such a streamed load to the leader in both directions at once, so a client that sends it to
 a replica receives the leader's `progress` lines while it is still uploading, as it does on the leader. A body that grows
 past `arcadedb.server.httpBodyContentMaxSize` after the leader started answering ends the stream with an `error` line
