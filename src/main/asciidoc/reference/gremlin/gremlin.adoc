@@ -125,6 +125,8 @@ curl -X POST "http://localhost:2480/command/graph" -d "{'language': 'gremlin', '
 
 Before running a Gremlin script, ArcadeDB checks whether it writes, without running it. The query endpoint refuses a script that writes, and on a cluster a replica forwards it to the leader, where it runs once. Every statement of a script counts, so `g.addV('Person').iterate(); g.V().count()` is a write. A script that only the Groovy engine can read (`arcadedb.gremlin.engine` set to `auto` or `groovy`) has to be evaluated to be checked: a traversal it runs while being checked runs only if it reads _(since v26.11.1)_.
 
+A traversal that is wrong is an error in the request, answered with HTTP 400 and TinkerPop's own message prefixed by `Invalid gremlin traversal:`, like a Gremlin syntax error. That covers a traversal TinkerPop refuses for its shape (`g.V().emit()`, a `repeat()` with no traversal; `g.V().to('V')`, a step that cannot follow the previous one), a step that meets a value of a type it is not defined for (`g.V().sum()`, `g.V().inV()`), and a step that needs what the path does not hold (`otherV()` with no edge before it). A valid traversal that fails while it runs, such as `.next()` on an empty traversal, is still answered with 500. A step naming only a `null` label (`out(null)`) matches nothing, as in TinkerGraph, while a `null` among other labels (`bothE(null, 'x')`) is refused by TinkerPop. _(Since v26.12.1: these were answered with HTTP 500, and a `null` label failed with a `NullPointerException`.)_
+
 [[gremlin-server]]
 ==== Use the Gremlin Server
 
