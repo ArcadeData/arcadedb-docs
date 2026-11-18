@@ -101,6 +101,11 @@ CREATE INDEX ON Article (content) FULL_TEXT
 | float
 | `1.0`
 | Per-field BM25 boost multiplier applied to field-qualified matches on that field (must be >= 0), e.g. `"title_boost"`
+
+| `fuzzyMaxExpansions`
+| integer
+| `50`
+| _(since v26.12.1)_ The most indexed terms a fuzzy term (`term~`) expands to (must be > 0). See <<full-text-index-fuzzy>>
 |===
 
 ====== Common Analyzers
@@ -295,6 +300,10 @@ Wrap a phrase in double quotes to require terms to appear in order:
 SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', '"machine learning"')
 ----
 
+_(since v26.12.1)_: a phrase matches as it does in Lucene. Its terms must appear in the order written, next to each other. Add a slop with `~N` to allow up to `N` position moves (`"quick fox"~3`). A stop word the analyzer removed keeps its position, so with `EnglishAnalyzer` the phrase `"machine of learning"` matches the text `machine the learning`. A term repeated in the phrase needs a different position each time, and a phrase never spans two properties of a multi-property index. Before v26.12.1 a phrase matched any record that held all of its terms, in any order and at any distance; write `+quick +fox` for that.
+
+NOTE: The postings store no term positions, so a phrase is checked by loading and re-analyzing the records that hold all of its terms. A phrase query therefore costs more than a term query.
+
 ====== Wildcard Queries
 
 [%header,cols="2,3"]
@@ -318,15 +327,30 @@ SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'data*')
 
 Wildcard, prefix, fuzzy and regexp terms are normalized by the index's analyzer, the same way the indexed tokens were: lower-cased with the default `StandardAnalyzer`, left as they are with a case-preserving analyzer such as `WhitespaceAnalyzer` (where `Fo*` matches `Foo` but not `foo`).
 
+[[full-text-index-fuzzy]]
 ====== Fuzzy Queries
 
-Append `~` to match terms within an edit distance:
+Append `~` to match terms within an edit distance. `~` alone allows 2 edits (the Lucene default); `~1` and `~2` set it:
 
 [source,sql]
 ----
 SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'database~')
--- also matches terms within edit distance 2 (Lucene default), e.g. "databaSe", "databasee"
+-- also matches terms within 2 edits, e.g. "databases", "databank"
+
+SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'from~1')
+-- also matches "form": swapping two adjacent characters counts as one edit
 ----
+
+An edit is an inserted, deleted or replaced character, or _(since v26.12.1)_ two adjacent characters swapped, as in Lucene's `FuzzyQuery`.
+
+_(since v26.12.1)_: a fuzzy term expands to at most `fuzzyMaxExpansions` indexed terms, 50 by default, as in Lucene. When more terms are within the edit distance, the closest ones are kept: an exact match first, then the terms with the fewest edits for their length, with ties broken by term order. The limit applies to the whole type, not to each bucket. Before v26.12.1 a fuzzy term matched every indexed term within its edit distance, so a short term or `~2` over a large vocabulary could return more records than Lucene does. Raise the limit per index if needed:
+
+[source,sql]
+----
+CREATE INDEX ON Article (content) FULL_TEXT METADATA { "fuzzyMaxExpansions": 100 }
+----
+
+From Java, use `TypeFullTextIndexBuilder.withFuzzyMaxExpansions(100)`. `EXPLAIN` lists only the expansions kept. On a logical index over several types the limit applies to each type separately.
 
 ====== Field-Qualified Queries (Multi-Property Indexes)
 
