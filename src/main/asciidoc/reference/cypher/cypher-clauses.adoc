@@ -665,6 +665,15 @@ SET p:Employee
 NOTE: `SET` is a simultaneous assignment: every value is read as it was before the clause ran, so
 `SET p.a = p.b, p.b = p.a` swaps the two rather than copying one onto the other.
 
+A label change (`SET n:Label`, `REMOVE n:Label`, or `ON CREATE SET` / `ON MATCH SET` of a label in a `MERGE`) rewrites
+the node under its new type and re-creates its relationships, so the node and its relationships get new RIDs (see
+`opencypher.labelWriteDegreeWarning` in the settings). _(Since v26.12.1)_ Every row the statement returns holds the
+records as they are after the change, including a row produced before a later row of the same statement changed a label
+of one of its nodes: its nodes, relationships and paths are the live ones, and a node another row relabelled reports its
+new labels. `DISTINCT` and `UNION` count a node before and after its label change as one. Up to 26.11.1 such a row still
+held the deleted originals: the HTTP API answered RIDs of records that no longer existed, and a path returned over Bolt
+failed with `Record #... not found` (issue #10614).
+
 A `SET` updates each matched node once, even when it writes the indexed property the `MATCH` reads its nodes by:
 `MATCH (n:A) WHERE n.k > 0 SET n.k = n.k + 1000` with an index on `A.k` reads the range of the index first, then
 updates. Only the record addresses are held, a few bytes per node. Before v26.11.1 such a statement met the nodes it had
