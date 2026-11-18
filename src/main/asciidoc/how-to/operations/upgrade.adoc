@@ -76,6 +76,16 @@ Every TIMESERIES type created by 26.12.1 draws a random owner id, stored in the 
 
 *Action:* none to upgrade. To go back to an older build afterwards, export the database with 26.12.1 and re-import it with the older version. If a type reports its storage unavailable because of a foreign sealed file, move that file away and reopen the database. See <<timeseries-sealed-owner,Integrity Checking>>.
 
+[[upgrade-float-arrays-rollback-fence]]
+[discrete]
+====== 26.12.1 - A database opened read-write is refused by older builds, unless fixed-width float arrays are turned off
+
+A build before 26.11.1 cannot read the fixed-width float and double arrays introduced in 26.11.1 (see <<upgrade-float-arrays-fixed-width,Float and double arrays are stored fixed-width>>), and 26.9.1 and 26.10.x did not refuse such a database: they read those arrays as `null`, left the records out of `vector.neighbors()`, and the first `UPDATE` of such a record erased its arrays (issue #12234). While `arcadedb.serializer.fixedWidthFloatArrays` is `true` (the default), 26.12.1 labels the dictionary file of a database with format version 2 (`dictionary.<id>.<pageSize>.v2.dict`, same content as version 1) when it creates the database, when it opens it read-write, and when the setting is turned on. Builds from 26.8.1 to 26.11.x refuse to open such a database with `Dictionary '...' was written with format version 2, which this version of ArcadeDB cannot read (latest known is 1)` instead of losing data. The label does not depend on the content: a database that holds no float or double array is labelled too. A database opened read-only is not labelled. If the label cannot be applied (an I/O error), a WARNING is logged and arrays are written in the old varint form until the next open.
+
+*Impact:* once 26.12.1 has opened a database read-write, no released build opens it any more, 26.11.x included (it reads the fixed-width form but refuses the label). Builds before 26.8.1 do not check the label and still open it, with the data loss described above. In an HA cluster, a node still on an older build that has to install a full snapshot from an upgraded node refuses the dictionary until it is upgraded too.
+
+*Action:* none to upgrade. To keep a rollback possible, set `arcadedb.serializer.fixedWidthFloatArrays` to `false` before the database is first opened read-write by 26.12.1, or take a backup before the upgrade: the label stays at version 1 and arrays are written in the varint form, which every build reads. Turning the setting off later does not remove the label. To go back to 26.11.x only, stop the server and rename `dictionary.<id>.<pageSize>.v2.dict` back to `dictionary.<id>.<pageSize>.v1.dict`. Never do that to open the database with 26.10.x or older when it may hold float or double arrays: export it with 26.12.1 and re-import it with the older version instead. See <<settings-sql,`serializer.fixedWidthFloatArrays`>>.
+
 [discrete]
 ====== 26.12.1 - `DROP INDEX` refuses the bucket index of an index, and an index missing one is not used
 
