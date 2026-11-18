@@ -120,13 +120,15 @@ The plugin implements a subset of the MongoDB protocol, focused on CRUD operatio
 |===
 | Command | Driver helpers
 
-| `find`, `count`, `aggregate` | `find()`, `countDocuments()`, `aggregate()`
+| `find`, `count`, `aggregate` | `find()`, `count()`, `estimatedDocumentCount()`, `countDocuments()`, `aggregate()`
 | `insert` | `insertOne()`, `insertMany()`
 | `update` | `updateOne()`, `updateMany()`, `replaceOne()`, `replaceMany()`
 | `delete` | `deleteOne()`, `deleteMany()`
 | `create` | `createCollection()`
 | `createIndexes` | `createIndex()`, `createIndexes()`
 |===
+
+Any other command is refused with error `59` (`CommandNotFound`), what MongoDB answers for a command it does not have, so a driver can tell the command is missing _(since v26.12.1)_.
 
 [[mongodb-protocol-update-delete]]
 ====== Updating and deleting documents
@@ -157,9 +159,12 @@ Notes:
 
 * `deleteOne()`, `updateOne()` and `replaceOne()` affect a single matching document; `deleteMany()` and `updateMany()` affect all matches.
 * A replacement document (no `$`-prefixed keys) fully replaces the matched document's fields, but keeps its `_id`. The `_id` is immutable: an update or replacement that changes or removes it is refused (error 66).
-* The supported update operators are `$set`, `$unset` and `$inc`. They accept dotted paths (`{ $set: { "addr.city": "Rome" } }`): the embedded document is updated and missing levels are created. Writing below a value that is not a document (for example a string) is refused.
+* The supported update operators are `$set`, `$unset` and `$inc`. They accept dotted paths (`{ $set: { "addr.city": "Rome" } }`): the embedded document is updated and missing levels are created. Writing below a value that is not a document (for example a string) is refused. Another MongoDB update operator (such as `$push`, `$addToSet` or `$setOnInsert`) or a pipeline-style update is refused with error `238` (`NotImplemented`) naming it, and an operator that MongoDB does not have with error `9` (`FailedToParse`), whether or not a document matches _(since v26.12.1)_.
+* An update is refused, and changes nothing, in the same cases as MongoDB, with or without a filter _(since v26.12.1)_: `$inc` on a field that is not a number (a string, boolean, array, date, document or `null`) or by an amount that is not a number (TypeMismatch, 14), `$inc` past the range of a 64-bit integer (BadValue, 2), and two operators on the same field or on a field and one below it, such as `{ $set: { s: 2 }, $unset: { s: "" } }` (ConflictingUpdateOperators, 40).
 * With `upsert: true`, when no document matches a new one is inserted, seeded from the filter's equality conditions plus the update. If the filter includes an `_id`, that `_id` is used for the new document; otherwise one is generated. Either way, the resulting `_id` is returned.
 * The counts in the reply are what the database actually wrote. A write refused by a `BeforeRecordCreate/Update/DeleteListener` (see <<java-events,Events>>) is not counted: `delete` and `insert` count only the documents removed or stored, `update` reports it in `n` (matched) but not in `nModified` (changed), and an upsert whose match was refused does not insert a new document _(since v26.10.2)_.
+* `nModified` counts only the documents an update changed, as in MongoDB: an update that leaves a document as it was (`$set` to the current value, `$inc` by 0, `$unset` of a missing field, an identical replacement) counts in `n` but not in `nModified`, and the document is not rewritten. Reordering the fields of an embedded document is a change _(since v26.12.1)_.
+* A document refused on its own is reported as a write error of that document, and the other documents of the command are kept, as in MongoDB _(since v26.12.1)_. This covers a duplicate key (`11000`), a value a schema constraint refuses (`121`, `DocumentValidationFailure`, for example a `max` declared on a property), and an update the document cannot take (such as writing below a string). With `ordered: true` (the default) the documents or update statements after the refused one are not applied, and with `ordered: false` they are. The Java driver throws `MongoWriteException` or `MongoBulkWriteException` for these. In production mode the error text does not include the stored values.
 
 [[mongodb-protocol-semantics]]
 ====== Null values, projections, regular expressions and duplicate keys
@@ -168,8 +173,9 @@ Notes:
 * Filters follow MongoDB's rules for types and arrays, in `find`, `count`, `update` and `delete`. A number never equals a string or a boolean (`{ n: 5 }` does not match `"5"`), and `$gt`/`$lt` compare within one type only. A filter on an array field tests its elements: `{ tags: "a" }` matches `["a", "b"]`, `{ tags: { $ne: "a" } }` does not, and `$all`, `$elemMatch`, `$size` and `tags.0` work. `$exists` works on dotted paths (`{ "a.b": { $exists: false } }`), and collection names with dots (`fs.files`) can be read like any other.
 * A filter on `_id` (equality or `$in`) uses the unique `_id` index. A filter on any other field is tested on the documents with MongoDB's own rules, and an index narrows which documents are tested only for a field that an index starts with and whose type is declared in the schema as a scalar (`STRING`, `BOOLEAN`, `BYTE`, `SHORT`, `INTEGER`, `LONG` or `DOUBLE`; for example `CREATE PROPERTY products.sku STRING` followed by `CREATE INDEX ON products (sku) UNIQUE`). Equality and `$in` use the index, and so does a range (`$gt`, `$gte`, `$lt`, `$lte`) on an integer field, when the operand is of the kind of the field (a string for a `STRING`, an integer for an `INTEGER`). Lookups, updates, deletes and bulk upserts by such a field do not read the whole collection. A field the schema does not declare is never narrowed by its index, because an array can be stored in it and an index does not see the elements of an array: filters on it, and on dotted paths, negations, regular expressions and temporal values, read every document of the collection and are slower on large ones. The declared type is relied upon: when you declare a property on a collection that already holds data, records stored before the declaration are not converted, so rewrite them if they hold an array or a value of another kind in that field.
 * A top-level `$not`, `$expr` and a `$regex` directly inside `$elemMatch` are refused with an error. Regular expressions are time-bounded by `arcadedb.command.regexTimeout`, shared by all the documents one command scans: raise it if a big scan with a regular expression times out. The same bound applies to the `$match` stages of an aggregation, including `countDocuments()` with a filter, and to the `$match` stages nested in `$facet`, `$lookup` and `$unionWith`. A non-regex `$expr` works inside an aggregation `$match`.
-* Aggregating or counting a collection that does not exist returns an empty result, and the first insert creates the collection.
-* `find()` honors the projection (`{ name: 1 }`, `{ _id: 0 }`, `{ age: 0 }`, dotted paths). Inclusion and exclusion cannot be mixed, except for `_id`. Projection operators (`$slice`, `$elemMatch`, `$meta`) are not supported and return an error. Documents never contain ArcadeDB's `@rid`, `@type` or `@cat`.
+* Aggregating or counting a collection that does not exist returns an empty result (`count()` and `estimatedDocumentCount()` return `0` _(since v26.12.1)_), and the first insert creates the collection. A `count` with a `skip` or `limit` that is not a number is refused with error `14` (`TypeMismatch`).
+* `find()` honors the projection (`{ name: 1 }`, `{ _id: 0 }`, `{ age: 0 }`, dotted paths). Inclusion and exclusion cannot be mixed, except for `_id`. A dotted path goes into arrays like in MongoDB: `{ "items.name": 1 }` returns the `name` of every element of `items`, and `{ "items.price": 0 }` removes `price` from every element. An inclusion returns the fields in the order of the stored document. Overlapping paths (`{ a: 1, "a.b": 1 }`) are refused _(since v26.12.1)_. Projection operators (`$slice`, `$elemMatch`, `$meta`, the positional `$`) are not supported and return an error. Documents never contain ArcadeDB's `@rid`, `@type` or `@cat`.
+* `find().sort()` follows MongoDB's order _(since v26.12.1)_. Values of different types are ordered by type (null, numbers, strings, documents, arrays, ObjectId, booleans, dates), numbers by value whatever their type, and strings by character code. An array sorts by its smallest element in an ascending sort and by its largest in a descending one, and an empty array sorts before `null`. `skip` and `limit` page through that order. Sorting is done in memory: with a `limit` only the documents needed are kept, without one every matching document is.
 * A `MAP` property whose keys are not strings (written through SQL or the HTTP API, for example `{1: "one"}`) is returned with each key as a field named by its text (`"1"`, and `"null"` for a `null` key), as the HTTP API shows it. A dotted path such as `{ $set: { "m.1": "uno" } }` updates that same key and keeps its type _(since v26.10.2)_.
 * Regular expressions work as literals (`/^a/i`) and with `$regex` and `$options` (`i`, `m`, `s`, `x`), also under `$not`. An invalid pattern returns an error.
 * `_id` is unique: inserting an existing `_id` fails with `E11000`. In a batch, `ordered: true` (the default) stops at the first duplicate, `ordered: false` inserts the others. The first insert creates the collection and a unique index on `_id`; on a big existing collection that first insert builds the index and other writes to it wait until it is done.
@@ -177,7 +183,7 @@ Notes:
 
 [NOTE]
 ====
-A String `_id` that happens to look like a 24-character hex ObjectId (e.g. `"abcdef0123456789abcdef01"`) is indistinguishable from a real ObjectId once stored, so it round-trips back as an ObjectId rather than the original String. Avoid choosing String `_id` values in that specific shape if your client needs to tell them apart.
+An ObjectId and a String with the same 24 hex digits are two different `_id` values, as in MongoDB: both can be stored in one collection, and each one is found only by a filter of its own type _(since v26.12.1)_. A String `_id` in that shape stored by an older version cannot be told apart from an ObjectId, so it keeps reading back as an ObjectId and is found by an ObjectId filter.
 ====
 
 [[mongodb-protocol-bson-types]]
@@ -185,9 +191,9 @@ A String `_id` that happens to look like a 24-character hex ObjectId (e.g. `"abc
 
 Besides strings, numbers, booleans, dates, embedded documents and arrays, the plugin stores and returns these BSON types with their type kept: binary, regular expression, timestamp, MinKey, MaxKey, JavaScript code, Decimal128 and ObjectId. A value the server cannot store is refused with an error instead of being dropped.
 
-* Decimal128 is stored as an exact decimal. A decimal with more than 34 digits, written through SQL, is returned as a double.
-* An ObjectId outside `_id` is stored as the text `$oid:<24 hex digits>` and returned as an ObjectId. Filters (`eq`, `$ne`, `$in`) also match the plain hex text stored by older versions. `_id` keeps the plain hex form.
-* Binary, timestamp, regular expression, MinKey, MaxKey and JavaScript values are stored as a small document with the reserved field `$bson`. Equality and `$in` work on them, but range queries and sorting do not follow BSON order.
+* Decimal128 is stored as an exact decimal. A negative zero (`-0`, `-0.00`), `NaN` and the infinities are kept as they are _(since v26.12.1)_. A decimal with more than 34 digits, written through SQL, is returned as a double.
+* An ObjectId outside `_id` is stored as the text `$oid:<24 hex digits>` and returned as an ObjectId. An ObjectId filter matches only ObjectIds: plain hex text, including the one stored by versions before v26.10.1, is a String and is matched by a String filter _(since v26.12.1)_. `_id` keeps the plain hex form.
+* Binary, timestamp, regular expression, MinKey, MaxKey, JavaScript and the special Decimal128 values are stored as a small document with the reserved field `$bson`. MongoDB filters and sorts compare them in BSON order; a SQL query sees them as documents.
 * Reserved names: a field called `$bson` is refused, and a text starting with `$oid:` or `$str:` is escaped on write, so it comes back unchanged.
 * The Symbol type and binary subtypes other than 0 and 4 are not supported by the bundled MongoDB library.
 

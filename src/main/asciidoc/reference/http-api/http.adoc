@@ -1528,8 +1528,8 @@ Responses:
 * https://httpstatuses.io/404[`404`] database does not exist (`Database not found`)
 * https://httpstatuses.io/503[`503`] the database is there and cannot serve the request now: closed, being restored, dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/500[`500`] cannot execute query
-* https://httpstatuses.io/503[`503`] the server is busy and the query can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
-* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
+* https://httpstatuses.io/503[`503`] the server is busy and the query can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>). The answer carries `Retry-After: 1` _(since v26.12.1)_
+* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`, with `Retry-After: 0` since v26.12.1), or the server is shutting down (no `Retry-After`): retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
 
 Example:
@@ -1645,8 +1645,9 @@ or `DROP TYPE` of a vertex or edge type that still has records (without `UNSAFE`
 v26.12.1 these answered `500`. In the same release a `LIMIT`/`SKIP` that is not a number, a `CREATE EDGE`/`CREATE VERTEX` on a type of the other
 kind, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a setting it cannot change (the type of a property included) and
 `IMPORT DATABASE` of a source that does not exist answer `400` instead of `500`
-* https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
-* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
+* https://httpstatuses.io/503[`503`] the command's transaction conflicted with a concurrent commit and the server's own retries did not get past it (`ConcurrentModificationException`), or another retryable refusal (`NeedRetryException`): retry as it is. The answer carries `Retry-After: 0` _(since v26.12.1)_: the conflict clears as soon as the competing commit has landed
+* https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>). The answer carries `Retry-After: 1` _(since v26.12.1)_
+* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`, with `Retry-After: 0` since v26.12.1), or the server is shutting down (no `Retry-After`): retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
 * https://httpstatuses.io/404[`404`] the database does not exist (`Database not found`), or https://httpstatuses.io/503[`503`] it is there and cannot serve the command now: closed, being restored (a write while a restore holds an open database is refused this way), dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 
@@ -2098,7 +2099,7 @@ The JSON body accepts:
 - `properties` (optional) array of indexed property names, to pick one of several full-text indexes on `typeName`
 - `limit` (optional, default `10`) maximum number of results, between `1` and `1000`
 
-One of `indexName` or `typeName` is required. The response carries `indexName`, `similarity` (`BM25` or `CLASSIC`), `count` and `results`, where each hit has `rid`, `score` and `properties`. The limit is applied per bucket, so a record deleted between the index scan and the load is skipped rather than replaced, and a search can return fewer than `limit` hits.
+One of `indexName` or `typeName` is required. The response carries `indexName`, `similarity` (`BM25` or `CLASSIC`), `count` and `results`, where each hit has `rid`, `score` and `properties`. The limit is applied inside the index (across all buckets for a query of OR-ed terms, _since v26.12.1_, per bucket otherwise), so a record deleted between the index scan and the load is skipped rather than replaced, and a search can return fewer than `limit` hits.
 
 Responses:
 
@@ -2215,7 +2216,14 @@ Response:
 * https://httpstatuses.io/204[`204`] OK
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/404[`404`] the session is unknown, expired or already ended, or its transaction was rolled back by a failed command
-* https://httpstatuses.io/503[`503`] the commit lost a race with a concurrent commit: the transaction is refused with a retryable `ConcurrentModificationException` and nothing of it is applied. The answer carries the header `arcadedb-session-closed: true`, the session is gone, and the client has to run the transaction again
+* https://httpstatuses.io/503[`503`] the commit conflicted with a concurrent commit that changed the same records (`ConcurrentModificationException`), or met another retryable refusal: nothing was committed and the session is closed. Begin a new transaction, read the records again and re-apply the change. The answer carries `Retry-After: 0` _(since v26.12.1, before it carried none)_: the conflict clears as soon as the competing commit has landed
+
+A conflict surfaces at the commit, not at the write: the write of the transaction that loses the race is answered `200`,
+and the conflict is detected when it commits, which is where the server can see the competing commit. A transaction at
+`REPEATABLE_READ` that read a record a concurrent transaction then changed and committed is the typical case (see
+<<transactions,Transactions>>). The Java remote client's `transaction()` runs the whole block again on it; any other
+client reads the `503` and the `Retry-After` header. The header is a floor, not a schedule: a client that retries in a
+loop still backs off, with jitter, when the same conflict comes back, as it does on a record many writers update.
 
 Example:
 
