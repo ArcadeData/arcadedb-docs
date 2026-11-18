@@ -168,6 +168,15 @@ Once a `READ_COMMITTED` transaction has written a bucket page, it reads that pag
 *Action:* none, beyond retrying on `ConcurrentModificationException`, which every concurrent writer already has to. See <<isolation,Isolation>>.
 
 [discrete]
+====== 26.12.1 - A delete of a record changed since it was read is refused
+
+Under `READ_COMMITTED` a delete removed whatever sat at the record's RID when it got there, with no check that it was still the record read (issue #12472). If another transaction deleted the record and an insert reused its RID, the delete removed the unrelated new record and committed without an error; a SQL `DELETE ... WHERE` racing an `UPDATE` removed a record the update had made stop matching. Now a delete of a record that another transaction changed or replaced after it was read fails with a retryable `ConcurrentModificationException`, as an update in the same position already did. A record deleted by its RID without being loaded first is deleted as it is found.
+
+*Impact:* under contention more deletes are retried. `database.transaction(...)` and a single-request command over HTTP retry them; a transaction spanning several HTTP requests now receives the exception at the delete instead of a silent wrong delete.
+
+*Action:* none, beyond retrying on `ConcurrentModificationException`, which every concurrent writer already has to. See <<isolation,Isolation>>.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.
