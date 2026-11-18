@@ -35,6 +35,7 @@ See <<schema-change-cost>>.
 
 A script of two or more statements that are *all* schema definition DDL runs as a single schema change: the schema file is written once for the whole script and, under High Availability, the batch is replicated as one Raft entry instead of one per statement.
 The database write lock is held for the whole script, so keep such scripts to schema definition and out of data loads.
+Before it takes the lock, the script lets the asynchronous workers (`database.async()`) commit what they have queued and pauses them until the script ends, so an index the script builds never waits on a pending async write.
 If a statement fails, the statements before it are kept and published to the cluster as one change, so every node agrees on the same partially applied schema, and the original error is returned.
 Set the database setting `schemaBulkDDLScript` to `false` to go back to one schema change per statement.
 
