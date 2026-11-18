@@ -532,6 +532,11 @@ The `MERGE` clause creates nodes or relationships if they don't exist, or matche
 
 `ON CREATE SET` and `ON MATCH SET` accept every form the <<cypher-set,`SET`>> clause does.
 
+Each action can be repeated. Every `ON CREATE SET` and every `ON MATCH SET` clause is applied, in the order written,
+and a later clause reads what an earlier one wrote, so `ON MATCH SET n.v = 10 ON MATCH SET n.v = n.v + 1` sets `v` to
+11. The items of a single clause still read the values from before that clause, as in a stand-alone `SET`. _(Since
+v26.12.1; before, only the last clause of each kind was applied and the others were silently dropped.)_
+
 A property of the `MERGE` pattern cannot be null, since nothing matches a null and the `MERGE` would create the element
 again on every run: `MERGE (n:A {k: null})`, `UNWIND [null] AS x MERGE (n:A {k: x})`, `MERGE (n:A {k: $p})` with `$p`
 null and `MATCH (a) MERGE (n:B {k: a.missing})` all fail with `'MERGE' cannot be used with a graph element property
@@ -701,6 +706,11 @@ DETACH DELETE expression [, expression ...]
 A target is usually a variable, but any expression that evaluates to a node, a relationship or a path works too: `DETACH DELETE [a][0]`, `DELETE l[i]`, `DETACH DELETE CASE WHEN a.k = 0 THEN a ELSE b END`. A target that evaluates to a list or a map deletes every element it holds, so `DETACH DELETE [a, b]` deletes both nodes (Neo4j raises a type error for a list target). A target that can never be an entity (`DELETE 1 + 1`, `DELETE n:Label`) is refused before the statement runs.
 
 NOTE: A node cannot be deleted if it has relationships. Use `DETACH DELETE` to delete a node and all its relationships.
+
+NOTE: A relationship that `DETACH DELETE` removes together with its node is deleted for the rest of the statement, as if
+the query had deleted it with `DELETE r`. In `MATCH (a)-[r]->(b) DETACH DELETE b RETURN r.k`, reading a property of `r`
+fails with the deleted-entity error and the statement rolls back, while `type(r)` still answers. _(Since v26.12.1;
+before, the row still answered the deleted relationship's old property values.)_
 
 NOTE: The check runs once the whole statement is processed, so `MATCH (n)-[r]-() DELETE r, n` deletes a node that has several relationships. A node that still has a relationship at the end fails the statement and nothing is deleted.
 
@@ -1646,6 +1656,10 @@ RETURN root.name AS name
 * FOREACH is useful for batch operations and creating multiple elements from lists
 * What a FOREACH body writes is subject to <<cypher-reads-and-writes,Reads and Writes in the Same Query>>
   like any other write
+* A write in the body is visible to the rest of the statement through every binding of the written node: the
+  variable that names it, a list or a map that holds it (`WITH collect(a) AS ns FOREACH (n IN ns | SET n.v = 1)
+  UNWIND ns AS m RETURN m.v` returns the new value), and an outer variable whose node the body wrote through a
+  `MERGE` alias. _(Since v26.12.1; before, a list, a map or a `MERGE` alias kept the value from before the write.)_
 
 ---
 
