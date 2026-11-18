@@ -141,6 +141,15 @@ A failure on a later batch of `iterateType`, `iterateBucket` or `queryStream` ra
 *Action:* catch `SecurityException` for an authentication or permission refusal, and `TimeoutException` for an expired deadline. See <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
+====== 26.12.1 - The gRPC Java client returns record rows and record columns as records
+
+A row that returns a record, such as Cypher `MATCH (n) RETURN n`, now reaches a `RemoteGrpcDatabase` caller as that vertex or edge with its own properties, and a column that holds a record (`RETURN a, r, b`, SQL `SELECT @rid, @type, @this`, the records of `collect(n)`) as a `Document`, `Vertex` or `Edge`, as the embedded API returns them (issue #12196). Before, `RETURN n` gave a vertex whose only property was `n`, `SELECT @rid, @type, @this` a record whose only property was `@this`, and the other record columns raw maps.
+
+*Impact:* code that read the properties through the alias (`vertex.get("n")`) or cast a record column to `Map` no longer works. A map a query builds with a valid `@rid` and the name of an existing type as `@type` is also returned as a record. The columns of a projection keep the order of the query.
+
+*Action:* read the properties from the record itself (`result.getVertex().get().get("name")`), and treat a record column as a `Document`, `Vertex` or `Edge`. See <<java-api-grpc,Java API (gRPC)>>.
+
+[discrete]
 ====== 26.12.1 - A vector index whose definition in `schema.json` is invalid is left out at open, alone
 
 When a database opens, the settings of each `LSM_VECTOR` index in `schema.json` are checked with the same rules as `CREATE INDEX` (`pqClusters` at most 256, `maxConnections`, `beamWidth`, `efSearch`, `pqTrainingLimit` at least 1, ...). An index whose definition breaks one is left out: it is not used, queries on its type scan instead, its definition and its file are kept, and a `SEVERE` log line names the index, the invalid value and the fix (issue #11568).
