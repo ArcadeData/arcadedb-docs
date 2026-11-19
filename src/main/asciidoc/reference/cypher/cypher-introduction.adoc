@@ -138,6 +138,13 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   `OR` of equalities on the same property all qualify, and a leading prefix of a composite index is enough:
   with an index on `(transactionId, date)`, filtering `transactionId` alone walks that prefix of the index
   instead of scanning every edge. The plan shows it as `MATCH EDGE BY INDEX`
+* Looks up the far end of a single hop by a `UNIQUE` index when the `WHERE` clause keys it with an `IN` list (or an
+  `OR` of equalities), e.g. `MATCH (a:Entity {id: $k})-[:RELATES_TO]->(b:Entity) WHERE b.id IN $list`, instead of
+  walking every relationship of `a`. The choice is made per row: `a` is walked while it has at most 16 relationships
+  per key in the list, otherwise each key is looked up. The plan shows it as `SeekOrWalkExpand`. It applies only when
+  the result cannot show the row order, that is with an `ORDER BY` or when `RETURN` holds only aggregates such as
+  `count(*)`, `sum()` or `max()`: a plain `RETURN`, a `LIMIT` without `ORDER BY` or a `collect()` keeps the walk, so
+  its rows come back in the same order as before _(since v26.12.1, issue #11715)_
 * Optimizes join order based on cardinality estimation
 * Detects bounded patterns for efficient relationship traversal
 * Joins the parts of a pattern no relationship connects - `MATCH (a:Person), (c:City)`, or two `MATCH` clauses - on
