@@ -279,6 +279,8 @@ RETURN p.name, friend.name
 
 NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
 
+NOTE: A node an earlier clause left null cannot match again. In `OPTIONAL MATCH (a)-[:R]->(b) OPTIONAL MATCH (b), (c:Node)`, a null `b` keeps the row once with `c` null, and a later `MATCH (b)` drops the row, as in Neo4j _(since v26.12.1, issue #11761; before, a bare `(b)` over a null was taken as matched, so the row was repeated once per `Node` or kept by `MATCH`)_.
+
 *Testing for absence.* An `OPTIONAL MATCH` whose new variable is then tested for `IS NULL` keeps exactly the rows for which the pattern does not exist, which is what `WHERE NOT pattern` says. Since v26.10.2 it is planned that way: when the variables the `OPTIONAL MATCH` introduces are read by nothing but that test (a conjunct of the `WHERE` of the `WITH`, or `FILTER`, right after it), the nodes it shares with the earlier `MATCH` clauses are never null, and that `WITH` neither aggregates nor orders nor pages, the two spellings below run the same plan, including the anti-join count push-down (issue #9598):
 
 [source,cypher]
