@@ -2124,6 +2124,13 @@ CREATE INDEX FOR (p:Person) ON (p.age)
 
 A declared property converts every value written to it to its type. _(Since v26.12.1)_ Before 26.12.1, `CREATE INDEX` on a label that already held the property declared it with the type of the stored values, so every later write of another kind was converted silently: on a label of integers `2.5` was stored as `2`, `'7'` as the number `7` and a date as epoch milliseconds. A property declared that way by an earlier version stays declared: drop the declaration with SQL `DROP PROPERTY` (after dropping the index) if the values should keep their own types.
 
+[[cypher-create-index-unlabelled]]
+*Nodes with no label, or several:*
+
+_(Since v26.12.1)_ A node pattern that names no single label is answered by the indexes too. `MATCH (n {uuid: $u})`, `MATCH (n) WHERE n.uuid = $u` and `MATCH (n:A:B {uuid: $u})` look the value up in the index of every type that has one on the property, and scan only the types that have none. Before 26.12.1 such a pattern read every node of the database, so it got slower as the database grew.
+
+The index is used when the value has the type the index is keyed by (text for a text property, a whole number for a whole number property, a boolean, a decimal number for a decimal property). Any other value is compared by scanning, as before, and so is a list (`n.uuid IN $keys`) on a node with no label. Writing the label on the node, as in `MATCH (n:Entity {uuid: $u})`, still names the index directly.
+
 [[cypher-create-vector-index]]
 ====== CREATE VECTOR INDEX / CREATE FULLTEXT INDEX
 
