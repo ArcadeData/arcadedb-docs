@@ -246,8 +246,12 @@ DATE, `java.util.Date`, `LocalDateTime` and `Instant` as a DATETIME and a `Zoned
 sends them as <<vector-http-typed-markers,typed parameter markers>>, which a server older than 26.12.1 does not decode, so
 upgrade the server first. Before, these values reached the server as plain JSON: a `RID` was stored as a string, a record
 as an embedded copy, a `BigDecimal` as a double, a `byte[]` as a list and the dates as numbers. A record read back from
-the server still holds an undeclared link, date, decimal or binary property as a string, a double or a list, so
-`modify()` and `save()` write such an untouched property back with that type (issue #12599).
+the server holds an undeclared link as a `RID`, and a list or map of links as a list or map of `RID`s, as a projection of
+the same property does _(since v26.12.1, issue #12195; before, the record answered the rid text `"#1:0"`)_. The `RID` is
+not bound to the remote database, so load the record it points to with `database.lookupByRID(rid, true)` (issue #12603).
+Links in a property declared as a bare `LIST` or `MAP`, without `OF LINK`, still read back as strings (issue #12598), and
+an undeclared date, decimal or binary property still reads back as a string, a double or a list, so `modify()` and
+`save()` write such an untouched property back with that type (issue #12599).
 
 We can now query some customer data from our database:
 
