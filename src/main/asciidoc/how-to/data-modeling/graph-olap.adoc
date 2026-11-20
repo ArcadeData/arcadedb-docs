@@ -242,6 +242,16 @@ or a lightweight edge that stayed counted; issues #10340 and #10339), a transact
 `CREATE GRAPH ANALYTICAL VIEW` (issue #10338), and a vertex property that was removed, which kept its old value
 (issue #10335). Rebuild a view with `REBUILD GRAPH ANALYTICAL VIEW` if it served such commits on an earlier version.
 
+*In a cluster.* A transaction that reaches a node through replication (a follower applying the leader's commits, or the
+leader applying a commit made in a transaction opened on a follower) carries no change set the view can merge. Since
+v26.12.1 such a commit makes the view on that node STALE, so queries read the records and see it. A *SYNCHRONOUS* or
+*ASYNCHRONOUS* view then rebuilds in the background when a query asks for it, at most once a second (or once per twice its last build time), waiting longer
+(up to 30 seconds) while new commits keep overtaking the rebuilds; a view nobody queries is not rebuilt. An *OFF* view
+stays STALE until `REBUILD GRAPH ANALYTICAL VIEW`. Before, a view a node loaded when it opened its database (after a
+restart, for example) stayed READY and kept answering SQL `out()`/`in()` and openCypher traversals from the graph as
+of that open, also after the node became leader (issue #12250). A node that has not reopened its database since the
+view was created has no view (`NOT_BUILT`) and answers from the records.
+
 In *SYNCHRONOUS* and *ASYNCHRONOUS* modes the view being rebuilt keeps serving queries, and keeps absorbing commits, until the rebuild
 publishes its new CSR: only the caller of `REBUILD GRAPH ANALYTICAL VIEW` (or of `build()`) waits for the scan. The scan no longer runs while holding the view's lock, so neither a committing transaction nor a status check
 waits behind it (issue #8403); before, the view served during a blocking rebuild lagged the commits until the rebuild
@@ -513,7 +523,7 @@ the types still serves a one-hop Cypher scan whose labels it holds. To accelerat
 vertex type that holds vertices.
 
 *Stale views.* A view that is STALE (in `OFF` mode after a commit, in `ASYNCHRONOUS` mode until a commit is merged,
-or after a failed rebuild) is not used by the
+in a cluster after a replicated commit until it rebuilds, or after a failed rebuild) is not used by the
 planner unless `arcadedb.gavUseWhenStale` is `true`, in which case queries read the snapshot as of its last build.
 The setting is per database, and applies to every view of that database immediately, including views already built
 and views restored at open:
