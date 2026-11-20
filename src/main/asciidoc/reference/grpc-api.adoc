@@ -466,6 +466,13 @@ runs at is returned in `BeginTransactionResponse.effective_isolation`. `SERIALIZ
 `INVALID_ARGUMENT`, as is a value the server does not know, instead of starting the transaction at a weaker level than the
 one asked for _(since v26.11.1)_. HTTP, SQL, openCypher and PostgreSQL refuse it the same way.
 
+NOTE: A statement that fails inside a client-managed transaction (`BeginTransaction`) rolls the whole transaction back,
+as over HTTP, PostgreSQL and Bolt _(since v26.12.1)_. The failing call keeps its own status, for example
+`INVALID_ARGUMENT`. Any later statement in that transaction is refused with `FAILED_PRECONDITION`, `CommitTransaction`
+answers `committed = false` with the reason in `message`, and `RollbackTransaction` ends it and answers
+`rolled_back = true`. A `NOT_FOUND` from `LookupByRid`, `UpdateRecord` or `DeleteRecord` writes nothing and leaves the
+transaction open. Earlier versions rolled back only the failed statement and committed the rest.
+
 NOTE: `PAGED` retrieval is the same as `CURSOR` _(since v26.12.1)_: the query runs once, in any language, and its rows
 are streamed in batches of `batch_size`, in the order the query returns them. Earlier versions re-ran a SQL query with
 `SKIP`/`LIMIT` for every page, so the time of a stream grew with the square of its rows. As a consequence a `PAGED`
