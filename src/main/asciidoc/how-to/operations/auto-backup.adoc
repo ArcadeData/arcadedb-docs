@@ -365,6 +365,15 @@ is running. The directory is resolved in this order, first hit wins:
 
 It is resolved per command, so a `set backup config` that moves the directory is picked up by the next one.
 
+On an HA cluster the backup directory is local to each node. Since 26.12.1 a follower forwards `trigger backup`,
+`list backups` and `delete backup` to the leader, as it already did `restore backup`, so all four act on the leader's
+directory and an on-demand archive is taken from the leader's copy of the database. Before, a follower wrote the
+archive into its own directory, where `restore backup` could not reach it. Over gRPC a follower refuses these calls and
+names the leader (see <<grpc-api,gRPC API>>). `get backup config` and `set backup config` still act on the node that
+receives them. Archives the scheduler writes on a follower (`runOnServer` naming a follower, or `*`) are not seen by
+these commands: restore one with `restore database <target> file://<path>` on the node that holds it (this needs
+`arcadedb.server.restoreImportAllowLocalUrls` enabled).
+
 Archives always live under `<backupDirectory>/<database>/`. `get backup config` reports the resolved directory as
 `backupDirectory` next to the configuration. A configured directory that fails validation (an absolute path, or one
 escaping the server root) makes every backup command fail with an error naming it, where `list backups` used to
