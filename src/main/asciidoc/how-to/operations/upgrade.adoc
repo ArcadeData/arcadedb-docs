@@ -177,6 +177,15 @@ Under `READ_COMMITTED` a delete removed whatever sat at the record's RID when it
 *Action:* none, beyond retrying on `ConcurrentModificationException`, which every concurrent writer already has to. See <<isolation,Isolation>>.
 
 [discrete]
+====== 26.12.1 - The remote Java client sends links, decimals, binary and date-times with their type
+
+The remote Java client sent query parameters and the values of a saved record as plain JSON, so on a property the schema does not declare a `RID` was stored as a STRING, a record set as a value as an EMBEDDED copy, a `BigDecimal` as a DOUBLE (`SELECT :a + :b` with `0.1` and `0.2` answered `0.30000000000000004`, and a declared DECIMAL lost its scale), a `byte[]` as a LIST, and a `LocalDate`, `LocalDateTime`, `java.util.Date`, `Instant` or `ZonedDateTime` as a number or a string. A `LocalDate` or `ZonedDateTime` saved with `save()` was then not found by `WHERE p = :v` with the same value. The client now sends these values as <<vector-http-typed-markers,typed markers>> (`$rid`, `$decimal`, `$bytes`, `$datetime`, `$localDateTime`, `$instant`, `$zonedDateTime`, next to `$date`), and they are stored as LINK, DECIMAL, BINARY, DATE, DATETIME and ZONED_DATETIME, as the embedded API stores them. A malformed marker is refused with HTTP 400 before the statement runs (issues #12186, #12187).
+
+*Impact:* there is no version negotiation: a server older than this change receives a one-key map for such a parameter or saved value. `Short`, `Byte` and `Float` still travel as JSON numbers. A record read back still holds an undeclared link, date, decimal or binary property as a string, a double or a list, so `modify()` and `save()` write such an untouched property back with that type (issue #12599).
+
+*Action:* upgrade the server before, or together with, the client. See <<java-api-remote,Java Remote API>>.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.

@@ -239,6 +239,16 @@ database.command("sql",
 
 The first command creates a new vertex of type 'Customer'. The second command updates this vertex by adding a new value for the property 'lastcall'. The first command uses unnamed parameters where the values are mapped by their order in the parameter list. Whereas the second command uses named parameters, which are mapped by the parameter names.
 
+_(Since v26.12.1.)_ A parameter, and a value set on a record that `save()` sends, keeps its Java type as the embedded API
+does, also for a property the schema does not declare: a `RID` (or a saved record) is stored as a link, a `BigDecimal` as
+a DECIMAL with its scale (`SELECT :a + :b` with `0.1` and `0.2` answers `0.3`), a `byte[]` as BINARY, a `LocalDate` as a
+DATE, `java.util.Date`, `LocalDateTime` and `Instant` as a DATETIME and a `ZonedDateTime` as a ZONED_DATETIME. The client
+sends them as <<vector-http-typed-markers,typed parameter markers>>, which a server older than 26.12.1 does not decode, so
+upgrade the server first. Before, these values reached the server as plain JSON: a `RID` was stored as a string, a record
+as an embedded copy, a `BigDecimal` as a double, a `byte[]` as a list and the dates as numbers. A record read back from
+the server still holds an undeclared link, date, decimal or binary property as a string, a double or a list, so
+`modify()` and `save()` write such an untouched property back with that type (issue #12599).
+
 We can now query some customer data from our database:
 
 [source, java]
