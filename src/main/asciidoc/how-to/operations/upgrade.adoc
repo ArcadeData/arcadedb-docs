@@ -169,6 +169,15 @@ A row that returns a record, such as Cypher `MATCH (n) RETURN n`, now reaches a 
 *Action:* read the properties from the record itself (`result.getVertex().get().get("name")`), and treat a record column as a `Document`, `Vertex` or `Edge`. See <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
+====== 26.12.1 - The HTTP Java client returns record columns as records
+
+A column of a projection row that holds a record, such as Cypher `MATCH (a)-[r]->(b) RETURN a, r, b`, SQL `SELECT @this AS me, name` or `SELECT first(out('Knows')) AS friend`, reached a `RemoteDatabase` caller as a list of RIDs, with every property lost: a vertex as `[#1:0]`, an edge as `[edge rid, in rid, out rid]`. It now arrives as a `Document`, `Vertex` or `Edge` with its properties, as the embedded API returns it, and so do the records held in a list, a map or a path of a column (`collect(a)`, `{who: a}`) (issue #12184). A row that is itself a record (`RETURN a`) was not affected.
+
+*Impact:* code that read such a column as a `List` of RIDs no longer works. A map a query builds with a `@cat` of `d`, `v` or `e` and a `@type` is also returned as a record. The change is in the client alone and works with any server version.
+
+*Action:* treat a record column as a `Document`, `Vertex` or `Edge`, and call `getIdentity()` on it where only the RID is needed. See <<java-api-remote,Java Remote API>>.
+
+[discrete]
 ====== 26.12.1 - A vector index whose definition in `schema.json` is invalid is left out at open, alone
 
 When a database opens, the settings of each `LSM_VECTOR` index in `schema.json` are checked with the same rules as `CREATE INDEX` (`pqClusters` at most 256, `maxConnections`, `beamWidth`, `efSearch`, `pqTrainingLimit` at least 1, ...). An index whose definition breaks one is left out: it is not used, queries on its type scan instead, its definition and its file are kept, and a `SEVERE` log line names the index, the invalid value and the fix (issue #11568).
