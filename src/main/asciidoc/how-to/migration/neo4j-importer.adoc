@@ -18,7 +18,7 @@ The Neo4j importer uses the high-performance `GraphBatch` API internally:
 * **Vertices** are created with pre-allocated edge segments, eliminating lazy allocation during edge creation.
 * **Edges** are buffered in flat primitive arrays and flushed sorted by source vertex, converting random I/O into sequential I/O. Light edges (no edge record on disk) are used when an edge has no properties.
 * **WAL is disabled** during import for maximum throughput.
-* **ID mapping** uses a primitive `long[]`-based hash map when Neo4j IDs are numeric (the common case with APOC exports), using only ~24 bytes per vertex. For non-numeric IDs, the importer automatically falls back to a standard `HashMap`. This makes it possible to import databases with hundreds of millions of vertices within a few gigabytes of heap.
+* **ID mapping** uses a primitive `long[]`-based hash map when Neo4j IDs are numeric (the common case with APOC exports), using only ~24 bytes per vertex. For any other ID, the importer automatically falls back to a standard `HashMap`. This makes it possible to import databases with hundreds of millions of vertices within a few gigabytes of heap.
 
 ===== Multi-label handling
 
@@ -121,12 +121,14 @@ For large imports (hundreds of millions of vertices), the main memory consumer i
 | String (e.g. "node-abc") | ~140 bytes | ~13 GB
 |===
 
-Neo4j APOC exports use numeric IDs by default, so most imports will use the compact primitive map. If the importer encounters a non-numeric ID, it automatically migrates to the string-based map and logs a message:
+Neo4j APOC exports use numeric IDs by default, so most imports will use the compact primitive map. An ID counts as numeric only when it is written the plain way a number is written: digits with an optional leading minus sign, and no leading zero (`"0"` itself is fine). IDs such as `"01"`, `"+1"` or `"-0"`, zero-padded business keys like zip codes, and numbers beyond the 64-bit range are treated as strings, so `"1"` and `"01"` stay two different nodes. If the importer encounters such an ID, it automatically migrates to the string-based map and logs a message:
 
 [source]
 ----
-- Non-numeric Neo4j ID detected, switching to string-based ID mapping
+- Neo4j ID that is not the canonical form of a number detected, switching to string-based ID mapping
 ----
+
+_(Before v26.12.1, IDs that spell the same number, such as `"1"` and `"01"`, shared one mapping entry: the relationships of one node were attached to the other or skipped as "vertex not found", while the import still reported `OK`.)_
 
 TIP: For very large imports, allocate enough heap memory. For example, to import a database with 500M vertices using numeric IDs, you would need approximately 12 GB for the ID mapping table alone, plus memory for ArcadeDB's internal buffers. A setting of `-Xmx24G` or more is recommended.
 
