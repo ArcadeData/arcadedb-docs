@@ -476,6 +476,15 @@ _(Since v26.10.2)_ The endpoint implements remote write 1.0 (`prometheus.WriteRe
 * a request carrying only metric metadata, or an empty `WriteRequest`, is still a no-op answered `204`;
 * a malformed protobuf body is answered `400` instead of `500`.
 
+_(Since v26.12.1)_ PromQL honours the staleness marker Prometheus writes when a series ends (a target goes down, a pod is
+replaced): a series whose newest sample in the lookback is the marker is left out of an instant vector, so it no longer
+shows as `NaN`, turns `sum()` into `NaN` or counts in `count()`, and a range selector does not count the marker as a
+sample (`count_over_time()`). An ordinary `NaN` written by a client is still a value and is returned as `NaN`, as in
+Prometheus. SQL and the other `/ts` endpoints read the marker as an absent value, like any `NaN` (see Missing Values
+below). The marker is kept only in a `DOUBLE` column, which is what remote write creates for `value`: a `FLOAT` column,
+a `DOUBLE` field with the `DICTIONARY` codec and a downsampled block read it back as an ordinary `NaN`, so there an
+ended series is still answered as `NaN` until the lookback runs out (issue #12580).
+
 [NOTE]
 ====
 If your collector or proxy sends an `X-Request-Id` header, the request body is taken into
