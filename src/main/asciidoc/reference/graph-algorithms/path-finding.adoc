@@ -28,6 +28,20 @@ and `length(path)` answered `[]`, `[]` and `0` on it, and `algo.kShortestPaths` 
 relationships out. Queries written against the map keep working: `path.nodes`, `path.relationships` and `path.length`
 still read the path a procedure yields.
 
+[[algo-relationship-pattern]]
+*The relationship pattern of `algo.dijkstra`, `algo.astar` and `algo.allsimplepaths`*
+
+These three procedures read their `relTypes` argument as APOC's relationship pattern, the same syntax as the
+<<path-filters,relationship filter>> of the `path.*` procedures: `TYPE` follows the type in both directions, `TYPE>`
+outgoing only, `<TYPE` incoming only, `>` and `<` every type in one direction, and `|` separates the alternatives, each
+with its own direction (`'ROAD>|<RAIL'`). A comma separates alternatives too, as the list of names did before. A blank
+pattern (`''`) follows every relationship in both directions, and a type the schema does not have is refused. An edge
+type whose name contains `|`, `<`, `>` or `,` cannot be named here.
+
+NOTE: _Since v26.12.1_. Earlier versions read the argument as a comma-separated list of type names only, so `'ROAD>'`
+or `'ROAD|RAIL'` was refused as a type that does not exist, and the fifth argument of `algo.dijkstra` was only the
+direction.
+
 [[algo-dijkstra]]
 ===== algo.dijkstra
 
@@ -46,7 +60,7 @@ still read the path a procedure yields.
 
 [source,cypher]
 ----
-CALL algo.dijkstra(startNode, endNode, relTypes, weightProperty [, direction])
+CALL algo.dijkstra(startNode, endNode, relTypes, weightProperty [, defaultWeight])
 YIELD path, weight
 ----
 
@@ -58,9 +72,9 @@ YIELD path, weight
 
 | `startNode` | Vertex | Yes | — | Source vertex
 | `endNode` | Vertex | Yes | — | Destination vertex
-| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `relTypes` | String | Yes | - | Relationship types and directions in APOC's syntax (`'ROAD>'`, `'<RAIL'`, `'ROAD\|RAIL'`, `'>'`), see <<algo-relationship-pattern,the relationship pattern>>; pass `''` for all types
 | `weightProperty` | String | Yes | — | Edge property name to use as weight
-| `direction` | String | No | `"BOTH"` | Traversal direction: `"IN"`, `"OUT"`, or `"BOTH"`
+| `defaultWeight` | Number or String | No | - | APOC's `defaultWeight`: the weight of an edge without a numeric `weightProperty` (without it, such an edge weighs `1`). A string is read as the traversal direction (`"IN"`, `"OUT"` or `"BOTH"`, default `"BOTH"`), applied to the types of `relTypes` without a direction marker
 |===
 
 *Yield Fields*
@@ -75,7 +89,7 @@ YIELD path, weight
 
 *Description*
 
-Finds the single shortest weighted path between two vertices using Dijkstra's algorithm. Internally delegates to the A* implementation with no heuristic. An edge without `weightProperty` (or whose value is not a number) weighs `1`, and an edge whose weight is negative, NaN or infinite is not walked: use <<algo-bellman-ford,algo.bellmanford>> for negative weights.
+Finds the single shortest weighted path between two vertices using Dijkstra's algorithm. Internally delegates to the A* implementation with no heuristic. An edge without `weightProperty` (or whose value is not a number) weighs `defaultWeight`, or `1` when it is not passed, and an edge whose weight is negative, NaN or infinite is not walked: use <<algo-bellman-ford,algo.bellmanford>> for negative weights.
 
 *Use Cases*
 
@@ -88,7 +102,7 @@ Finds the single shortest weighted path between two vertices using Dijkstra's al
 [source,cypher]
 ----
 MATCH (src:City {name:'Rome'}), (dst:City {name:'Berlin'})
-CALL algo.dijkstra(src, dst, 'ROAD', 'distance', 'OUT')
+CALL algo.dijkstra(src, dst, 'ROAD>', 'distance')
 YIELD path, weight
 RETURN path, weight
 ----
@@ -212,7 +226,7 @@ YIELD path, weight
 
 | `startNode` | Vertex | Yes | — | Source vertex
 | `endNode` | Vertex | Yes | — | Destination vertex
-| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `relTypes` | String | Yes | - | Relationship types and directions in APOC's syntax, see <<algo-relationship-pattern,the relationship pattern>>; pass `''` for all types
 | `weightProperty` | String | Yes | — | Edge property name to use as weight
 | `latProperty` | String | No | — | Vertex property name for latitude (enables geographic heuristic)
 | `lonProperty` | String | No | — | Vertex property name for longitude (enables geographic heuristic)
@@ -357,7 +371,7 @@ YIELD path
 
 | `startNode` | Vertex | Yes | — | Source vertex
 | `endNode` | Vertex | Yes | — | Destination vertex
-| `relTypes` | String | Yes | — | Comma-separated relationship types; pass `''` for all types
+| `relTypes` | String | Yes | - | Relationship types and directions in APOC's syntax, see <<algo-relationship-pattern,the relationship pattern>>; pass `''` for all types
 | `maxDepth` | Integer | Yes | — | Maximum path length in hops (minimum 1)
 |===
 
