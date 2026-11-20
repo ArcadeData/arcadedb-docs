@@ -329,7 +329,7 @@ RETURN c.name, collect(p.name) AS residents
 
 [NOTE]
 ====
-Every STRING-typed argument of these functions (not just the first one) is validated: passing a non-STRING value - for example a list or a number - raises a client error instead of silently converting it to text. If you need to pass a non-string value on purpose, convert it explicitly first with `toString()`, e.g. `split('a,1', toString(1))`.
+Every STRING-typed argument of these functions (not just the first one) is validated: passing a non-STRING value - for example a list or a number - raises a client error instead of silently converting it to text. The one exception is the delimiter of `split()`, which can be a list of strings. If you need to pass a non-string value on purpose, convert it explicitly first with `toString()`, e.g. `split('a,1', toString(1))`.
 ====
 
 [[cypher-toupper]]
@@ -392,12 +392,15 @@ RETURN replace('hello', 'l', 'L')  // Returns 'heLLo'
 
 Splits a string into a list.
 
-*Syntax:* `split(string, delimiter)`
+*Syntax:* `split(string, delimiter)` or `split(string, delimiters)`
 
 [source,cypher]
 ----
-RETURN split('a,b,c', ',')  // Returns ['a', 'b', 'c']
+RETURN split('a,b,c', ',')         // Returns ['a', 'b', 'c']
+RETURN split('a1b2c', ['1', '2'])  // Returns ['a', 'b', 'c']
 ----
+
+_(Since v26.12.1, issue #12396)_ The delimiter can also be a list of strings, as in Neo4j 5: the string is cut wherever any delimiter of the list is found, and where two delimiters start at the same place the first of the list wins (`split('ab', ['ab', 'a'])` is `['', '']`). A delimiter is a literal, never a pattern, and the empty pieces are kept. An empty list splits nothing (`split('abc', [])` is `['abc']`), an empty delimiter splits the string into its characters, and a `null` list or a `null` element of the list makes the result `null`. An element that is not a string is a client error.
 
 ====== left()
 
