@@ -387,6 +387,15 @@ retention sweep removed while the list was being built is skipped silently, any 
 mount) is logged as a warning naming the file. A database with no backup directory has no backups, while a directory
 that exists but cannot be reached or listed fails the command with an error naming the database.
 
+Since 26.12.1 `list backups`, `delete backup` and `restore backup` address every `.zip` file directly in
+`<backupDirectory>/<database>/`, including an archive named with `BACKUP DATABASE '<name>'`. Before, only names
+containing `-backup-` were accepted, so such an archive was not listed and was refused by the other two. The file name
+still cannot contain a path separator or `..`. When one of these commands is refused because of the request (a missing
+archive, a name that is not a `.zip`, a target database that exists without `overwrite`, a malformed command), the HTTP
+API answers `400` with the reason as the `error` label, also in production mode, instead of `Cannot execute command`.
+An archive that cannot be read as a backup (truncated, corrupt or not a zip) answers `400` with `Invalid backup archive`
+instead of `500`.
+
 [NOTE]
 ====
 The SQL `BACKUP DATABASE` statement is on this chain too.
