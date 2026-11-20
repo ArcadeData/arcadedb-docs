@@ -95,6 +95,16 @@ A build before 26.11.1 cannot read the fixed-width float and double arrays intro
 
 *Action:* drop the index itself instead of one of its bucket indexes, and run `REBUILD INDEX <name>` on an index `SHOW INDEXES` reports as `FAILED`. See <<sql-drop-index,`DROP INDEX`>> and <<sql-rebuild-index,`REBUILD INDEX`>>.
 
+[[upgrade-undeclared-index-legacy-keys]]
+[discrete]
+====== 26.12.1 - An index on an undeclared property written by an older version finds its old list and number keys
+
+An index on a property the schema does not declare keys each value by its text. 26.10.1 changed that text for a floating point or decimal number (`1.0` is keyed `1`, `-0.0` is keyed `0`, `1e300` by its full digits, where 26.9.1 wrote `1.0`, `-0.0` and `1.0E300`), and 26.12.1 for a list holding such a number (`[1.5, 2.0]` is keyed `[1.5, 2]`). Nothing re-keyed the entries an older version wrote, so after an upgrade a seek missed those records, `MERGE` created a second node, `IS UNIQUE` accepted a copy, a delete or an update left the old entry behind, and `CHECK DATABASE` reported errors (issues #12160, #12233). Such an index now also reads, removes and checks the old spelling of a list or number key, and a `STRING` spelled like an old key (`'1.0'`, `'[1.5, 2.0]'`) is still a different value. An old entry is found by the text it was written with: `1.0` finds the entry 26.9.1 wrote for `1.0`, and `1` finds it only after a rebuild.
+
+*Impact:* every `LSM_TREE` index created before 26.12.1 is treated as possibly holding old keys. On an undeclared property, its seeks, removals and unique checks of a floating point number or of a list holding one pay an extra read, a seek of a `STRING` that reads as a number or a list (`1.0`, `2.500`, `[1.5, 2.0]`) loads the record behind each entry it finds, and a unique `STRING` key that reads as a number or a list (`12345`, `2.5`) loads one record at commit. Any other text pays nothing, and so does an index created by 26.12.1.
+
+*Action:* run `REBUILD INDEX <name>` (or `REBUILD INDEX *`) once after upgrading: it writes every entry under its current key and removes the extra cost. See <<sql-rebuild-index,`REBUILD INDEX`>>.
+
 [discrete]
 ====== 26.12.1 - A materialized view keeps the brackets of its query, and `@cat` is a reserved name
 
