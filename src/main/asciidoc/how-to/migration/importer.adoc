@@ -83,6 +83,20 @@ and Windows (CRLF) line endings are all read as RDF, and the character separatin
 delimiter. If a file still cannot be recognised, set the separator explicitly with
 the `delimiter` setting.
 
+Each statement becomes a `Relationship` edge, with the predicate in its `label` property, between two `Node` vertices
+keyed by the `typeIdProperty` (`id` by default). If the database has no `Node` type, the import creates it with a
+unique index on that property. An IRI is keyed by its text without the angle brackets and a blank node by its label
+(`+_:b1+`). A literal object is keyed by its canonical N-Triples form, quotes included (`"hello world"`,
+`"bonjour"@fr`, `"42"^^<http://www.w3.org/2001/XMLSchema#integer>`), so it never shares a vertex with an IRI of the same
+text, and `"a"` and `"a"^^<http://www.w3.org/2001/XMLSchema#string>` are the same literal. The vertex of a literal also
+gets `value`, its text with escapes such as `é` and `\n` decoded and without quotes, plus `lang` for a
+language-tagged literal and `datatype` for a typed one. A malformed statement, or a term longer than
+`maxPropertySize`, is a row error that `onRowError = skip` can skip. In a comma-delimited triple file a quoted cell is
+an N-Triples literal, not a CSV field. _(Since v26.12.1: before, a plain literal was keyed without its quotes and could
+merge with the IRI of the same text, the empty literal `""` was stored as `.`, escapes were not decoded, and an import
+into a database without the `Node` type failed. A database filled by an older version keeps the old unquoted keys, so
+importing the same data into it again stores those literals a second time under the new form.)_
+
 Every line of an RDF source is data: unlike CSV, these formats have no header row, so nothing is skipped unless you
 ask for it - with `edgesSkipEntries` on the `edges` route, `verticesSkipEntries` on `vertices`, or
 `documentsSkipEntries` on `documents` and on a plain `url` import.
@@ -265,14 +279,14 @@ Below you can find all the supported settings for the Importer.
 | forceDatabaseCreate|false | If true, the database is created brand new at every import
 | wal | false | Use the WAL (journal) for the importing. If the WAL is enabled the importing process will be much slower and will require much more RAM
 | commitEvery | 5000 | Create transactions that commit every X records
-| onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL and CSV importers. It also governs a CSV row with more columns than the header - see <<importer-csv-column-count,CSV rows and the header>>. It does not rescue a source from which the analysis could derive no property at all: that fails either way, since the alternative is an import that completes having produced nothing.
+| onRowError | abort | `abort` fails the whole import as soon as one record (document, vertex or edge) cannot be imported. `skip` logs the error, counts it in the `errors` result, and continues with the next record instead - trading import throughput (each record then commits in its own transaction) for the guarantee that a bad record can never take a good one down with it, nor leave a partially-written record behind. Applies to the JSON, JSONL, CSV and RDF importers. It also governs a CSV row with more columns than the header - see <<importer-csv-column-count,CSV rows and the header>>. It does not rescue a source from which the analysis could derive no property at all: that fails either way, since the alternative is an import that completes having produced nothing.
 | parallel| Half of the available cores - 1. If you have 8 cores, the default is 3 | The number of concurrent threads used
 | typeIdProperty| | Property that represents the ID of the vertex. Also used by an RDF/N-Triples source to key its subjects and objects, where it defaults to `id`. An explicit value is honoured for RDF too
 | typeIdUnique| false | True creates a unique index on the type id property, otherwise a non unique index
 | typeIdType| String | Type of the id property
 | trimText| true | True if the imported text is trimmed from heading and tailing spaces
 | maxProperties| 512 | Maximum number of properties per type (CSV)
-| maxPropertySize| 4096 | Maximum size of a property in bytes (CSV)
+| maxPropertySize| 4096 | Maximum size of a property in bytes (CSV). For an RDF source, the maximum length in characters of each term
 | delimiter| `,` | Delimiter used to separate fields  (CSV). When not set, it is auto-detected from the first line for files whose name does not end in `.csv`. A delimiter set explicitly always wins over the detected one; the precedence is the per-entity delimiter (`documentsDelimiter`, `verticesDelimiter`, `edgesDelimiter`), then `delimiter`, then the detected one. Each file of the same import resolves its own delimiter. A delimiter longer than one character is supported. An empty delimiter is refused with an error
 | analysisLimitBytes| 100,000| Maximum number of bytes parsed from the source to determine the source file type. It also applies to XML sources
 | analysisLimitEntries|10,000 |Maximum number of entries (if applicable) parsed from the source to determine the source file type. It also applies to XML sources
