@@ -847,6 +847,27 @@ read from `LOAD CSV` rows or from a literal list are not graph properties and ne
 NOTE: Up to 26.10.2 the rows were projected in batches of 100, so the rows after the first 100 could see the write and
 return the new value; adding a `WITH *` changed the result (issue #11005).
 
+The other way round, a clause after a write reads the write of every row, as in Neo4j. _(Since v26.12.1)_ A `SET`, a
+`REMOVE` or a `MERGE` with `ON CREATE SET` / `ON MATCH SET` that another clause follows runs for every row before it
+hands the first row on, so when several rows hold the same node they all read the value the last row wrote:
+
+[source,cypher]
+----
+// One Node with id 1: all 250 rows return 250.
+UNWIND range(1, 250) AS i
+MATCH (n:Node {id: 1})
+SET n.v = i
+RETURN i, n.v
+----
+
+The rows are held in memory meanwhile and count against `queryMaxHeapElementsAllowedPerOp`, so such a write over more
+rows than that limit (500,000 by default) now fails. A write that ends the query, with no clause after it, and a
+`MERGE` without actions keep streaming, so a bulk `UNWIND $rows AS row MATCH (n {id: row.id}) SET n += row` is not
+affected. Up to 26.11.1 the rows were handed on in batches of 100, so the first 100 rows of the example returned 100,
+and the rows of a
+pattern `MERGE ... ON MATCH SET` that created the pattern kept the value they held before a later row wrote it
+(issue #12656).
+
 A `MATCH` filter also sees the graph as it was before a later write of the property it filters on. _(Since v26.11.1)_ A `SET`, `REMOVE`, `SET +=` with a map literal, `MERGE ... ON CREATE` or `ON MATCH SET`, `FOREACH` or writing subquery that names the property read by an earlier `MATCH` pattern or `WHERE` plants an eager barrier before the write, so the query holds its input in memory. A query that read its own later write now returns the pre-write answer, and `UNWIND ... MATCH (n {id: row.id}) SET n.id = ...` costs memory.
 An opaque map write that can rewrite a lookup key plants the barrier too: `MATCH (n {id: row.id}) SET n += <anything but row>` over several input rows used to answer duplicate lookups with the rewritten key (150 duplicate lookups answered 100 rows), and now holds the rows in memory, as Neo4j does. The exception is a map taken from the same variable the key is read from (an inline `{id: row.id}`, `WHERE n.id = row.id`, or a key projected by `WITH row, row.id AS id`), which writes back the value the node was found by, so `LOAD CSV` and `UNWIND` upserts keep streaming. A `WITH` rename drops that pairing, and a subquery body with an opaque write is weighed as well.
 
