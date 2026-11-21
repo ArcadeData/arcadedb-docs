@@ -1,7 +1,7 @@
 [[ext-fns-text]]
 ==== Text Functions
 
-NOTE: The text functions read a string by Unicode character, as `size()` counts it, so a character outside the Basic Multilingual Plane (an emoji, a letter of Deseret or Adlam, a CJK Extension B ideograph) is one character: `text.capitalize()`, `text.decapitalize()`, `text.capitalizeAll()` and `text.decapitalizeAll()` map its case, `text.camelCase()`, `text.snakeCase()` and `text.upperCamelCase()` take a letter outside the plane for a letter and not for a word break, `text.replace()` and `text.split()` with an empty search or delimiter cut between characters and never inside one, and `text.random()` draws whole characters. The openCypher `ltrim()`, `rtrim()`, `btrim()` and `trim()` with a set of characters to strip do the same. _(Since v26.11.1, issues #10484 and #10485)_ Before, they worked on UTF-16 units and could return half of a character. `text.split()` keeps the empty pieces, as `split()` does. The distance and similarity functions (`text.hammingDistance()`, `text.levenshteinDistance()`, `text.levenshteinSimilarity()`, `text.jaroWinklerDistance()` and `text.sorensenDiceSimilarity()`) compare characters too _(since v26.11.1, issue #10417)_: one emoji replaced by another is one edit, `text.hammingDistance()` compares the number of characters and not of UTF-16 units, the 10,000 character limit of `text.levenshteinDistance()` counts characters, and a bigram of `text.sorensenDiceSimilarity()` is never cut inside a character. The number for two strings is the one for the same two strings written with characters of the Basic Multilingual Plane.
+NOTE: The text functions read a string by Unicode character, as `size()` counts it, so a character outside the Basic Multilingual Plane (an emoji, a letter of Deseret or Adlam, a CJK Extension B ideograph) is one character: `text.capitalize()`, `text.decapitalize()`, `text.capitalizeAll()` and `text.decapitalizeAll()` map its case, `text.camelCase()`, `text.snakeCase()` and `text.upperCamelCase()` take a letter outside the plane for a letter and not for a word break, `text.replace()` and `text.split()` with an empty regular expression cut between characters and never inside one, and `text.random()` draws whole characters. The openCypher `ltrim()`, `rtrim()`, `btrim()` and `trim()` with a set of characters to strip do the same. _(Since v26.11.1, issues #10484 and #10485)_ Before, they worked on UTF-16 units and could return half of a character. The distance and similarity functions (`text.hammingDistance()`, `text.levenshteinDistance()`, `text.levenshteinSimilarity()`, `text.jaroWinklerDistance()` and `text.sorensenDiceSimilarity()`) compare characters too _(since v26.11.1, issue #10417)_: one emoji replaced by another is one edit, `text.hammingDistance()` compares the number of characters and not of UTF-16 units, the 10,000 character limit of `text.levenshteinDistance()` counts characters, and a bigram of `text.sorensenDiceSimilarity()` is never cut inside a character. The number for two strings is the one for the same two strings written with characters of the Basic Multilingual Plane.
 
 
 [[text-byte-count]]
@@ -20,13 +20,15 @@ Get the byte count of a string.
 [[text-camel-case]]
 ===== text.camelCase()
 
-Convert a string to camelCase.
+Convert a string to camelCase. The words are the runs of letters and digits, each one lower-cased and then capitalized, and the first character of the result is lower case. The blanks and separators around the words are dropped.
 
 *Syntax:* `text.camelCase(string)`
 
 *Returns:* String - camelCase string
 
 *APOC Compatible:* `apoc.text.camelCase`
+
+_(Since v26.12.1, issue #12104)_ A separator in front of the first word no longer capitalizes it: `'  padded  '` is `padded`, it was `Padded`.
 
 [source,cypher]
 ----
@@ -35,6 +37,9 @@ RETURN text.camelCase("hello world") AS result
 
 RETURN text.camelCase("hello_world") AS result
 // Returns: "helloWorld"
+
+RETURN text.camelCase("  padded  ") AS result
+// Returns: "padded"
 ----
 
 '''
@@ -61,13 +66,15 @@ RETURN text.capitalize("hello") AS result
 [[text-capitalize-all]]
 ===== text.capitalizeAll()
 
-Capitalize the first letter of each word.
+Capitalize the first letter of each word. The words are separated by spaces, and the result is trimmed.
 
 *Syntax:* `text.capitalizeAll(string)`
 
 *Returns:* String - String with all words capitalized
 
 *APOC Compatible:* `apoc.text.capitalizeAll`
+
+_(Since v26.12.1, issue #12104)_ Only a space separates the words (`'a\tb c'` is `A\tb C`) and the blanks around the text are removed (`'  padded  '` is `Padded`). Before, any whitespace separated the words and the blanks were kept.
 
 [source,cypher]
 ----
@@ -80,13 +87,21 @@ RETURN text.capitalizeAll("hello world") AS result
 [[text-char-at]]
 ===== text.charAt()
 
-Get the character at a specific index.
+Get the Unicode code point of the character at a specific index (0-based).
 
 *Syntax:* `text.charAt(string, index)`
 
-*Returns:* String - Character at index
+*Returns:* Long - Code point of the character at index, or `null` when the index is outside the string or an argument is `null`
 
 *APOC Compatible:* `apoc.text.charAt`
+
+_(Since v26.12.1, issue #12104)_ The answer is the code point, as in APOC, where it was the one-character string. Use `text.code()` to turn a code point back into a string.
+
+[source,cypher]
+----
+RETURN text.charAt("hello", 1) AS result
+// Returns: 101
+----
 
 NOTE: Positions and lengths count Unicode characters: a character outside the Basic Multilingual Plane, such as an emoji, is one character and is never cut in two. Before 26.11.1 (issue #10378) the count was in UTF-16 code units, so such a character counted 2 and `text.charAt()` could return half of it.
 
@@ -95,13 +110,21 @@ NOTE: Positions and lengths count Unicode characters: a character outside the Ba
 [[text-code]]
 ===== text.code()
 
-Get the Unicode code point of a character.
+Get the one-character string of a Unicode code point.
 
-*Syntax:* `text.code(character)`
+*Syntax:* `text.code(codePoint)`
 
-*Returns:* Long - Unicode code point
+*Returns:* String - The character, or `null` when the argument is `null`, negative or above U+10FFFF
 
 *APOC Compatible:* `apoc.text.code`
+
+_(Since v26.12.1, issue #12104)_ The argument is the code point and the answer the string, as in APOC. Before, the function answered the code of the first character of the text it was given (`65` gave `54`, the code of `'6'`). A text that holds a whole number is read as that number, and a text that does not (`text.code('A')`) is an error. A code point above U+FFFF is answered as one character, where APOC answers `null`.
+
+[source,cypher]
+----
+RETURN text.code(65) AS result
+// Returns: "A"
+----
 
 '''
 
@@ -121,7 +144,7 @@ Decapitalize the first letter of a string.
 [[text-decapitalize-all]]
 ===== text.decapitalizeAll()
 
-Decapitalize the first letter of each word.
+Decapitalize the first letter of each word. The words are separated by spaces, and the result is trimmed.
 
 *Syntax:* `text.decapitalizeAll(string)`
 
@@ -129,18 +152,40 @@ Decapitalize the first letter of each word.
 
 *APOC Compatible:* `apoc.text.decapitalizeAll`
 
+_(Since v26.12.1, issue #12104)_ Only a space separates the words and the blanks around the text are removed (`'  Padded  '` is `padded`), as in `text.capitalizeAll()`.
+
 '''
 
 [[text-format]]
 ===== text.format()
 
-Format a string using printf-style formatting. Number formatting (`%f`, `%e`, `%d`, etc.) is always locale-independent (e.g. `.` as decimal separator), regardless of the server's configured locale.
+Format a string using printf-style formatting. The values are given as one list. Number formatting (`%f`, `%e`, `%d`, etc.) does not depend on the server's configured locale: it follows the `language` argument, `'en'` by default (`.` as decimal separator).
 
-*Syntax:* `text.format(format, args...)`
+*Syntax:* `text.format(format, params, [language])`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| format | String | The format, as in Java `String.format()`
+| params | List | The values for the format specifiers. A value that is not a list is the one value. When it is `null`, the format is returned as it is
+| language | String | Optional - Language code that gives the decimal and grouping separators (default: `'en'`)
+|===
 
 *Returns:* String - Formatted string
 
 *APOC Compatible:* `apoc.text.format`
+
+_(Since v26.12.1, issue #12104)_ The values are one list, as in APOC: `text.format('%s-%d', ['a', 3])`. Before, they were the following arguments, and `text.format('%s %d', 'a', 1)` now reads `'a'` as the one value and `1` as the language. The separators of a number follow the language.
+
+[source,cypher]
+----
+RETURN text.format("%s-%d", ["a", 3]) AS result
+// Returns: "a-3"
+
+RETURN text.format("%,d", [1234567], "de") AS result
+// Returns: "1.234.567"
+----
 
 '''
 
@@ -173,13 +218,21 @@ RETURN text.hammingDistance("karolin", "kathrin") AS distance
 [[text-hex-value]]
 ===== text.hexValue()
 
-Convert a number to its hexadecimal representation.
+Convert a number to its hexadecimal representation, in upper case and padded with zeros: 4 digits up to `0xFFFF`, 8 digits up to `0xFFFFFFFF` and for a negative number in the 32-bit range (`-1` is `FFFFFFFF`), 16 digits for the rest. A string is written one UTF-16 unit at a time (4 digits each) and a byte array one byte at a time.
 
 *Syntax:* `text.hexValue(number)`
 
 *Returns:* String - Hexadecimal string
 
 *APOC Compatible:* `apoc.text.hexValue`
+
+_(Since v26.12.1, issue #12104)_ The answer is upper case and padded, as in APOC. Before it was lower case and not padded (`255` gave `ff`).
+
+[source,cypher]
+----
+RETURN text.hexValue(255) AS result
+// Returns: "00FF"
+----
 
 '''
 
@@ -219,36 +272,38 @@ RETURN text.indexOf("hello hello", "hello", 1) AS pos
 [[text-jaro-winkler-distance]]
 ===== text.jaroWinklerDistance()
 
-Calculate the Jaro-Winkler similarity between two strings. Returns a value between 0.0 (completely different) and 1.0 (identical). This metric is especially effective for detecting typos and misspellings because it gives extra weight to matching prefixes.
+Calculate the Jaro-Winkler distance between two strings: 1 minus their Jaro-Winkler similarity. Returns a value between 0.0 (identical) and 1.0 (nothing in common). This metric is especially effective for detecting typos and misspellings because it gives extra weight to matching prefixes.
 
 *Syntax:* `text.jaroWinklerDistance(string1, string2)`
 
-*Returns:* Double - Similarity score (0.0 to 1.0)
+*Returns:* Double - Distance (0.0 to 1.0), the smaller the more similar
 
 *APOC Compatible:* `apoc.text.jaroWinklerDistance`
+
+_(Since v26.12.1, issue #12104)_ The function answers the distance, as APOC does. Before, it answered the similarity (1.0 for equal strings), so a query that kept the names with `> 0.85` must now keep those with `< 0.15`, and one that sorted by `score DESC` must sort by `score ASC`.
 
 [source,sql]
 ----
 -- Find similar names using fuzzy matching
 SELECT name, text.jaroWinklerDistance(name, 'John') AS score
   FROM Person
-  WHERE text.jaroWinklerDistance(name, 'John') > 0.85
-  ORDER BY score DESC
+  WHERE text.jaroWinklerDistance(name, 'John') < 0.15
+  ORDER BY score ASC
 
 -- Compare two literal strings
 SELECT text.jaroWinklerDistance('hello', 'helo') AS score
--- Returns: ~0.953
+-- Returns: ~0.047
 ----
 
 [source,cypher]
 ----
 RETURN text.jaroWinklerDistance("hello", "helo") AS score
-// Returns: ~0.953
+// Returns: ~0.047
 
 MATCH (p:Person)
-WHERE text.jaroWinklerDistance(p.name, "John") > 0.85
+WHERE text.jaroWinklerDistance(p.name, "John") < 0.15
 RETURN p.name, text.jaroWinklerDistance(p.name, "John") AS score
-ORDER BY score DESC
+ORDER BY score ASC
 ----
 
 '''
@@ -268,14 +323,19 @@ Join a list of strings with a delimiter.
 | delimiter | String | String to insert between elements
 |===
 
-*Returns:* String - Joined string
+*Returns:* String - Joined string, or `null` when the list or the delimiter is `null`
 
 *APOC Compatible:* `apoc.text.join`
+
+_(Since v26.12.1, issue #12104)_ A `null` element is written as `null`, as in APOC, where it was written as an empty string, and a `null` delimiter answers `null`.
 
 [source,cypher]
 ----
 RETURN text.join(["a", "b", "c"], ",") AS result
 // Returns: "a,b,c"
+
+RETURN text.join(["a", null, "b"], ",") AS result
+// Returns: "a,null,b"
 ----
 
 '''
@@ -393,18 +453,28 @@ RETURN text.regexReplace("hello123world", "[0-9]+", "-") AS result
 [[text-replace]]
 ===== text.replace()
 
-Replace all occurrences of a substring.
+Replace every match of a regular expression. The replacement refers to the groups of the match as `$1` or `+${name}+`, and `+\$+` is a literal dollar sign.
 
-*Syntax:* `text.replace(string, search, replacement)`
+*Syntax:* `text.replace(string, regex, replacement)`
 
-*Returns:* String - String with replacements made
+*Returns:* String - String with replacements made, or `null` when an argument is `null`
 
 *APOC Compatible:* `apoc.text.replace`
+
+A pattern that is not valid, or a replacement that names a group the pattern does not have, is an error. The pattern is limited to 500 characters and runs under the `command.regexTimeout` deadline, as in `text.regexReplace()`.
+
+_(Since v26.12.1, issue #12104)_ The second argument is a Java regular expression, as in APOC, where it was matched as literal text, and a `null` argument answers `null`. To replace literal text, escape the characters of the pattern that a regular expression reads (`"\\."` for a dot), or use the openCypher `replace()` function, which is literal.
 
 [source,cypher]
 ----
 RETURN text.replace("hello world", "world", "universe") AS result
 // Returns: "hello universe"
+
+RETURN text.replace("a1b22c", "[0-9]+", "#") AS result
+// Returns: "a#b#c"
+
+RETURN text.replace("hello", "(l+)", "<$1>") AS result
+// Returns: "he<ll>o"
 ----
 
 '''
@@ -433,7 +503,7 @@ RETURN text.rpad("42", 5, "0") AS result
 [[text-slug]]
 ===== text.slug()
 
-Create a URL-friendly slug from a string.
+Create a URL-friendly slug from a string: the string is trimmed and each run of characters other than letters, digits and `_` is replaced with the delimiter. The case and the letters of any alphabet are kept.
 
 *Syntax:* `text.slug(string, [delimiter])`
 
@@ -442,20 +512,22 @@ Create a URL-friendly slug from a string.
 |===
 | Parameter | Type | Description
 | string | String | The string to convert
-| delimiter | String | Optional - Character to use as word separator (default: "-")
+| delimiter | String | Optional - Character to use as word separator (default: "-"), used as it is. When it is `null`, the answer is `null`
 |===
 
 *Returns:* String - URL-friendly slug
 
 *APOC Compatible:* `apoc.text.slug`
 
+_(Since v26.12.1, issue #12104)_ The case and the non-ASCII letters are kept, as in APOC. Before, the text was lower-cased and reduced to ASCII letters (`'Hello World'` gave `hello-world`).
+
 [source,cypher]
 ----
-RETURN text.slug("Hello World!") AS result
-// Returns: "hello-world"
+RETURN text.slug("Hello World") AS result
+// Returns: "Hello-World"
 
-RETURN text.slug("Hello World!", "_") AS result
-// Returns: "hello_world"
+RETURN text.slug("Hello, World", "_") AS result
+// Returns: "Hello_World"
 ----
 
 '''
@@ -463,18 +535,23 @@ RETURN text.slug("Hello World!", "_") AS result
 [[text-snake-case]]
 ===== text.snakeCase()
 
-Convert a string to snake_case.
+Convert a string to snake case: lower-case words joined by `-`, as APOC does. A word starts at every character that is not a lower-case letter or an ASCII digit, so `"fooBarBaz"` is `foo-bar-baz`. A string made only of upper-case letters, digits and `_` (`"FOO_BAR"`) is first read as words separated by the underscores. The blanks around a word are dropped, and any other character stays at the start of its word (`"a.b"` is `a-.b`).
 
 *Syntax:* `text.snakeCase(string)`
 
-*Returns:* String - snake_case string
+*Returns:* String - Snake case string
 
 *APOC Compatible:* `apoc.text.snakeCase`
+
+_(Since v26.12.1, issue #12104)_ The words are joined by `-`, where they were joined by `_`, and `"FOO_BAR"` is `foo-bar`, it was `f_o_o_b_a_r`.
 
 [source,cypher]
 ----
 RETURN text.snakeCase("helloWorld") AS result
-// Returns: "hello_world"
+// Returns: "hello-world"
+
+RETURN text.snakeCase("FOO_BAR") AS result
+// Returns: "foo-bar"
 ----
 
 '''
@@ -484,20 +561,32 @@ RETURN text.snakeCase("helloWorld") AS result
 
 Calculate the Sorensen-Dice similarity coefficient between two strings based on bigram (character pair) overlap. Returns a value between 0.0 (no common bigrams) and 1.0 (identical). Useful for comparing short strings and detecting near-duplicates.
 
-*Syntax:* `text.sorensenDiceSimilarity(string1, string2)`
+*Syntax:* `text.sorensenDiceSimilarity(string1, string2, [languageTag])`
+
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| string1, string2 | String | The strings to compare
+| languageTag | String | Optional - IETF language tag the strings are upper-cased in (default: `'en'`). When it is `null`, the answer is `null`
+|===
 
 *Returns:* Double - Similarity score (0.0 to 1.0)
 
 *APOC Compatible:* `apoc.text.sorensenDiceSimilarity`
 
+_(Since v26.12.1, issue #12104)_ The strings are upper-cased, split into words at the blanks, and the bigrams of each word are compared as a multiset, as APOC does: a bigram never spans two words, and `'aa'` and `'aaaa'` share one of their four bigrams (0.5). Before, the bigrams were a case-insensitive set over the whole string (1.0 for `'aa'` and `'aaaa'`). A language tag changes the case mapping (`'İstanbul'` and `'istanbul'` are 1.0 with `'tr'`).
+
 [source,sql]
 ----
 SELECT text.sorensenDiceSimilarity('night', 'nacht') AS score
+-- Returns: 0.25
 ----
 
 [source,cypher]
 ----
 RETURN text.sorensenDiceSimilarity("night", "nacht") AS score
+// Returns: 0.25
 ----
 
 '''
@@ -505,18 +594,43 @@ RETURN text.sorensenDiceSimilarity("night", "nacht") AS score
 [[text-split]]
 ===== text.split()
 
-Split a string by a delimiter.
+Split a string around the matches of a regular expression.
 
-*Syntax:* `text.split(string, delimiter)`
+*Syntax:* `text.split(string, regex, [limit])`
 
-*Returns:* List - List of substrings
+*Parameters:*
+[%header,cols="2,2,4"]
+|===
+| Parameter | Type | Description
+| string | String | The string to split
+| regex | String | The Java regular expression that separates the pieces
+| limit | Integer | Optional - With `0` (the default) the empty pieces at the end are dropped, with a negative number they are kept, and with a positive number the list has at most that many pieces, the last one holding the rest of the string
+|===
+
+*Returns:* List - List of substrings, or `null` when an argument is `null`
 
 *APOC Compatible:* `apoc.text.split`
+
+The result is the one of Java `String.split(regex, limit)`. The pattern has the limits of `text.replace()`.
+
+_(Since v26.12.1, issue #12104)_ The second argument is a regular expression, as in APOC, where it was matched as literal text, and the empty pieces at the end are dropped unless `limit` is negative: `text.split("a,", ",")` is `["a"]`, and `text.split("a.b.c", ".")` is `[]` because `.` matches every character (write `"\\."` for a dot). The openCypher `split()` function and the SQL `.split()` method are not changed: they are literal and keep the empty pieces.
 
 [source,cypher]
 ----
 RETURN text.split("a,b,c", ",") AS parts
 // Returns: ["a", "b", "c"]
+
+RETURN text.split("a1b22c", "[0-9]+") AS parts
+// Returns: ["a", "b", "c"]
+
+RETURN text.split("a,b,,c,,", ",") AS parts
+// Returns: ["a", "b", "", "c"]
+
+RETURN text.split("a,b,,c,,", ",", -1) AS parts
+// Returns: ["a", "b", "", "c", "", ""]
+
+RETURN text.split("a,b,c", ",", 2) AS parts
+// Returns: ["a", "b,c"]
 ----
 
 '''
@@ -524,13 +638,15 @@ RETURN text.split("a,b,c", ",") AS parts
 [[text-upper-camel-case]]
 ===== text.upperCamelCase()
 
-Convert a string to UpperCamelCase (PascalCase).
+Convert a string to UpperCamelCase (PascalCase): `text.camelCase()` with the first character upper case.
 
 *Syntax:* `text.upperCamelCase(string)`
 
 *Returns:* String - UpperCamelCase string
 
 *APOC Compatible:* `apoc.text.upperCamelCase`
+
+_(Since v26.12.1, issue #12104)_ The words are the runs of letters and digits, as in `text.camelCase()`: `'  padded  '` is `Padded`.
 
 [source,cypher]
 ----

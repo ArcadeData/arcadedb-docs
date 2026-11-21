@@ -10,6 +10,22 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - The `text.*` functions answer what APOC answers
+
+Fifteen `text.*` functions, documented as APOC compatible, answered differently from APOC 5.26 on ordinary input and now answer the same (issue #12104; see <<ext-fns-text,Text Functions>>). The ones a query can notice:
+
+* `text.replace()` and `text.split()` read the second argument as a Java regular expression, where it was literal text. `text.split()` drops the empty pieces at the end (`'a,'` is `['a']`) unless the new third argument `limit` is negative, and `text.split('a.b.c', '.')` is `[]`. The openCypher `replace()` and `split()` and the SQL `.replace()` and `.split()` are unchanged and literal.
+* `text.charAt()` answers the code point (`'hello', 1` is `101`), not the one-character string, and `text.code()` takes a code point and answers the string (`65` is `'A'`), where it answered the code of the first character of its argument.
+* `text.jaroWinklerDistance()` answers the distance, 1 minus the similarity: 0.0 for equal strings.
+* `text.format()` takes its values as one list, `text.format('%s %d', ['a', 1])`, and an optional language for the separators of numbers.
+* `text.snakeCase()` joins the words with `-` (`'fooBarBaz'` is `foo-bar-baz`), `text.slug()` keeps the case and the non-ASCII letters (`'Hello World'` is `Hello-World`), `text.join()` writes a `null` element as `null`, and `text.hexValue()` is upper case and zero-padded (`255` is `00FF`).
+* `text.sorensenDiceSimilarity()` compares the bigrams of each word as a multiset (`'aa'` and `'aaaa'` is 0.5) and takes an optional language tag, `text.camelCase()` and `text.upperCamelCase()` no longer capitalize the first word after a leading separator, and `text.capitalizeAll()` and `text.decapitalizeAll()` split the words at spaces only and trim the result.
+
+*Impact:* a query that used `text.replace()` or `text.split()` with a delimiter that is a regular expression operator (`.`, `|`, `(`, `[`, `$`) matches something else, or fails to compile the pattern. A filter such as `text.jaroWinklerDistance(a, b) > 0.85` now keeps the dissimilar strings. `text.format()` with the values as separate arguments reads the first as the one value and the second as the language, so a format with several specifiers fails. A stored or compared value made with `text.snakeCase()`, `text.slug()` or `text.hexValue()` changes.
+
+*Action:* escape the regular-expression characters of the delimiter (`'\\.'` for a dot) or use the openCypher `split()` and `replace()`, write `text.jaroWinklerDistance(a, b) < 0.15` for `> 0.85`, pass the values of `text.format()` as a list, and regenerate the values made with the changed functions.
+
+[discrete]
 ====== 26.12.1 - openCypher `toString()` of a time or a datetime prints the seconds and trims the fraction, as Neo4j 5 does
 
 `toString()` of a `localtime()`, `time()`, `localdatetime()` or `datetime()` used Java's text, which leaves out zero seconds (`10:00`) and keeps the trailing zeros of the fraction (`.500`). It now prints the seconds always and removes the trailing zeros of the fraction: `10:00:00`, `2020-01-01T10:00:00.5Z` (issue #11912). `toStringOrNull()`, `toStringList()`, `convert.toString()` and `apoc.convert.toString()` print the same, and a `java.time` value bound as a parameter prints as the Cypher temporal it stands for.
@@ -510,6 +526,8 @@ The form that takes a `TimeSeriesBatch` is held to the same rules (issue #10487)
 SQL `split()`, the `split()` function and `text.split()` answer the same list as the openCypher `split()` (issue #10485): `'a,'.split(',')` is `['a', '']` and `','.split(',')` is `['', '']`, where the empty pieces at the end were dropped (`['a']` and `[]`). An empty delimiter splits a string into its characters, a character outside the Basic Multilingual Plane (an emoji) being one, and `replace()` with an empty search puts the replacement between characters and never inside one.
 
 *Impact:* a query that counted the pieces of a text ending with the delimiter, or compared the last one, sees one more piece.
+
+Since 26.12.1 `text.split()` is no longer part of this rule: it is APOC's split around a regular expression (see the entry on the `text.*` functions above), and it drops the empty pieces at the end again unless its `limit` is negative.
 
 *Action:* remove the empty last piece in the query if it is not wanted, for example by trimming the delimiter from the end of the text before splitting it.
 
