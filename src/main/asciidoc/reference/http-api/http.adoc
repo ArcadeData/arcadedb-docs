@@ -1634,13 +1634,17 @@ in `ts.rate()`, an unknown unit in `duration()`, a percentile outside `[0, 1]`, 
 `com.arcadedb.exception.InvalidArgumentException`). Before v26.12.1 these answered `500`, some with a raw `NullPointerException`,
 `ClassCastException` or `DateTimeParseException`. Over Bolt they are `Neo.ClientError.Statement.TypeError` and
 `Neo.ClientError.Statement.ArgumentError`, over the Postgres protocol `42804` and `22023`
+* https://httpstatuses.io/400[`400`] _(since v26.12.1)_ an openCypher `LOAD CSV` of a URL that cannot be opened or read, such as a file that does
+not exist (`exception` is `com.arcadedb.exception.ExternalResourceException`). Before v26.12.1 this answered `500`. Over Bolt it is
+`Neo.ClientError.Statement.ExternalResourceFailed`
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/409[`409`] _(since v26.11.1)_ the command creates, or renames onto, a schema object name that is already taken: a type,
 property, index, constraint, bucket, trigger, view or function. `error` names the kind (for example `"Type already exists"`, kept in production mode),
 `exception` is `com.arcadedb.exception.AlreadyExistsException` and `exceptionArgs` the kind (`TYPE`, `PROPERTY`, `INDEX`, ...). Not retryable.
 Before v26.11.1 these answered `500` (`"Cannot execute command"` or `"Internal error"`), and a rename onto a taken type name `400`
 * https://httpstatuses.io/409[`409`] _(since v26.12.1)_ the command is refused for what the database holds now: `TRUNCATE TYPE`, `TRUNCATE BUCKET`
-or `DROP TYPE` of a vertex or edge type that still has records (without `UNSAFE`), `DROP PROPERTY` of a property an index uses (without `FORCE`).
+or `DROP TYPE` of a vertex or edge type that still has records (without `UNSAFE`), `DROP PROPERTY` of a property an index uses (without `FORCE`),
+an openCypher `DELETE` of a node that still has relationships (use `DETACH DELETE`).
 `error` is `"Object in use"` and `exception` `com.arcadedb.exception.ObjectInUseException`; the detail says how to resolve it. Not retryable. Before
 v26.12.1 these answered `500`. In the same release a `LIMIT`/`SKIP` that is not a number, a `CREATE EDGE`/`CREATE VERTEX` on a type of the other
 kind, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a setting it cannot change (the type of a property included) and
@@ -1649,6 +1653,9 @@ kind, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a set
 * https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>). The answer carries `Retry-After: 1` _(since v26.12.1)_
 * https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`, with `Retry-After: 0` since v26.12.1), or the server is shutting down (no `Retry-After`): retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
+* https://httpstatuses.io/404[`404`] _(since v26.12.1)_ an openCypher statement reads, sets or links a node it deleted earlier in the same statement
+(`MATCH (n:A) DELETE n RETURN n.x`). `error` is `"Entity deleted"` and `exception` is `com.arcadedb.exception.DeletedEntityException`. Not retryable.
+Before v26.12.1 this answered `500`. Over Bolt it is `Neo.ClientError.Statement.EntityNotFound`
 * https://httpstatuses.io/404[`404`] the database does not exist (`Database not found`), or https://httpstatuses.io/503[`503`] it is there and cannot serve the command now: closed, being restored (a write while a restore holds an open database is refused this way), dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/504[`504`] _(since v26.12.1)_ in an HA cluster, the write was handed to the replication, or forwarded by a follower to a leader that died or did not answer, and its outcome is unknown: it may or may not have been applied. `error` is `"Transaction outcome unknown: the write may have been applied, check before retrying it"` (kept in production mode) and `exception` is `com.arcadedb.exception.TransactionOutcomeUnknownException` (`com.arcadedb.server.ha.raft.ReplicationDispatchedTimeoutException` on the node that handed the write to the replication). No `Retry-After`: check whether the write landed before sending it again, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>. Before v26.12.1 these answered `500`
 
