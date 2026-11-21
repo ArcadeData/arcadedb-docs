@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - openCypher `toString()` of a time or a datetime prints the seconds and trims the fraction, as Neo4j 5 does
+
+`toString()` of a `localtime()`, `time()`, `localdatetime()` or `datetime()` used Java's text, which leaves out zero seconds (`10:00`) and keeps the trailing zeros of the fraction (`.500`). It now prints the seconds always and removes the trailing zeros of the fraction: `10:00:00`, `2020-01-01T10:00:00.5Z` (issue #11912). `toStringOrNull()`, `toStringList()`, `convert.toString()` and `apoc.convert.toString()` print the same, and a `java.time` value bound as a parameter prints as the Cypher temporal it stands for.
+
+*Impact:* a key, an id or a comparison built from `toString()` of a time or a datetime changes (`'10:00'` becomes `'10:00:00'`). A temporal value that a query returns, over HTTP or SQL, keeps its text, and string concatenation with a temporal is unchanged.
+
+*Action:* regenerate or normalize stored text that was made with `toString()` of a time or a datetime.
+
+[discrete]
 ====== 26.12.1 - Naming an object that does not exist is the client's error on every protocol
 
 A statement that names a type, an index, a bucket, a property, a trigger or a view that does not exist raises a `SchemaException`, a missing record a `RecordNotFoundException`, an unknown method an `UnknownFunctionException`, and a Cypher `CALL` of an unknown procedure an `UnknownProcedureException` (issue #11384). Many of these raised a plain `CommandExecutionException` before.
