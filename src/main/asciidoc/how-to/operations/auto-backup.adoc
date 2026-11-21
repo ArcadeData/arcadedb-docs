@@ -365,6 +365,15 @@ is running. The directory is resolved in this order, first hit wins:
 
 It is resolved per command, so a `set backup config` that moves the directory is picked up by the next one.
 
+On an HA cluster the backup directory is local to each node. Since 26.12.1 a follower forwards `trigger backup`,
+`list backups` and `delete backup` to the leader, as it already did `restore backup`, so all four act on the leader's
+directory and an on-demand archive is taken from the leader's copy of the database. Before, a follower wrote the
+archive into its own directory, where `restore backup` could not reach it. Over gRPC a follower refuses these calls and
+names the leader (see <<grpc-api,gRPC API>>). `get backup config` and `set backup config` still act on the node that
+receives them. Archives the scheduler writes on a follower (`runOnServer` naming a follower, or `*`) are not seen by
+these commands: restore one with `restore database <target> file://<path>` on the node that holds it (this needs
+`arcadedb.server.restoreImportAllowLocalUrls` enabled).
+
 Archives always live under `<backupDirectory>/<database>/`. `get backup config` reports the resolved directory as
 `backupDirectory` next to the configuration. A configured directory that fails validation (an absolute path, or one
 escaping the server root) makes every backup command fail with an error naming it, where `list backups` used to
@@ -377,6 +386,15 @@ whose attributes cannot be read is left out of the list rather than reported wit
 retention sweep removed while the list was being built is skipped silently, any other failure (permissions, a broken
 mount) is logged as a warning naming the file. A database with no backup directory has no backups, while a directory
 that exists but cannot be reached or listed fails the command with an error naming the database.
+
+Since 26.12.1 `list backups`, `delete backup` and `restore backup` address every `.zip` file directly in
+`<backupDirectory>/<database>/`, including an archive named with `BACKUP DATABASE '<name>'`. Before, only names
+containing `-backup-` were accepted, so such an archive was not listed and was refused by the other two. The file name
+still cannot contain a path separator or `..`. When one of these commands is refused because of the request (a missing
+archive, a name that is not a `.zip`, a target database that exists without `overwrite`, a malformed command), the HTTP
+API answers `400` with the reason as the `error` label, also in production mode, instead of `Cannot execute command`.
+An archive that cannot be read as a backup (truncated, corrupt or not a zip) answers `400` with `Invalid backup archive`
+instead of `500`.
 
 [NOTE]
 ====
