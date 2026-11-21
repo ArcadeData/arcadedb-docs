@@ -397,6 +397,8 @@ TRUNCATE TYPE <type> [ POLYMORPHIC ] [ UNSAFE ]
 
 Over HTTP the request's auto-commit transaction is what makes the command transactional; pass `"autoCommit": false` in the request payload to select the faster, non-undoable path for a bulk clear.
 
+*Concurrent writes*: if another transaction deletes a record of the type and commits after the truncate found it but before the truncate deleted it, the command fails with the retryable `ConcurrentModificationException` (HTTP 503), the same error a `DELETE FROM` gets in that position, and the current transaction leaves that record and the others it had not committed yet in place. Run the command again to finish the job: the retry no longer sees the deleted record. Before 26.12.1 this race could fail with a `RecordNotFoundException` (HTTP 404) that no client retries.
+
 IMPORTANT: *On a TIMESERIES type* (since 26.11.1) the command removes samples, and it never takes part in the transaction it runs in, whatever the paragraphs above say of other types: the samples are gone, durably, when the statement returns, and a `ROLLBACK` does not bring them back (the result carries `transactional: false`, with the `count` of the samples removed). `DELETE FROM` a TIMESERIES type behaves the same way. See <<timeseries-deleting-samples,Deleting Samples>>.
 
 NOTE: A <<lightweight-edges,lightweight edge>> type with a subtype is an exception to "ignores sub-types by default": since a lightweight edge has no bucket of its own, the command refuses without `POLYMORPHIC` instead of silently truncating only part of the hierarchy.

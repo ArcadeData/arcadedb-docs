@@ -279,6 +279,8 @@ RETURN p.name, friend.name
 
 NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
 
+NOTE: A node an earlier clause left null cannot match again. In `OPTIONAL MATCH (a)-[:R]->(b) OPTIONAL MATCH (b), (c:Node)`, a null `b` keeps the row once with `c` null, and a later `MATCH (b)` drops the row, as in Neo4j _(since v26.12.1, issue #11761; before, a bare `(b)` over a null was taken as matched, so the row was repeated once per `Node` or kept by `MATCH`)_.
+
 *Testing for absence.* An `OPTIONAL MATCH` whose new variable is then tested for `IS NULL` keeps exactly the rows for which the pattern does not exist, which is what `WHERE NOT pattern` says. Since v26.10.2 it is planned that way: when the variables the `OPTIONAL MATCH` introduces are read by nothing but that test (a conjunct of the `WHERE` of the `WITH`, or `FILTER`, right after it), the nodes it shares with the earlier `MATCH` clauses are never null, and that `WITH` neither aggregates nor orders nor pages, the two spellings below run the same plan, including the anti-join count push-down (issue #9598):
 
 [source,cypher]
@@ -664,6 +666,13 @@ SET p:Employee
 
 NOTE: `SET` is a simultaneous assignment: every value is read as it was before the clause ran, so
 `SET p.a = p.b, p.b = p.a` swaps the two rather than copying one onto the other.
+
+The node or relationship written can also come from an expression in parentheses, in `SET` and in `REMOVE` alike:
+`SET (head(ns)).v = 10`, `REMOVE (head(ns)).s`, `REMOVE (head(ns))[key]`. A target that is null is skipped, and a value
+that is not a node or a relationship is refused. _(Since v26.12.1)_ A node or relationship held in a list or a map (from
+`collect()`, a list or a map literal) reads what a later `SET`, `REMOVE` or writing `CALL { ... }` of the same statement
+wrote to it, so `RETURN head(ns).v` after `SET (head(ns)).v = 10` returns `10`. Up to 26.11.1 `REMOVE (expr).prop` was
+silently ignored, and a node held in a list kept the values it had before the write (issue #11754).
 
 A label change (`SET n:Label`, `REMOVE n:Label`, or `ON CREATE SET` / `ON MATCH SET` of a label in a `MERGE`) rewrites
 the node under its new type and re-creates its relationships, so the node and its relationships get new RIDs (see
