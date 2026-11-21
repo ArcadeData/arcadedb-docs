@@ -155,6 +155,14 @@ A session is created with the <<http-begin,/begin>> request and returns a sessio
 Use the session id in the request header of further commands you want to execute in the same transaction and request <<http-commit,/commit>> to commit the server side transaction or <<http-rollback,/rollback>> to rollback the changes.
 After a period of inactivity (default is 5 seconds, see <<settings-sql,`server.httpSessionExpireTimeout`>>), the server automatically rolls back and purges expired transactions.
 
+A transaction-control statement sent to <<http-command,`/command`>> without a session id is refused with `400`
+(`CommandSemanticException`): a SQL `BEGIN`, `COMMIT` or `ROLLBACK`, or an openCypher `START TRANSACTION`, `COMMIT` or
+`ROLLBACK`, also behind `PROFILE` (and, in openCypher, `EXPLAIN`). Without a session each command runs in its own
+transaction, so such a statement could not open or end anything: use `/begin`, `/commit` and `/rollback` with the session
+id, or a single <<sql-script,`sqlscript`>> command that holds the whole block. Inside a session these
+statements run as before. The gRPC API refuses them the same way (`INVALID_ARGUMENT`) outside a client transaction.
+_(Since v26.12.1: before, they were answered OK and did nothing, so a later `ROLLBACK` undid none of the writes in between.)_
+
 If a request names a session id the server can no longer resolve - because it expired, or was already committed or
 rolled back - a *write* is refused with `404`, while a *read* still answers, running outside any transaction. A read
 that degraded this way says so: the response carries an `arcadedb-session-expired` header holding the id that could
