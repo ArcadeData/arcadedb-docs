@@ -613,6 +613,20 @@ a cap: a key or an `IN` list is seeked when it finds fewer than one vertex in a 
 finds fewer than one in four (issues #11680, #11889). `EXPLAIN` then shows the index seek instead of `COUNT CHAIN PATHS`
 or `COUNT STAR JOIN`. Both plans return the same count; only the time differs.
 
+Since v26.12.1 a one-hop pattern asked once per row - `COUNT { (p)-[:K]->() }` (with or without `MATCH`),
+`EXISTS { (p)-[:K]->() }`, the pattern predicate `WHERE (p)-[:K]->()` and `WHERE NOT (p)-[:K]->()`, and
+`size([(p)-[:K]->(q) | q])` - is answered from the edge list of the vertex the row binds, instead of planning and running
+a subquery for every row (issue #11891). `COUNT { }` reads the degree and `EXISTS { }` stops at the first edge, which runs
+two to three times faster than before; the predicate and `size()` also check that each relationship record is there, so
+they gain less. It applies to one fixed-length hop with no relationship variable, path variable or property map, where
+one end (either) is a vertex bound by the row with no label, any type list is allowed, and the other end is anonymous or
+a variable the row does not bind. A label on the far end still filters. The body of a `COUNT { }` or `EXISTS { }` has to
+be that `MATCH` alone, with no `WHERE`, `RETURN`, `ORDER BY`, `SKIP` or `LIMIT`; a pattern comprehension has to have no
+`WHERE` and project a variable or a literal. Anything else, a variable-length hop (`[:K*1..1]` included) too, keeps the
+general path. The answer is the one the general path gives, read permissions included: edges created or deleted earlier in
+the transaction are counted, a self loop of an undirected hop is one relationship, and a Graph Analytical View is not
+used, the edge list is read.
+
 *Multi-hop chains on the view.* A chain of labeled hops such as `MATCH (a:P)-[:K]->(b:P)-[:K]->(c:P)` is walked on the
 view (`EXPLAIN` shows `GAVFusedChain`). Since v26.10.2 a `+count(*)+`, or `count(x)` of a variable of the chain, is counted
 during the walk with up to two grouping keys that are chain variables, in a `RETURN` or a `WITH`
