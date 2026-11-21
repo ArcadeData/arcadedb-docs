@@ -88,8 +88,10 @@ _(since v26.10.2)_.
 
 *Counts.* Under `REPEATABLE_READ`, `count(*)` on a type and `countType()` repeat inside the transaction too: the committed
 record counter of each bucket is read at the first count of the transaction and kept, plus the transaction's own inserts
-and deletes. Under `READ_COMMITTED` they still follow every commit. _(Since v26.11.1; before, a count followed the commits
-of other transactions at both levels and could disagree with a scan in the same transaction.)_
+and deletes. Under `READ_COMMITTED` a count follows every commit, as long as the transaction has not read a record of that
+type yet: the count is taken on the transaction's view of the type, and a type the transaction has already read is pinned
+at that read, so its count answers the state of the read and not the latest commit. _(Since v26.11.1; before, a count followed
+the commits of other transactions at both levels and could disagree with a scan in the same transaction.)_
 
 *Neither level is a snapshot.* A page is pinned when the transaction first reads it, not when the transaction begins. A
 type scan reads its pages one after another, so at both levels it can observe part of a concurrent commit that spans
