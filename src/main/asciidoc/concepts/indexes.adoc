@@ -326,6 +326,15 @@ An openCypher `IN` whose right side is one value, `n.p IN $ids`, has to be a lis
 
 NOTE: Before v26.11.1 (issue #10541) the index answered these lookups differently from the scan: an equality or an `IN` on an indexed `BOOLEAN`, `DECIMAL` or `DATE` property raised a `ClassCastException` or "Comparison between type N and N not supported", a range with such a value on an indexed `INTEGER`, `LONG` or `DOUBLE` property answered every row of the type, and an openCypher `IN` over a parameter that was not a list answered no rows instead of being refused. A query that relied on any of them now gets the answer it would get without the index.
 
+[[index-choice-several]]
+==== Which index a SQL query uses when several apply
+
+When more than one index can answer the `WHERE` of a SQL `SELECT`, the planner keeps the indexes that cover the most conditions, so a composite index that covers two conditions wins over a single-property index that covers one. Among indexes that cover the same number of conditions, a lookup of whole keys of a `UNIQUE` index wins: an equality, or an `IN` list, on every property of the index. It answers at most one record per key, so `WHERE key = ? AND tenant = ?` reads the `UNIQUE` index on `key` and filters on `tenant`, even when `tenant` has a `NOTUNIQUE` index of its own, whichever of the two indexes was created first. `EXPLAIN` shows the index chosen.
+
+A `UNIQUE` index that the `WHERE` reaches with a range condition, or with only some of the properties of a composite key, is not a lookup of whole keys and gets no such preference.
+
+NOTE: _(Since v26.12.1.)_ Before, the choice between such indexes fell to the first one the type listed when no query statistics were recorded, so the statement could read through the `NOTUNIQUE` index on a property shared by most records and take longer the more records shared the value (51 ms instead of 1.4 ms on 50,000 records, issue #11963).
+
 ==== See also
 
 * <<schema-indexes,Indexes in the Schema concepts page>> -- the one-paragraph entry point with cross-refs.
