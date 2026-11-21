@@ -14,7 +14,7 @@ Creates a new type in the schema.
 ----
 CREATE <DOCUMENT|VERTEX|EDGE> TYPE <type>
 [UNIDIRECTIONAL] [LIGHTWEIGHT] [UNIQUE] [ IF NOT EXISTS ]
-[EXTENDS <super-type>] [BUCKET <bucket-id>[,]*] [BUCKETS <total-bucket-number>] [PAGESIZE <page-size>]
+[EXTENDS <super-type>] [BUCKET <bucket>[,]*] [BUCKETS <total-bucket-number>] [PAGESIZE <page-size>]
 [CUSTOM <custom-key> = <custom-value>[,]*]
 
 ----
@@ -60,16 +60,15 @@ the incoming unidirectional edges of the node.
 * *IF NOT EXISTS* Specifying this option, the type creation will just be ignored if the type already exists (instead of failing
  with an error)
 * *`&lt;super-type&gt;`* Defines the super-type you want to extend with this type.
-* *`&lt;bucket-id&gt;`* Defines in a comma-separated list the ID's of the buckets you want this type to use.
+* *`&lt;bucket&gt;`* Defines in a comma-separated list the names of the buckets you want this type to use. The buckets must exist, and the statement is refused when one of them belongs to another type.
 * *`&lt;total-bucket-number&gt;`* Defines the total number of buckets you want to create for this type. When omitted, the
  default is taken from the `arcadedb.typeDefaultBuckets` global configuration setting (`TYPE_DEFAULT_BUCKETS`), which is `1` by default.
 * *`&lt;page-size&gt;`* Defines the page size of the type.
 * *`&lt;custom-key&gt;`* Name of a custom property to set on the new type. Multiple pairs can be listed, separated by commas.
 * *`&lt;custom-value&gt;`* Value for the custom property. All data types are supported as values.
 
-In the event that a bucket of the same name exists in the bucket, the new type uses this bucket by default. If you do not define a
-bucket in the command and a bucket of this name does not exist, ArcadeDB creates one. The new bucket has the same name as the type,
-but in lower-case.
+A type uses the buckets named `<type>_<n>`: it creates the ones that do not exist yet and reuses the ones that are already there.
+It does not adopt a bucket that carries the name of the type itself. Use the `BUCKET` option to attach the other buckets you want the type to use.
 
 A bucket belongs to one type only. The statement is refused when a bucket it would attach already belongs to another type, whether
 listed in `BUCKET` or reused because its name is `<type>_<n>`, and when the same bucket is listed twice. The refusal is checked
@@ -281,7 +280,7 @@ For more information, see:
 | Attribute | Type | Description
 | `NAME` | Identifier | Changes the type name.
 | `ALIASES` | Identifier(s) | Add one or more (comma-separated) alternate name(s) for the type name.
-| `SUPERTYPE` | Identifier | Defines a super-type for the type. Use `NULL` to remove a super-type assignment. It supports multiple
+| `SUPERTYPE` | Identifier | Defines a super-type for the type. It supports multiple
 inheritances. To set or add a new type, you can use the syntax `+&lt;type&gt;`, to remove it use `-&lt;type&gt;`.
 | `BUCKET` | Identifier | Name of the bucket: `+` to add a bucket
 and `-` to remove it from the type. If the bucket doesn't exist, it creates a physical bucket. Adding buckets to a type is also
@@ -312,7 +311,7 @@ Be sure to create a backup before running it.
 
 NOTE: Bear in mind, that the schema must remain coherent.
 For instance, avoid removing types that are super-types to others.
-This operation won't delete the associated bucket.
+This operation deletes the buckets of the type, and the records they hold with them.
 
 NOTE: An edge type whose edges are all lightweight is refused without `UNSAFE`, as any edge type that still has edges is. _(Since v26.11.1, issues #10923 and #11142. Before, the check looked for edge records only, so the drop went through and left entries in the vertices that no command could read or delete.)_
 
