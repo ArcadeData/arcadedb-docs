@@ -521,6 +521,22 @@ null property, on the other hand, is simply not set: `CREATE (n:B {k: null})` cr
 
 The `MERGE` clause creates nodes or relationships if they don't exist, or matches them if they do (upsert operation).
 
+`MERGE` matches the *whole* pattern, the relationship included. When the pattern does not exist, the whole pattern is
+created, and the nodes of the pattern are created as well, even when a node with the same properties already exists:
+`MERGE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})` creates a second Alice and a second Bob when the
+`KNOWS` relationship between them is the only thing that is missing. Neo4j behaves the same way. To reuse the nodes that
+are already there, bind them first with a `MATCH`, or `MERGE` the nodes before the relationship:
+
+[source,cypher]
+----
+// Reuses the Alice and the Bob that are already there
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+MERGE (a)-[:KNOWS]->(b)
+----
+
+A `MERGE` whose pattern has a property that a unique constraint covers fails when the pattern does not exist, because
+creating it would duplicate the constrained value, as in Neo4j.
+
 *Syntax:*
 
 [source,cypher]
