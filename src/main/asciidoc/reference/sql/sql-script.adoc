@@ -151,6 +151,8 @@ LET v2 = SELECT FROM Account WHERE id = 1;  -- guaranteed to match v1
 COMMIT;
 ----
 
+Transactions nest up to a limit (3 by default). A `BEGIN` inside a loop that never commits goes past it, and the script fails with `Cannot execute BEGIN: Exceeded number of 3 nested transactions...`, a client error (`400` over HTTP) _(since v26.12.1, before it was `500`)_.
+
 [[sql-script-commit]]
 ===== COMMIT -- commit, retry, fallback
 
@@ -165,6 +167,7 @@ COMMIT [RETRY <n> [ELSE { <statements> } [AND] (FAIL | CONTINUE)]]
 * `ELSE { ... }` is the fallback block executed when retries are exhausted.
 * `AND FAIL` (the default when `ELSE` is omitted) re-throws the original exception after the fallback runs.
 * `AND CONTINUE` swallows the exception and lets the script keep going.
+* A `COMMIT` with no transaction open fails with `Found COMMIT statement without a BEGIN`, a client error (`400` over HTTP). A top-level `COMMIT` is refused before the script runs; one inside an `IF`, `WHILE` or `FOREACH` is refused when it is reached, because only then is it known whether a transaction is open _(since v26.12.1, before the nested form answered `Transaction not begun` with `500`)_.
 
 This is the building block that makes server-side scripts safe to run from many concurrent clients: each conflict is resolved on the server, and the client only sees the final result.
 
@@ -227,6 +230,8 @@ LET total = SELECT sum(balance) FROM Account;
 INSERT INTO Audit SET kind = 'snapshot', total = $total[0].sum, ts = sysdate();
 COMMIT;
 ----
+
+A `LOCK` has to come before the first modification of the transaction, and only one is allowed per transaction. A `LOCK` after a modification (or after the script ended its transaction), or a second `LOCK`, fails with `Cannot execute LOCK TYPE ...: Explicit lock must be acquired before any modification` (or `Explicit lock already acquired`), a client error (`400` over HTTP) _(since v26.12.1, before it was `500`)_. A lock that cannot be taken in time is still a retryable conflict.
 
 NOTE: Every type written in the transaction has to be locked. Committing a transaction that modified a type (or bucket) that was not locked fails with `Cannot commit transaction because not all the modified resources were locked`. In the example above `Audit` is written, so it is listed in `LOCK TYPE` together with `Account`.
 
@@ -453,6 +458,8 @@ SLEEP <milliseconds>
 
 Pauses the script for the given number of milliseconds. Mostly useful for tests, throttling, or staggering retries.
 
+The argument has to be a number. `SLEEP` of `null`, a string or a list fails with `Invalid value for SLEEP: ... SLEEP takes a number of milliseconds`, a client error (`400` over HTTP) _(since v26.12.1, before it was `500`)_.
+
 [source,sql]
 ----
 FOREACH ($url IN $urls) {
@@ -474,6 +481,8 @@ CONSOLE.debug  <expression>
 ----
 
 Writes a message from the server side. `log`/`warn`/`debug` go to the server log at the matching level, `output` to stdout, `error` to stderr (and the log at SEVERE level). Useful for debugging long-running or scheduled scripts.
+
+Any other level (`CONSOLE.nope`) is refused when the script is parsed, before any of its statements runs, with `Unsupported CONSOLE level 'nope': use one of log, output, error, warn, debug`, a client error (`400` over HTTP) _(since v26.12.1: the script used to run up to the `CONSOLE` statement and then fail with `500`)_.
 
 [source,sql]
 ----

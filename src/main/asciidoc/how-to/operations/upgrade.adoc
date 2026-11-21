@@ -30,6 +30,15 @@ A write that an HA replica forwarded to a leader which died or did not answer, a
 *Action:* on a `504` from `/api/v1/command` or `/api/v1/commit`, check whether the write landed before sending it again. See <<ha-outcome-unknown-contract,Outcome-unknown response contract>>.
 
 [discrete]
+====== 26.12.1 - A mistake in a SQL script's own values or order is a client error, not `500`
+
+`SLEEP` of a value that is not a number, an unknown `CONSOLE` level, a `LOCK` after a modification or a second `LOCK`, a `COMMIT` with no transaction open inside a loop or an `IF`, a `BEGIN` in a loop past the nested-transaction limit, and `<`, `<=`, `>`, `>=` or `BETWEEN` between two records answered `500` before, with a `NullPointerException`, `ClassCastException`, `TransactionException` or `CommandExecutionException` (issue #11893).
+
+*Impact:* over HTTP these answer `400`, with `TypeMismatchException` (`SLEEP`, comparison), `CommandSQLParsingException` (`CONSOLE`, `COMMIT`) or `CommandSemanticException` (`LOCK`, `BEGIN`), and over the other protocols the matching validation or parsing error. An unknown `CONSOLE` level is now refused when the script is parsed, so none of the statements before it runs. Embedded Java code that caught `TransactionException` around a script with `LOCK` or `BEGIN` must catch `CommandSemanticException` (or `ArcadeDBException`); `acquireLock()` and `begin()` called directly from Java still throw `TransactionException`.
+
+*Action:* none for a script that ran. A client that retried or alerted on `500` for these cases stops doing so. See <<sql-script,SQL Script>>.
+
+[discrete]
 ====== 26.12.1 - `algo.maxFlow` follows the relationship direction
 
 `algo.maxFlow` treated every relationship as an undirected pipe, so flow could run against a relationship and two opposite relationships added up (issue #11798). It now follows the relationships outgoing by default, and takes an optional fifth argument, `direction` (`OUT`, `IN` or `BOTH`). See <<algo-max-flow,algo.maxFlow>>.
