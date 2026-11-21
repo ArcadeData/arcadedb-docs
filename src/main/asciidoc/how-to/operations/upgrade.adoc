@@ -21,6 +21,15 @@ A statement that names a type, an index, a bucket, a property, a trigger or a vi
 The Java API follows the same rule (issue #11633). A missing edge type in `GraphBatch` or in the hybrid, full-text and vector search functions, a missing bucket behind a Gremlin label, and a missing embedded document type raise a `SchemaException`. A function or function library that does not exist (`Schema.getFunctionLibrary()`, `FunctionLibraryDefinition.getFunction()`) raises an `UnknownFunctionException`. All of these raised an `IllegalArgumentException` before. The batch endpoint (`/api/v1/batch`) still reports what it committed before such an error.
 
 [discrete]
+====== 26.12.1 - A write whose outcome is unknown over HTTP answers `504`, not `500`
+
+A write that an HA replica forwarded to a leader which died or did not answer, and a write handed to the replication whose quorum was not confirmed, answered `500` before (the first with `exception: java.io.EOFException` or a connection reset), although the write may have been committed (issue #11887).
+
+*Impact:* these answer `504` with `exception` `com.arcadedb.exception.TransactionOutcomeUnknownException`, on the leader and on the replica. A client that handled this case by its `500` status must now handle `504`; the Java remote client does not retry it.
+
+*Action:* on a `504` from `/api/v1/command` or `/api/v1/commit`, check whether the write landed before sending it again. See <<ha-outcome-unknown-contract,Outcome-unknown response contract>>.
+
+[discrete]
 ====== 26.12.1 - `algo.maxFlow` follows the relationship direction
 
 `algo.maxFlow` treated every relationship as an undirected pipe, so flow could run against a relationship and two opposite relationships added up (issue #11798). It now follows the relationships outgoing by default, and takes an optional fifth argument, `direction` (`OUT`, `IN` or `BOTH`). See <<algo-max-flow,algo.maxFlow>>.

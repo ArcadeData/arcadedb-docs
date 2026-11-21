@@ -701,6 +701,15 @@ When a write is forwarded from a replica to the leader (or issued directly to th
 
 This case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
 
+[[ha-outcome-unknown-contract]]
+===== Outcome-unknown response contract
+
+_(Since v26.12.1.)_ A write can also end in an outcome nobody knows: the node answering the client handed it to the replication and quorum was not confirmed (`ReplicationDispatchedTimeoutException`), or a replica forwarded it to the leader and the connection to the leader was lost, or the leader did not answer in time, after the request had been sent. The write may have been committed or not.
+
+The server raises a `TransactionOutcomeUnknownException`, mapped over HTTP to *status `504 Gateway Timeout`* with the label `Transaction outcome unknown: the write may have been applied, check before retrying it`, on the leader and on the replica alike. Before v26.12.1 these answered `500`, and a lost leader connection reported a raw `java.io.EOFException`. The answer carries no `Retry-After`, and the Java remote client does not retry it.
+
+A client that receives it must neither give the write up nor resend it blindly: read the database to see whether the write landed, then resend it only if it did not. Sending the same <<http-request-replay,`X-Request-Id`>> again does not settle it, because the leader keeps its answers in memory and a leader that died no longer has them. A failure to connect to the leader, with no request sent, is different: it stays a retryable `503` (`NeedRetryException`), since the write did not run.
+
 [[ha-leader-refusal]]
 ===== When a replica refuses a write and names the leader
 

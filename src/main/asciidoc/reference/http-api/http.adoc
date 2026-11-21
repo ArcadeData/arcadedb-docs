@@ -1650,6 +1650,7 @@ kind, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a set
 * https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`, with `Retry-After: 0` since v26.12.1), or the server is shutting down (no `Retry-After`): retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
 * https://httpstatuses.io/404[`404`] the database does not exist (`Database not found`), or https://httpstatuses.io/503[`503`] it is there and cannot serve the command now: closed, being restored (a write while a restore holds an open database is refused this way), dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
+* https://httpstatuses.io/504[`504`] _(since v26.12.1)_ in an HA cluster, the write was handed to the replication, or forwarded by a follower to a leader that died or did not answer, and its outcome is unknown: it may or may not have been applied. `error` is `"Transaction outcome unknown: the write may have been applied, check before retrying it"` (kept in production mode) and `exception` is `com.arcadedb.exception.TransactionOutcomeUnknownException` (`com.arcadedb.server.ha.raft.ReplicationDispatchedTimeoutException` on the node that handed the write to the replication). No `Retry-After`: check whether the write landed before sending it again, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>. Before v26.12.1 these answered `500`
 
 Example of insertion of a new Client by using parameters:
 
@@ -2226,6 +2227,7 @@ Response:
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/404[`404`] the session is unknown, expired or already ended, or its transaction was rolled back by a failed command
 * https://httpstatuses.io/503[`503`] the commit conflicted with a concurrent commit that changed the same records (`ConcurrentModificationException`), or met another retryable refusal: nothing was committed and the session is closed. Begin a new transaction, read the records again and re-apply the change. The answer carries `Retry-After: 0` _(since v26.12.1, before it carried none)_: the conflict clears as soon as the competing commit has landed
+* https://httpstatuses.io/504[`504`] _(since v26.12.1)_ in an HA cluster, the commit was handed to the replication and its outcome is unknown: it may or may not have been applied. No `Retry-After`: read the records to see whether it landed before sending the work again, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>
 
 A conflict surfaces at the commit, not at the write: the write of the transaction that loses the race is answered `200`,
 and the conflict is detected when it commits, which is where the server can see the competing commit. A transaction at
