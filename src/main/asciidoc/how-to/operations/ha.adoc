@@ -710,6 +710,18 @@ The server raises a `TransactionOutcomeUnknownException`, mapped over HTTP to *s
 
 A client that receives it must neither give the write up nor resend it blindly: read the database to see whether the write landed, then resend it only if it did not. Sending the same <<http-request-replay,`X-Request-Id`>> again does not settle it, because the leader keeps its answers in memory and a leader that died no longer has them. A failure to connect to the leader, with no request sent, is different: it stays a retryable `503` (`NeedRetryException`), since the write did not run.
 
+[[ha-writes-during-leadership-transfer]]
+===== Writes during a leadership transfer
+
+_(Since v26.12.1.)_ While a leadership transfer is pending (`POST /api/v1/cluster/leader`, a rolling restart, the cluster's own hand-off), the leader steps down and refuses every write it receives. The refusal happens before the write reaches the Raft log, so nothing was written. It is a retryable refusal, like a conflict on a record page:
+
+* over HTTP it answers `503` with a `NeedRetryException` whose message says the leader is stepping down, and it is the same through a replica that forwarded the write. The server's own transaction retry (`arcadedb.txRetries`) retries it, so many of these writes succeed without the client noticing.
+* over gRPC it answers `ABORTED`.
+
+A write forwarded by a replica at the moment leadership moves off that replica answers `503` too, with no leader named. Before v26.12.1 these answers were `500` (`INTERNAL` over gRPC) with "outcome unknown", and the forwarded one could be a `400` that sent the operator to the server list. The `400` stays for a really wrong server list: another peer's HTTP address that resolves to this node (see `arcadedb.ha.serverList`).
+
+There is one exception. If the Raft client had already sent the same write again after an earlier attempt that may have reached a log (a timeout, a lost reply, a closed stream), the first copy may still commit, so the stepping-down refusal of the second copy is not proof that nothing was written. It stays an outcome-unknown answer, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>: check before retrying.
+
 [[ha-leader-refusal]]
 ===== When a replica refuses a write and names the leader
 
