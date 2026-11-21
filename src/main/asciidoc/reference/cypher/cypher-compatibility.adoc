@@ -427,6 +427,25 @@ RETURN [1, null] IS :: LIST<INTEGER NOT NULL>          // false
 *When upgrading to 26.10.2*: before, `date() IS :: DATE` and the same predicate on the other temporal types answered `false`, and `valueType()` returned the name of the internal Java class, such as `'CYPHERDATE NOT NULL'` for `valueType(date())`. A point was a `MAP`, and `LIST<INTEGER NOT NULL>` did not check the elements for `null`.
 ====
 
+===== List Value Types
+
+`valueType()` of a list reports the type of its elements, as Neo4j does. A list holding values of more than one type answers the union of their types, always in the same order whatever the order of the elements. A `null` element makes the element type nullable, and an empty list has no element type:
+
+[source,cypher]
+----
+RETURN valueType([1, 2])                               // 'LIST<INTEGER NOT NULL> NOT NULL'
+RETURN valueType([1, 'a'])                             // 'LIST<STRING NOT NULL | INTEGER NOT NULL> NOT NULL'
+RETURN valueType(['a', 1])                             // 'LIST<STRING NOT NULL | INTEGER NOT NULL> NOT NULL'
+RETURN valueType([1, null])                            // 'LIST<INTEGER> NOT NULL'
+RETURN valueType([null])                               // 'LIST<NULL> NOT NULL'
+RETURN valueType([])                                   // 'LIST<NOTHING> NOT NULL'
+RETURN valueType([[1]])                                // 'LIST<LIST<INTEGER NOT NULL> NOT NULL> NOT NULL'
+----
+
+One difference from Neo4j remains: for nested lists that differ only in whether their elements can be `null`, such as `[[1], [1, null]]`, Neo4j merges the two into one member type, while ArcadeDB lists both.
+
+NOTE: Before v26.12.1, `valueType()` answered `'LIST<ANY> NOT NULL'` for every list.
+
 ===== Relationship Types and Sub-types
 
 A relationship type matches its sub-types, both in a pattern and in a predicate: with `CREATE EDGE TYPE Friend EXTENDS Knows`, `MATCH ()-[r:Knows]->()` and `MATCH ()-[r]->() WHERE r:Knows` both return the `Friend` relationships.
