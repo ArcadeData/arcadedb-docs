@@ -45,6 +45,14 @@ point-in-time snapshot is disabled or cannot hold) it could even be completed an
 If the filesystem refuses to delete the partial archive, the failure reported by the backup says so and names the
 file, which must then be removed by hand.
 
+_(Since v26.12.1)_ the archive is written under a partial name, `<name>.zip.partial`, and renamed to `<name>.zip`
+only once it is complete and synced to disk. A backup cut short by something it cannot clean up after (`kill -9`,
+an out-of-memory kill, a container stop that times out) therefore leaves only the `.partial` file, never a truncated
+archive under the final name. `list backups`, `restore backup`, `delete backup` and the retention policy look only
+for `*.zip` archives, so they ignore it; the retention policy also deletes a database's `.partial` files once they
+have not been written for an hour (see <<auto-backup,Automatic Backup Scheduler>>). Before, such a backup left a
+truncated `.zip` that was listed, refused by restore and could be kept by tiered retention as an hour's restore point.
+
 [[backup-vector-indexes]]
 ===== Vector indexes
 
@@ -73,8 +81,9 @@ index's `getStats()` and logged at `WARNING` (`Vector index <name> is reusing a 
 - `-o`                      (boolean) true to overwrite the backup if already exists.
 If false and the `backup-path` already exists, an error is thrown.
 Default is false.
-_(Since v26.11.1)_ a backup with `-o` that fails before it starts writing leaves the existing backup file untouched;
-once it has started writing, the previous file is already overwritten and the partial one is deleted.
+_(Since v26.12.1)_ a backup with `-o` replaces the existing backup file in a single rename once the new archive is
+complete, so a backup that fails at any point leaves the previous file untouched. _(In v26.11.1 only a failure
+before the new archive started writing left it untouched.)_
 
 ===== Cloud Backups
 
