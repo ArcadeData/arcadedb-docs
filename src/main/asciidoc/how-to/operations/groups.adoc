@@ -27,9 +27,13 @@ The supported permission at group level are:
 * `readTimeout` if present, specify the maximum timeout for read operations. -1 means no limits.
 If set, all the read operations (lookups and queries) will be limited to maximum `<readTimeout>` milliseconds.
 This is useful to limit users to execute expensive commands and queries impacting the performance of the server and therefore other connected users.
-* `resultSetLimit` if present, specify the maximum number of entries in the result set returning from a command or query. -1 means no limits.
-If set, any query or command will be interrupted when this limit is reached.
-This is useful to limit users to retrieve huge result sets impacting the performance of the server and therefore other connected users.
+* `resultSetLimit` if present, specify the maximum number of rows a SQL or openCypher query or command answers. -1 means no limits.
+It caps the rows the statement returns, not the records it reads: a `WHERE`, an aggregate or an `ORDER BY` runs over every record the user may read, and only the rows it answers are cut at the limit.
+In openCypher the limit applies to the statement as a whole, a `UNION` included; the subqueries, procedures and functions the statement runs to compute its rows are not limited on their own.
+The limit does not restrict writes: a `SET`, `DELETE` or `MERGE` applies to every record it matches.
+Gremlin, the MongoDB wire protocol and the Java record API (`iterateType()`, `iterateBucket()`) do not apply it yet: only `readTimeout` bounds them.
+Since every record is read, set `readTimeout` together with `resultSetLimit` to bound the work of a scan.
+_(Since v26.12.1, issue #12888. Before, the limit cut every bucket scan short, so a filter, an aggregate or an `ORDER BY` could silently answer from part of the data.)_
 A `LIMIT` (or `TIMEOUT`) in the statement that is lower than the group's limit is kept, also when the `LIMIT` is a parameter (`LIMIT :n`, `LIMIT ?`).
 Both limits apply only to the users of the group: other users running the same statement are not affected.
 
