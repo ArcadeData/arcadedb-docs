@@ -747,6 +747,8 @@ SELECT expand(`vector.sparseNeighbors`(
 
 Options map (5th argument) supports `filter` (allowed-RIDs whitelist), `groupBy`, `groupSize` -- see <<vector-groupby,Group-By Retrieval>> below.
 
+With `filter` or `where`, the search returns the `k` best scoring records the restriction allows, however far down the unfiltered ranking they sit: it widens its fetch (x8 per step) while the restriction leaves the answer short and the index holds more candidates, up to 100,000 candidates per bucket. A `filter` list stops widening as soon as every listed record of the bucket has been found, so a short list stays cheap; a `where` that accepts few or no records can test up to that cap before answering. _(Since v26.12.1: before, the search looked at a fixed `8 * k` candidates only, and a restriction whose records ranked below them answered short or empty, issue #12716.)_
+
 ===== Top-K algorithm
 
 Retrieval uses document-at-a-time Block-Max MaxScore. Query terms are split into an *essential* set and a *non-essential* one: a document matching only non-essential terms cannot reach the current K-th best score, so those terms stop generating candidates and are only point-probed for documents the essential terms produce. Per-block maximum weights then let whole ranges of postings be skipped without decoding them. Only dot-product similarity is supported (cosine on sparse vectors is conventionally handled by L2-normalizing both the query and stored vectors at insert time).
