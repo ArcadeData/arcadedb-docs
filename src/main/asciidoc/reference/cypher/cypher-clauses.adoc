@@ -607,6 +607,17 @@ another one's (`{uuid: 1}` against `{uuid: 1, kind: 'a'}`). A unique constraint 
 use where a property identifies the relationship. Concurrent `MERGE` of a node still needs a unique constraint, as in other
 Cypher databases.
 
+[[cypher-merge-relationship-index]]
+*Bulk loads of relationships with several writers.* _(Since v26.12.1)_ When the relationship's type has an index (unique or
+not, but not full-text) on properties the `MERGE` pattern gives all of, with non-null values, a `MERGE` of a relationship
+between two existing nodes looks the relationship up in that index instead of reading the nodes' relationship lists. Writers
+that `MERGE` different relationships on shared nodes then no longer refuse each other at commit, which is what made a load
+like `UNWIND $rows AS r MATCH (a {uuid: r.src}), (b {uuid: r.dst}) MERGE (a)-[:RELATES_TO {uuid: r.uuid}]->(b)` slower
+with 8 writers than with one. With such an index, a concurrent `CREATE` of the same relationship (even one that sets the key
+with a later `SET`) is detected too, and the `MERGE` is refused and retried. Without an index, with only part of a composite
+index's properties in the pattern, or for a user who may not read the relationship type, the `MERGE` reads the
+relationship lists as before.
+
 ---
 
 [[cypher-set]]
