@@ -50,6 +50,7 @@ A property set to `NULL` on purpose is present: `INSERT INTO T SET id = 1, df = 
 _(Since v26.11.1: earlier versions stored the default for an explicit `NULL`.)_
 The value is an *SQL expression*, evaluated once per new record, not a literal: write `default 'active'` for the string `active`, since an unquoted `active` is a field reference.
 The expression is compiled and validated when the property is declared, so a malformed one is rejected right there rather than silently producing garbage on every record.
+A default written with literals only (a string, a number, a boolean, `null`, or arithmetic over them) is also converted to the property's type at that moment, and refused when the conversion fails, e.g. `INTEGER (default 'dflt')` or `DATE (default 'notadate')`; the property keeps the default it had. A default that calls a function, such as `sysdate()`, is still evaluated per record. _(Since v26.12.1: earlier versions accepted such a default and then refused every new record of the type.)_ A database that already holds one still opens with a warning in the server log, and `ALTER PROPERTY ... DEFAULT` repairs it.
 A default that evaluates to `null` fills in nothing, which makes it equivalent to declaring no default at all - see the note below.
 ** `external &lt;true|false&gt;` If true, the property's value is stored in a paired *external bucket* instead of inline in the primary record.
 The main record carries only a pointer (`[bucketId][position]`) to the external record.
@@ -249,6 +250,7 @@ ALTER PROPERTY <type-name>.<property-name> NAME <new-property-name>
     Refused when no value of the property's type could pass it, including a number or temporal type (`'[A-Z]+'` on a `LONG` or a `DATE`), as for <<sql-create-property,`CREATE PROPERTY`>>. A pattern the check cannot settle is accepted with a WARNING.
  ** `default <any>` Defines the value to use when the property is not present, as an *SQL expression* evaluated once per new record.
     Quote a literal (`default 'active'`); an unquoted `active` is a field reference and is rejected.
+    A literal default that cannot be converted to the property's type (`default 'zz'` on an `INTEGER`) is refused and the previous default is kept, as for <<sql-create-property,`CREATE PROPERTY`>>.
     A default that evaluates to `null` is equivalent to no default at all - see <<sql-create-property,`CREATE PROPERTY`>>.
  ** `external <true|false>` Toggles external storage of the property's value (see <<sql-external-properties,External property storage>>).
     Switching the flag does not migrate existing records eagerly; they are converted lazily on the next write, or all at once with `REBUILD TYPE`.
