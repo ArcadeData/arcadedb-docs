@@ -215,6 +215,16 @@ applies to `ALTER TYPE ... BUCKET +` when the bucket added already holds records
 and the bucket is not attached. _(Since v26.12.1, issue #11302. Before, the statement was accepted and the type's part
 of the index was left empty, so queries using that index missed the type's records.)_
 
+NOTE: Removing a super-type is refused, and nothing changes, while an index of the type or of a type below it stands on a
+property that type would stop inheriting, the same rule `DROP PROPERTY` applies. The message names the property and the
+index: drop the index first, declare the property on the type, or add a super-type that provides it before removing the
+old one. The changes of one statement are applied in the order written, so to swap two super-types that both declare the
+property write the addition first (`ALTER TYPE C SUPERTYPE +Q, -P`); `SUPERTYPE -P, +Q` is refused at the removal. A removal
+is also refused when the property would then be inherited from another super-type with a different type (for example
+`STRING` instead of the `INTEGER` the index is keyed on). `DROP TYPE` is not affected by this check. _(Since v26.12.1,
+issue #12038. Before, the removal was accepted and left the index keyed on a property the type no longer declared, so
+values were stored with one type and indexed with another.)_
+
 * Add the "account2" bucket to the type `Account`.
 
 ----
