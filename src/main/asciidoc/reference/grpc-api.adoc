@@ -526,6 +526,20 @@ NOTE: Before v26.11.1 `out()`, `in()`, `outE()` and `inE()` reached a gRPC clien
 A row that cannot be applied does not fail the call: it is counted in `failed` and reported as an `InsertError`, and the
 rest of the batch still goes in.
 
+Under `PER_BATCH` a batch is `server_batch_size` rows of the stream, whatever the size of the chunks the client sends:
+a batch can span several chunks, and several batches can be committed inside one chunk. When a commit fails (a
+duplicated key under `CONFLICT_ERROR`, for one), only the open transaction is lost: the open batch under `PER_BATCH`,
+the failing row under `PER_ROW`, the whole stream under `PER_STREAM` and `PER_REQUEST`. The summary matches what is
+stored: `inserted` and `updated` count every row committed before the failure, including the rows committed inside the
+failing chunk, and the rows lost with the failed transaction, or never reached in the failing chunk, are counted in
+`failed`, so `received = inserted + updated + ignored + failed`. The acknowledgement of a failing `InsertBidirectional`
+chunk reports its rows committed before the failure as inserted, and the session goes on with the next chunk in a new
+transaction. _(Since v26.12.1.)_ Before, `PER_BATCH` never committed a batch spanning chunks, so a stream sent in
+chunks smaller than `server_batch_size` ran as one transaction and a failure rolled back every row of it, and rows
+committed inside a failing chunk were stored but not counted as inserted, so a client retrying the rows reported as not
+inserted could duplicate them (issue #12130). A client that replays a failed `InsertBidirectional` chunk whole can
+still duplicate the rows the acknowledgement reported as inserted: replay only the rest (issue #12576).
+
 [cols="1,1,3", options="header"]
 |===
 | Field | Number | Meaning
