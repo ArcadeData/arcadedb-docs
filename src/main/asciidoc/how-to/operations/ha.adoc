@@ -722,6 +722,13 @@ A write forwarded by a replica at the moment leadership moves off that replica a
 
 There is one exception. If the Raft client had already sent the same write again after an earlier attempt that may have reached a log (a timeout, a lost reply, a closed stream), the first copy may still commit, so the stepping-down refusal of the second copy is not proof that nothing was written. It stays an outcome-unknown answer, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>: check before retrying.
 
+[[ha-writes-during-replica-resync]]
+===== Writes through a replica during its resync
+
+_(Since v26.12.1.)_ While a replica's copy of a database is replaced from the leader (`POST /api/v1/cluster/resync/{database}`, a resync the leader starts, a bootstrap reinstall), a write sent to that replica over HTTP `POST /command` and forwarded to the leader is answered with the leader's `200` answer once the leader committed it, even when something on the replica fails afterwards because its copy is being replaced. Before v26.12.1 such a write was answered `503 Cannot execute command`, although the leader had committed it, so a client that retried it applied it twice.
+
+The leader's answer is used only for a request outside a session that forwarded exactly one write. Its body is the leader's rendering of the statement: in the client's own `serializer`, `limit` and `typeHints` when the forward carried the whole request, otherwise in the default rendering (`record` serializer, default row limit, no type hints). A request that wrote or ran a command on the replica, or forwarded several writes, keeps the retryable `503`, and so does a write refused with `Server is installing a snapshot, please retry`, which is refused before anything is forwarded.
+
 [[ha-leader-refusal]]
 ===== When a replica refuses a write and names the leader
 
