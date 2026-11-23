@@ -26,6 +26,15 @@ Fifteen `text.*` functions, documented as APOC compatible, answered differently 
 *Action:* escape the regular-expression characters of the delimiter (`'\\.'` for a dot) or use the openCypher `split()` and `replace()`, write `text.jaroWinklerDistance(a, b) < 0.15` for `> 0.85`, pass the values of `text.format()` as a list, and regenerate the values made with the changed functions.
 
 [discrete]
+====== 26.12.1 - An openCypher shortest path from a node to itself answers only a minimum of zero
+
+`shortestPath()` and `allShortestPaths()` whose start and end are the same node answered the zero-length path also when the pattern requires at least one hop: `[*]`, `[*1..]` or a relationship without a quantifier (issue #11913). That path is shorter than the pattern allows. Now only a written minimum of zero (`[*0..]`, `[*0..2]`) answers it; any other pattern has no row for that pair, and in the expression form `shortestPath(...)` returns `null` and `allShortestPaths(...)` an empty list.
+
+*Impact:* a query such as `MATCH (a), (b) MATCH p = shortestPath((a)-[*]->(b))` no longer returns the rows where `a` and `b` are the same node, and a count or a minimum length over such rows changes.
+
+*Action:* write `[*0..]` where the zero-length path of a node to itself is wanted. See <<cypher-compatibility,shortestPath() and Hop Bounds>>.
+
+[discrete]
 ====== 26.12.1 - openCypher `toString()` of a time or a datetime prints the seconds and trims the fraction, as Neo4j 5 does
 
 `toString()` of a `localtime()`, `time()`, `localdatetime()` or `datetime()` used Java's text, which leaves out zero seconds (`10:00`) and keeps the trailing zeros of the fraction (`.500`). It now prints the seconds always and removes the trailing zeros of the fraction: `10:00:00`, `2020-01-01T10:00:00.5Z` (issue #11912). `toStringOrNull()`, `toStringList()`, `convert.toString()` and `apoc.convert.toString()` print the same, and a `java.time` value bound as a parameter prints as the Cypher temporal it stands for.

@@ -468,16 +468,26 @@ RETURN length(p)    // no row when the shortest Rome..Oslo path is longer than 2
 
 A relationship written without a quantifier, `-[:ROAD]-`, declares exactly one hop and is bounded accordingly.
 
-When both endpoints resolve to the *same* vertex, the answer is the zero-length path, as in Neo4j. An explicitly
-written minimum above one hop rejects it, since zero hops is not in the declared range:
+When both endpoints resolve to the *same* vertex, the answer is the zero-length path only when the pattern declares a
+minimum of zero hops (`*0..`, `*0..2`). Any other pattern, including `*`, `*1..` and a relationship without a
+quantifier, has no row for that pair: in the expression form `shortestPath(...)` returns `null` and
+`allShortestPaths(...)` an empty list.
 
 [source,cypher]
 ----
-MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*]-(a))     RETURN length(p)  // 0
-MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*3..5]-(a)) RETURN length(p)  // no row
+MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*0..]-(a)) RETURN length(p)  // 0
+MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*]-(a))    RETURN length(p)  // no row
 ----
 
-Such a pattern is not reinterpreted as a request for the shortest cycle back to the start.
+Such a pattern is not reinterpreted as a request for the shortest cycle back to the start. Neo4j 5 refuses a shortest
+path whose start and end are the same node with an error; ArcadeDB drops the row instead, so a shortest path over a
+cartesian product (`MATCH (a), (b) MATCH p = shortestPath((a)-[*]->(b))`) answers every pair of distinct nodes.
+
+[NOTE]
+====
+*When upgrading to 26.12.1*: before, `*`, `*1..` and a relationship without a quantifier answered the zero-length path
+when both endpoints were the same node (issue #11913).
+====
 
 ===== Self-Loops in Undirected Patterns
 
