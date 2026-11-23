@@ -1118,6 +1118,14 @@ It applies when the query only matches and returns (no `WITH`, `UNWIND`, aggrega
 also works with `SKIP`, `DISTINCT` and relationship expansions from the ordered node. `EXPLAIN` and `PROFILE` show
 `[index order]` on the `NodeIndexRangeScan` when it is used.
 
+*SKIP over an index-ordered scan:* since v26.12.1 the index scan passes over the skipped rows from the index entries,
+without loading their nodes, when the query is a single `MATCH` and a `RETURN` with no `DISTINCT` or aggregation, has
+no `WHERE` left to evaluate on the rows, and every returned item is the matched variable, one of its properties or a
+literal. `MATCH (p:Person) RETURN p.id, p.name ORDER BY p.id SKIP 50000 LIMIT 10` therefore no longer loads 50,000
+nodes to throw them away. The rows returned are the same. A range condition in `WHERE` (`p.id >= 0`) and a type with
+a read trigger or read event listener still load every skipped node. `EXPLAIN` and `PROFILE` show
+`SKIP n (passed over in the index scan)` when it is used. Keyset pagination stays the faster way to read deep pages.
+
 ---
 
 [[cypher-explain]]
