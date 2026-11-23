@@ -729,6 +729,11 @@ _(Since v26.12.1.)_ While a replica's copy of a database is replaced from the le
 
 The leader's answer is used only for a request outside a session that forwarded exactly one write. Its body is the leader's rendering of the statement: in the client's own `serializer`, `limit` and `typeHints` when the forward carried the whole request, otherwise in the default rendering (`record` serializer, default row limit, no type hints). A request that wrote or ran a command on the replica, or forwarded several writes, keeps the retryable `503`, and so does a write refused with `Server is installing a snapshot, please retry`, which is refused before anything is forwarded.
 
+[[ha-create-database-committed-first]]
+===== Creating a database in a cluster
+
+_(Since v26.12.1.)_ A `create database` server command creates the database only once a quorum has committed it: every server, the one that ran the command included, creates the database when it applies that change, and the command answers once the server that ran it has the database. If the quorum is not confirmed in time, the command fails with an unknown outcome (see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>) and no server has the database yet: it appears on every server if the change commits later (this can take a few seconds more, when the leader steps down and a new one is elected), and on none if it never commits. Check with `GET /api/v1/exists/<dbname>` before sending the command again. Before v26.12.1 the server that ran the command created the database first, so a creation that never committed, for example because the leader was lost right after it, left the database on that server only: it listed the database and answered reads of it, while the other servers answered `Database not found` and the cluster still reported itself in sync (issue #11848).
+
 [[ha-create-drop-database-on-replica]]
 ===== Creating or dropping a database through a replica
 
