@@ -139,6 +139,14 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   serves (the pattern would start from a scan of the whole label) or a variable-length hop into the unlabelled node is
   still planned step by step, as before. The index lookups of this plan ask the read permission of the type, and of its
   subtypes, each time the statement runs, so a user who may not read the type is refused whatever the index holds
+* Starts a single fixed-length hop from its far end when the first node has no label and no condition and the far
+  node is pinned on every column of a `UNIQUE` index of its label _(since v26.12.1)_, also in a statement planned step
+  by step such as a `MATCH` after `UNWIND` or `WITH`. `UNWIND $keys AS k MATCH (x)-[:OF]->(:Doc {key: k})` finds each
+  `Doc` through the index and walks its relationships backwards, instead of scanning every vertex of the database once
+  per row. The pin can be an inline property map (literals, parameters or a variable bound by an earlier clause) or a
+  `WHERE` equality or `IN` list. The written order is kept for an `OPTIONAL MATCH`, a path variable, a variable-length
+  hop, a relationship with no type or of a `UNIDIRECTIONAL` type, a non-unique key and a first node that has a label or
+  a condition. The rows of a `MATCH` without `ORDER BY` can come in a different order
 * Drives a single-hop relationship pattern from the edge type's own index when the `WHERE` clause pins the
   relationship's indexed properties and neither endpoint is selective, e.g.
   `MATCH ()-[t:TRANSFER]->() WHERE t.transactionId IN ['A', 'B'] RETURN t`. An equality, an `IN` list or an
