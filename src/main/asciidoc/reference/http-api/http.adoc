@@ -1596,7 +1596,12 @@ The payload, as a JSON, accepts the following parameters:
 - `command` the command to execute in encoded format
 - `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
 The completion of the command is noted in the log, yet no results of the command can be returned.
-- `limit` (optional) is the maximum number of results to return
+- `limit` (optional) is the maximum number of results to return. _(Since v26.12.1)_ this cap, or
+<<setting-table,`arcadedb.server.httpQueryDefaultLimit`>> when neither the request nor the statement sets one, is no
+longer added to the text of a SQL `SELECT` or `MATCH` as a `LIMIT`: the statement is planned and cached exactly as an
+embedded or Postgres client would send it, so a `SELECT DISTINCT` keeps its parallel plan and a `GROUP BY` its columnar
+plan over HTTP too. The engine still stops early where the cap allows it, for example by keeping only the first rows of
+an `ORDER BY` sort. A `LIMIT` written in the statement decides the rows returned, as before.
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 - `retries` (optional), is the number of times the command (transaction) is retried. When omitted it follows the
 `arcadedb.txRetries` <<setting-database,database setting>> (3 by default), the same attempt count the embedded and
