@@ -284,6 +284,15 @@ A link stored in a property the schema does not declare was read back by the HTT
 *Action:* call `toString()` on the value where the rid text is needed, and load the linked record with `lookupByRID(rid, true)`. For HTTP, upgrade the server; for gRPC, upgrade the client. See <<java-api-remote,Java Remote API>> and <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
+====== 26.12.1 - The remote Java clients read numeric arrays as primitive arrays
+
+A property declared `ARRAY_OF_SHORTS`, `ARRAY_OF_INTEGERS`, `ARRAY_OF_LONGS`, `ARRAY_OF_FLOATS` or `ARRAY_OF_DOUBLES` was read from a record by the HTTP client (`RemoteDatabase`: `lookupByRID()`, `iterateType()`, a `SELECT FROM` row) as an `ArrayList` of whatever numbers the JSON held (`Integer` for a long array, `Double` for a float array), while a projection of the same property answered the primitive array. The gRPC client (`RemoteGrpcDatabase`) answered a list in records and projections alike. `(long[]) doc.get("ids")` threw `ClassCastException`. Both clients now answer `short[]`, `int[]`, `long[]`, `float[]` and `double[]`, as the embedded API does (issue #12189). Over gRPC the server marks every primitive numeric array it sends with its `logical_type` (`long[]`, `float[]`, ...), so a vector embedding also arrives as a `float[]`; a client that ignores the mark still reads a list.
+
+*Impact:* code that read such a value through either client as a `List` now gets the primitive array.
+
+*Action:* read the value as the primitive array. For HTTP, upgrade the client; for gRPC, upgrade the server and the client. See <<java-api-remote,Java Remote API>> and <<java-api-grpc,Java API (gRPC)>>.
+
+[discrete]
 ====== 26.12.1 - The remote Java clients return a vertex's edges in RID order
 
 `Vertex.getEdges()` and `getVertices()` on a vertex read through `RemoteDatabase` or `RemoteGrpcDatabase` fetched a neighbourhood larger than one page (2,000 edges) with an offset into the edge list, so a loop that deleted the edges or the vertices while iterating removed only 2,500 of 4,500, and edges another client deleted meanwhile made the iteration skip live ones (issue #12191). Each page now resumes after the RID of the last edge read.
