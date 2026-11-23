@@ -729,6 +729,13 @@ _(Since v26.12.1.)_ While a replica's copy of a database is replaced from the le
 
 The leader's answer is used only for a request outside a session that forwarded exactly one write. Its body is the leader's rendering of the statement: in the client's own `serializer`, `limit` and `typeHints` when the forward carried the whole request, otherwise in the default rendering (`record` serializer, default row limit, no type hints). A request that wrote or ran a command on the replica, or forwarded several writes, keeps the retryable `503`, and so does a write refused with `Server is installing a snapshot, please retry`, which is refused before anything is forwarded.
 
+[[ha-create-drop-database-on-replica]]
+===== Creating or dropping a database through a replica
+
+_(Since v26.12.1.)_ A `create database` or `drop database` server command sent to a replica is forwarded to the leader, and the replica answers the leader's `200` only once it has applied the change itself: after a creation the next request to that replica finds the database, after a drop `GET /api/v1/exists/<dbname>` on that replica answers `false`. The wait lasts at most `arcadedb.ha.quorumTimeout` (10 s by default), and usually a few milliseconds. If the replica cannot confirm in time it logs a warning and still answers `200`, since the leader made the change. Before v26.12.1 the replica answered at once, so a client that created a database and then its schema through a load balancer could be answered `404 Database not found` when both requests reached the same replica, and a client that checked a drop could still see the database (issue #11739).
+
+A drop applied on a replica where the database had been closed with `close database` now also ends that close, so the replica no longer reports the dropped database as existing.
+
 [[ha-leader-refusal]]
 ===== When a replica refuses a write and names the leader
 
