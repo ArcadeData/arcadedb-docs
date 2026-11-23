@@ -360,9 +360,11 @@ Be sure to create a backup before running it.
 
 NOTE: Bear in mind, that the schema must remain coherent.
 For instance, avoid removing types that are super-types to others.
-This operation won't delete the associated bucket.
+The buckets of the type are dropped with it, together with the paired `_ext` buckets that hold the values of its <<sql-external-properties-pairing,EXTERNAL properties>>.
 
 NOTE: An edge type whose edges are all lightweight is refused without `UNSAFE`, as any edge type that still has edges is. _(Since v26.11.1, issues #10923 and #11142. Before, the check looked for edge records only, so the drop went through and left entries in the vertices that no command could read or delete.)_
+
+NOTE: The paired `_ext` bucket of a bucket detached from the type earlier (with `ALTER TYPE ... BUCKET -`) is kept, since the records of the detached bucket still point into it. _(Since v26.12.1, issue #12995. Before, `DROP TYPE` left every paired `_ext` bucket behind: its file stayed on disk with the EXTERNAL values, it stayed in the schema, `CHECK DATABASE` counted its records, and a type created later under the same name took it over with the old values.)_
 
 NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a materialized view, a continuous aggregate or a graph analytical view reads the type. Drop the view first. _(Since v26.11.1 for graph analytical views. Before, the drop went through and the view failed to build at the next open.)_
 
