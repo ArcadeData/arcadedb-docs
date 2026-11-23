@@ -9,12 +9,17 @@
 
 Get a virtual graph representing the database schema structure.
 
-*Syntax:* `CALL meta.graph() YIELD nodes, relationships`
+*Syntax:* `CALL meta.graph([config]) YIELD nodes, relationships`
 
 *Returns:*
 
-* `nodes` - Virtual nodes representing vertex types with their counts and properties
-* `relationships` - Virtual relationships representing edge types with their counts
+* `nodes` - One virtual node per label that has nodes, carrying that label and the properties `name` and `count`
+* `relationships` - One virtual relationship per start label, relationship type and end label that occur together,
+with the properties `type`, `out` (relationships of the type leaving a node with the start label), `in` (relationships
+of the type reaching a node with the end label) and `count` (all relationships of the type)
+
+The optional `config` map is accepted for APOC compatibility and does not narrow the answer. The call reads every
+relationship record once, so its cost grows with the number of relationships.
 
 *APOC Compatible:* `apoc.meta.graph`
 
@@ -31,14 +36,22 @@ RETURN nodes, relationships
 
 Get property information for each node type.
 
-*Syntax:* `CALL meta.nodetypeproperties() YIELD nodeType, propertyName, propertyTypes, mandatory`
+*Syntax:* `CALL meta.nodetypeproperties([config]) YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory, propertyObservations, totalObservations`
 
-*Returns:*
+*Returns:* one row per label set and property found in the data or declared in the schema:
 
-* `nodeType` - Name of the vertex type
-* `propertyName` - Name of the property
-* `propertyTypes` - List of property types
-* `mandatory` - Whether the property is required
+* `nodeType` - The labels in APOC's form, for example ``:`Person` ``
+* `nodeLabels` - List of the labels
+* `propertyName` - Name of the property, null for a label set whose nodes have no property
+* `propertyTypes` - List of the value types found, with APOC's names (`String`, `Long`, `Double`, `Boolean`,
+`StringArray`, `LongArray`, `Date`, `DateTime`, `LocalDateTime`, `Duration`, `Point`, ...)
+* `mandatory` - Whether the schema declares the property mandatory
+* `propertyObservations` - How many of the examined nodes carry the property (0 for a property only declared in the schema)
+* `totalObservations` - How many nodes were examined
+
+The nodes are sampled as APOC samples them: every `count / sample`-th node of each label. The optional `config` map
+takes `sample` (default 1000, -1 reads every node), `includeLabels` and `excludeLabels` (and APOC's deprecated `labels`
+and `excludes`). Other keys are ignored.
 
 *APOC Compatible:* `apoc.meta.nodeTypeProperties`
 
@@ -55,14 +68,18 @@ RETURN nodeType, propertyName, propertyTypes
 
 Get property information for each relationship type.
 
-*Syntax:* `CALL meta.reltypeproperties() YIELD relType, propertyName, propertyTypes, mandatory`
+*Syntax:* `CALL meta.reltypeproperties([config]) YIELD relType, sourceNodeLabels, targetNodeLabels, propertyName, propertyTypes, mandatory, propertyObservations, totalObservations`
 
-*Returns:*
+*Returns:* one row per relationship type, start labels, end labels and property, with the same columns as
+`meta.nodetypeproperties()` plus:
 
-* `relType` - Name of the edge type
-* `propertyName` - Name of the property
-* `propertyTypes` - List of property types
-* `mandatory` - Whether the property is required
+* `relType` - The relationship type in APOC's form, for example ``:`KNOWS` ``
+* `sourceNodeLabels` - Labels of the start nodes
+* `targetNodeLabels` - Labels of the end nodes
+
+The relationships examined are the outgoing ones of the sampled nodes, at most `maxRels` (default 100) per node. The
+optional `config` map takes `sample`, `maxRels`, `includeLabels`, `excludeLabels`, `includeRels` and `excludeRels` (and
+APOC's deprecated `labels`, `rels` and `excludes`).
 
 *APOC Compatible:* `apoc.meta.relTypeProperties`
 
@@ -77,7 +94,9 @@ RETURN relType, propertyName, propertyTypes
 
 Get detailed schema information including all types and properties.
 
-*Syntax:* `CALL meta.schema() YIELD value`
+*Syntax:* `CALL meta.schema([config]) YIELD value`
+
+The optional `config` map is accepted for APOC compatibility and does not change the answer.
 
 *Returns:* `value` - Map containing:
 
@@ -99,23 +118,29 @@ RETURN value.nodeLabels AS nodeTypes
 
 Get database statistics including counts of nodes and relationships.
 
-*Syntax:* `CALL meta.stats() YIELD value`
+*Syntax:* `CALL meta.stats() YIELD labelCount, relTypeCount, propertyKeyCount, nodeCount, relCount, labels, relTypes, relTypesCount, stats`
 
-*Returns:* `value` - Map containing:
+*Returns:* APOC's columns:
 
-* `labelCount` - Number of node labels
-* `relTypeCount` - Number of relationship types
+* `labelCount` - Number of node labels that have nodes
+* `relTypeCount` - Number of relationship types that have relationships
+* `propertyKeyCount` - Number of property keys, the ones the schema declares plus the ones found on a sample of the records
 * `nodeCount` - Total number of nodes
 * `relCount` - Total number of relationships
 * `labels` - Map of label to count
-* `relTypes` - Map of relationship type to count
+* `relTypes` - Map of relationship pattern to count, with the keys `()-[:T]->()`, `(:L)-[:T]->()` and `()-[:T]->(:L)`
+* `relTypesCount` - Map of relationship type to count
+* `stats` - All the above in one map
+
+A column `value`, a map with the same counts and `relTypes` by type name, is kept for the queries written before these
+columns existed. The call reads every relationship record once, so its cost grows with the number of relationships.
 
 *APOC Compatible:* `apoc.meta.stats`
 
 [source,cypher]
 ----
-CALL meta.stats() YIELD value
-RETURN value.nodeCount AS nodes, value.relCount AS relationships
+CALL meta.stats() YIELD nodeCount, relCount, labels
+RETURN nodeCount AS nodes, relCount AS relationships, labels
 ----
 
 '''

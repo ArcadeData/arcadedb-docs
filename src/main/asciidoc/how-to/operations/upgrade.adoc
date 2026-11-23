@@ -26,6 +26,19 @@ Fifteen `text.*` functions, documented as APOC compatible, answered differently 
 *Action:* escape the regular-expression characters of the delimiter (`'\\.'` for a dot) or use the openCypher `split()` and `replace()`, write `text.jaroWinklerDistance(a, b) < 0.15` for `> 0.85`, pass the values of `text.format()` as a list, and regenerate the values made with the changed functions.
 
 [discrete]
+====== 26.12.1 - `create.vNode`, `create.vRelationship`, the `meta.*` procedures and `path.slice()` answer what APOC answers
+
+These functions and procedures, documented as APOC compatible, now answer what APOC 5.26 answers (issue #12109):
+
+* `create.vNode()` and the `nodes` and `relationships` of `meta.graph()` are virtual nodes and relationships, where they were maps with `_type`, `_id` and `_labels` keys. `labels()`, `type()`, `properties()` and `id()` work on them, and `id()` is negative. `create.vRelationship()` reads its arguments in the documented order `(startNode, type, properties, endNode)`, where it read `(startNode, type, endNode, properties)` and failed on the documented order. The `CALL create.vNode(...) YIELD node` and `CALL create.vRelationship(...) YIELD rel` forms answer the element instead of `null`.
+* The third argument of `path.slice()` is a length, where it was an end index: `path.slice(p, 1, 1)` is the second relationship, `path.slice(p, 0, -1)` the whole path, and `path.slice(p)` is accepted.
+* `meta.stats()` yields APOC's columns (`nodeCount`, `relCount`, `labels`, ...), and counts each node once, where a node of a type with supertypes was counted once per supertype. `meta.nodetypeproperties()` and `meta.reltypeproperties()` list the properties found in the data too, not only those declared in the schema, write `nodeType` and `relType` as ``:`Name` ``, and name the value types as APOC does (`Long` and `Double` instead of `Integer` and `Float`). `meta.graph()` answers one relationship per start label, type and end label.
+
+*Impact:* a query that read the `_labels` or other keys of the old maps, called `create.vRelationship()` with the end node third, used `path.slice()` with an end index, or compared `nodeType` or `propertyTypes` with the old values answers differently or fails. `meta.stats()` and `meta.graph()` read every relationship record, so on a large graph they take longer than before.
+
+*Action:* use `labels(n)` and `n.prop` on the virtual elements, pass the end node of `create.vRelationship()` last, pass the length (`end - start`) as the third argument of `path.slice()`, and update the comparisons with the new `nodeType` and `propertyTypes` values. `YIELD value` of `meta.stats()` still works. See <<ext-fns-schema-meta,Schema & Meta Procedures>>, <<create-v-node,create.vNode()>> and <<path-slice,path.slice()>>.
+
+[discrete]
 ====== 26.12.1 - An openCypher shortest path from a node to itself answers only a minimum of zero
 
 `shortestPath()` and `allShortestPaths()` whose start and end are the same node answered the zero-length path also when the pattern requires at least one hop: `[*]`, `[*1..]` or a relationship without a quantifier (issue #11913). That path is shorter than the pattern allows. Now only a written minimum of zero (`[*0..]`, `[*0..2]`) answers it; any other pattern has no row for that pair, and in the expression form `shortestPath(...)` returns `null` and `allShortestPaths(...)` an empty list.
