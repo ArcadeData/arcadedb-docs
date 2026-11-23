@@ -130,6 +130,8 @@ The plugin implements a subset of the MongoDB protocol, focused on CRUD operatio
 
 Any other command is refused with error `59` (`CommandNotFound`), what MongoDB answers for a command it does not have, so a driver can tell the command is missing _(since v26.12.1)_.
 
+`find`, `count`, `aggregate`, `update`, `delete` and `create` refuse a field they would otherwise ignore, so a command never runs as if part of it were not there _(since v26.12.1)_. A MongoDB option the plugin does not implement, such as `collation`, `hint`, `min`, `max`, `returnKey`, `showRecordId`, `let` or `arrayFilters`, or on `create` `capped`, `validator`, `timeseries` or `viewOn`, is refused with error `2` (`BadValue`) naming the field. A field MongoDB does not know, such as a misspelled one, is refused with error `40415`, as MongoDB does. An option that asks for its default is accepted (a `null`, `false` for a flag, an empty `hint`, `let` or `arrayFilters`, the `simple` collation), and so are the fields drivers add on their own (`lsid`, `$db`, `$clusterTime`, `readConcern`, `writeConcern`, `maxTimeMS`, `comment`, ...) and the ones that change nothing on a single server (`batchSize`, `singleBatch`, `allowDiskUse`, `noCursorTimeout`, `ordered`). Every statement of an `update` or `delete` is checked before any runs, so a refused command changes nothing.
+
 [[mongodb-protocol-update-delete]]
 ====== Updating and deleting documents
 
@@ -158,6 +160,7 @@ db.doc.updateOne({ test: "missing" }, { $set: { counter: 999 } }, { upsert: true
 Notes:
 
 * `deleteOne()`, `updateOne()` and `replaceOne()` affect a single matching document; `deleteMany()` and `updateMany()` affect all matches.
+* The `limit` of a `delete` statement must be `0` (every match) or `1` (one match), as in MongoDB. Any other value is refused with error `9` (`FailedToParse`), a missing one with error `40414` and one that is not a number with error `14` (`TypeMismatch`) _(since v26.12.1)_. Before, a value such as `5` deleted every match.
 * A replacement document (no `$`-prefixed keys) fully replaces the matched document's fields, but keeps its `_id`. The `_id` is immutable: an update or replacement that changes or removes it is refused (error 66).
 * The supported update operators are `$set`, `$unset` and `$inc`. They accept dotted paths (`{ $set: { "addr.city": "Rome" } }`): the embedded document is updated and missing levels are created. Writing below a value that is not a document (for example a string) is refused. Another MongoDB update operator (such as `$push`, `$addToSet` or `$setOnInsert`) or a pipeline-style update is refused with error `238` (`NotImplemented`) naming it, and an operator that MongoDB does not have with error `9` (`FailedToParse`), whether or not a document matches _(since v26.12.1)_.
 * An update is refused, and changes nothing, in the same cases as MongoDB, with or without a filter _(since v26.12.1)_: `$inc` on a field that is not a number (a string, boolean, array, date, document or `null`) or by an amount that is not a number (TypeMismatch, 14), `$inc` past the range of a 64-bit integer (BadValue, 2), and two operators on the same field or on a field and one below it, such as `{ $set: { s: 2 }, $unset: { s: "" } }` (ConflictingUpdateOperators, 40).
