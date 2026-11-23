@@ -239,6 +239,17 @@ issue #12036. Before, only the type's own records were indexed: a `UNIQUE` index
 sub types, and `SEARCH_INDEX` and `vectorNeighbors` did not return them. In a database where the super-type was assigned
 on an earlier version, removing it and assigning it again builds the missing entries.)_
 
+NOTE: Assigning a super-type is refused, before anything changes, when a stored record of the type, or of a type below it,
+violates a property the type would inherit from it (or from the types above it): a `MANDATORY` property the record lacks, a
+`NOTNULL` one it holds as `null`, a value of another type than the declared one, or a value outside its `MIN`, `MAX` or
+`REGEXP`. This is the check `CREATE PROPERTY` and `ALTER PROPERTY` apply to existing records. The message names the first
+violating record and the reason, for example `Cannot make type 'T' a sub type of 'S': record #1:0 violates the properties
+it would inherit, The property 'T.p' value 5 is less than 10. Fix or delete the non-conforming records first`. A property
+the type already declares itself with the same type is governed by that declaration and not checked again. The check reads
+the records of the type and its sub types, so on a large type the statement takes as long as that scan. _(Since v26.12.1,
+issue #12030. Before, the statement was accepted, and every later write to such a record failed, even one that did not
+touch the inherited property.)_
+
 NOTE: Removing a super-type is refused, and nothing changes, while an index of the type or of a type below it stands on a
 property that type would stop inheriting, the same rule `DROP PROPERTY` applies. The message names the property and the
 index: drop the index first, declare the property on the type, or add a super-type that provides it before removing the
