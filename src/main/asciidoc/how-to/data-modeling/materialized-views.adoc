@@ -83,6 +83,8 @@ Each view tracks a `status` field that reflects its current state:
 
 If the database crashes while a view is `BUILDING`, the status is reset to `STALE` on the next startup to signal that the data may be incomplete.
 
+`BUILDING` during a refresh is reported only by the server running that refresh: the schema keeps saving the status the view had before the refresh started, so a schema change made meanwhile (another DDL statement, for example) does not store `BUILDING`. A reopen, and a follower of a highly available cluster, therefore report that status, not `STALE`. The `BUILDING` of a view whose first build has not completed yet is still saved, so a crash during that build reopens the view `STALE`. The same applies to the status of a continuous aggregate. _(Since v26.12.1, issue #12252. Before, such a schema save stored `BUILDING`, and followers reported a view `STALE` that the leader reported `VALID` over the same rows.)_
+
 ===== Querying a Materialized View
 
 Query a materialized view exactly like any other document type:
