@@ -741,6 +741,13 @@ _(Since v26.12.1.)_ A `create database` or `drop database` server command sent t
 
 A drop applied on a replica where the database had been closed with `close database` now also ends that close, so the replica no longer reports the dropped database as existing.
 
+[[ha-drop-recreate-database]]
+===== Dropping and creating a database again under the same name
+
+_(Since v26.12.1.)_ A server that restarts replays its Raft log from its last checkpoint. When a database was dropped and created again under the same name after that checkpoint, the replay now skips every change that belongs to the dropped database, its drop included, and leaves the database created later in place. Before v26.12.1 the replay applied the old schema changes, transactions and drop to the new database, so until the replay reached the end of the log the restarted server could answer `404 Database not found`, `400 unknown timeseries type`, or `500`, and quarantined a database with a TimeSeries type (issue #11919). A database dropped for good is still dropped by the replay.
+
+Each server records where its copy of each database was created in `.raft/created-index`, next to `.raft/applied-index`. The protection therefore applies to databases created, or received from the leader, by a server running v26.12.1 or later: a database created before the upgrade is protected from its next drop and create on. A database restored from a backup records no such position.
+
 [[ha-long-forwarded-statements]]
 ===== Long statements forwarded to the leader
 
