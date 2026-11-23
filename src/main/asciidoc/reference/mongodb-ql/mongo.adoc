@@ -126,6 +126,7 @@ The plugin implements a subset of the MongoDB protocol, focused on CRUD operatio
 | `delete` | `deleteOne()`, `deleteMany()`
 | `create` | `createCollection()`
 | `createIndexes` | `createIndex()`, `createIndexes()`
+| `getMore`, `killCursors` | iterating a `find()` cursor past its first batch, `cursor.close()`
 |===
 
 Any other command is refused with error `59` (`CommandNotFound`), what MongoDB answers for a command it does not have, so a driver can tell the command is missing _(since v26.12.1)_.
@@ -186,6 +187,17 @@ Notes:
 ====
 An ObjectId and a String with the same 24 hex digits are two different `_id` values, as in MongoDB: both can be stored in one collection, and each one is found only by a filter of its own type _(since v26.12.1)_. A String `_id` in that shape stored by an older version cannot be told apart from an ObjectId, so it keeps reading back as an ObjectId and is found by an ObjectId filter.
 ====
+
+[[mongodb-protocol-cursors]]
+====== Reading `find()` results in batches
+
+Since v26.12.1 `find()` answers from a cursor, like MongoDB, instead of reading and sending the whole result in one reply. The first reply carries 101 documents (or `batchSize`), and the driver asks for the rest with `getMore` while the application iterates, each batch holding `batchSize` documents, or as many as fit in 16 MB when no `batchSize` is given. A document is read and converted only when its batch is built, so the first document no longer waits for the last one, a client that stops early does not pay for the whole result, and a result larger than the 48 MB a driver accepts in one message can be read.
+
+* `skip` and `limit` apply across all the batches. `singleBatch: true`, or a negative `limit`, answers one batch and leaves no cursor. A negative `batchSize` is refused with error `2` (`BadValue`), and one that is not a number with error `14` (`TypeMismatch`).
+* A cursor is closed when it is read to the end, by `killCursors` (`cursor.close()`), when the collection or the database is dropped, and after 10 minutes without a `getMore`, unless it was opened with `noCursorTimeout`. A database keeps at most 1024 open cursors: past that, the cursor idle for the longest among those of the user holding the most is closed to make room.
+* A cursor is not tied to the connection that opened it, so a driver can read the next batch on another connection of its pool. It can only be read by the user that opened it: for another user it answers `CursorNotFound`, and a `getMore` that names another collection is refused with error `13` (`Unauthorized`).
+* The `resultSetLimit` of the user's <<groups,group>> bounds the documents of all the batches together.
+* A sorted `find()` still reads every matching document before the first batch, since it needs them all to order them.
 
 [[mongodb-protocol-bson-types]]
 ====== BSON value types
