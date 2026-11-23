@@ -59,7 +59,11 @@ the incoming unidirectional edges of the node.
 * *UNIQUE* Defines an edge type (only) that allows at most one edge per ordered `(out, in)` pair of vertices. On a regular edge type this creates a unique index on `(@out, @in)`; on a `LIGHTWEIGHT` type there are no records to index and the check scans the source vertex's edge list instead. See <<lightweight-edges,Lightweight Edges>>.
 * *IF NOT EXISTS* Specifying this option, the type creation will just be ignored if the type already exists (instead of failing
  with an error)
-* *`&lt;super-type&gt;`* Defines the super-type you want to extend with this type.
+* *`&lt;super-type&gt;`* Defines the super-type you want to extend with this type. It must be a document type or a type of the
+ same kind as the new one: `CREATE VERTEX TYPE ... EXTENDS` takes a vertex or a document type, `CREATE EDGE TYPE ... EXTENDS` an
+ edge or a document type, and `CREATE DOCUMENT TYPE ... EXTENDS` only a document type. Any other super-type refuses the statement
+ before the type is created. _(Since v26.12.1, issue #12029. Before, for example, a document or an edge type could extend a vertex
+ type, and openCypher then failed with `ClassCastException` on the first such record a label scan met.)_
 * *`&lt;bucket-id&gt;`* Defines in a comma-separated list the ID's of the buckets you want this type to use.
 * *`&lt;total-bucket-number&gt;`* Defines the total number of buckets you want to create for this type. When omitted, the
  default is taken from the `arcadedb.typeDefaultBuckets` global configuration setting (`TYPE_DEFAULT_BUCKETS`), which is `1` by default.
@@ -209,6 +213,17 @@ super-type was assigned, they cover a property the type no longer has, and the s
 applying to the type's records. Assigning the super-type again re-creates and rebuilds them.
 ====
 
+NOTE: Assigning a super-type is refused, before anything changes, when it would close a cycle (the super-type is the type
+itself or already one of its sub types, at any depth), or when it is a type of another kind: a vertex type can extend a vertex
+or a document type, an edge type an edge or a document type, and a document type only a document type. The same applies to the
+Java API (`addSuperType()`) and to the JSONL import of a logical export, which links the exported super-types the same way.
+_(Since v26.12.1, issues #12028 and #12029. Before, a cycle failed with a `StackOverflowError` (HTTP `500`) but stayed in the
+schema, after which queries on the type failed and the database could not be reopened; a link to a type of another kind was
+accepted, and openCypher then failed with `ClassCastException`.)_ A database whose schema already holds a cycle still opens:
+one link of the cycle is left out, with a warning in the log naming it, and the next schema save writes the result. Which link
+is left out depends on the order the types are loaded in. A link between types of different kinds written by an earlier
+version is kept.
+
 NOTE: Assigning a super-type with a `UNIQUE` index is refused with a `DuplicatedKeyException` when a record of the type
 holds a key the index already holds (or two records of the type share one), and the type is left as it was. The same
 applies to `ALTER TYPE ... BUCKET +` when the bucket added already holds records: a duplicate key refuses the statement
@@ -339,7 +354,10 @@ NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a materialized view, a c
 
 NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a property of another type is declared `EMBEDDED`, `LINK`, `LIST` or `MAP OF` the type (or of one of its aliases). The message names the property: drop it first with `DROP PROPERTY <Type>.<property>`. A property of the dropped type itself, one declared of its own type included, goes with it. _(Since v26.12.1, issue #11305. Before, the drop went through and every write of the property, and every read of a record holding one, failed to resolve the type.)_
 
-NOTE: Dropping a type links its sub types directly to its super types. When that would link a sub type directly under the backing type of a <<materialized-views,materialized view>> or a continuous aggregate, or under a type below one, `DROP TYPE` is refused before anything is changed, with a message naming the link to take out first, for example `+ALTER TYPE `Deep` SUPERTYPE -`Mid`+` to drop `Mid` out of `+Deep -> Mid -> <view>+`. Once that link is removed, the drop goes through. Such a chain exists only in a database written before 26.11.1, which refuses a type extending a backing type (issue #11204). _(Since v26.12.1, issue #11272. Before, the drop linked the sub type under the backing type anyway.)_
+NOTE: Dropping a type links its sub types directly to its super types. When that would link a sub type directly under the backing type of a <<materialized-views,materialized view>> or a continuous aggregate, or under a type below one, `DROP TYPE` is refused before anything is changed, with a message naming the link to take out first, for example `+ALTER TYPE `Deep` SUPERTYPE -`Mid`+` to drop `Mid` out of `+Deep -> Mid -> <view>+`. Once that link is removed, the drop goes through. Such a chain exists only in a database written before 26.11.1, which refuses a type extending a backing type (issue #11204). _(Since v26.12.1, issue #11272. Before, the drop linked the sub type under the backing type anyway.)_ The same refusal applies
+when the new direct link would join types of different kinds, which only a database written before 26.12.1 can hold (for example a
+document type under a vertex type under another vertex type: dropping the middle type is refused, naming the link to take out first).
+A hierarchy that follows the rule can be dropped from the middle as before. _(Since v26.12.1, issue #12029.)_
 
 NOTE: A database written by a version affected by issue #8169 can still contain a type that was dropped but came back after a restart with no buckets: inserting into it fails with `Cannot retrieve a bucket for type ... because there are no buckets associated`. The database logs a warning at open naming every type that has no buckets and no subtypes, and `DROP TYPE <name>` removes such a type permanently.
 
