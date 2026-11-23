@@ -73,6 +73,15 @@ A write that an HA replica forwarded to a leader which died or did not answer, a
 *Action:* on a `504` from `/api/v1/command` or `/api/v1/commit`, check whether the write landed before sending it again. See <<ha-outcome-unknown-contract,Outcome-unknown response contract>>.
 
 [discrete]
+====== 26.12.1 - The line protocol write refuses an unknown `precision`
+
+`POST /api/v1/ts/{database}/write` read a `precision` it did not recognize (`sec`, `seconds`, `h`, a typo) as nanoseconds and answered `204`, so a timestamp in seconds was stored in 1970 (issue #11875).
+
+*Impact:* any value other than `ns`, `us`, `u`, `ms` or `s` (in any case) answers `400` with an `error` naming the accepted values, and nothing in the request is written. An absent or empty `precision` still means nanoseconds.
+
+*Action:* send one of the accepted values. See <<timeseries-line-protocol-precision,Precision parameter>>.
+
+[discrete]
 ====== 26.12.1 - A mistake in a SQL script's own values or order is a client error, not `500`
 
 `SLEEP` of a value that is not a number, an unknown `CONSOLE` level, a `LOCK` after a modification or a second `LOCK`, a `COMMIT` with no transaction open inside a loop or an `IF`, a `BEGIN` in a loop past the nested-transaction limit, and `<`, `<=`, `>`, `>=` or `BETWEEN` between two records answered `500` before, with a `NullPointerException`, `ClassCastException`, `TransactionException` or `CommandExecutionException` (issue #11893).
