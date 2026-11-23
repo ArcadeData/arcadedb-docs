@@ -1606,6 +1606,12 @@ when the earlier ones already gave 3 rows. A `UNION` inside `CALL { }` removes d
 does, so `1` and `1.0` count as the same value. _(Since v26.11.1: before, the whole subquery ran before its first row
 was returned, and a `UNION` inside it compared values by their text.)_
 
+TIP: In a statement that does not write, the body of a `CALL { }`, `EXISTS { }`, `COUNT { }` or `COLLECT { }` is
+planned once per execution of the statement and run again for each outer row, instead of being planned again for every
+row. Correlated subqueries over many rows run up to about twice as fast; the rows are the same. `PROFILE` shows it as
+`Subquery step chains: <built> built, <reused> reused`. A statement that writes still plans its subqueries for every
+row, so a write made for one row is seen by the subquery of the next. _(Since v26.12.1, issue #12136)_
+
 *Subqueries IN TRANSACTIONS:*
 
 When importing large datasets (e.g., from LOAD CSV), you can use `CALL { ... } IN TRANSACTIONS` to commit changes in batches rather than accumulating all changes in a single transaction. This prevents running out of memory and allows progress to be committed incrementally.
