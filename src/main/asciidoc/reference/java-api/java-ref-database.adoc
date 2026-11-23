@@ -826,6 +826,15 @@ UNIQUE index refuses it at the commit when another record holds that value. Earl
 values of the last `save()`, so a query by the new value did not find the record (issue #11751). A list, map or embedded
 document changed in place is not tracked: call `save()` again after changing it.
 
+NOTE: When an index refuses a `save()` (a vector of the wrong dimension, or with a NaN or an Infinity, a duplicate of a
+UNIQUE key, the change of the primary key of a partitioned type) the exception can be handled and the transaction goes
+on. Since v26.12.1, if the record was already saved earlier in the same transaction, the refused `save()` puts its
+indexed properties back to the values of its last accepted `save()`, so the transaction still commits with all its
+other writes (issue #13130). The non-indexed properties assigned before the refused `save()` stay on the record. When
+an indexed value cannot be put back (an index on a nested path of an embedded document or map), the commit is refused
+with the reason. Earlier versions left the refused value on the record, so the commit failed on it and the whole
+transaction was rolled back.
+
 NOTE: The metadata names `@rid`, `@type`, `@cat`, `@in`, `@out`, `@props` and `@this` are not properties. Since
 v26.10.2 the positional setters (`set(name, value)`, `set(n1, v1, n2, v2)`, `set(Object...)`) refuse them with an
 `IllegalArgumentException`, before assigning anything; earlier versions stored them as properties no reader could
