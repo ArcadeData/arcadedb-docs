@@ -109,16 +109,16 @@ These classes expose graph-traversal methods that translate directly into SQL qu
 |Method|Description
 
 |`getVertices(direction, edgeTypes...)`
-|Returns all neighbor vertices, transparently paginating in batches of `DEFAULT_PAGE_SIZE` (2,000) records per HTTP call.
+|Returns all neighbor vertices, transparently paginating in batches of `DEFAULT_PAGE_SIZE` (2,000) records per HTTP call. The vertices come in the order of their edges, once per edge, and a vertex deleted since its edge was read is left out.
 
 |`getVerticesPaged(direction, pageSize, edgeTypes...)`
-|Same as above but with an explicit page size. Use to tune round-trip vs. payload trade-off for supernodes.
+|Same as above but with an explicit page size. Use to tune round-trip vs. payload trade-off for supernodes. A page size of zero or less throws `IllegalArgumentException`.
 
 |`getVertices(direction, limit, skip, edgeTypes...)`
 |Returns a single page of up to `limit` neighbor vertices starting at offset `skip`. Useful for implementing your own pagination.
 
 |`getEdges(direction, edgeTypes...)`
-|Returns all connected edges, transparently paginating with `DEFAULT_PAGE_SIZE` per HTTP call.
+|Returns all connected edges in RID order, transparently paginating with `DEFAULT_PAGE_SIZE` per HTTP call. `BOTH` returns the outgoing edges, then the incoming ones, so a self-loop comes twice, as in the embedded API.
 
 |`getEdgesPaged(direction, pageSize, edgeTypes...)`
 |Same as above but with an explicit page size.
@@ -151,8 +151,9 @@ for (Vertex neighbor : hubRemote.getVerticesPaged(Vertex.DIRECTION.OUT, 5_000, "
 }
 ----
 
-NOTE: Each page uses a `SKIP/LIMIT` SQL clause, so the edge list is re-scanned from the beginning on every page.
-For supernodes with millions of edges prefer a SQL query with a server-side `WHERE` filter to narrow results before fetching them.
+NOTE: Each page of `getEdges()`, `getVertices()`, `getEdgesPaged()` and `getVerticesPaged()` resumes after the RID of the last edge of the previous page, so deleting the edges or the vertices while iterating (`for (Edge e : hub.getEdges(OUT)) e.delete();`), or another client deleting edges already read, does not make the iteration skip live ones.
+A lightweight edge has no RID of its own: deleting, while iterating, an already read lightweight edge of the same type between the same two vertices as a live one can still hide the live one.
+The server still reads the whole edge list of the vertex on every page, so for supernodes with millions of edges prefer a larger page size, or a SQL query with a server-side `WHERE` filter to narrow results before fetching them.
 
 The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the `RemoteDatabase` make sure that the database exists, or, if it doesn't, create it:
 
