@@ -110,6 +110,15 @@ A user name, password or group of a `arcadedb.server.defaultDatabases` credentia
 *Action:* write a `%` that is followed by two hexadecimal digits as `%25`, and any `:`, `,`, `;`, `[` or `]` inside a field encoded as above. See <<settings-sql,`server.defaultDatabases`>>.
 
 [discrete]
+====== 26.12.1 - A schema change refused because of the data already stored is a `ValidationException`
+
+`CREATE PROPERTY` and `ALTER PROPERTY` refused because a record already stored violates the constraint (`MANDATORY`, `NOTNULL`, `MIN`, `MAX`, `REGEXP`), and the same refusal over a sample already stored in a TIMESERIES type, raise a `ValidationException`, whose kind names the constraint where there is one. An update that would change the partition key of a type with `partitioned(...)` bucket selection raises a `ValidationException` too (issue #12037). Before, they raised a `CommandExecutionException` (the partition key an `IndexException`), and `MANDATORY`, `NOTNULL` and the partition key were answered over HTTP with `500`.
+
+*Impact:* over HTTP these refusals answer `400`, with the constraint in `exceptionArgs`. Embedded Java code that caught `CommandExecutionException` or `IndexException` for these cases no longer catches them.
+
+*Action:* catch `ValidationException` (or `ArcadeDBException`) for a schema change refused over the stored data. See <<sql-create-property,CREATE PROPERTY>>.
+
+[discrete]
 ====== 26.12.1 - A schema change over PostgreSQL answers no result set, and a violated constraint has its own error code
 
 Over the PostgreSQL protocol a schema change (`CREATE TYPE`, `CREATE PROPERTY`, `CREATE INDEX`, `ALTER TYPE`, `DROP TYPE`, `REBUILD INDEX`, ...) is answered as PostgreSQL answers `CREATE TABLE`: no result set and a command tag naming the statement, such as `CREATE DOCUMENT TYPE` (issue #11312). The command tag of every statement the server parses comes from the statement, not from its text, so a write with a leading comment reports its row count (issue #11313). A value refused by a constraint declared on its property raises a `ValidationException` that names the constraint (`ValidationException.getKind()`: `MANDATORY`, `NOT_NULL`, `MIN`, `MAX`, `MAX_LENGTH`, `REGEXP`, `READONLY`, `TYPE`, `ENCODING`), a number a property's type cannot hold raises a `ValueOutOfRangeException` (an `IllegalArgumentException`), and a call of a function that does not exist raises an `UnknownFunctionException` (a `CommandExecutionException`), see issue #11314.
