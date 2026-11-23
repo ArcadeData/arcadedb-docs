@@ -35,6 +35,15 @@ Fifteen `text.*` functions, documented as APOC compatible, answered differently 
 *Action:* write `[*0..]` where the zero-length path of a node to itself is wanted. See <<cypher-compatibility,shortestPath() and Hop Bounds>>.
 
 [discrete]
+====== 26.12.1 - An openCypher pattern predicate over a null variable is false
+
+A pattern predicate such as `WHERE (x)-->()`, `exists((b)-->(x))` or `WHERE NOT (x)-->()` that names a node or relationship variable an `OPTIONAL MATCH` left null treated that variable as any node, so it was true whenever the pattern held somewhere in the graph (issue #13124). It is now false, and its `NOT` true, as Neo4j answers. A variable not in scope at all still stands for any node, and `EXISTS { }` subqueries and pattern comprehensions are unchanged.
+
+*Impact:* rows where the variable is null are no longer kept by the positive predicate and are now kept by `NOT` of it, so an anti-join written as `OPTIONAL MATCH ... WHERE NOT (n)-[:R]-()` returns the rows it used to drop.
+
+*Action:* none, unless a query relied on the old answer.
+
+[discrete]
 ====== 26.12.1 - openCypher `toString()` of a time or a datetime prints the seconds and trims the fraction, as Neo4j 5 does
 
 `toString()` of a `localtime()`, `time()`, `localdatetime()` or `datetime()` used Java's text, which leaves out zero seconds (`10:00`) and keeps the trailing zeros of the fraction (`.500`). It now prints the seconds always and removes the trailing zeros of the fraction: `10:00:00`, `2020-01-01T10:00:00.5Z` (issue #11912). `toStringOrNull()`, `toStringList()`, `convert.toString()` and `apoc.convert.toString()` print the same, and a `java.time` value bound as a parameter prints as the Cypher temporal it stands for.
