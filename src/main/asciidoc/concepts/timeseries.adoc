@@ -703,7 +703,7 @@ ArcadeDB provides a comprehensive set of `ts.*` SQL functions for time series an
 | Function | Description
 
 | `ts.timeBucket(interval, timestamp [, options])`
-| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc. Buckets are counted from the Unix epoch unless `options` moves the grid, see <<ts-bucket-origin,Moving the bucket grid>>.
+| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc. An interval (or an `offset`) whose milliseconds do not fit a 64-bit long, such as `'30500568905w'`, is refused with a "too large" error naming the largest amount of that unit _(since v26.12.1, issue #11986; earlier versions silently wrapped it to a different bucket width)_. Buckets are counted from the Unix epoch unless `options` moves the grid, see <<ts-bucket-origin,Moving the bucket grid>>.
 
 | `ts.first(value, timestamp)`
 | Returns the value corresponding to the earliest timestamp in the group.
@@ -1282,6 +1282,7 @@ DROP CONTINUOUS AGGREGATE hourly_temps
 ----
 
 The defining query must reference a TimeSeries source type and contain a `ts.timeBucket()` call with a `GROUP BY` clause.
+The interval is checked when the aggregate is created, by the same rules as the query: an interval that is too large or not a positive amount of time is refused, and no aggregate is left behind, even when the source type is still empty _(since v26.12.1, issue #11986)_.
 After creation, every insert into the source type triggers an incremental refresh using watermark tracking -- only new data since the last watermark is processed.
 
 A refresh is never part of the caller's transaction. `REFRESH CONTINUOUS AGGREGATE`, `ContinuousAggregate.refresh()` and the first refresh of `CREATE CONTINUOUS AGGREGATE` run inside a transaction of their own, committed before they return, even when the caller has one open: a `ROLLBACK` of the caller's transaction does not take the rows of the aggregate back, exactly as it does not take the aggregate itself or the samples it reads back. The refresh an `INSERT`, `DELETE FROM` or `TRUNCATE TYPE` on the source type triggers inside a transaction runs once, when that transaction ends, whether it commits or rolls back, since the samples it answers for are written either way. _(Since v26.11.1, issue #10708. Before, a refresh inside a transaction joined it, and a `ROLLBACK` left the watermark advanced over rows that were gone: the buckets behind it were lost for good, with the aggregate reported `VALID`. A `ROLLBACK` also dropped the refresh an `INSERT` or a delete was owed.)_
