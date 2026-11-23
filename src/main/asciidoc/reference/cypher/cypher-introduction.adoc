@@ -145,6 +145,12 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   `OR` of equalities on the same property all qualify, and a leading prefix of a composite index is enough:
   with an index on `(transactionId, date)`, filtering `transactionId` alone walks that prefix of the index
   instead of scanning every edge. The plan shows it as `MATCH EDGE BY INDEX`
+* Asks the read permission of the type, and of its subtypes, before any index lookup _(since v26.12.1)_: the lookup of
+  a labelled node (an equality, an `IN` list or a leading prefix of a composite index) asks it for the label, and
+  `MATCH EDGE BY INDEX` asks it for the relationship type and for the labels written on both endpoints. A user who may
+  not read one of them is refused whatever the index holds, as a scan of the type refuses him. Before 26.12.1 the node
+  lookup was refused only when the index held the value (and answered no rows when it did not), and the relationship
+  lookup returned the relationships that end in a type the user may not read
 * Optimizes join order based on cardinality estimation
 * Detects bounded patterns for efficient relationship traversal
 * Joins the parts of a pattern no relationship connects - `MATCH (a:Person), (c:City)`, or two `MATCH` clauses - on
