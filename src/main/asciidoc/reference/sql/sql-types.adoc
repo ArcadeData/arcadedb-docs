@@ -256,7 +256,8 @@ index: drop the index first, declare the property on the type, or add a super-ty
 old one. The changes of one statement are applied in the order written, so to swap two super-types that both declare the
 property write the addition first (`ALTER TYPE C SUPERTYPE +Q, -P`); `SUPERTYPE -P, +Q` is refused at the removal. A removal
 is also refused when the property would then be inherited from another super-type with a different type (for example
-`STRING` instead of the `INTEGER` the index is keyed on). `DROP TYPE` is not affected by this check. _(Since v26.12.1,
+`STRING` instead of the `INTEGER` the index is keyed on). `DROP TYPE` applies the same rule to the sub types of the dropped
+type (see <<sql-drop-type,`DROP TYPE`>>). _(Since v26.12.1,
 issue #12038. Before, the removal was accepted and left the index keyed on a property the type no longer declared, so
 values were stored with one type and indexed with another.)_
 
@@ -371,6 +372,8 @@ NOTE: Dropping a type links its sub types directly to its super types. When that
 when the new direct link would join types of different kinds, which only a database written before 26.12.1 can hold (for example a
 document type under a vertex type under another vertex type: dropping the middle type is refused, naming the link to take out first).
 A hierarchy that follows the rule can be dropped from the middle as before. _(Since v26.12.1, issue #12029.)_
+
+NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while an index of one of its sub types (at any depth) stands on a property that sub type would no longer inherit after the drop, the same rule `DROP PROPERTY` applies. For example, with `C EXTENDS P`, `P.k` declared only on `P` and an index `C[k]`, `DROP TYPE P` answers `Cannot drop the type 'P' because the property 'k' that type 'C' would no longer inherit is used by index 'C[k]'` and changes nothing: drop the index first, or declare the property on the sub type. A property the sub type keeps does not count: one it declares itself, one it inherits through another super type, or one declared by a super type of the dropped type. The dropped type's own indexes are dropped with it, as before. _(Since v26.12.1, issue #12318. Before, the drop went through and left the index keyed on a property no type declared, so values were stored with one type and indexed with another.)_
 
 NOTE: A database written by a version affected by issue #8169 can still contain a type that was dropped but came back after a restart with no buckets: inserting into it fails with `Cannot retrieve a bucket for type ... because there are no buckets associated`. The database logs a warning at open naming every type that has no buckets and no subtypes, and `DROP TYPE <name>` removes such a type permanently.
 
