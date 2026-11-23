@@ -342,6 +342,15 @@ A property declared `ARRAY_OF_SHORTS`, `ARRAY_OF_INTEGERS`, `ARRAY_OF_LONGS`, `A
 *Action:* none, unless the code relied on the order of the edges, in which case sort them. See <<java-api-remote,Java Remote API>>.
 
 [discrete]
+====== 26.12.1 - The HTTP Java client's `iterateType()`, `iterateBucket()` and streams return every row
+
+`RemoteDatabase.iterateType()`, `iterateBucket()`, `queryStream()` and `commandStream()` stopped at the server's default row cap for buffered responses (`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows) unless the application called `setMaxResultRows()`, while `countType()` reported the full count (issue #12185). `iterateType()` and `iterateBucket()` now return every record, and the streams every row, up to the server's hard ceiling `arcadedb.server.httpQueryMaxResultRows`. A result above the ceiling is refused with an exception instead of returned in part. The same applies to `queryStream(language, query, params)` on `RemoteGrpcDatabase`, which streams over HTTP. The buffered `query()` and `command()` are unchanged.
+
+*Impact:* `iterateType()` and `iterateBucket()` ignore `setMaxResultRows()`. `queryStream()` and `commandStream()` still honor it.
+
+*Action:* none. Code that called `setMaxResultRows(-1)` only to stream every row can drop the call. See <<java-api-remote-streaming,Streaming results>>.
+
+[discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
 
 A Cypher `CREATE` or `MERGE` naming a type that does not exist creates it. Through MCP (`execute_command`, `upsert_entity`, `upsert_relationship`) this happened even with `allowSchemaChange` off. It is now refused.

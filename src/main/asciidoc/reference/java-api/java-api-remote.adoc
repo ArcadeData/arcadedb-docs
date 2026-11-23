@@ -303,8 +303,6 @@ arrives, so neither the server nor the client holds more than one row at a time.
 
 [source,java]
 ----
-database.setMaxResultRows(-1); // no row cap: stream the whole result
-
 try (ResultSet resultSet = database.queryStream("sql", "select from Customer where surname = ?", "Miner")) {
   while (resultSet.hasNext()) {
     Result customer = resultSet.next();
@@ -318,10 +316,17 @@ try-with-resources. It can be read only once.
 * `hasNext()` returns `false` only after the server sent the `stats` trailer. A failure on the server raises the
 exception the buffered call would have raised, and a stream that ends without its trailer (a dropped connection)
 raises a `RemoteException`: a short result is never returned silently.
-* Without `setMaxResultRows()` the server's default cap applies (`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows),
-unless the statement has its own `LIMIT`. When the cap drops rows, the client logs a warning and `hasNext()` returns
-`false`. Call `setMaxResultRows(-1)` to stream every row, up to the server's hard ceiling
-`arcadedb.server.httpQueryMaxResultRows`.
+* Without `setMaxResultRows()` the stream returns every row, up to the server's hard ceiling
+`arcadedb.server.httpQueryMaxResultRows` (1,000,000 rows by default). A result above the ceiling raises an exception
+after the rows that fit, instead of ending short. The server's default cap for buffered responses
+(`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows) does not apply to a stream _(since v26.12.1, issue #12185;
+before, the stream stopped at that cap)_. Call `setMaxResultRows()` to cap the stream yourself: when the cap drops
+rows, the client logs a warning and `hasNext()` returns `false`.
 * `commandStream()` takes read-only statements only. The server refuses a statement that writes, because its rows would
 reach the client before it committed. Use `command()` for writes.
 * The response has no `explain` or write statistics. Use `query()` or `command()` when you need them.
+
+`iterateType()` and `iterateBucket()` return every record of the type or bucket, as on the embedded API, whatever
+`setMaxResultRows()` is set to _(since v26.12.1, issue #12185; before, they stopped at the server's default cap of
+20,000 rows while `countType()` reported the full count)_. They read the records in one buffered response, so a type or
+bucket larger than `arcadedb.server.httpQueryMaxResultRows` is refused with an exception rather than returned in part.
