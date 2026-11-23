@@ -190,6 +190,18 @@ retryable `ConcurrentModificationException`, so `database.transaction(...)` and 
 its RID, one deleted by the transaction itself, or an edge entry that was already dangling before the traversal started still
 answers `RecordNotFoundException` _(since v26.12.1; before, every such read failed with `RecordNotFoundException`)_.
 
+[[writes-during-index-ddl]]
+*Writes during an index change.* A SQL write (`INSERT`, `UPDATE`, `DELETE`, `CREATE VERTEX`, `CREATE EDGE`, and the writes of a
+SQL script) that reads through an index another request drops or rebuilds meanwhile fails with a retryable
+`ConcurrentModificationException`, HTTP `503`, so `database.transaction(...)`, `COMMIT RETRY` and the HTTP API retry it. A write
+cannot be planned again halfway, as a `SELECT` is, because it may already have written: the retry rolls the transaction back and
+runs the statement again from the start, against the new schema, so nothing is applied twice. In Java the cause is a
+`StaleIndexException`, a subclass of `IndexException`, so code that catches `IndexException` keeps catching it. Other index
+errors, such as a key too large for a page, are not retryable and are reported as before. A write into a bucket that
+`ALTER TYPE ... BUCKET +` has just added to an indexed type commits normally, even while the request that added it is still
+open _(since v26.12.1, issue #11835; before, such writes could fail with `400` "Cannot update the index ... because the file is
+invalid" or `500` `IndexException`, although a retry succeeded)_.
+
 Using `remote` access all the commands are executed on the server, so out of transaction scope.
 Look below for more information.
 
