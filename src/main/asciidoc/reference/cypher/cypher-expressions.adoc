@@ -862,6 +862,21 @@ The Cypher `point()` function returns a map with the coordinates, the `crs` name
 `crs` and `srid` can be given explicitly and are derived from each other. A `crs` name is accepted in any letter case and
 returned in the spelling above. A pair that disagrees, or 2D/3D coordinates that do not match the `crs`/`srid`, raise an error.
 
+`x`/`y` (and `z`) with a geographic `srid` or `crs` (4326, 4979, `wgs-84`, `wgs-84-3d`) build the same point as
+`longitude`/`latitude` (and `height`): `point({x: 1, y: 2, srid: 4326}).longitude` is `1.0`. A map that has both `x`/`y`
+and `longitude`/`latitude` is built from `x`/`y`, as in Neo4j, and `z` wins over `height`. A coordinate must be finite:
+`Infinity` or `NaN` raises "Cannot create a point with non-finite coordinate values". A map with only one coordinate of
+its pair, such as `point({x: 1})` or `point({latitude: 1})`, raises "A map with keys [x] is not describing a valid point",
+while a coordinate given as `null` (`point({x: null, y: 2})`) still returns `null`. Unlike Neo4j, an unknown `crs` name
+or `srid` is kept as given.
+
+[NOTE]
+====
+Since v26.12.1. Before, `point({x: 1, y: 2, srid: 4326})` had a `null` `longitude` and `latitude`, a map with both
+spellings built the WGS-84 point from `longitude`/`latitude`, non-finite coordinates were accepted and an incomplete map
+returned `null` (issue #12276).
+====
+
 `ORDER BY`, `min()` and `max()` order points as Neo4j does: by coordinate reference system (srid 4326, 4979, 7203, 9157),
 then by x (`longitude`), y (`latitude`) and z (`height`). A point sorts after an ordinary map. Points are not comparable
 with `<` and `>` (the answer is `null`); `<=` and `>=` are `true` for two equal points and `null` otherwise.
