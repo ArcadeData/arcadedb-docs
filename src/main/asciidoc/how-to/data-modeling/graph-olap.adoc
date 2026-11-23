@@ -93,6 +93,15 @@ CREATE GRAPH ANALYTICAL VIEW weighted
   COMPACTION THRESHOLD 50000
 ----
 
+An edge property is materialized only when the schema declares it on at least one of the view's edge types, with a type a column can hold (`INTEGER`, `SHORT`, `BYTE`, `LONG`, `FLOAT`, `DOUBLE` or `STRING`) and the same column type on every edge type that declares it (`INTEGER`, `SHORT` and `BYTE` share one, as do `FLOAT` and `DOUBLE`). Declare it before creating the view:
+
+[source,sql]
+----
+CREATE PROPERTY ROAD.distance DOUBLE
+----
+
+Since v26.12.1 `CREATE GRAPH ANALYTICAL VIEW` (and the builder's `build()` and `buildAsync()`) refuses a definition whose `EDGE PROPERTIES` or `CCH` weights name a property that would get no column, and the error names the property and the `CREATE PROPERTY` to run. Before, the view was created and listed the property in `edgePropertyFilter`, but held no value of it, so every algorithm weighted by it read the edge records and ran no faster than without a view (issue #12177). A saved view whose property has no column (created by an earlier release, or after a `DROP PROPERTY`) is still restored as it was defined when the database opens, with the same message logged as a warning: declare the property, then `REBUILD GRAPH ANALYTICAL VIEW`.
+
 Add `CCH (...)` to keep a <<gav-cch,Customizable Contraction Hierarchy>> per weight property, for fast point-to-point shortest paths. A weight listed there is materialized as an edge property even when `EDGE PROPERTIES` does not name it:
 
 [source,sql]
@@ -172,7 +181,7 @@ SELECT FROM schema:graphAnalyticalViews
 | `withVertexTypes(String...)` | Filter to specific vertex types | all
 | `withEdgeTypes(String...)` | Filter to specific edge types | all
 | `withProperties(String...)` | Materialize specific vertex properties (names prefixed with `!` are excluded instead); an empty array materializes none | all
-| `withEdgeProperties(String...)` | Materialize edge properties (e.g., weights) | none
+| `withEdgeProperties(String...)` | Materialize edge properties (e.g., weights); each must be declared in the schema on at least one of the view's edge types, or the build is refused | none
 | `withUpdateMode(UpdateMode)` | OFF, SYNCHRONOUS, or ASYNCHRONOUS | OFF
 | `withCompactionThreshold(int)` | Rebuild CSR after N accumulated delta edges | 10,000
 | `withContractionHierarchy(String, String...)` | Keep a <<gav-cch,contraction hierarchy>> for a weight property, over the given edge types (all of the view's when none) | none
