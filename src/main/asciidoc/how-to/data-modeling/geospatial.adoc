@@ -211,6 +211,7 @@ NOTE: Distance is expressed in degrees. To approximate metres, divide by 111,000
 Returns the minimum bounding rectangle (envelope) of a geometry as a polygon WKT.
 A bounding rectangle that crosses the antimeridian is returned as a `MULTIPOLYGON` split at 180, e.g. `MULTIPOLYGON (((170 0, 180 0, 180 10, 170 10, 170 0)), ((-180 0, -170 0, -170 10, -180 10, -180 0)))`, so every `geo.*` function reads it back as that rectangle and not as the band between its two meridians.
 `geo.asGeoJson()` of an `ENVELOPE` that crosses the antimeridian is likewise a `MultiPolygon` split at 180.
+The envelope of an empty geometry (e.g. `POINT EMPTY`) is `POLYGON EMPTY`, as in PostGIS. _(Since v26.12.1; before, it was a polygon of NaN coordinates)_
 
 Syntax: `geo.envelope(<geometry>)`
 
@@ -229,6 +230,7 @@ For two points it is the distance between them; for any other pair of shapes it 
 Two shapes facing each other across the antimeridian are measured the short way round.
 The closest points of two shapes that are not points are found on the longitude/latitude plane and then measured on the sphere, so the result is close to, but not always equal to, the shortest distance on the sphere: the plane picks the nearest edge in degrees, and a degree of longitude is shorter the nearer the pole.
 For two points it is exact.
+When either geometry is empty (e.g. `POINT EMPTY`) the result is `NULL`, as in PostGIS, and `geo.dWithin()` answers `false`. _(Since v26.12.1; before, it was NaN)_
 
 Syntax: `geo.distance(<geometry1>, <geometry2> [, <unit>])`
 
@@ -286,6 +288,7 @@ SELECT geo.asText(geo.point(2.2945, 48.8584)) AS wkt
 ====== geo.asGeoJson()
 
 Converts a geometry object to a https://geojson.org[GeoJSON] string.
+An empty geometry has no position: `geo.asGeoJson('POINT EMPTY')` returns `{"type":"Point","coordinates":[]}` and `geo.asGeoJson('POLYGON EMPTY')` returns `{"type":"Polygon","coordinates":[]}`. _(Since v26.12.1; before, an empty point failed with an error)_
 
 Syntax: `geo.asGeoJson(<geometry>)`
 
@@ -301,6 +304,7 @@ SELECT geo.asGeoJson(geo.point(2.2945, 48.8584)) AS geojson
 ====== geo.x()
 
 Extracts the X coordinate (longitude) from a point geometry.
+An empty point (`POINT EMPTY`) returns `NULL`. _(Since v26.12.1; before, it returned NaN)_
 
 Syntax: `geo.x(<point>)`
 
@@ -316,6 +320,7 @@ SELECT geo.x(geo.geomFromText('POINT(2.2945 48.8584)')) AS longitude
 ====== geo.y()
 
 Extracts the Y coordinate (latitude) from a point geometry.
+An empty point (`POINT EMPTY`) returns `NULL`. _(Since v26.12.1; before, it returned NaN)_
 
 Syntax: `geo.y(<point>)`
 
