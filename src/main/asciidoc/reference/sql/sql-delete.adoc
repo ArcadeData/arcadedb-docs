@@ -33,6 +33,12 @@ This is the default option.
 `<projection>` (`RETURNING *` for all their properties), where `RETURN BEFORE` returns each whole record. `RETURN` and
 `RETURNING` cannot be combined in the same statement. _(Since v26.12.1, issue #11392.)_
 
+The statement deletes the set of records its source names, each once. A source that names one record in several rows, such as
+`DELETE VERTEX FROM (SELECT expand(out()) FROM V WHERE k = 0)` over two parallel edges to the same neighbour, a list of RIDs
+or a parameter, deletes, counts and returns that record once: the later rows naming it are skipped. Parallel lightweight edges
+share one RID but are distinct edges, so each is still deleted. _(Since v26.12.1, issue #12256: the second row naming a
+record failed the whole statement with a not-found error.)_
+
 [IMPORTANT]
 ====
 *On a TIMESERIES type* (since 26.11.1) `DELETE` removes samples, and it does not take part in the transaction it runs in: the samples are gone, durably, when the statement returns, and a `ROLLBACK` does not bring them back (the result carries `transactional: false`). Its `WHERE` is a time range on the timestamp column and equalities on `TAG` columns joined by `AND`; a predicate on a `FIELD` column, an `OR`, `LIMIT`, `BATCH` and `RETURN BEFORE` are refused. See <<timeseries-deleting-samples,Deleting Samples>>.
