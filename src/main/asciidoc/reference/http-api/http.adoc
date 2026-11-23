@@ -2338,6 +2338,12 @@ Each line is a JSON object with the following meta fields:
 | Destination vertex reference: a temporary ID or an existing RID
 |===
 
+An endpoint written as a RID must be an existing vertex. A RID that does not exist, or that names a document or an
+edge, is refused with `400` on the line that names it (`Edge endpoint '#99:0' at line 4: Vertex #99:0 does not exist`),
+with the `verticesCreated`, `edgesCreated` and `partialCommit` counters, and the edges loaded before that line stay
+reachable (since 26.12.1; before, the load failed only at its end with `404` or `500`, without the counters, and left
+every edge of the load unreachable by traversal).
+
 All other fields are treated as properties.
 
 IMPORTANT: A control key sent on the kind of line that cannot use it is refused with `400`, naming the line:
@@ -2472,7 +2478,7 @@ NOTE: The Java driver's `RemoteGraphBatch` uses this encoding automatically, so 
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
-* https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, vertices after edges
+* https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, an edge endpoint RID that does not exist or is not a vertex, vertices after edges
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/409[`409`] _(since v26.12.1)_ another batch load is already running on the database (`"error": "A GraphBatch load is already in progress on this database"`, `"exception": "com.arcadedb.exception.GraphBatchInProgressException"`). A database accepts one batch load at a time, and nothing of the refused load ran. No `Retry-After` is sent, because the server cannot know when the other load ends: send the load again once it has finished. Before v26.12.1 the same refusal answered `500` `"Internal error"`
 * https://httpstatuses.io/413[`413`] the body exceeds `server.httpBodyContentMaxSize`; the load is cut short and the records loaded before the cut *stay loaded*

@@ -74,8 +74,11 @@ of a vetoed edge failed with `INTERNAL` carrying the text of a `NullPointerExcep
 `EDGE`. The first chunk must name the `database` and carry the `GraphBatchOptions` (batch size, light edges, WAL,
 commit frequency, `vertex_batch_size`, commit retries, and `return_id_mapping`); options on later chunks are ignored.
 Vertices declare a `temp_id`, and edges reference their endpoints by `temp_id` or by an existing RID (`#bucket:pos`)
-in `from_ref` / `to_ref`. All `VERTEX` records must precede every `EDGE` record across the whole stream: interleaving
-is an error. On a replicated cluster the load must run on the leader; a follower refuses it.
+in `from_ref` / `to_ref`. An endpoint given as a RID must be an existing vertex: a RID that does not exist, or that
+names a document or an edge, fails the load with `INVALID_ARGUMENT` naming the RID when the record is read (since
+26.12.1; before, it failed only at the end of the load with `NOT_FOUND` or `INTERNAL`). All `VERTEX` records must
+precede every `EDGE` record across the whole stream: interleaving is an error. On a replicated cluster the load must
+run on the leader; a follower refuses it.
 
 `GraphBatchResult` reports `vertices_created`, `edges_created`, `elapsed_ms` and, depending on `return_id_mapping`,
 the `temp_id` to RID map in `id_mapping` (when the map is not returned, `id_mapping_omitted` is set and
