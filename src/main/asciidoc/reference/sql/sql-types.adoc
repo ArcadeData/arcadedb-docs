@@ -215,6 +215,13 @@ applies to `ALTER TYPE ... BUCKET +` when the bucket added already holds records
 and the bucket is not attached. _(Since v26.12.1, issue #11302. Before, the statement was accepted and the type's part
 of the index was left empty, so queries using that index missed the type's records.)_
 
+NOTE: Assigning a super-type builds its indexes (and those of the types above it) for the whole branch that joins it: the
+type and every type below it, at any depth, since their records become records of the super-type too. A `UNIQUE` key
+that clashes anywhere in that branch refuses the statement in the same way, with nothing changed. _(Since v26.12.1,
+issue #12036. Before, only the type's own records were indexed: a `UNIQUE` index was not enforced for the records of its
+sub types, and `SEARCH_INDEX` and `vectorNeighbors` did not return them. In a database where the super-type was assigned
+on an earlier version, removing it and assigning it again builds the missing entries.)_
+
 NOTE: Removing a super-type is refused, and nothing changes, while an index of the type or of a type below it stands on a
 property that type would stop inheriting, the same rule `DROP PROPERTY` applies. The message names the property and the
 index: drop the index first, declare the property on the type, or add a super-type that provides it before removing the
