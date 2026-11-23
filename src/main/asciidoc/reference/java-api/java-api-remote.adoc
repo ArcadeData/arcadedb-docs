@@ -228,6 +228,19 @@ A statement stopped on the server (by the <<http-running-queries,`terminate quer
 `TERMINATE TRANSACTIONS` or Studio) raises `com.arcadedb.exception.QueryTerminatedException`, over HTTP and over gRPC
 alike. It is not retried by `transaction()`: somebody asked for the work to stop. _(Since v26.10.2.)_
 
+_(Since v26.12.1, issue #12193.)_ The index methods of the schema API answer the index over a `RemoteDatabase` as they do
+embedded. `createTypeIndex()` and `getOrCreateTypeIndex()`, of the `Schema` and of a type, return the index they created
+or found, and `getIndexByProperties()`, `getPolymorphicIndexByProperties()`, `getIndexesByProperties()` and
+`getAllIndexes()` of a type find an existing index, so a setup such as
+`if (type.getIndexByProperties("email") == null) type.createTypeIndex(...)` creates the index once. The returned index
+describes it (name, type, properties, index type, unique, null strategy, key types) and `drop()` drops it. The client
+holds none of its entries, so `get()`, `range()`, `countEntries()`, `put()`, `setNullStrategy()` and the other methods
+reading or changing them throw `UnsupportedOperationException`: run a query instead, the server picks the index, and set
+the null strategy when creating the index (<<sql-create-index,`CREATE INDEX ... NULL_STRATEGY`>>). Each lookup asks the
+server and is not cached, so it sees an index another client created or dropped. Before, the lookups answered `null` or an
+empty list for an existing index, `getIndexesByProperties(String...)` and `getAllIndexes()` threw
+`UnsupportedOperationException`, and the creation methods returned `null`.
+
 Now that the schema is in place, we will insert some data:
 
 [source, java]
