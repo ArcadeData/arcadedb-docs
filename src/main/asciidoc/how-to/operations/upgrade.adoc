@@ -66,6 +66,15 @@ A pattern predicate such as `WHERE (x)-->()`, `exists((b)-->(x))` or `WHERE NOT 
 *Action:* regenerate or normalize stored text that was made with `toString()` of a time or a datetime.
 
 [discrete]
+====== 26.12.1 - An openCypher `CALL` of an unknown namespaced name no longer runs the SQL function of its last segment
+
+A `CALL` of a namespaced name that is neither a procedure nor a function ran the SQL function named by the last segment of the name, whatever the namespace (issue #12110): `CALL apoc.atomic.concat(n, 'name', 'zz')` ran SQL `concat()`, returned no row and wrote nothing, and `CALL nosuch.max(1, 2)` returned 2. Such a call now fails as an unknown procedure, as in Neo4j. `CALL` of an SQL function by its full name (`CALL abs(-5)`, `CALL vector.neighbors(...)`) is unchanged.
+
+*Impact:* a `CALL anything.max(...)` that relied on the last segment fails with `UnknownProcedureException` (`Neo.ClientError.Procedure.ProcedureNotFound` over Bolt).
+
+*Action:* call the SQL function by its full name or with the `sql.` prefix: `CALL sql.max(1, 2)`. See <<cypher-call,CALL>>.
+
+[discrete]
 ====== 26.12.1 - Naming an object that does not exist is the client's error on every protocol
 
 A statement that names a type, an index, a bucket, a property, a trigger or a view that does not exist raises a `SchemaException`, a missing record a `RecordNotFoundException`, an unknown method an `UnknownFunctionException`, and a Cypher `CALL` of an unknown procedure an `UnknownProcedureException` (issue #11384). Many of these raised a plain `CommandExecutionException` before.
