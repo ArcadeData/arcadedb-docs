@@ -508,6 +508,15 @@ WHERE SEARCH_INDEX('Article[content]', 'java database') = true
 ORDER BY $score DESC LIMIT 20
 ----
 
+_(since v26.12.1)_: a filter ANDed with `SEARCH_INDEX` or `SEARCH_FIELDS` that no index decides (`AND deleted_at IS NULL`, `AND n > 5`) no longer disables the `LIMIT` pushdown. The search starts from the best `SKIP + LIMIT` matches and, when the filter rejects some of them, goes on past them in the same order (descending `$score`, then RID) until the `LIMIT` is reached, so no sort runs after the filter and the query costs about the rows it returns rather than every match. When it has to go on, it reuses the postings it already read rather than reading the index again. The rows, their order and their scores are those of the complete search. `EXPLAIN` shows `(best N needed)` on the fetch step, followed by the filter. A filter that itself runs a full-text search (a second `SEARCH_INDEX` or `SEARCH_FIELDS`, also nested as in `ifnull(SEARCH_INDEX(...), false) = true`), calls a function the engine does not ship, or holds a subquery, keeps the previous plan: no pushdown, and an `ORDER BY $score DESC` sorts every row.
+
+[source,sql]
+----
+SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java database') = true AND deleted_at IS NULL
+ORDER BY $score DESC LIMIT 20
+----
+
 _(since v26.10.2)_: the `@rid` conditions ANDed with the search (`=`, `<>`, `<`, `\<=`, `>`, `>=`, `IN`, `NOT IN` against a literal, a parameter or a variable computed by a global `LET`) are decided on the matches' RIDs before any record is loaded, and no longer count as a filter that disables the `LIMIT` pushdown. With `ORDER BY @rid` (ascending or descending) the matches come back in RID order without a sort, so a `LIMIT` loads only the rows of the page. Together they make keyset pagination over a full-text result cost one page per page, rather than every match past the cursor. `EXPLAIN` shows the conditions as `RID FILTER` and the order as `ORDER BY @rid ASC (first N needed)`:
 
 [source,sql]
@@ -530,7 +539,7 @@ WHERE SEARCH_INDEX('Doc[content]', :q) = true AND tenant = :t
 ORDER BY $score DESC LIMIT 10
 ----
 
-_(since v26.10.2)_: an `OR` of searches (`SEARCH_INDEX(...) = true OR SEARCH_INDEX(...) = true`, `SEARCH_FIELDS` included) with no `ORDER BY` or exactly `ORDER BY $score DESC` is answered best first across all of them: the searches are merged by `$score` as their rows are read, instead of being run one after the other, deduplicated and sorted. A `LIMIT` therefore loads about the rows it returns rather than every match of every index, and without an `ORDER BY` the second index contributes to the first rows too, instead of only once the first one has none left. A record matched by several searches comes back once, with the best of its scores (the scores of different indexes are compared as they are, as `ORDER BY $score DESC` always compared them). A filter ANDed with the `OR` (`(... OR ...) AND lang = 'en'`) keeps the merge, but then the searches are not cut to the best `SKIP + LIMIT` matches. `EXPLAIN` shows `MERGE BY $score DESC` with one branch per search, each with `(best N needed)` when the `LIMIT` is pushed down:
+_(since v26.10.2)_: an `OR` of searches (`SEARCH_INDEX(...) = true OR SEARCH_INDEX(...) = true`, `SEARCH_FIELDS` included) with no `ORDER BY` or exactly `ORDER BY $score DESC` is answered best first across all of them: the searches are merged by `$score` as their rows are read, instead of being run one after the other, deduplicated and sorted. A `LIMIT` therefore loads about the rows it returns rather than every match of every index, and without an `ORDER BY` the second index contributes to the first rows too, instead of only once the first one has none left. A record matched by several searches comes back once, with the best of its scores (the scores of different indexes are compared as they are, as `ORDER BY $score DESC` always compared them). A filter ANDed with the `OR` (`(... OR ...) AND lang = 'en'`) keeps the merge; before v26.12.1 the searches were then not cut to the best `SKIP + LIMIT` matches, since then each one starts from them and goes on past them in order when the filter rejects rows. `EXPLAIN` shows `MERGE BY $score DESC` with one branch per search, each with `(best N needed)` when the `LIMIT` is pushed down:
 
 [source,sql]
 ----
