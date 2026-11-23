@@ -91,6 +91,12 @@ record counter of each bucket is read at the first count of the transaction and 
 and deletes. Under `READ_COMMITTED` they still follow every commit. _(Since v26.11.1; before, a count followed the commits
 of other transactions at both levels and could disagree with a scan in the same transaction.)_
 
+*Indexes.* Under `REPEATABLE_READ`, an index lookup or scan finds every key that was committed before the transaction
+read the index and has not been removed since, also when the index is compacted while the transaction is open (the
+automatic compaction after writes, or `COMPACT INDEX`). The uniqueness check of a `UNIQUE` index reads the
+same view, so a duplicate of such a key is refused. _(Since v26.12.1; before, keys moved by an incremental compaction
+could be missing from the transaction's lookups, and a duplicate of one of them could be committed.)_
+
 *Neither level is a snapshot.* A page is pinned when the transaction first reads it, not when the transaction begins. A
 type scan reads its pages one after another, so at both levels it can observe part of a concurrent commit that spans
 several pages: the pages it reached before that commit show the old records, the ones it reached after show the new ones.
