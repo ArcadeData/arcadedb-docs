@@ -333,7 +333,9 @@ When more than one index can answer the `WHERE` of a SQL `SELECT`, the planner k
 
 A `UNIQUE` index that the `WHERE` reaches with a range condition, or with only some of the properties of a composite key, is not a lookup of whole keys and gets no such preference.
 
-NOTE: _(Since v26.12.1.)_ Before, the choice between such indexes fell to the first one the type listed when no query statistics were recorded, so the statement could read through the `NOTUNIQUE` index on a property shared by most records and take longer the more records shared the value (51 ms instead of 1.4 ms on 50,000 records, issue #11963).
+Among the indexes still left, a lookup of keys wins over a range, whether the index is `UNIQUE` or not. A lookup names the values to find: an equality, an `IN` list, `CONTAINS`, `CONTAINSANY`, `CONTAINSALL`, `CONTAINSVALUE`, `CONTAINSKEY` or `IS NULL`. A range (`>`, `<`, `BETWEEN`, ...) reads every entry between its bounds, and an open one such as `score > 1` can read the whole index. So `WHERE cat = 'rare' AND score > 1` reads the index on `cat` and filters on `score`, whichever of the two indexes was created first. Two lookups, or two ranges, are still chosen as before. The result is the same whichever index is read, since the whole `WHERE` is applied to the records it returns.
+
+NOTE: _(Since v26.12.1.)_ Before, the choice between such indexes fell to the first one the type listed when no query statistics were recorded, so the statement could read through the `NOTUNIQUE` index on a property shared by most records and take longer the more records shared the value (51 ms instead of 1.4 ms on 50,000 records, issue #11963), or read the whole range of an open range condition to return a few records (82 ms instead of 1.7 ms on 200,000 records, issue #12282).
 
 ==== See also
 
