@@ -103,6 +103,16 @@ whose `+tags+` is `+[[3]]+`. A right side of exactly one element is that element
 declared without an item type too _(since v26.12.1; before, the scan matched `+[[3]]+` for `+CONTAINS 3+`, and the index
 missed it for `+CONTAINS [3]+` and matched it for `+CONTAINS '[3]'+`)_.
 
+NOTE: An index on a property is used whichever side of the comparison the property is written on, and under `+NOT+`:
+`+5 = id+` is looked up like `+id = 5+`, `+:lo < id+` like `+id > :lo+`, `+NOT (id <> 5)+` like `+id = 5+` and
+`+NOT (id >= 3)+` like `+id < 3+`. This holds for `+SELECT+`, the `+WHERE+` of `+UPDATE+` and `+DELETE+`, and the
+`+where:+` of a `+MATCH+` node. When the value is written first, or a range (`+<+`, `+<=+`, `+>+`, `+>=+`) is under
+`+NOT+`, the index is used only when the value is a literal or a parameter of the property's type (a number for a
+numeric property, a string for a `+STRING+` one). A comparison converts its right side to the type of its left side, so
+with a value of another type the two spellings compare differently (`+'10' > id+` compares text, `+id < '10'+` compares
+numbers) and the records are scanned. `+NOT (id <> v)+` needs no such check. Every spelling returns the same records as
+before _(since v26.12.1; before, only the property written on the left used the index)_.
+
 [discrete]
 
 ====== Logical Operators
