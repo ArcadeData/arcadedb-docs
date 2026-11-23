@@ -541,7 +541,7 @@ Use this 3-question decision tree before you create a new type:
 
 * *Low-cardinality keys* (`status` with 3 values, `lang` with 5 values): every value collides into one bucket. With 16 buckets and a 3-value key, ~13 buckets stay empty and the other 3 carry everything.
 * *Skewed distributions* (90% of traffic on one tenant): the hot tenant's bucket becomes the bottleneck. Either pre-shard manually or pick a finer-grained key.
-* *Mutable partition keys*: the strategy assumes the key value never changes after insert. ArcadeDB refuses an update that would change a partition-key column with a `ValidationException` (HTTP `400`), and the record is left unchanged. _(Since v26.12.1: before, it was an `IndexException` answered with `500`.)_ If you need to "move" a record to a different tenant, drop and re-insert it.
+* *Mutable partition keys*: the strategy assumes the key value never changes after insert. ArcadeDB refuses an update that would change a partition-key column with a `ValidationException` (HTTP `400`), and the record is left unchanged. _(Since v26.12.1: before, it was an `IndexException` answered with `500`.)_ Removing the key is refused the same way, while writing its current value again is accepted. Every other property of the record can be updated, indexed or not. _(Since v26.12.1, issue #12961: before, an update that changed the value of any indexed property of a partitioned type was refused, not only one of the partition key.)_ If you need to "move" a record to a different tenant, drop and re-insert it.
 * *Composite partition keys*: `partitioned(orgId, region)` works but only helps queries that bind *both* keys. A query that filters by `orgId` alone touches every bucket.
 ====
 
