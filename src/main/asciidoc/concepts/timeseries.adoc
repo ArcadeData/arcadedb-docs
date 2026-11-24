@@ -1362,6 +1362,14 @@ is already at the tier's resolution and is left as it is, keeping its original t
 on the average spacing of a block's samples instead, so a burst of samples inside one bucket stayed at raw resolution
 when the same block also held a distant sample, and a sparse block was moved onto the bucket starts.
 
+_(Since v26.12.1)_ A downsampling pass no longer holds up the shard it works on. It reads and folds the old blocks and
+writes the result to a temporary file while queries and appends of that shard go on, and locks the shard only for the
+short moment it swaps the new file in, as a compaction does. Before, every query and every append of the shard waited
+for the whole pass, which on a type with a long history (the first pass after a tier is added) could take long, and
+under HA every commit on the leader waited too. If the shard's sealed data is replaced while a pass runs (for example
+by a file shipped from another node), the pass discards its result and the next maintenance run does the work again.
+Under HA each shard a pass changed is shipped to the followers on its own, as a compaction is.
+
 ===== Reads That Cross a Downsampling Pass
 
 Downsampling replaces samples rather than deleting them, so a read already in flight when a pass runs cannot
