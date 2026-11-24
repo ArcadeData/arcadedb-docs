@@ -11,6 +11,8 @@ The server administration calls (databases, users, groups and API tokens) prefer
 
 When a server becomes unreachable, `RemoteServer` and `RemoteDatabase` refresh the cluster configuration by asking every known replica in turn, then the old leader, then the address the client was created with, and the retry goes to the server that answered. If no server can give the configuration, for example during an election, the client keeps the leader and the replica list it had and spends the remaining retries (`arcadedb.ha.errorRetries`) on that list, so a read can still reach a follower. The error is raised when those retries run out. _(Since v26.12.1.)_
 
+`RemoteDatabase.begin()` fails over the same way when the server it is connected to cannot be reached: since no transaction exists yet, the begin is sent to another server of the cluster, trying every known server before it tries one again, within the same `arcadedb.ha.errorRetries` budget. It is retried only when the request provably never reached a server. The rest of the transaction (commands, commit and rollback) then goes to the server that began it. With the `FIXED` connection strategy the begin keeps to its server, as every other request does. Before, a `begin()` kept failing with "the server could not be reached" until some other request moved the client to a live server. _(Since v26.12.1.)_
+
 _(Since v26.10.2.)_ `acceptDivergedDatabase(databaseName)` and `acceptStaleSnapshot()` are the operator overrides for a
 node of a replicated cluster that has no peer left to resync from. Both are root only and accept the node's local copy
 as the truth without a resync, so the entries that were skipped are not replayed. `acceptDivergedDatabase` lifts the
