@@ -63,7 +63,7 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
 | `allowInsert` | `false` | Allow INSERT operations.
 | `allowUpdate` | `false` | Allow UPDATE operations.
 | `allowDelete` | `false` | Allow DELETE operations.
-| `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc.).
+| `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, IMPORT DATABASE, etc.).
 | `allowAdmin` | `false` | Allow administrative operations.
 | `profile` | `"all"` | Server-global tool profile: `"all"`, `"rag"`, or `"admin"`. See <<mcp-tool-profiles>>.
 | `principalProfiles` | `{}` | Optional per-principal tool profiles, keyed by user name or API token name. Intersected with `profile`, so an entry can only narrow the tool surface. See <<mcp-principal-profiles>>.
@@ -469,9 +469,12 @@ The server analyzes the command semantics and checks against the MCP configurati
 | UPDATE | `allowUpdate`
 | DELETE | `allowDelete`
 | CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc. | `allowSchemaChange`
+| IMPORT DATABASE | `allowSchemaChange`, `allowInsert`, `allowUpdate` and `allowDelete`
 | Administrative operations | `allowAdmin`
 | SELECT, MATCH | `allowReads`
 |===
+
+`IMPORT DATABASE` is a schema change as well as a write _(since v26.12.1)_: it recreates the types, properties and indexes of the file it reads and, for a JSONL export, its settings, triggers, views, function libraries and extensions, so it needs `allowSchemaChange` besides the write permissions. With `allowSchemaChange` off, the tools also refuse a change to the per-database settings, such as the date and datetime formats and the time zone of the schema.
 
 `allowSchemaChange` also covers the types a write creates implicitly _(since v26.11.1)_: a Cypher `CREATE` or `MERGE` naming a label or relationship type that does not exist yet, through `execute_command` or the upsert tools, is refused when `allowSchemaChange` is off, while writes to existing types need only `allowInsert` / `allowUpdate`.
 
