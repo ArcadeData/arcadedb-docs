@@ -159,6 +159,15 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   not read one of them is refused whatever the index holds, as a scan of the type refuses him. Before 26.12.1 the node
   lookup was refused only when the index held the value (and answered no rows when it did not), and the relationship
   lookup returned the relationships that end in a type the user may not read
+* Expands the second-to-last node of a chain of hops once, instead of once per path that reaches it, when the statement
+  reads only the distinct far ends _(since v26.12.1)_. In
+  `MATCH (p:Person {id: $id})-[:KNOWS]-(:Person)-[:KNOWS]-(:Person)-[:KNOWS]-(x:Person) RETURN count(DISTINCT x)` every
+  friend of a friend is expanded once and every `x` comes once, with relationship uniqueness still enforced, so the
+  answer is the one the full walk gives. It applies to one `MATCH` (not `OPTIONAL`) followed by `RETURN`, over a chain of
+  two or more hops whose relationships and intermediate nodes have no variable and whose far end has one, when the
+  `RETURN` is a `RETURN DISTINCT` without aggregations or aggregates only with `count`, `sum` or `avg` over `DISTINCT`
+  arguments and with `min` or `max`. A path variable, `SKIP`, `LIMIT`, `WITH` or a function such as `rand()` keeps the
+  full walk. The plan shows it as `ExpandToDistinctEnds`
 * Optimizes join order based on cardinality estimation
 * Detects bounded patterns for efficient relationship traversal
 * Joins the parts of a pattern no relationship connects - `MATCH (a:Person), (c:City)`, or two `MATCH` clauses - on
