@@ -101,7 +101,7 @@ List<Document> orders = query.parameter("statuses", List.of("shipped", "delivere
 ===== BETWEEN Operator
 
 The `between()` operator checks if a value falls within an inclusive range.
-When the property is indexed, ArcadeDB uses a range scan on the index.
+When the property has an ordered index (`LSM_TREE`), ArcadeDB uses a range scan on the index. A `HASH` index cannot answer a range, so the query is answered by a scan instead.
 
 [source,java]
 ----
@@ -392,9 +392,9 @@ database.select().fromType("Person")
 The Select API automatically detects and leverages available indexes:
 
 * **Equality (`eq`)** -- single-key index lookup
-* **Range (`gt`, `ge`, `lt`, `le`)** -- range scan on the index
+* **Range (`gt`, `ge`, `lt`, `le`)** -- range scan on an ordered index (`LSM_TREE`); a `HASH` index only answers equality, so a range on a property whose only index is a hash index is answered by a scan and returns the same rows as without the index (since 26.12.1, issue #12677)
 * **IN (`in`)** -- multiple point lookups on the index; with an ascending `orderBy()` on the same property the rows come back in key order
-* **BETWEEN (`between`)** -- range scan with inclusive bounds
+* **BETWEEN (`between`)** -- range scan with inclusive bounds, on an ordered index only (a `HASH` index is skipped, as for the range operators above)
 * **AND logic** -- uses the best available index (prefers unique indexes)
 * **OR logic** -- uses both indexes when both sides are indexed, even when they are on properties of different types; falls back to full scan when either side is not indexed
 * **Composite indexes** -- an AND chain of equality conditions covering a leading prefix of a composite (multi-property) index's properties uses that index too, even when not every property is bound; if the query's `orderBy()` matches the trailing indexed property, the scan also satisfies the ordering without a separate in-memory sort
