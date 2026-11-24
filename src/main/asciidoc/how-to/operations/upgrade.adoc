@@ -57,6 +57,15 @@ A pattern predicate such as `WHERE (x)-->()`, `exists((b)-->(x))` or `WHERE NOT 
 *Action:* none, unless a query relied on the old answer.
 
 [discrete]
+====== 26.12.1 - An openCypher hop that ends at a null variable matches nothing
+
+A hop whose end is a node variable an earlier `OPTIONAL MATCH` left null read that variable as unbound and bound a vertex to it (issue #12728): `MATCH (a:A) OPTIONAL MATCH (a)-[:NOPE]->(x) MATCH (a)-[:S]->(x)` returned the vertex `a` points to for `x`, and the same went for the undirected, variable-length, two-hop and quantified path forms, a later `OPTIONAL MATCH`, and `count(x)`. The hop now matches nothing, so a `MATCH` drops the row and an `OPTIONAL MATCH` keeps it with `x` null, as when the null variable is the start of the hop. See <<cypher-optional-match,OPTIONAL MATCH>>.
+
+*Impact:* the rows and counts such a query used to return for a null variable are gone.
+
+*Action:* none, unless a query relied on the old answer.
+
+[discrete]
 ====== 26.12.1 - openCypher `toString()` of a time or a datetime prints the seconds and trims the fraction, as Neo4j 5 does
 
 `toString()` of a `localtime()`, `time()`, `localdatetime()` or `datetime()` used Java's text, which leaves out zero seconds (`10:00`) and keeps the trailing zeros of the fraction (`.500`). It now prints the seconds always and removes the trailing zeros of the fraction: `10:00:00`, `2020-01-01T10:00:00.5Z` (issue #11912). `toStringOrNull()`, `toStringList()`, `convert.toString()` and `apoc.convert.toString()` print the same, and a `java.time` value bound as a parameter prints as the Cypher temporal it stands for.
