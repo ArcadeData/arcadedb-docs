@@ -156,6 +156,15 @@ A write that an HA replica forwarded to a leader which died or did not answer, a
 *Action:* none, the rows now match `MATCH`.
 
 [discrete]
+====== 26.12.1 - A `limit` of 0 of `vector.fuse` and `vector.boost` returns no row, and a negative `limit` is refused
+
+The `limit` option of `vector.fuse()` and `vector.boost()` read `0` and any negative number as "no limit", so `{ limit: 0 }` returned every row (issue #13131). `0` now returns no row, as the `k` of `vector.neighbors()` does, and a negative `limit` is refused with an error naming the option. Leaving `limit` out, or passing `null`, still returns every row. The `k` option of `vector.mmr()` is read the same way: a negative `k` is refused, also when the candidate list is empty, where it used to return no row. See <<vector-fuse-ext,vector.fuse()>>.
+
+*Impact:* a query that computes `limit` (a page size, or a budget minus what was used) and reaches `0` gets no row instead of the whole candidate set, and one that passes a negative `limit` (answered every row before) or a negative `k` of `vector.mmr()` (answered no row before) fails.
+
+*Action:* omit `limit`, or pass `null`, where no cap is wanted.
+
+[discrete]
 ====== 26.12.1 - `algo.kTruss` returns only the vertices of the k-truss when `k` is passed
 
 `algo.kTruss(relTypes, k)` validated `k` and then ignored it, returning every vertex whatever `k` was (issue #12303). A call that passes `k` now returns only the vertices whose truss number is at least `k`, and a `k` below 2 is refused. A call without `k`, or with `null`, still returns every vertex with its truss number. See <<algo-k-truss,algo.kTruss>>.
