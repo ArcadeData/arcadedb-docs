@@ -94,6 +94,8 @@ The `ArcadeGraph` API above follows the TinkerPop transaction model. A Gremlin s
 * If no transaction is active and the statement only reads, its results still stream.
 * If a transaction is already active, the statement runs in it and leaves the commit or rollback to its owner.
 
+This holds for a bulk import with `io().read()` too: the whole file is imported in the transaction of the statement, or in the one of the caller, and nothing is committed before it ends. A file that fails halfway leaves no record behind, and a caller's `rollback()` takes the import back. Since the import is one transaction, it is held in memory until it is committed: split a very large file into several statements, or use the <<importer,Importer>>. _(Since v26.12.1; before, the import was committed every 10000 records, so a failure after the first 10000 left the earlier records committed, and inside a caller's transaction the first batch published the caller's pending work too, issue #13162)_. The `ArcadeGraph` API (`graph.traversal().io(...).read()`) and requests sent to the Gremlin Server keep TinkerPop's behaviour of committing every batch.
+
 [source,java]
 ----
 // Automatic transaction - committed when command() returns, rolled back if the traversal fails
