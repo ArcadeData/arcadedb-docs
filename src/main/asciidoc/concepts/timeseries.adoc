@@ -236,6 +236,13 @@ run one at a time. A `COMPACT TIMESERIES TYPE` issued while a retention or downs
 compaction could be silently undone the next time the database was opened. Likewise, a rewrite that failed half-way
 no longer leaves a file behind that the next retention pass could resurrect deleted blocks from.
 
+_(Since v26.12.1)_ A compaction reads, sorts and compresses the mutable pages one window at a time, a window being two
+sealed blocks' worth of samples (131,072), and appends the blocks of each window to the new sealed file before it reads the
+next. It also copies the blocks the sealed file already holds one at a time. The memory a compaction needs therefore does not
+depend on how many samples wait in the mutable buckets or on the size of the sealed file. A standalone database does not read
+the rewritten sealed file back into memory after a compaction, a merge, a retention pass or a delete; under HA the leader still
+reads it whole to ship it to the followers.
+
 Reads do not need a compaction to be fast. A query for one tag, such as the newest reading of one host, skips every
 mutable page that holds no row of that tag without reading its rows, whether or not the tail has been sealed yet.
 
@@ -289,7 +296,7 @@ Every statement that removes at least one sealed sample rewrites the sealed file
 its cost is about the size of that file whatever the range: many small deletes cost more than one statement that names the same
 samples. Under HA the leader ships the whole sealed file of each shard it changed, as it does for retention. A range that misses
 the mutable pages is decided from their header, with no page read; any other delete reads the mutable pages of the shard into
-memory once, as a compaction does, so it weighs what a compaction of the same pages weighs.
+memory once, so it holds as much heap as those pages take.
 
 A statement that fails part way says so: the shards before the one that failed are already deleted, and running the statement
 again deletes the rest. Under HA the leader remembers, in memory, which shards it rewrote without publishing, and ships them with
