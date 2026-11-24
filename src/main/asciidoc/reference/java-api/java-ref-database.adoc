@@ -823,8 +823,13 @@ doc.save();  // THE DOCUMENT IS SAVED IN THE DATABASE ONLY WHEN `.save()` IS CAL
 NOTE: Inside a transaction the record is written at the commit, as it is then. A property assigned after the last
 `save()` and before the commit is therefore stored with the record and, since v26.12.1, also reaches the indexes, and a
 UNIQUE index refuses it at the commit when another record holds that value. Earlier versions kept the indexes on the
-values of the last `save()`, so a query by the new value did not find the record (issue #11751). A list, map or embedded
-document changed in place is not tracked: call `save()` again after changing it.
+values of the last `save()`, so a query by the new value did not find the record (issue #11751). Since v26.12.1 the
+commit also checks such a record against the constraints of its properties (`MANDATORY`, `NOTNULL`, `MIN`, `MAX`,
+`REGEXP`, `READONLY`, the type of an `EMBEDDED` or `LINK` property), as `save()` does: a value `save()` would refuse
+makes the commit fail with the same `ValidationException` and rolls the whole transaction back. This includes a value
+left on the record by a `save()` that was refused and handled. Earlier versions stored it without any check (issue
+#12612). The before-update listeners still run only at `save()`. A list, map or embedded document changed in place is
+not tracked: call `save()` again after changing it.
 
 NOTE: When an index refuses a `save()` (a vector of the wrong dimension, or with a NaN or an Infinity, a duplicate of a
 UNIQUE key, the change of the primary key of a partitioned type) the exception can be handled and the transaction goes
