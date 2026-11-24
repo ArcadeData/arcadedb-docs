@@ -319,9 +319,9 @@ The remote Java client sent query parameters and the values of a saved record as
 
 A link stored in a property the schema does not declare was read back by the HTTP client (`RemoteDatabase`) as its rid text, such as `"#1:0"`, and a list or map of links as a list or map of strings, while a projection of the same single link answered a `RID`. The gRPC client (`RemoteGrpcDatabase`) answered the rid text for every link, in records and projections. `(Identifiable) doc.get("friend")` threw `ClassCastException`. Both clients now answer a `RID`, and a list or map of `RID`s, as the embedded API does. For HTTP the server marks those properties in the record it sends; a string that only looks like a RID, such as `'#1:0'` stored as text, still reads back as a string (issue #12195). The HTTP client reads the links in a property declared as a bare `LIST` or `MAP`, without `OF LINK`, as `RID`s too, and a `NaN` or infinite number in such a collection as a `Double` (issue #12598).
 
-*Impact:* code that read a link through either client and expected a `String` now gets a `RID`. The `RID` is not bound to the remote database, so `asDocument()` or `asVertex()` on it fails on a thread with no active database (issue #12603).
+*Impact:* code that read a link through either client and expected a `String` now gets a `RID`. The `RID` is bound to the remote database, so `asDocument()`, `asVertex()` or `getRecord()` on it loads the linked record from the server, as it does embedded (issue #12603).
 
-*Action:* call `toString()` on the value where the rid text is needed, and load the linked record with `lookupByRID(rid, true)`. For HTTP, upgrade the server; for gRPC, upgrade the client. See <<java-api-remote,Java Remote API>> and <<java-api-grpc,Java API (gRPC)>>.
+*Action:* call `toString()` on the value where the rid text is needed. For HTTP, upgrade the server; for gRPC, upgrade the client. See <<java-api-remote,Java Remote API>> and <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
 ====== 26.12.1 - The remote Java clients read numeric arrays as primitive arrays
