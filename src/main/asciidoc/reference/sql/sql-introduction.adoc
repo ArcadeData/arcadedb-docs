@@ -344,6 +344,25 @@ The keyword `DISTINCT` is be used if the entire projection should be unique, whi
 Collections fields can be spread into a set of results by either using the keyword <<sql-select,`UNWIND`>> or the function <<expand,`expand()`>>.
 Both produce similar results but via different semantics and constraints.
 
+[[sql-casts]]
+===== Casts
+
+`CAST(<expression> AS <type>)` and its PostgreSQL spelling `<expression>::<type>` convert a value to a type. The two spellings are the same expression, and `::` binds tighter than every arithmetic operator, as in PostgreSQL (`-'2'::INTEGER` is `-('2'::INTEGER)`).
+
+[source,sql]
+----
+SELECT CAST('12' AS INTEGER)
+SELECT '12'::INTEGER
+SELECT FROM Product WHERE CAST(price AS NUMERIC) > 10
+SELECT FROM Product LIMIT $1::INTEGER
+----
+
+The type is one of `SMALLINT`, `INTEGER`, `BIGINT`, `REAL`, `DOUBLE` (also `DOUBLE PRECISION` inside `CAST`), `NUMERIC`, `DECIMAL`, `TEXT`, `VARCHAR`, `CHAR`, `BOOLEAN`, `DATE` or `TIMESTAMP`, written in any case, with the aliases `int2`, `int4`, `int8`, `float4`, `float8` and `bool` and the engine's own type names. Any other name is refused when the statement is parsed. A length such as `VARCHAR(10)`, `timestamptz`, and list or map types are not supported.
+
+A cast is strict, unlike the lenient conversions of the <<convert,`convert()` method>>: a value that cannot be the target type raises an error (a text that is not a number, a number out of range, NaN as an integer, a text that is not a boolean). A number becomes an integer by rounding half away from zero, as in PostgreSQL, and `NULL` casts to `NULL`.
+
+`CAST` is not a reserved word: it is a cast only when it is followed by `(` and the first argument by `AS`, so a function or a property called `cast` keeps working. A boolean literal is not accepted before `::`, so write `(true)::INTEGER` or `CAST(true AS INTEGER)`. _(since v26.12.1, issue #13384)_
+
 ===== SQL Differences
 
 Following are some basic differences between ArcadeDB and PostgreSQL.
