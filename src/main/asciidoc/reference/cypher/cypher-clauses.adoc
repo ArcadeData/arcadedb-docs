@@ -1910,6 +1910,8 @@ MERGE (n:Record {id: $id}) SET n.orgId = $orgId RETURN n
 
 Any clause of the same statement may supply the property. A statement that ends without supplying it fails, and the incomplete record is removed.
 
+_(Since v26.12.1)_ Writing a `null` to a property declared `NOTNULL` is refused by every write form, as SQL refuses it: `SET n.p = null`, `SET n += {p: null}`, `SET n = {p: null}`, `CREATE (n:T {p: null})`, `CREATE (n:T $map)` and `MERGE ... ON CREATE SET` / `ON MATCH SET` with a null value, on nodes and on relationships. The statement fails with a `cannot be null` validation error and writes nothing. Removing the property (`REMOVE n.p`, or leaving it out of `SET n = {...}`) is not a null write and is not refused here. A `null` written to a property that is not `NOTNULL` still removes it, or leaves it unset (so on a property that is only `MANDATORY`, it then fails the mandatory check).
+
 Only `CREATE`/`MERGE` pattern writes are deferred this way. Every other constraint (`IS TYPED`, `min`, `max`, regular expressions, read-only) is still checked at the moment of the write, as are writes issued from SQL, the Java API and `CALL` procedures.
 
 CAUTION: Between the pattern creating the record and the statement ending, another connection can briefly read a record that does not yet satisfy its existence constraints. If the server stops in that window, the incomplete record is left behind.
