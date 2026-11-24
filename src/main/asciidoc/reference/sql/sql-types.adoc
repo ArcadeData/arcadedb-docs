@@ -255,6 +255,17 @@ the records of the type and its sub types, so on a large type the statement take
 issue #12030. Before, the statement was accepted, and every later write to such a record failed, even one that did not
 touch the inherited property.)_
 
+NOTE: Assigning a super-type is refused, before anything changes, when it declares a property with another type (or another
+`OF` type) than a declaration of the same name that the type, or a type below it, already sees: for example `P.x FLOAT` against
+a sub type that declares `x DATETIME`. One name cannot have two types in a hierarchy, because an index of the super-type on `x`
+would hold the records of the sub type under keys of the other type. The message names the property and the two types. A
+declaration of the same type stays accepted, with a warning in the log, and `CREATE PROPERTY` applies the same rule (see
+<<sql-create-property,`CREATE PROPERTY`>>). A database that already holds such an overlap still opens, and `DROP TYPE` can
+still re-attach the sub types of the type it drops. _(Since v26.12.1, issue #12732. Before, the statement was accepted
+whatever the types were: lookups through the super-type's index missed the records of the sub type, a `BINARY` against a
+number left an index file that could not be read, and a `BY KEY`, `BY ITEM` or `GEOSPATIAL` index over a property of another
+type answered `500` or refused every later insert.)_
+
 NOTE: Removing a super-type is refused, and nothing changes, while an index of the type or of a type below it stands on a
 property that type would stop inheriting, the same rule `DROP PROPERTY` applies. The message names the property and the
 index: drop the index first, declare the property on the type, or add a super-type that provides it before removing the

@@ -186,6 +186,15 @@ A user name, password or group of a `arcadedb.server.defaultDatabases` credentia
 *Action:* write a `%` that is followed by two hexadecimal digits as `%25`, and any `:`, `,`, `;`, `[` or `]` inside a field encoded as above. See <<settings-sql,`server.defaultDatabases`>>.
 
 [discrete]
+====== 26.12.1 - One property name cannot have two types in a type hierarchy
+
+`CREATE PROPERTY` was refused when a super type already declared the name, but accepted when a sub type declared it with another type, and `ALTER TYPE ... SUPERTYPE +` only logged a warning, whatever the types were (issue #12732). An index on the super type's property then missed the records of the sub type (a lookup answered `0` rows where a scan found `1`), a `BINARY` against a `LONG` left an index file that could not be read, and a `BY KEY`, `BY ITEM` or `GEOSPATIAL` index over a property of another type answered `500` or refused every later insert. A name declared with the same type on a super type and a sub type is still accepted. A name declared with another type, or another `OF` type, anywhere in the hierarchy is now refused: by `CREATE PROPERTY` and `ALTER PROPERTY ... NAME` with an `AlreadyExistsException` (`409` over HTTP), and by `ALTER TYPE ... SUPERTYPE +` and the Java `Property.setOfType()` with a `SchemaException`. A refused statement changes nothing. See <<sql-create-property,`CREATE PROPERTY`>> and <<sql-alter-type,`ALTER TYPE`>>.
+
+*Impact:* a schema script that declares a property on the sub type first and then declares the same name with another type on the super type, or links the two types with `SUPERTYPE +`, now fails; with the same type it works as before. The JSONL import of an export of a database that already holds such an overlap is refused at the linkage step. A database that already holds an overlap still opens, and the overlap is not repaired.
+
+*Action:* declare the property with the same type in every type of the hierarchy, or give the sub type's property another name.
+
+[discrete]
 ====== 26.12.1 - A schema change refused because of the data already stored is a `ValidationException`
 
 `CREATE PROPERTY` and `ALTER PROPERTY` refused because a record already stored violates the constraint (`MANDATORY`, `NOTNULL`, `MIN`, `MAX`, `REGEXP`), and the same refusal over a sample already stored in a TIMESERIES type, raise a `ValidationException`, whose kind names the constraint where there is one. An update that would change the partition key of a type with `partitioned(...)` bucket selection raises a `ValidationException` too (issue #12037). Before, they raised a `CommandExecutionException` (the partition key an `IndexException`), and `MANDATORY`, `NOTNULL` and the partition key were answered over HTTP with `500`.
