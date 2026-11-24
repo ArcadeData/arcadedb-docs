@@ -308,7 +308,10 @@ ArcadeDB indexes can be defined on properties of nearly any type, with the right
 | `STRING` containing WKT geometry | Yes | Geospatial index
 | `LIST` / `ARRAY_OF_*` (per element) | Yes | `LSM_TREE` indexed by values
 | `MAP` | Yes | `LSM_TREE` indexed by keys or by values
+| `EMBEDDED` (the whole embedded document) | No | Index a field of it through a nested path such as `p.x` with `LSM_TREE`
 |===
+
+NOTE: An embedded document has no order, so it cannot be an `LSM_TREE` index key: `CREATE INDEX ON D (p)` on a property declared `EMBEDDED` is refused with an `IndexException` that names the key type, as it is for `HASH` and `FULL_TEXT` indexes, and no index is created. Index a field of the embedded document instead (`+CREATE INDEX ON D (`p.x`) NOTUNIQUE+`). Since v26.12.1; before, the index was accepted, the first insert was written and the second failed at commit with a `ClassCastException`. A database that already holds such an index still opens and the index can be dropped (<<sql-drop-index,`DROP INDEX`>>), but a new index file for it, such as the sub-index of a bucket added to its type, is refused.
 
 NOTE: A `MAP` value indexed as a whole (without `BY KEY`/`BY VALUE`) is ordered by its sorted (key, value) pairs, independently of the insertion order of the entries. An index of this kind created with an earlier version must be rebuilt after upgrading (<<sql-rebuild-index,`REBUILD INDEX`>>).
 
