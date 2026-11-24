@@ -291,6 +291,39 @@ SELECT name, records FROM schema:buckets WHERE purpose = 'PRIMARY' ORDER BY reco
 SELECT FROM ( SELECT expand(settings) FROM schema:database ) WHERE key = 'arcadedb.serverMetrics'
 ----
 
+[[information-schema]]
+===== Standard catalog: `information_schema`
+
+`information_schema.tables`, `information_schema.columns` and `information_schema.schemata` are answered by the SQL engine itself, so embedded code, the HTTP API and Studio can read the standard catalog that tools such as psql, DBeaver, Metabase and SQLAlchemy look for. They give the same answer as the <<postgres-driver,Postgres protocol>> does. As with the `schema:` types, projections, filters, `ORDER BY`, `LIMIT` and aggregations all work, and `EXPLAIN` names the step. An unquoted name is not case sensitive. _(since v26.12.1, issue #13387)_
+
+[%header,cols="1,3"]
+|===
+| Relation | What it returns
+
+| `information_schema.tables`
+| One row per type the current user may read, in name order, with `table_type` `BASE TABLE`. A type that holds the rows of a <<sql-materialized-views,materialized view>> or of a continuous aggregate is not listed.
+
+| `information_schema.columns`
+| One row per property of those types, the inherited ones included and the hidden ones left out, in name order of the property, with `ordinal_position` counting from 1. `data_type` is the SQL standard name (`integer`, `character varying`, `ARRAY`) and `udt_name` the PostgreSQL one (`int4`, `varchar`, `_text`). `is_nullable` is `NO` for a property that is mandatory or not null, and `column_default` is the default as declared.
+
+| `information_schema.schemata`
+| Two rows: `pg_catalog` and the schema of the database, which is the database name.
+|===
+
+Every column of the standard relation is present; the ones the engine has nothing to say about are `NULL`.
+
+[source,sql]
+----
+SELECT table_name FROM information_schema.tables ORDER BY table_name
+
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'Person'
+ORDER BY ordinal_position
+----
+
+The other relations of `information_schema` and `pg_catalog` are answered over the Postgres protocol only. A statement that names another relation, such as `information_schema.routines`, is refused with a message that says so. Use `schema:types` for what is specific to ArcadeDB: buckets, record counts, indexes and custom properties. A type that is itself named `information_schema` keeps its meaning.
+
 ===== DISTINCT
 
 You can use DISTINCT keyword exactly as in a relational database:
@@ -355,7 +388,7 @@ Following are some basic differences between ArcadeDB and PostgreSQL.
 | `ALTER TABLE` | <<sql-alter-type,`ALTER TYPE`>>
 | `ADD COLUMN` | <<sql-create-property,`CREATE PROPERTY`>>
 | `ALTER COLUMN` | <<sql-alter-property,`ALTER PROPERTY`>>
-| `SELECT * FROM information_schema.tables` | `SELECT FROM schema:types`
+| `SELECT * FROM information_schema.tables` | `SELECT FROM information_schema.tables`, or `SELECT FROM schema:types` for the details of ArcadeDB (see <<information-schema,`information_schema`>>)
 | `SELECT * FROM pg_indexes` | `SELECT FROM schema:indexes`
 | `SELECT * FROM pg_database` | `SELECT FROM schema:database`
 |===
