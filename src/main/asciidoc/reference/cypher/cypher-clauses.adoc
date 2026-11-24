@@ -1120,9 +1120,26 @@ MATCH (p:Person)
 RETURN p.id, p.name ORDER BY p.id LIMIT 10
 ----
 
-It applies when the query only matches and returns (no `WITH`, `UNWIND`, aggregation or write clause in between), and
-also works with `SKIP`, `DISTINCT` and relationship expansions from the ordered node. `EXPLAIN` and `PROFILE` show
-`[index order]` on the `NodeIndexRangeScan` when it is used.
+It applies when the query only matches and returns (no `UNWIND`, aggregation or write clause in between, and no `WITH`
+other than the one described below), and also works with `SKIP`, `DISTINCT` and relationship expansions from the ordered
+node. `EXPLAIN` and `PROFILE` show `[index order]` on the `NodeIndexRangeScan` when it is used.
+
+*The page written through a `WITH`:* since v26.12.1 a keyset page whose `ORDER BY` and `LIMIT` are on a `WITH` is read
+from the index in order too, and the `LIMIT` stops the scan, exactly like the `RETURN` form:
+
+[source,cypher]
+----
+MATCH (p:Person) WHERE p.id > $cursor
+WITH p ORDER BY p.id LIMIT 10
+RETURN p.id, p.name
+----
+
+It applies to the first `WITH` of the query when only `MATCH` clauses (not `OPTIONAL MATCH`) come before it, and that
+`WITH` has both an `ORDER BY` and a `LIMIT`, does not aggregate and is not `WITH DISTINCT`. The `ORDER BY` may name the
+property (`ORDER BY p.id`) or a column the `WITH` projects from it (`WITH p.id AS id ORDER BY id`). Any other `WITH`, and
+an `ORDER BY` the index cannot answer (another property first, for instance), keeps its sort. Only the `ORDER BY` of
+that `WITH` is answered from the index: a `RETURN ... ORDER BY` after it still sorts the page, and a `WHERE` on the
+`WITH` still filters the rows its `LIMIT` took.
 
 *SKIP over an index-ordered scan:* since v26.12.1 the index scan passes over the skipped rows from the index entries,
 without loading their nodes, when the query is a single `MATCH` and a `RETURN` with no `DISTINCT` or aggregation, has
