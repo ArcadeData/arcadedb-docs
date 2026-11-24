@@ -1054,13 +1054,14 @@ ORDER BY p.city ASC, p.age DESC, p.name ASC
 Strings are sorted by Unicode code point, the same order an index keeps them in (and the order Neo4j uses). The same
 order applies to string comparisons (`<`, `>`, ...) and to `min()`/`max()`.
 
-Numbers are sorted by value, an `INTEGER` against a `FLOAT` included, and `min()` / `max()` and `coll.min()` / `coll.max()` / `coll.sort()`
-(`apoc.coll.*` too) order them the same way. An `INTEGER` past 2^53 (9007199254740992), such as a snowflake id or an epoch in
-nanoseconds, is never read as the `FLOAT` it rounds to: `9007199254740993` sorts after `9007199254740992.0`, and `max()` of
-`1500000000000000001`, `1500000000000000002` and `1500000000000000003` is the last of them. `-0.0`, `0` and `0.0` are one value, so
-`ORDER BY` keeps them in the order they arrived in. Before v26.12.1 (issue #12673) numbers were compared as `double`, so integers
-that differ only in their low digits were equal, `min()` / `max()` answered the first row met, and an `INTEGER` and a `FLOAT` that
-round to the same `double` kept their input order under `ORDER BY`. _(Since v26.12.1)_
+Numbers are sorted by value, an `INTEGER` against a `FLOAT` included, and `min()` / `max()`, `percentileDisc()` / `percentileCont()` and
+`coll.min()` / `coll.max()` / `coll.sort()` (`apoc.coll.*` too) order them the same way. An `INTEGER` past 2^53 (9007199254740992), such
+as a snowflake id or an epoch in nanoseconds, is never read as the `FLOAT` it rounds to: `9007199254740993` sorts after
+`9007199254740992.0`, `max()` of `1500000000000000001`, `1500000000000000002` and `1500000000000000003` is the last of them, and
+`percentileDisc(x, 0.0)` of the same three is the first. `-0.0`, `0` and `0.0` are one value, so `ORDER BY` keeps them in the order they
+arrived in. Before v26.12.1 (issues #12673 and #12699) numbers were compared as `double`, so integers that differ only in their low
+digits were equal, `min()` / `max()` answered the first row met, `percentileDisc()` answered the value the input order left at that
+rank, and an `INTEGER` and a `FLOAT` that round to the same `double` kept their input order under `ORDER BY`. _(Since v26.12.1)_
 
 `BINARY` values are sorted by their bytes, compared unsigned and one by one, a shorter value before a longer one it is
 the start of: the order SQL's `ORDER BY` and an index give them. Before v26.11.1 the order of two binary values changed
