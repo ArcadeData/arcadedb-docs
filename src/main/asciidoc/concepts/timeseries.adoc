@@ -490,9 +490,11 @@ replaced): a series whose newest sample in the lookback is the marker is left ou
 shows as `NaN`, turns `sum()` into `NaN` or counts in `count()`, and a range selector does not count the marker as a
 sample (`count_over_time()`). An ordinary `NaN` written by a client is still a value and is returned as `NaN`, as in
 Prometheus. SQL and the other `/ts` endpoints read the marker as an absent value, like any `NaN` (see Missing Values
-below). The marker is kept only in a `DOUBLE` column, which is what remote write creates for `value`: a `FLOAT` column,
-a `DOUBLE` field with the `DICTIONARY` codec and a downsampled block read it back as an ordinary `NaN`, so there an
-ended series is still answered as `NaN` until the lookback runs out (issue #12580).
+below). The marker is kept in a `DOUBLE` column, which is what remote write creates for `value`, in a `FLOAT` column and
+in a `DOUBLE` field with the `DICTIONARY` codec, before and after compaction. When downsampling rewrites a bucket in
+which a series ended, the bucket keeps the mean of its real samples at the bucket start and gets a marker row at the
+marker's own timestamp, so the series still ends where it ended in the raw data; a bucket that held only the marker
+becomes the marker row alone.
 
 [NOTE]
 ====
@@ -887,7 +889,8 @@ way:
   has no measurement to report.
 * `count(*)` counts rows, so it counts `NaN` samples too. In SQL, `count(field)` counts only the rows where the field is not null, as on any other type, and returns a `Long`.
 * A genuine `Infinity` or `-Infinity` sample is a measurement and is returned as such.
-* Downsampling averages the real samples of each bucket; a bucket with no real sample is downsampled to `NaN`.
+* Downsampling averages the real samples of each bucket; a bucket with no real sample is downsampled to `NaN`. A
+  Prometheus staleness marker is not averaged away: it is kept as a row of its own (see the PromQL section above).
 
 This is the semantics of SQL's `NULL` under `SUM`, `AVG` and `count(*)`. The PromQL endpoint is the one exception:
 its `sum`, `avg`, `sum_over_time` and `avg_over_time` propagate `NaN`, because that is what Prometheus does and a
