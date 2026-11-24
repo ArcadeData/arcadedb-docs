@@ -18,7 +18,7 @@ SELECT FROM <target> [WHERE ...] SKIP <records-to-skip> LIMIT <max-records>
 ----
 
 Where:
-- *records-to-skip* is the number of records to skip before starting to collect them as the result set
+- *records-to-skip* is the number of records to skip before starting to collect them as the result set. It cannot be negative: since v26.12.1 a negative value raises a `CommandExecutionException` (`Cannot execute a query with a negative SKIP`), where earlier versions ran the query as `SKIP 0` and returned the first page again
 - *max-records* is the maximum number of records returned by the query
 
 Since v26.12.1, when the query reads an index in key order (an `ORDER BY` on the indexed property, with or without a range on it in the `WHERE`) and nothing between the index and the `SKIP` needs the record (no other `WHERE` condition, `DISTINCT`, `GROUP BY`, `expand()`, `UNWIND` or `LET`), the skipped rows are counted from the index entries without loading their records, and the projections are not computed for them. `SELECT id FROM P WHERE id >= 0 ORDER BY id SKIP 50000 LIMIT 10` therefore no longer loads 50,000 records to throw them away. The rows returned are the same, records of a type with a read trigger or read event listener are still loaded, and a user who may not read a skipped record still gets the same security error. The index entries are still walked one by one, so a `WHERE` on the last key read (`WHERE id > <last-id> ORDER BY id LIMIT <max-records>`) stays faster for deep pages.
