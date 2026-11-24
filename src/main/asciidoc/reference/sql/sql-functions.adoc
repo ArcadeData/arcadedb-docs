@@ -140,7 +140,7 @@ See also: <<algo-astar,Graph Algorithms: A*>> for the Cypher procedure variant w
 [[avg]]
 ====== avg() pass:[<span class="fn-badge fn-badge-math">math</span>]
 
-Returns the https://en.wikipedia.org/wiki/Arithmetic_mean[arithmetic mean]. The mean of integer values is a `DOUBLE`, even when their sum is too large for a `LONG`; the mean of `DECIMAL` values is a `DECIMAL`.
+Returns the https://en.wikipedia.org/wiki/Arithmetic_mean[arithmetic mean]. The mean of integer values is a `DOUBLE`, even when their sum is too large for a `LONG`; the mean of `DECIMAL` values is a `DECIMAL`. The mean of `DOUBLE` or `FLOAT` values is computed from their exact sum (see <<sum,sum()>>), so it is the same on every run _(since v26.12.1)_.
 
 Syntax: `avg(&lt;field|value&gt; [,&lt;field|value&gt;]*)`
 
@@ -1329,6 +1329,8 @@ SELECT * FROM State WHERE strcmpci('washington', name) = 0
 Returns the sum of all the values returned.
 
 Integers widen instead of wrapping: a sum of `INTEGER` values that does not fit an `INTEGER` is returned as a `LONG`, and a sum of `LONG` values that does not fit a `LONG` is returned as a `DECIMAL` (`BigDecimal`). Clients that read the result as a `LONG` can see a `DECIMAL` when the total overflows.
+
+A sum of `DOUBLE` (or `FLOAT`) values is the exact sum of the values, rounded once to a `DOUBLE` (or `FLOAT`): the same query over the same data returns the same value on every run, whether it runs in parallel or not, and adding `0.1` ten times returns `1.0`. _(Since v26.12.1; before, a parallel scan could return a slightly different value on each run.)_ This holds for values of one floating-point type, with or without integers among them; a mix of `FLOAT` and `DOUBLE` values is still added pairwise.
 
 Over an empty group, or a group where every value is `NULL`, `sum()` returns `NULL` (as `avg()`, `min()` and `max()` do), not `0`. _(Since v26.10.2)_ Use `ifnull(sum(<field>), 0)` to get `0`. In OpenCypher, `sum()` still returns `0`.
 
