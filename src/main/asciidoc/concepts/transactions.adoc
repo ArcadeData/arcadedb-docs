@@ -112,7 +112,10 @@ transaction, for example with `database.transaction(...)`, reads the record agai
 
 This holds for records of any size, including documents larger than a page. Likewise, a `DELETE` that selected a record which
 another transaction then deleted and committed fails with a retryable `ConcurrentModificationException`, so the retry simply
-no longer finds the record.
+no longer finds the record. In Java this holds however the record was found: by a query, `lookupByRID()`, `iterateType()`,
+`iterateBucket()` or the callback of `scanType()` and `scanBucket()` _(since v26.12.1; before, deleting a record handed out by
+`scanType()` or `scanBucket()` after a concurrent delete raised a non-retryable `RecordNotFoundException`, and modifying a
+vertex found that way could silently overwrite a concurrent update)_.
 
 A delete is protected the same way against a record that changed after it was read. If another transaction committed a change
 to the record, or deleted it and an insert then reused its RID, deleting the record read before fails with a retryable
