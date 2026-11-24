@@ -82,6 +82,11 @@ listed in `BUCKET` or reused because its name is `<type>_<n>`, and when the same
 before anything is created, so the schema is left as it was and no half-built type remains. _(Since v26.11.1. Before, the type was
 registered first and stayed in the schema, without the refused bucket, and also after a restart.)_
 
+A type also keeps some buckets for its own use: the paired `_ext` bucket of its `EXTERNAL` properties, the `_out_edges` and
+`_in_edges` buckets of each of its vertex buckets, and the buckets of its super-node stripe pool. Another type cannot take
+such a bucket as one of its own: the statement is refused with an error that names the type the bucket belongs to. A vertex
+type is also refused a bucket whose `_out_edges` or `_in_edges` bucket already belongs to another type. _(Since v26.12.1.)_
+
 When working with multiple cores, it is recommended that you use multiple buckets to improve concurrency during inserts. To change
 the number of buckets created by default, <<sql-alter-database,`ALTER DATABASE`>> command to update the `minimumbuckets` property.
 You can also define the number of buckets you want to create using the `BUCKETS` option when you create the type.
@@ -268,6 +273,11 @@ ArcadeDB> ALTER TYPE Account BUCKET +account2
 ----
 
 In the event that the bucket does not exist, it automatically creates it.
+
+The statement is refused when the bucket belongs to another type, or when another type keeps it for its own use (the paired
+`_ext` bucket of its `EXTERNAL` properties, the `_out_edges` and `_in_edges` buckets of one of its vertex buckets, a bucket of its
+super-node stripe pool). On a vertex type it is also refused when the `_out_edges` or `_in_edges` bucket of the bucket added already
+belongs to another type. The error names the other type, and the schema is left as it was. _(Since v26.12.1.)_
 
 * Remove the bucket `account_34` from the type `Account` (buckets are referenced by name):
 
