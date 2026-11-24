@@ -829,18 +829,39 @@ MERGE (n:Item {id: 1, key: 'value'})
 SET n.key = null
 ----
 
-A `SET n = map` or `SET n += map` whose keys are only known when the query runs (`SET n += row`, `SET n = $props`)
-counts as writing every key, so `UNWIND $rows AS row MERGE (n:Person {id: row.id}) SET n += row` gets the barrier
+A `SET n = map` or `SET n += map` whose keys are only known when the query runs (`SET n += $props`, `SET n = $props`)
+counts as writing every key, so `UNWIND $rows AS row MERGE (n:Person {id: row.id}) SET n += $props` gets the barrier
 too. Writes of other keys keep streaming: `MERGE (n:Person {id: row.id}) SET n.name = row.name` has no barrier, nor
 does a `MERGE` that starts the query, which runs its lookup only once.
+
+The exception is the bulk upsert. _(Since v26.12.1)_ When the map is the variable the `MERGE` looked the entity up
+by, with every key of the lookup taken from the same key of that variable, the `SET` writes each of those keys with the
+value it already holds, so no barrier is planted and the query keeps streaming. The `SET` is also written together with
+the node or relationship the `MERGE` creates, which is saved once instead of twice:
+
+[source,cypher]
+----
+UNWIND $rows AS row MERGE (n:Entity {uuid: row.uuid}) SET n = row
+
+UNWIND $rows AS row
+MATCH (a:Entity {uuid: row.source}) MATCH (b:Entity {uuid: row.target})
+MERGE (a)-[e:RELATES_TO {uuid: row.uuid}]->(b) SET e = row
+----
+
+The barrier stays when a lookup key is not paired this way (`{uuid: row.id}`, `{uuid: other.uuid}`, a second key the
+map does not carry from the same variable), when the `MERGE` itself writes the key in an `ON CREATE SET` or
+`ON MATCH SET`, or when a `WITH`, `UNWIND`, `LOAD CSV`, `CALL` or subquery between the two clauses can rebind either
+name. Rows of one batch that carry the same key now stream: the first creates the entity with its map, the next ones
+match it and rewrite it, so the last row's values win, the same final state as before.
 
 [NOTE]
 ====
 Up to 26.10.2 the `SET` ran right after the `MERGE` of each row, so the `MERGE` of a later row already saw it: the
 example above created two nodes, and adding a `WITH` between the clauses changed the result depending on how many
 rows were pulled at a time. Since 26.11.1 the answer is the same in every spelling, and the same as Neo4j's. A bulk
-load that used `SET n += row` after a `MERGE` now holds its rows in memory until the `MERGE` has run for all of them:
-to keep it streaming, set the properties by name (`SET n.name = row.name, n.age = row.age`).
+load that used `SET n += row` after a `MERGE` now holds its rows in memory until the `MERGE` has run for all of them,
+unless the `MERGE` looked the node up by keys of that same `row` (since 26.12.1, see above): otherwise, to keep it
+streaming, set the properties by name (`SET n.name = row.name, n.age = row.age`).
 ====
 
 A value the query reads before a write keeps the value it had when it was read. When a `WITH`, an `UNWIND` or the
