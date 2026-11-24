@@ -337,6 +337,17 @@ Among the indexes still left, a lookup of keys wins over a range, whether the in
 
 NOTE: _(Since v26.12.1.)_ Before, the choice between such indexes fell to the first one the type listed when no query statistics were recorded, so the statement could read through the `NOTUNIQUE` index on a property shared by most records and take longer the more records shared the value (51 ms instead of 1.4 ms on 50,000 records, issue #11963), or read the whole range of an open range condition to return a few records (82 ms instead of 1.7 ms on 200,000 records, issue #12282).
 
+[[index-intersection]]
+==== Combining several indexes in one query
+
+_(Since v26.12.1.)_ When the conditions the chosen index leaves behind have indexes of their own, the SQL planner reads those indexes too and loads only the records that *every* index matches. With an index on `updated_at` and one on `id`, `WHERE updated_at = ? AND id > ?` loads the few records both conditions match instead of every record of the timestamp (5 records instead of 256 in issue #13289), with no composite index needed. `EXPLAIN` and `PROFILE` show each extra index as `intersected with index ...` under `EXTRACT VALUE FROM INDEX ENTRY`.
+
+* The extra indexes are read at execution time, and each one only while it matches no more entries than the chosen index. One that matches more is given up (`PROFILE` says `given up`), so a condition that matches most records costs little extra.
+* It applies when the query reads every match anyway: no `LIMIT`, or an `ORDER BY` the index order does not serve, or an aggregation. A `LIMIT` that can stop after the first rows keeps the single-index plan.
+* The result does not change: the conditions are still checked on every loaded record, and records changed by a commit during the query are checked as before.
+
+A composite index on the properties queried together, such as `(updated_at, id)`, stays the fastest option when the same pair is queried often.
+
 ==== See also
 
 * <<schema-indexes,Indexes in the Schema concepts page>> -- the one-paragraph entry point with cross-refs.
