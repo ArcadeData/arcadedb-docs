@@ -108,6 +108,7 @@ All other predicates use the geospatial index automatically.
 
 . The SQL query planner detects a spatial predicate function implementing `IndexableSQLFunction` in the `WHERE` clause.
 . It calls `allowsIndexedExecution()`, which returns `true` when the first argument is a bare field reference and a `GEOSPATIAL` index exists on that field.
+. The read permission of the type, and of its subtypes, is asked before the index is opened, as for a scan of the type _(since v26.12.1)_: a user who may not read the type is refused for any shape.
 . The index decomposes the query shape into GeoHash cells and looks up candidate record IDs in the LSM-Tree.
 . The predicate function's exact Spatial4j implementation post-filters the candidates to remove false positives (GeoHash cells are rectangular approximations).
 
@@ -209,6 +210,9 @@ NOTE: Distance is expressed in degrees. To approximate metres, divide by 111,000
 ====== geo.envelope()
 
 Returns the minimum bounding rectangle (envelope) of a geometry as a polygon WKT.
+A bounding rectangle that crosses the antimeridian is returned as a `MULTIPOLYGON` split at 180, e.g. `MULTIPOLYGON (((170 0, 180 0, 180 10, 170 10, 170 0)), ((-180 0, -170 0, -170 10, -180 10, -180 0)))`, so every `geo.*` function reads it back as that rectangle and not as the band between its two meridians.
+`geo.asGeoJson()` of an `ENVELOPE` that crosses the antimeridian is likewise a `MultiPolygon` split at 180.
+The envelope of an empty geometry (e.g. `POINT EMPTY`) is `POLYGON EMPTY`, as in PostGIS. _(Since v26.12.1; before, it was a polygon of NaN coordinates)_
 
 Syntax: `geo.envelope(<geometry>)`
 
@@ -227,6 +231,7 @@ For two points it is the distance between them; for any other pair of shapes it 
 Two shapes facing each other across the antimeridian are measured the short way round.
 The closest points of two shapes that are not points are found on the longitude/latitude plane and then measured on the sphere, so the result is close to, but not always equal to, the shortest distance on the sphere: the plane picks the nearest edge in degrees, and a degree of longitude is shorter the nearer the pole.
 For two points it is exact.
+When either geometry is empty (e.g. `POINT EMPTY`) the result is `NULL`, as in PostGIS, and `geo.dWithin()` answers `false`. _(Since v26.12.1; before, it was NaN)_
 
 Syntax: `geo.distance(<geometry1>, <geometry2> [, <unit>])`
 
@@ -250,12 +255,17 @@ SELECT geo.distance(geo.point(0, 0), geo.point(1, 1), 'm') AS dist_m
 ====== geo.area()
 
 Returns the area of a geometry in square degrees.
+The area is measured on the longitude/latitude plane, as OGC WKT, PostGIS `geometry` and Shapely do, so a 10 x 10 degree square is 100 wherever it lies: it is not the area on the surface of the Earth.
+Holes are left out, the area of a multi-part geometry is the sum of its parts, a rectangle that crosses the antimeridian is measured the short way round, and points and lines have an area of 0.
 
 Syntax: `geo.area(<geometry>)`
+
+NOTE: Before 26.12.1 the result was an estimate that was neither square degrees nor the area on the sphere: the spherical area of the shape's bounding box scaled by the fraction of the box the shape fills.
 
 [source,sql]
 ----
 SELECT geo.area(geo.geomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))')) AS area
+-- Returns: 100.0
 ----
 
 ---
@@ -279,6 +289,7 @@ SELECT geo.asText(geo.point(2.2945, 48.8584)) AS wkt
 ====== geo.asGeoJson()
 
 Converts a geometry object to a https://geojson.org[GeoJSON] string.
+An empty geometry has no position: `geo.asGeoJson('POINT EMPTY')` returns `{"type":"Point","coordinates":[]}` and `geo.asGeoJson('POLYGON EMPTY')` returns `{"type":"Polygon","coordinates":[]}`. _(Since v26.12.1; before, an empty point failed with an error)_
 
 Syntax: `geo.asGeoJson(<geometry>)`
 
@@ -294,6 +305,7 @@ SELECT geo.asGeoJson(geo.point(2.2945, 48.8584)) AS geojson
 ====== geo.x()
 
 Extracts the X coordinate (longitude) from a point geometry.
+An empty point (`POINT EMPTY`) returns `NULL`. _(Since v26.12.1; before, it returned NaN)_
 
 Syntax: `geo.x(<point>)`
 
@@ -309,6 +321,7 @@ SELECT geo.x(geo.geomFromText('POINT(2.2945 48.8584)')) AS longitude
 ====== geo.y()
 
 Extracts the Y coordinate (latitude) from a point geometry.
+An empty point (`POINT EMPTY`) returns `NULL`. _(Since v26.12.1; before, it returned NaN)_
 
 Syntax: `geo.y(<point>)`
 
@@ -372,6 +385,8 @@ NOTE: `geo.disjoint` cannot use the index because the index stores records that 
 ====== geo.within()
 
 Returns `true` if the first geometry is fully within the second.
+`geo.within(a, b)` always answers the same as `geo.contains(b, a)`, and a geometry is within itself (or within the same area written with different vertices), as in OGC `ST_Within`.
+Before 26.12.1 a geometry was not within itself, so an indexed `geo.within(coords, <shape>)` left out the record whose `coords` is that shape.
 
 [source,sql]
 ----
@@ -400,6 +415,8 @@ WHERE geo.intersects(coords, geo.geomFromText('LINESTRING(0 0, 10 10)')) = true
 ====== geo.contains()
 
 Returns `true` if the first geometry fully contains the second.
+A geometry contains itself, two equal points included, as in OGC `ST_Contains`.
+Before 26.12.1 two equal points did not contain each other, and the same area written in two ways (for example, a box with an extra vertex) could answer `false` depending on the argument order.
 
 [source,sql]
 ----

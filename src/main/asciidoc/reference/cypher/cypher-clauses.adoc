@@ -279,6 +279,11 @@ RETURN p.name, friend.name
 
 NOTE: The WHERE clause after OPTIONAL MATCH filters the optional match results, but preserves rows where the match failed (with NULL values).
 
+NOTE: A node variable an `OPTIONAL MATCH` left null is still bound, to null. A later `MATCH` whose hop ends at it, such as
+`MATCH (a)-[:S]->(x)`, `MATCH (a)-[:S*1..2]->(x)` or `MATCH (a)-[:S]->(y)-[:S]->(x)`, matches nothing and drops the row, and a
+later `OPTIONAL MATCH` of the same hop keeps the row with `x` null _(since v26.12.1; before, the hop read `x` as unbound and bound
+a vertex to it)_.
+
 *Testing for absence.* An `OPTIONAL MATCH` whose new variable is then tested for `IS NULL` keeps exactly the rows for which the pattern does not exist, which is what `WHERE NOT pattern` says. Since v26.10.2 it is planned that way: when the variables the `OPTIONAL MATCH` introduces are read by nothing but that test (a conjunct of the `WHERE` of the `WITH`, or `FILTER`, right after it), the nodes it shares with the earlier `MATCH` clauses are never null, and that `WITH` neither aggregates nor orders nor pages, the two spellings below run the same plan, including the anti-join count push-down (issue #9598):
 
 [source,cypher]
@@ -457,6 +462,14 @@ returned, instead of expanding every combination. `PROFILE` shows this as a `SEM
 A query keeps the full expansion when it aggregates, uses `RETURN *`, or returns a value that can change from call to
 call, such as `rand()`, `randomUUID()` or a user function. _(Since v26.11.1)_
 
+IMPORTANT: A query has to conclude with a `RETURN`, a `FINISH`, an update clause (`CREATE`, `MERGE`, `SET`, `REMOVE`,
+`DELETE`, `FOREACH`), a unit `CALL { }` (one whose body returns nothing) or a procedure `CALL`. A query that ends with
+`MATCH`, `OPTIONAL MATCH`, `UNWIND`, `WITH`, `LOAD CSV` or a returning `CALL { }` is refused before it runs with
+`Query cannot conclude with ...`, as Neo4j refuses it: write the `RETURN` that says what to answer
+(`MATCH (p:Person) RETURN p`, not `MATCH (p:Person)`). The body of a `CALL { }` concludes the same way, while the bodies of
+`EXISTS { }` and `COUNT { }` may end with a pattern. _(Since v26.12.1, issue #12354: such a query used to answer the
+variables in scope.)_
+
 ---
 
 [[cypher-create]]
@@ -599,6 +612,17 @@ another one's (`{uuid: 1}` against `{uuid: 1, kind: 'a'}`). A unique constraint 
 use where a property identifies the relationship. Concurrent `MERGE` of a node still needs a unique constraint, as in other
 Cypher databases.
 
+[[cypher-merge-relationship-index]]
+*Bulk loads of relationships with several writers.* _(Since v26.12.1)_ When the relationship's type has an index (unique or
+not, but not full-text) on properties the `MERGE` pattern gives all of, with non-null values, a `MERGE` of a relationship
+between two existing nodes looks the relationship up in that index instead of reading the nodes' relationship lists. Writers
+that `MERGE` different relationships on shared nodes then no longer refuse each other at commit, which is what made a load
+like `UNWIND $rows AS r MATCH (a {uuid: r.src}), (b {uuid: r.dst}) MERGE (a)-[:RELATES_TO {uuid: r.uuid}]->(b)` slower
+with 8 writers than with one. With such an index, a concurrent `CREATE` of the same relationship (even one that sets the key
+with a later `SET`) is detected too, and the `MERGE` is refused and retried. Without an index, with only part of a composite
+index's properties in the pattern, or for a user who may not read the relationship type, the `MERGE` reads the
+relationship lists as before.
+
 ---
 
 [[cypher-set]]
@@ -657,6 +681,15 @@ SET p:Employee
 NOTE: `SET` is a simultaneous assignment: every value is read as it was before the clause ran, so
 `SET p.a = p.b, p.b = p.a` swaps the two rather than copying one onto the other.
 
+A label change (`SET n:Label`, `REMOVE n:Label`, or `ON CREATE SET` / `ON MATCH SET` of a label in a `MERGE`) rewrites
+the node under its new type and re-creates its relationships, so the node and its relationships get new RIDs (see
+`opencypher.labelWriteDegreeWarning` in the settings). _(Since v26.12.1)_ Every row the statement returns holds the
+records as they are after the change, including a row produced before a later row of the same statement changed a label
+of one of its nodes: its nodes, relationships and paths are the live ones, and a node another row relabelled reports its
+new labels. `DISTINCT` and `UNION` count a node before and after its label change as one. Up to 26.11.1 such a row still
+held the deleted originals: the HTTP API answered RIDs of records that no longer existed, and a path returned over Bolt
+failed with `Record #... not found` (issue #10614).
+
 A `SET` updates each matched node once, even when it writes the indexed property the `MATCH` reads its nodes by:
 `MATCH (n:A) WHERE n.k > 0 SET n.k = n.k + 1000` with an index on `A.k` reads the range of the index first, then
 updates. Only the record addresses are held, a few bytes per node. Before v26.11.1 such a statement met the nodes it had
@@ -696,7 +729,17 @@ NOTE: A node cannot be deleted if it has relationships. Use `DETACH DELETE` to d
 
 NOTE: The check runs once the whole statement is processed, so `MATCH (n)-[r]-() DELETE r, n` deletes a node that has several relationships. A node that still has a relationship at the end fails the statement and nothing is deleted.
 
+NOTE: _(Since v26.12.1)_ These two failures are client errors, as in Neo4j, not server faults. A node that still has a relationship answers HTTP `409` and `Neo.ClientError.Schema.ConstraintValidationFailed` over Bolt. Reading, setting or linking a node deleted earlier in the same statement (`MATCH (n:A) DELETE n RETURN n.x`) answers HTTP `404` and `Neo.ClientError.Statement.EntityNotFound`. Before, both answered `500` and `Neo.DatabaseError.General.UnknownError`.
+
+NOTE: _(Since v26.12.1)_ The same error is raised when the deleted node or relationship is reached through another variable, a list, a map or a path the row still holds, for example `MATCH (n:A) WITH n, collect(n) AS ns DELETE n UNWIND ns AS m RETURN m.x`, a relationship removed by `DETACH DELETE` and held in `collect(r)` or in a path, or a record deleted inside a `FOREACH` body. A property read, `keys()`, `properties()`, `labels()` or a map projection of it fails, while `size()` of the list and `type()` of a deleted relationship keep working, and the elements that were not deleted are read as usual. Up to 26.11.1 such a read answered the values the entity had before the delete (issue #12548).
+
+NOTE: _(Since v26.12.1)_ A `DETACH DELETE` that follows a relationship pattern (`MATCH (a)-[r]->(b) DETACH DELETE a, b`, directly, behind a `WITH` that neither aggregates nor sorts, or inside a `FOREACH` or `CALL { ... }` body) reads every matched row into memory before the first deletion, so removing the relationships of `a` cannot cut short the walk of `a`'s relationships. The rows count against the query memory limits (`queryMaxHeapElementsAllowedPerOp` and `queryMaxHeapRAM`): past them the statement fails and nothing is deleted. A plain `DELETE`, a `DETACH DELETE` of the matched relationship variables only, and a `DETACH DELETE` after a node-only `MATCH` are not read first by this rule (a delete of a relationship can be, see the next note). Up to 26.11.1 such a statement could silently process only part of the rows once `a` had more than about 100 relationships, so it deleted, set or returned only some of the matched nodes (issue #12254).
+
+NOTE: _(Since v26.12.1)_ A `DELETE r` or `DETACH DELETE r` of a relationship also reads every matched row into memory before the first deletion when a later expansion could reach the same relationship again: the part of the query since the last `WITH` holds more than one relationship pattern (two `MATCH` clauses, two patterns of one `MATCH`, or a path of two hops), a relationship without a direction (`-[r]-`), or rows that come ahead of the pattern from an `UNWIND`, `LOAD CSV`, `CALL`, `CALL { ... }` or an earlier `WITH` (unless that `WITH` aggregates everything into one row). The same holds inside a `FOREACH` or `CALL { ... }` body that deletes. The rows count against `queryMaxHeapElementsAllowedPerOp` and `queryMaxHeapRAM`, as above. A bulk delete over one relationship pattern with a direction, fed by the `MATCH` alone (`MATCH ()-[r:T]->() DELETE r`), reaches each relationship once and keeps streaming. Up to 26.11.1 the first rows deleted the relationship before the later rows expanded again, so `MATCH (a:V {k: 0}) UNWIND range(1, 500) AS i MATCH (a)-[r:F]->(b) DELETE r RETURN i` answered 100 rows instead of 500, and every clause after the `DELETE` ran for those rows only (issue #12521).
+
 NOTE: This includes the incoming edges of a unidirectional edge type, which the node itself does not store: `DELETE` refuses a node they still point to, and `DETACH DELETE` removes them. Deleting a vertex through the Java API or SQL `DELETE VERTEX` removes them too. The first vertex deleted in a transaction scans the unidirectional edge types to find them, so on a very large unidirectional type prefer deleting many vertices in one transaction.
+
+NOTE: _(Since v26.12.1)_ Deleting a relationship that the statement already removed is a no-op, as in Neo4j. In `MATCH (a)-[r]->(b) DETACH DELETE a DELETE r`, the `DETACH DELETE` removes `r` together with `a`, and the `DELETE r` that follows does nothing more: `relationshipsDeleted` counts the relationship once, and `count(*)` on its type stays right. Up to 26.11.1 the relationship was deleted twice, so `relationshipsDeleted` counted it twice and `count(*)` on the type under-reported, also after a restart, until `CHECK DATABASE FIX` recomputed it (issue #12253).
 
 *Examples:*
 
@@ -791,18 +834,39 @@ MERGE (n:Item {id: 1, key: 'value'})
 SET n.key = null
 ----
 
-A `SET n = map` or `SET n += map` whose keys are only known when the query runs (`SET n += row`, `SET n = $props`)
-counts as writing every key, so `UNWIND $rows AS row MERGE (n:Person {id: row.id}) SET n += row` gets the barrier
+A `SET n = map` or `SET n += map` whose keys are only known when the query runs (`SET n += $props`, `SET n = $props`)
+counts as writing every key, so `UNWIND $rows AS row MERGE (n:Person {id: row.id}) SET n += $props` gets the barrier
 too. Writes of other keys keep streaming: `MERGE (n:Person {id: row.id}) SET n.name = row.name` has no barrier, nor
 does a `MERGE` that starts the query, which runs its lookup only once.
+
+The exception is the bulk upsert. _(Since v26.12.1)_ When the map is the variable the `MERGE` looked the entity up
+by, with every key of the lookup taken from the same key of that variable, the `SET` writes each of those keys with the
+value it already holds, so no barrier is planted and the query keeps streaming. The `SET` is also written together with
+the node or relationship the `MERGE` creates, which is saved once instead of twice:
+
+[source,cypher]
+----
+UNWIND $rows AS row MERGE (n:Entity {uuid: row.uuid}) SET n = row
+
+UNWIND $rows AS row
+MATCH (a:Entity {uuid: row.source}) MATCH (b:Entity {uuid: row.target})
+MERGE (a)-[e:RELATES_TO {uuid: row.uuid}]->(b) SET e = row
+----
+
+The barrier stays when a lookup key is not paired this way (`{uuid: row.id}`, `{uuid: other.uuid}`, a second key the
+map does not carry from the same variable), when the `MERGE` itself writes the key in an `ON CREATE SET` or
+`ON MATCH SET`, or when a `WITH`, `UNWIND`, `LOAD CSV`, `CALL` or subquery between the two clauses can rebind either
+name. Rows of one batch that carry the same key now stream: the first creates the entity with its map, the next ones
+match it and rewrite it, so the last row's values win, the same final state as before.
 
 [NOTE]
 ====
 Up to 26.10.2 the `SET` ran right after the `MERGE` of each row, so the `MERGE` of a later row already saw it: the
 example above created two nodes, and adding a `WITH` between the clauses changed the result depending on how many
 rows were pulled at a time. Since 26.11.1 the answer is the same in every spelling, and the same as Neo4j's. A bulk
-load that used `SET n += row` after a `MERGE` now holds its rows in memory until the `MERGE` has run for all of them:
-to keep it streaming, set the properties by name (`SET n.name = row.name, n.age = row.age`).
+load that used `SET n += row` after a `MERGE` now holds its rows in memory until the `MERGE` has run for all of them,
+unless the `MERGE` looked the node up by keys of that same `row` (since 26.12.1, see above): otherwise, to keep it
+streaming, set the properties by name (`SET n.name = row.name, n.age = row.age`).
 ====
 
 A value the query reads before a write keeps the value it had when it was read. When a `WITH`, an `UNWIND` or the
@@ -995,6 +1059,15 @@ ORDER BY p.city ASC, p.age DESC, p.name ASC
 Strings are sorted by Unicode code point, the same order an index keeps them in (and the order Neo4j uses). The same
 order applies to string comparisons (`<`, `>`, ...) and to `min()`/`max()`.
 
+Numbers are sorted by value, an `INTEGER` against a `FLOAT` included, and `min()` / `max()`, `percentileDisc()` / `percentileCont()` and
+`coll.min()` / `coll.max()` / `coll.sort()` (`apoc.coll.*` too) order them the same way. An `INTEGER` past 2^53 (9007199254740992), such
+as a snowflake id or an epoch in nanoseconds, is never read as the `FLOAT` it rounds to: `9007199254740993` sorts after
+`9007199254740992.0`, `max()` of `1500000000000000001`, `1500000000000000002` and `1500000000000000003` is the last of them, and
+`percentileDisc(x, 0.0)` of the same three is the first. `-0.0`, `0` and `0.0` are one value, so `ORDER BY` keeps them in the order they
+arrived in. Before v26.12.1 (issues #12673 and #12699) numbers were compared as `double`, so integers that differ only in their low
+digits were equal, `min()` / `max()` answered the first row met, `percentileDisc()` answered the value the input order left at that
+rank, and an `INTEGER` and a `FLOAT` that round to the same `double` kept their input order under `ORDER BY`. _(Since v26.12.1)_
+
 `BINARY` values are sorted by their bytes, compared unsigned and one by one, a shorter value before a longer one it is
 the start of: the order SQL's `ORDER BY` and an index give them. Before v26.11.1 the order of two binary values changed
 from one run of the query to the next. _(Since v26.11.1)_
@@ -1082,9 +1155,34 @@ MATCH (p:Person)
 RETURN p.id, p.name ORDER BY p.id LIMIT 10
 ----
 
-It applies when the query only matches and returns (no `WITH`, `UNWIND`, aggregation or write clause in between), and
-also works with `SKIP`, `DISTINCT` and relationship expansions from the ordered node. `EXPLAIN` and `PROFILE` show
-`[index order]` on the `NodeIndexRangeScan` when it is used.
+It applies when the query only matches and returns (no `UNWIND`, aggregation or write clause in between, and no `WITH`
+other than the one described below), and also works with `SKIP`, `DISTINCT` and relationship expansions from the ordered
+node. `EXPLAIN` and `PROFILE` show `[index order]` on the `NodeIndexRangeScan` when it is used.
+
+*The page written through a `WITH`:* since v26.12.1 a keyset page whose `ORDER BY` and `LIMIT` are on a `WITH` is read
+from the index in order too, and the `LIMIT` stops the scan, exactly like the `RETURN` form:
+
+[source,cypher]
+----
+MATCH (p:Person) WHERE p.id > $cursor
+WITH p ORDER BY p.id LIMIT 10
+RETURN p.id, p.name
+----
+
+It applies to the first `WITH` of the query when only `MATCH` clauses (not `OPTIONAL MATCH`) come before it, and that
+`WITH` has both an `ORDER BY` and a `LIMIT`, does not aggregate and is not `WITH DISTINCT`. The `ORDER BY` may name the
+property (`ORDER BY p.id`) or a column the `WITH` projects from it (`WITH p.id AS id ORDER BY id`). Any other `WITH`, and
+an `ORDER BY` the index cannot answer (another property first, for instance), keeps its sort. Only the `ORDER BY` of
+that `WITH` is answered from the index: a `RETURN ... ORDER BY` after it still sorts the page, and a `WHERE` on the
+`WITH` still filters the rows its `LIMIT` took.
+
+*SKIP over an index-ordered scan:* since v26.12.1 the index scan passes over the skipped rows from the index entries,
+without loading their nodes, when the query is a single `MATCH` and a `RETURN` with no `DISTINCT` or aggregation, has
+no `WHERE` left to evaluate on the rows, and every returned item is the matched variable, one of its properties or a
+literal. `MATCH (p:Person) RETURN p.id, p.name ORDER BY p.id SKIP 50000 LIMIT 10` therefore no longer loads 50,000
+nodes to throw them away. The rows returned are the same. A range condition in `WHERE` (`p.id >= 0`) and a type with
+a read trigger or read event listener still load every skipped node. `EXPLAIN` and `PROFILE` show
+`SKIP n (passed over in the index scan)` when it is used. Keyset pagination stays the faster way to read deep pages.
 
 ---
 
@@ -1155,6 +1253,8 @@ Execution will use step-by-step interpretation
 ----
 
 *Composite indexes.* A node pattern that binds only the leading properties of a composite index, `(n:T {a: $x})` with an index on `T(a, b)`, reads the index entries starting with that value on both paths, and so does `MERGE` _(since v26.12.1, issue #11576)_. Before, the non-optimized path (a `MATCH` after a `WITH`, `OPTIONAL MATCH`, `UNWIND ... MATCH`, `MERGE`) scanned the whole type unless every property of the index was bound. `PROFILE` shows it as `[index: T[a, b], prefix: a]`. A composite index with a column indexed `BY ITEM`, `BY KEY` or `BY VALUE` is not read this way while that column is left unbound: a record with an empty collection has no entry there, so the statement scans the type.
+
+When several indexes lead with the same property, the cost-based optimizer reads the one whose key the pattern binds furthest _(since v26.12.1, issue #12557)_. With indexes on `T(tenantId, id)` and `T(tenantId, name)`, `(n:T {tenantId: $t, id: $v})` seeks `T(tenantId, id)` on both properties, instead of reading every `tenantId` entry and filtering `id`. A `UNIQUE` index whose whole key is bound comes first, then the index with the most bound properties, then an exact lookup over a prefix range; the index name settles a tie, so the same schema always plans the same way. A label alternative such as `(n:A|B {...})` seeks the best index of each type.
 
 ---
 
@@ -1319,6 +1419,13 @@ These procedures only return the types the current user is allowed to read, like
 The procedure arguments and the `WHERE` after `YIELD` can read every variable bound before the `CALL`, as in Neo4j:
 `MATCH (a)-[r:KNOWS]->(b) CALL my.proc(r) YIELD value WHERE value.weight > r.weight RETURN value`. _(Since v26.11.1:
 before, the `WHERE` saw only the yielded fields, and a relationship used only in the `CALL` was `null` there.)_
+
+A name that is neither a procedure nor a function runs the SQL function of that full name (`CALL abs(-5)`,
+`CALL vector.neighbors(...)`), or the one after an explicit `sql.` prefix (`CALL sql.abs(-5)`, `CALL sql.geo.asText(...)`).
+Any other name fails as an unknown procedure (`Neo.ClientError.Procedure.ProcedureNotFound` over Bolt). _(Since v26.12.1:
+before, a namespaced name nothing answered ran the SQL function named by its last segment, so
+`CALL apoc.atomic.concat(n, 'name', 'zz')` ran SQL `concat()`, returned no row and wrote nothing, and `CALL nosuch.max(1, 2)`
+returned 2.)_
 
 *Examples:*
 
@@ -1551,6 +1658,12 @@ when the earlier ones already gave 3 rows. A `UNION` inside `CALL { }` removes d
 does, so `1` and `1.0` count as the same value. _(Since v26.11.1: before, the whole subquery ran before its first row
 was returned, and a `UNION` inside it compared values by their text.)_
 
+TIP: In a statement that does not write, the body of a `CALL { }`, `EXISTS { }`, `COUNT { }` or `COLLECT { }` is
+planned once per execution of the statement and run again for each outer row, instead of being planned again for every
+row. Correlated subqueries over many rows run up to about twice as fast; the rows are the same. `PROFILE` shows it as
+`Subquery step chains: <built> built, <reused> reused`. A statement that writes still plans its subqueries for every
+row, so a write made for one row is seen by the subquery of the next. _(Since v26.12.1, issue #12136)_
+
 *Subqueries IN TRANSACTIONS:*
 
 When importing large datasets (e.g., from LOAD CSV), you can use `CALL { ... } IN TRANSACTIONS` to commit changes in batches rather than accumulating all changes in a single transaction. This prevents running out of memory and allows progress to be committed incrementally.
@@ -1728,6 +1841,8 @@ LOAD CSV file access is controlled by two configuration settings:
 |===
 
 HTTP/HTTPS URLs are always allowed regardless of these settings.
+
+NOTE: _(Since v26.12.1)_ A URL that cannot be opened or read (a file that does not exist, a host that does not answer) is a client error, as in Neo4j: HTTP `400` and `Neo.ClientError.Statement.ExternalResourceFailed` over Bolt. Before, it answered `500` and `Neo.DatabaseError.General.UnknownError`.
 
 *Example — Restrict to import directory:*
 
@@ -2095,6 +2210,8 @@ Index and constraint names share one namespace, as in Neo4j:
 
 As in Neo4j, an index does not constrain the values of a property: `CREATE INDEX` on a property the schema does not declare leaves it undeclared, whether the label already has data or not, and every value keeps the type it is written with (`2.5`, `7`, `'7'`, `date('2024-05-06')` on the same property). The index keys such a property by the text of each value, with one key per number however it is written (`3`, `3.0`, `3.00`), and the query re-checks every row, so `n.x = 7` and `n.x = '7'` each find only their own node. Equality, `IN` and string ranges (`STARTS WITH`, `n.x > 'm'`) go through the index; a numeric or temporal range (`n.x > 10`, `n.ts > datetime(...)`) reads the whole index and filters it, with the right answer but without narrowing the scan.
 
+NOTE: _(Since v26.12.1)_ An index of this kind written by an older version can hold floating point numbers and lists keyed by an older text (`1.0`, `[1.5, 2.0]` instead of `1`, `[1.5, 2]`). It still finds, removes and refuses copies of them, at the cost of an extra read on such values until `REBUILD INDEX` rewrites its keys. See <<upgrade-undeclared-index-legacy-keys,the upgrade note>>.
+
 To keep typed keys, and with them indexed numeric and temporal ranges, declare the type before creating the index:
 
 [source,cypher]
@@ -2104,6 +2221,13 @@ CREATE INDEX FOR (p:Person) ON (p.age)
 ----
 
 A declared property converts every value written to it to its type. _(Since v26.12.1)_ Before 26.12.1, `CREATE INDEX` on a label that already held the property declared it with the type of the stored values, so every later write of another kind was converted silently: on a label of integers `2.5` was stored as `2`, `'7'` as the number `7` and a date as epoch milliseconds. A property declared that way by an earlier version stays declared: drop the declaration with SQL `DROP PROPERTY` (after dropping the index) if the values should keep their own types.
+
+[[cypher-create-index-unlabelled]]
+*Nodes with no label, or several:*
+
+_(Since v26.12.1)_ A node pattern that names no single label is answered by the indexes too. `MATCH (n {uuid: $u})`, `MATCH (n) WHERE n.uuid = $u`, `MATCH (n:A:B {uuid: $u})` and a list of values, `MATCH (n) WHERE n.uuid IN $keys`, look the values up in the index of every type that has one on the property, and scan only the types that have none. Before 26.12.1 such a pattern read every node of the database, so it got slower as the database grew.
+
+The index is used when the value has the type the index is keyed by (text for a text property, a whole number for a whole number property, a boolean, a decimal number for a decimal property). Any other value is compared by scanning, as before. A list is looked up in an index only when the index is on that one property alone and every value of the list has the type it is keyed by: one value of another type (`2.5` against a whole number property, `'7'` against a number property) makes that index scan its types for the whole list. Writing the label on the node, as in `MATCH (n:Entity {uuid: $u})`, still names the index directly.
 
 [[cypher-create-vector-index]]
 ====== CREATE VECTOR INDEX / CREATE FULLTEXT INDEX
@@ -2263,6 +2387,8 @@ SHOW DATABASES WHERE name = $dbName
 ----
 
 NOTE: A trailing `;` is accepted. A `UNION` of several commands is answered branch by branch, so a trailing clause there applies only within its own branch.
+
+_(Since v26.12.1)_ The clause that follows a `SHOW` or `TERMINATE` command is checked against the grammar of `YIELD` and `WHERE`: only `YIELD` items with their `ORDER BY`, `SKIP`, `LIMIT` and `WHERE`, an optional `RETURN`, or a lone `WHERE` may follow it, and any other input is refused with a parsing error. The rows the clause produces count against <<settings-sql,`arcadedb.queryMaxHeapElementsAllowedPerOp`>> and the heap budget the running queries share, `arcadedb.queryMaxHeapRAM`. Over <<bolt-driver,Bolt>>, such a command runs under the query admission gate and the statement timeout like any other statement.
 
 ---
 

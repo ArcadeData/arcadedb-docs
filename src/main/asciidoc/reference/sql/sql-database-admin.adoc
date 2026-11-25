@@ -239,6 +239,10 @@ with a warning naming the vertex and the direction. Before v26.11.1 a rebuild dr
 The other shape is a *dangling reference*: an adjacency entry that points at a record which no longer exists, typically left behind
 by a vertex deleted by an old release, before edge removal became strict. There is nothing to rebuild in that case - the record the
 entry names is gone - so `FIX` drops the entry instead.
+_Since v26.12.1_ this covers <<lightweight-edges,lightweight edge>> entries too: one whose other vertex is gone, as left by
+`DROP TYPE ... UNSAFE` on a vertex type, is reported in `warnings` and counted under `invalidLinks` and `topMissingReferences`,
+and `FIX` drops it (counted under `prunedDanglingEntries`). Before, the check saw only record-backed edges, so `FIX` removed those
+and left the lightweight entries, which SQL `outE()`/`inE()` and `count(*)` kept returning.
 
 An application that reaches such a record before the repair has run is told so plainly, and always in the same
 way. Removing an entry from the edge list of a vertex whose own record is missing, adding one to it, and deleting that vertex
@@ -271,6 +275,12 @@ that reference it, so finding that vertex takes a scan - which is why the messag
 While the check runs, its progress (current step and percentage) is visible live in the <<console,console>>, in Studio, and
 through the <<http-progress,HTTP progress endpoint>>. Run `FIX` in a maintenance window: like every repair, it assumes no
 concurrent writers.
+
+NOTE: _(Since v26.12.1.)_ `CHECK DATABASE` with `FIX` or `COMPRESS` requires the `updateSchema` database permission, like
+`REBUILD INDEX` and `COMPACT INDEX` (see <<groups,groups>>), because a repair deletes and rewrites records whatever the user's
+per-type grants. A user without it, such as one of the built-in `readonly` and `crud` groups, gets a security error (HTTP `403`)
+and the database is left untouched. `CHECK DATABASE` without `FIX` and `COMPRESS` only reports and stays allowed. Before, any user
+who could open the database could run a repair.
 
 *Syntax*
 
@@ -680,8 +690,10 @@ On an HA cluster these schema members are restored as one schema change, which h
 runs and replicates to every node. _(Since v26.10.2: they reached only the leader's schema, so the followers, and a new
 leader after a failover, had the imported types and records but no triggers, views, aggregates or functions.)_
 
-Installing a `JAVASCRIPT` or `JAVA` trigger, or a `js` function library, from an imported file requires the same
-`updateSecurity` permission that creating one by hand does, since either is code that runs inside the server.
+Restoring these schema members from an imported file requires the `updateSchema` permission, as creating each of them by
+hand does, and it is asked before any of them is installed. Installing a `JAVASCRIPT` or `JAVA` trigger, or a `js`
+function library, requires the `updateSecurity` permission as well, since either is code that runs inside the server.
+_(Since v26.12.1.)_
 ====
 
 [[sql-export-jsonl-value-fidelity]]

@@ -57,7 +57,8 @@ This is for example the case in the data argument (`-d`) of POST requests.
 ==== Token-Based Authentication
 
 In addition to HTTP Basic Authentication, ArcadeDB supports token-based authentication.
-Wrong Basic credentials, an unknown user and a user locked out after too many failed attempts are answered `401` "Authentication failed", the same status the bearer-token and API-token paths use. So are a malformed Basic header and an unsupported `Authorization` scheme. `403` is the answer for an authenticated user who lacks permission. No `WWW-Authenticate` header is sent, so browsers do not open their native login dialog over Studio's login form. _(Since v26.11.1: before, these cases answered `403` "Security error".)_
+Wrong Basic credentials, an unknown user and a user locked out after too many failed attempts are answered `401` "Authentication failed", the same status the bearer-token and API-token paths use. So are a malformed Basic header and an unsupported `Authorization` scheme. `403` is the answer for an authenticated user who lacks permission. These answers carry no `WWW-Authenticate` header, so browsers do not open their native login dialog over Studio's login form. _(Since v26.11.1: before, these cases answered `403` "Security error".)_
+A request with no `Authorization` header at all is also answered `401` "Authentication failed" _(since v26.12.1: before, its error message was empty)_. That one answer carries a `WWW-Authenticate: Basic` challenge: it lets a browser tab sign in to the Swagger UI page (`/api/v1/docs`) through its native login dialog, and lets clients that authenticate by answering a challenge (such as the JDK `Authenticator` or `curl --anyauth`) send their credentials.
 
 This allows you to login once with credentials and receive a token that can be used for subsequent requests, avoiding the need to send username and password with every request.
 
@@ -181,7 +182,7 @@ as it was: a `413` for an answer over `arcadedb.server.maxResultRows`, or a `400
 ran (for example `Accept: application/x-ndjson` on a statement that cannot be streamed). `POST /api/v1/command`
 also leaves the transaction alone for a `400` of this kind, which includes a malformed request body: a missing
 `command`, a field of the wrong type (such as a numeric `language`), a `limit` that is not an integer, or a
-`$bytes`/`$int8` parameter marker that cannot be decoded. An error raised by the statement itself on
+<<vector-http-typed-markers,typed parameter marker>> that cannot be decoded. An error raised by the statement itself on
 `/api/v1/command` still rolls the transaction back, as described under <<http-commit,Commit a transaction>>.
 
 ==== Transaction Scripts
@@ -250,6 +251,10 @@ Once subscribed, you will get JSON messages for any matching changes with the fo
 A subscription is not permanent. The server re-checks on every event that the connected
 user is still allowed to read the database: if that access is revoked, or the user is deleted, the subscription is
 dropped and the connection closed instead of continuing to stream.
+
+_(Since v26.12.1.)_ The change events follow the `readRecord` permission of the user's <<groups,group>> for each type, as every other way of reading the same records does.
+A change of a type the user may not read is not sent, whether the subscription covers every type of the database or names that type, and the subscription stays open for the changes of the types the user may read.
+The permission is checked on every change, so a permission changed while the subscription is open applies from the next change on.
 
 A subscription is to the database NAME. Starting from v26.11.1, it follows the database the server serves under that name: after
 `close database` and `open database`, a restore, an HA snapshot install, or a drop followed by a create of the same name, the
@@ -391,6 +396,11 @@ container healthcheck such as `wget --spider` works against any of them. A `HEAD
 with a `405` whose `Allow` header names the methods it does answer, for example `Allow: GET, HEAD` on `/api/v1/databases`. _(Since
 v26.11.1: before, only `/api/v1/ready` and `/api/v1/health` answered `HEAD`, and a `405` from a core route carried no `Allow` header,
 issue #10531.)_
+
+A request to a path the server does not serve, such as `/api/v1/nosuchroute`, is answered `404` with
+`"error": "The requested resource does not exist"`, a `requestId` field and the `X-Request-Id` and `X-ArcadeDB-Replay-Protection`
+headers every other answer carries. The message never repeats the path that was asked for. _(Since v26.12.1: before, such a request
+was answered `404` with an empty body and none of these headers, issue #12410.)_
 
 [[http-request-replay]]
 ==== Retrying Requests Safely (`X-Request-Id`)
@@ -1227,7 +1237,7 @@ URL Syntax: `/api/v1/exists/{database}`
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
-* https://httpstatuses.io/400[`400`] no database passed
+* https://httpstatuses.io/400[`400`] no database passed: the name is empty or blank (`"error": "Database parameter is null"`, as `GET /api/v1/progress/{database}` answers). _(Since v26.12.1: before, `GET /api/v1/exists/` answered `200` `{"result": false}`.)_
 
 Example:
 
@@ -1528,8 +1538,8 @@ Responses:
 * https://httpstatuses.io/404[`404`] database does not exist (`Database not found`)
 * https://httpstatuses.io/503[`503`] the database is there and cannot serve the request now: closed, being restored, dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/500[`500`] cannot execute query
-* https://httpstatuses.io/503[`503`] the server is busy and the query can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
-* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
+* https://httpstatuses.io/503[`503`] the server is busy and the query can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>). The answer carries `Retry-After: 1` _(since v26.12.1)_
+* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`, with `Retry-After: 0` since v26.12.1), or the server is shutting down (no `Retry-After`): retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
 
 Example:
@@ -1596,7 +1606,12 @@ The payload, as a JSON, accepts the following parameters:
 - `command` the command to execute in encoded format
 - `awaitResponse` (optional) a boolean which is by default "true", if set to "false" the command will be executed asynchronously and only acknowledgement of receiving the command is responded.
 The completion of the command is noted in the log, yet no results of the command can be returned.
-- `limit` (optional) is the maximum number of results to return
+- `limit` (optional) is the maximum number of results to return. _(Since v26.12.1)_ this cap, or
+<<setting-table,`arcadedb.server.httpQueryDefaultLimit`>> when neither the request nor the statement sets one, is no
+longer added to the text of a SQL `SELECT` or `MATCH` as a `LIMIT`: the statement is planned and cached exactly as an
+embedded or Postgres client would send it, so a `SELECT DISTINCT` keeps its parallel plan and a `GROUP BY` its columnar
+plan over HTTP too. The engine still stops early where the cap allows it, for example by keeping only the first rows of
+an `ORDER BY` sort. A `LIMIT` written in the statement decides the rows returned, as before.
 - `params` (optional), is the map of parameters to pass to the query engine, where parameters are prefixed with a colon `:`, or a JSON array of <<http-positional-params,positional parameters>>. Parameter values may include the typed-marker objects described in <<vector-http-typed-markers,Typed parameter markers>> to send `byte[]` -- e.g. INT8-encoded vectors -- without a float32 round trip.
 - `retries` (optional), is the number of times the command (transaction) is retried. When omitted it follows the
 `arcadedb.txRetries` <<setting-database,database setting>> (3 by default), the same attempt count the embedded and
@@ -1634,21 +1649,31 @@ in `ts.rate()`, an unknown unit in `duration()`, a percentile outside `[0, 1]`, 
 `com.arcadedb.exception.InvalidArgumentException`). Before v26.12.1 these answered `500`, some with a raw `NullPointerException`,
 `ClassCastException` or `DateTimeParseException`. Over Bolt they are `Neo.ClientError.Statement.TypeError` and
 `Neo.ClientError.Statement.ArgumentError`, over the Postgres protocol `42804` and `22023`
+* https://httpstatuses.io/400[`400`] _(since v26.12.1)_ an openCypher `LOAD CSV` of a URL that cannot be opened or read, such as a file that does
+not exist (`exception` is `com.arcadedb.exception.ExternalResourceException`). Before v26.12.1 this answered `500`. Over Bolt it is
+`Neo.ClientError.Statement.ExternalResourceFailed`
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/409[`409`] _(since v26.11.1)_ the command creates, or renames onto, a schema object name that is already taken: a type,
 property, index, constraint, bucket, trigger, view or function. `error` names the kind (for example `"Type already exists"`, kept in production mode),
 `exception` is `com.arcadedb.exception.AlreadyExistsException` and `exceptionArgs` the kind (`TYPE`, `PROPERTY`, `INDEX`, ...). Not retryable.
 Before v26.11.1 these answered `500` (`"Cannot execute command"` or `"Internal error"`), and a rename onto a taken type name `400`
 * https://httpstatuses.io/409[`409`] _(since v26.12.1)_ the command is refused for what the database holds now: `TRUNCATE TYPE`, `TRUNCATE BUCKET`
-or `DROP TYPE` of a vertex or edge type that still has records (without `UNSAFE`), `DROP PROPERTY` of a property an index uses (without `FORCE`).
+or `DROP TYPE` of a vertex or edge type that still has records (without `UNSAFE`), `DROP PROPERTY` of a property an index uses (without `FORCE`),
+an openCypher `DELETE` of a node that still has relationships (use `DETACH DELETE`).
 `error` is `"Object in use"` and `exception` `com.arcadedb.exception.ObjectInUseException`; the detail says how to resolve it. Not retryable. Before
 v26.12.1 these answered `500`. In the same release a `LIMIT`/`SKIP` that is not a number, a `CREATE EDGE`/`CREATE VERTEX` on a type of the other
-kind, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a setting it cannot change (the type of a property included) and
+kind, a `CREATE EDGE` endpoint that is not a vertex, a SQL `MATCH` `rid:` that is not a RID, a bare `ORDER BY @rid` on the rows of a SQL `MATCH`
+that returns columns, `REBUILD INDEX` of an index that does not exist, `ALTER PROPERTY` of a setting it cannot change (the type of a property included) and
 `IMPORT DATABASE` of a source that does not exist answer `400` instead of `500`
-* https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>)
-* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`), or the server is shutting down: retry as it is
+* https://httpstatuses.io/503[`503`] the command's transaction conflicted with a concurrent commit and the server's own retries did not get past it (`ConcurrentModificationException`), or another retryable refusal (`NeedRetryException`, a write refused by a leader that is stepping down included _(since v26.12.1)_, see <<ha-writes-during-leadership-transfer,Writes during a leadership transfer>>): retry as it is. The answer carries `Retry-After: 0` _(since v26.12.1)_: the conflict clears as soon as the competing commit has landed
+* https://httpstatuses.io/503[`503`] the server is busy and the command can be retried as it is: the running queries hold the heap budget (`QueryHeapBudgetExceededException`, see <<setting-table,`queryMaxHeapRAM`>>), or the query admission gate did not start it, because it waited longer than `queryQueueTimeout` or found the queue full (`QueryAdmissionException`, see <<setting-table,`queryMaxConcurrent`>>). The answer carries `Retry-After: 1` _(since v26.12.1)_
+* https://httpstatuses.io/503[`503`] the database was closed while the request was running because it is being reinstalled from a snapshot on an HA replica (`DatabaseIsReopeningException`, with `Retry-After: 0` since v26.12.1), or the server is shutting down (no `Retry-After`): retry as it is
 * https://httpstatuses.io/503[`503`] the database was closed (`CLOSE DATABASE`, a restore) while the request was running and is still there (`DatabaseNotAvailableException`, `exceptionArgs` `CLOSED`) _(since v26.11.1, before it was `404`)_, or https://httpstatuses.io/404[`404`] it was dropped (`DatabaseIsClosedException`)
+* https://httpstatuses.io/404[`404`] _(since v26.12.1)_ an openCypher statement reads, sets or links a node it deleted earlier in the same statement
+(`MATCH (n:A) DELETE n RETURN n.x`). `error` is `"Entity deleted"` and `exception` is `com.arcadedb.exception.DeletedEntityException`. Not retryable.
+Before v26.12.1 this answered `500`. Over Bolt it is `Neo.ClientError.Statement.EntityNotFound`
 * https://httpstatuses.io/404[`404`] the database does not exist (`Database not found`), or https://httpstatuses.io/503[`503`] it is there and cannot serve the command now: closed, being restored (a write while a restore holds an open database is refused this way), dropped or recovered (see <<http-unavailable-database,a database that is not available>>)
+* https://httpstatuses.io/504[`504`] _(since v26.12.1)_ in an HA cluster, the write was handed to the replication, or forwarded by a follower to a leader that died or did not answer, and its outcome is unknown: it may or may not have been applied. `error` is `"Transaction outcome unknown: the write may have been applied, check before retrying it"` (kept in production mode) and `exception` is `com.arcadedb.exception.TransactionOutcomeUnknownException` (`com.arcadedb.server.ha.raft.ReplicationDispatchedTimeoutException` on the node that handed the write to the replication). No `Retry-After`: check whether the write landed before sending it again, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>. Before v26.12.1 these answered `500`
 
 Example of insertion of a new Client by using parameters:
 
@@ -1869,6 +1894,8 @@ The gRPC service carries the same counters in the write-result summary of `Execu
 
 Parameters keep the numbers as written: an integer beyond the `long` range, or a decimal with more than 17 significant digits, is read as a `DECIMAL` (`BigDecimal`) instead of being wrapped or rounded to a double. A number token with more than 1000 characters or an exponent beyond 1000 is refused with `400`. A JSON array given as a parameter is a list, as when the statement runs embedded: written to a `LIST` property it is stored as that list, and `[0.1, 3.141592653589793]` keeps both doubles.
 
+A list of numbers nested inside a map parameter (`INSERT ... CONTENT :map`, openCypher `SET n = $map`, `UNWIND $rows`) is kept in the compact array form vectors use, so an undeclared property stores it as `ARRAY_OF_LONGS` or `ARRAY_OF_DOUBLES`. The SQL list operators and functions read such a value as a list (see <<sql-update,`UPDATE`>>). Written to a property declared `STRING`, it is stored as the text of its elements, `"[1, 2]"`, the text the same list gets. _(Since v26.12.1, issue #12896; before, a `STRING` property refused it with "Cannot convert type 'class [J' to 'STRING'".)_
+
 [[http-positional-params]]
 ===== Positional parameters
 
@@ -1894,19 +1921,28 @@ NOTE: _(since v26.11.1)_ Before, a surplus value was silently dropped (`"params"
 `where name in ?` answered only the `English` rows) and a missing value was bound to `null`.
 
 [[vector-http-typed-markers]]
-===== Typed parameter markers (`$bytes`, `$int8`)
+===== Typed parameter markers (`$bytes`, `$int8`, `$rid`, `$decimal`, dates)
 
-JSON has no native `byte[]` type, so HTTP/JSON clients cannot send binary parameters with the standard scalar/array shapes. The `query` and `command` endpoints recognise two reserved single-key marker objects in any parameter value (named or positional) and decode them to a Java `byte[]` before the parameter binder sees them. The primary use case is sending an INT8-encoded vector to a `LSM_VECTOR` index without the float32 round trip -- see <<vector-encoding,Vector Encoding>>.
+JSON has no native type for binary data, links, exact decimals or dates, so HTTP/JSON clients cannot send these parameters with the standard scalar/array shapes: a record id would arrive as a string, a decimal as a double and a date as a number. The `query` and `command` endpoints recognise reserved single-key marker objects in any parameter value (named or positional) and decode them to the Java type before the parameter binder sees them. One use case is sending an INT8-encoded vector to a `LSM_VECTOR` index without the float32 round trip -- see <<vector-encoding,Vector Encoding>>.
 
 [cols="1,2"]
 |===
 | Marker | Decodes to
 
-| `{"$bytes": "<base64>"}` | `byte[]` from a base64 string. Both standard (RFC 4648 section 4) and URL-safe (section 5, with `-` and `_` in place of `+` and `/`) alphabets are accepted.
+| `{"$bytes": "<base64>"}` | `byte[]` (BINARY) from a base64 string. Both standard (RFC 4648 section 4) and URL-safe (section 5, with `-` and `_` in place of `+` and `/`) alphabets are accepted.
 | `{"$int8":  [v0, v1, ...]}` | `byte[]` from an array of integers. Each element must round to an integer in `[-128, 127]`; fractional or out-of-range values are rejected with HTTP 400.
+| `{"$date": "2024-01-15"}` | `LocalDate` (DATE) from an ISO-8601 date.
+| `{"$rid": "#12:0"}` | a link to the record (LINK), rather than its text. _(Since v26.12.1)_
+| `{"$decimal": "0.10"}` | `BigDecimal` (DECIMAL) from its text, scale kept, rather than a double. The text is held to the limits of a JSON number (1000 characters, an exponent up to 1000). _(Since v26.12.1)_
+| `{"$datetime": 1700000000123}` | `java.util.Date` (DATETIME) from epoch milliseconds, as a JSON integer. _(Since v26.12.1)_
+| `{"$localDateTime": "2024-02-29T13:14:15"}` | `LocalDateTime` (DATETIME) from ISO-8601 text, nanoseconds kept. _(Since v26.12.1)_
+| `{"$instant": "2023-11-14T22:13:20.123Z"}` | `Instant` (DATETIME) from ISO-8601 text. _(Since v26.12.1)_
+| `{"$zonedDateTime": "2024-01-01T10:00:00+01:00[Europe/Rome]"}` | `ZonedDateTime` (ZONED_DATETIME) from ISO-8601 text, zone kept. _(Since v26.12.1)_
 |===
 
-A single-key map whose key is one of these is decoded; multi-key maps that happen to contain a `$bytes` or `$int8` key are passed through unchanged so user data with leading-`$` keys is not silently transformed. The decoder also recurses into nested arrays and maps, so a list of typed markers (e.g. a batch of int8 vectors as a single parameter) works.
+The Java remote client sends its parameters, and the values of a record it saves, with these markers. A server older than a marker receives it as a one-key map.
+
+A single-key map whose key is one of these is decoded; multi-key maps that happen to contain such a key are passed through unchanged so user data with leading-`$` keys is not silently transformed. The decoder also recurses into nested arrays and maps, so a list of typed markers (e.g. a batch of int8 vectors as a single parameter) works.
 
 Examples:
 
@@ -1937,7 +1973,7 @@ curl -X POST http://localhost:2480/api/v1/query/mydb \
      }'
 ----
 
-Malformed markers (invalid base64, non-numeric `$int8` element, value out of `[-128, 127]`, `null` payload) return `400 Bad Request` with a message naming the marker and the offending value.
+Malformed markers (invalid base64, non-numeric `$int8` element, value out of `[-128, 127]`, a `$rid` that is not a record id, a `$decimal` that is not a number or is too large, a date that is not valid ISO-8601, `null` payload) return `400 Bad Request` with a message naming the marker and the offending value, before the statement runs.
 
 [[http-vector-search]]
 ===== Vector search (POST)
@@ -2098,7 +2134,7 @@ The JSON body accepts:
 - `properties` (optional) array of indexed property names, to pick one of several full-text indexes on `typeName`
 - `limit` (optional, default `10`) maximum number of results, between `1` and `1000`
 
-One of `indexName` or `typeName` is required. The response carries `indexName`, `similarity` (`BM25` or `CLASSIC`), `count` and `results`, where each hit has `rid`, `score` and `properties`. The limit is applied per bucket, so a record deleted between the index scan and the load is skipped rather than replaced, and a search can return fewer than `limit` hits.
+One of `indexName` or `typeName` is required. The response carries `indexName`, `similarity` (`BM25` or `CLASSIC`), `count` and `results`, where each hit has `rid`, `score` and `properties`. The limit is applied inside the index (across all buckets for a query of OR-ed terms, _since v26.12.1_, per bucket otherwise), so a record deleted between the index scan and the load is skipped rather than replaced, and a search can return fewer than `limit` hits.
 
 Responses:
 
@@ -2215,6 +2251,15 @@ Response:
 * https://httpstatuses.io/204[`204`] OK
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/404[`404`] the session is unknown, expired or already ended, or its transaction was rolled back by a failed command
+* https://httpstatuses.io/503[`503`] the commit conflicted with a concurrent commit that changed the same records (`ConcurrentModificationException`), or met another retryable refusal: nothing was committed and the session is closed. Begin a new transaction, read the records again and re-apply the change. The answer carries `Retry-After: 0` _(since v26.12.1, before it carried none)_: the conflict clears as soon as the competing commit has landed
+* https://httpstatuses.io/504[`504`] _(since v26.12.1)_ in an HA cluster, the commit was handed to the replication and its outcome is unknown: it may or may not have been applied. No `Retry-After`: read the records to see whether it landed before sending the work again, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>
+
+A conflict surfaces at the commit, not at the write: the write of the transaction that loses the race is answered `200`,
+and the conflict is detected when it commits, which is where the server can see the competing commit. A transaction at
+`REPEATABLE_READ` that read a record a concurrent transaction then changed and committed is the typical case (see
+<<transactions,Transactions>>). The Java remote client's `transaction()` runs the whole block again on it; any other
+client reads the `503` and the `Retry-After` header. The header is a floor, not a schedule: a client that retries in a
+loop still backs off, with jitter, when the same conflict comes back, as it does on a record many writers update.
 
 Example:
 
@@ -2308,6 +2353,12 @@ Each line is a JSON object with the following meta fields:
 | Edges only
 | Destination vertex reference: a temporary ID or an existing RID
 |===
+
+An endpoint written as a RID must be an existing vertex. A RID that does not exist, or that names a document or an
+edge, is refused with `400` on the line that names it (`Edge endpoint '#99:0' at line 4: Vertex #99:0 does not exist`),
+with the `verticesCreated`, `edgesCreated` and `partialCommit` counters, and the edges loaded before that line stay
+reachable (since 26.12.1; before, the load failed only at its end with `404` or `500`, without the counters, and left
+every edge of the load unreachable by traversal).
 
 All other fields are treated as properties.
 
@@ -2443,8 +2494,9 @@ NOTE: The Java driver's `RemoteGraphBatch` uses this encoding automatically, so 
 Responses:
 
 * https://httpstatuses.io/200[`200`] OK
-* https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, vertices after edges
+* https://httpstatuses.io/400[`400`] invalid input format, missing required fields, unknown temporary ID, an edge endpoint RID that does not exist or is not a vertex, vertices after edges
 * https://httpstatuses.io/401[`401`] invalid credentials
+* https://httpstatuses.io/409[`409`] _(since v26.12.1)_ another batch load is already running on the database (`"error": "A GraphBatch load is already in progress on this database"`, `"exception": "com.arcadedb.exception.GraphBatchInProgressException"`). A database accepts one batch load at a time, and nothing of the refused load ran. No `Retry-After` is sent, because the server cannot know when the other load ends: send the load again once it has finished. Before v26.12.1 the same refusal answered `500` `"Internal error"`
 * https://httpstatuses.io/413[`413`] the body exceeds `server.httpBodyContentMaxSize`; the load is cut short and the records loaded before the cut *stay loaded*
 * https://httpstatuses.io/503[`503`] / https://httpstatuses.io/504[`504`] the request could not be forwarded (for example from a follower to the leader); the records loaded before the failure *stay loaded*
 

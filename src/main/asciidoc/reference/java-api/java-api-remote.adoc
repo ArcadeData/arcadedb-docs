@@ -11,6 +11,10 @@ The server administration calls (databases, users, groups and API tokens) prefer
 
 When a server becomes unreachable, `RemoteServer` and `RemoteDatabase` refresh the cluster configuration by asking every known replica in turn, then the old leader, then the address the client was created with, and the retry goes to the server that answered. If no server can give the configuration, for example during an election, the client keeps the leader and the replica list it had and spends the remaining retries (`arcadedb.ha.errorRetries`) on that list, so a read can still reach a follower. The error is raised when those retries run out. _(Since v26.12.1.)_
 
+`RemoteDatabase.begin()` fails over the same way. When the server it is sent to cannot be reached and the request provably never got there, it refreshes the cluster configuration and starts the transaction on another live server, trying each known server once within the same `arcadedb.ha.errorRetries` budget. The commands, the commit and the rollback of that transaction then go to the server that began it. The `FIXED` connection strategy keeps to its one server. A commit is never sent to another server this way, since a lost answer may mean it was applied. Before, `begin()` kept failing with `NeedRetryException` ("the server could not be reached") until another request moved the client to a live server. _(Since v26.12.1.)_
+
+`RemoteDatabase.begin()` fails over the same way when the server it is connected to cannot be reached: since no transaction exists yet, the begin is sent to another server of the cluster, trying every known server before it tries one again, within the same `arcadedb.ha.errorRetries` budget. It is retried only when the request provably never reached a server. The rest of the transaction (commands, commit and rollback) then goes to the server that began it. With the `FIXED` connection strategy the begin keeps to its server, as every other request does. Before, a `begin()` kept failing with "the server could not be reached" until some other request moved the client to a live server. _(Since v26.12.1.)_
+
 _(Since v26.10.2.)_ `acceptDivergedDatabase(databaseName)` and `acceptStaleSnapshot()` are the operator overrides for a
 node of a replicated cluster that has no peer left to resync from. Both are root only and accept the node's local copy
 as the truth without a resync, so the entries that were skipped are not replayed. `acceptDivergedDatabase` lifts the
@@ -51,6 +55,16 @@ _(Since v26.11.1.)_ `getType()` answers the record's type on a mutable remote re
 `newVertex()`, `modify()`), as it does on a record read from the server, instead of throwing
 `UnsupportedOperationException`. `toMap()` and `toJSON()` of a remote edge include `@in` and `@out`, as an embedded edge
 does.
+
+_(Since v26.12.1, issue #12190.)_ The record factories of `RemoteDatabase` (and of `RemoteGrpcDatabase`, which inherits
+them) follow the embedded API. `newEmbeddedDocument()` works on a remote document, vertex or edge, also nested, in a list
+or in a map: the embedded document is built on the client and sent with its owner on `save()`. Only a document type can
+be embedded. `newDocument()` on a vertex or edge type, and `newVertex()` on a type that is not a vertex type, throw
+`IllegalArgumentException`. `newRecord()` of a remote type builds a document on a document type and a vertex on a vertex
+type, and throws `UnsupportedOperationException` on an edge type: create an edge from its source vertex with `newEdge()`.
+Before, `newEmbeddedDocument()` threw a `NullPointerException`, `newDocument()` on a vertex type saved a vertex,
+`newVertex()` on a document type threw a `ClassCastException` and `newRecord()` on an edge type was accepted. Code that
+created vertices with `newDocument()` has to use `newVertex()`.
 
 [[remote-database]]
 ==== RemoteDatabase Class
@@ -109,16 +123,16 @@ These classes expose graph-traversal methods that translate directly into SQL qu
 |Method|Description
 
 |`getVertices(direction, edgeTypes...)`
-|Returns all neighbor vertices, transparently paginating in batches of `DEFAULT_PAGE_SIZE` (2,000) records per HTTP call.
+|Returns all neighbor vertices, transparently paginating in batches of `DEFAULT_PAGE_SIZE` (2,000) records per HTTP call. The vertices come in the order of their edges, once per edge, and a vertex deleted since its edge was read is left out.
 
 |`getVerticesPaged(direction, pageSize, edgeTypes...)`
-|Same as above but with an explicit page size. Use to tune round-trip vs. payload trade-off for supernodes.
+|Same as above but with an explicit page size. Use to tune round-trip vs. payload trade-off for supernodes. A page size of zero or less throws `IllegalArgumentException`.
 
 |`getVertices(direction, limit, skip, edgeTypes...)`
 |Returns a single page of up to `limit` neighbor vertices starting at offset `skip`. Useful for implementing your own pagination.
 
 |`getEdges(direction, edgeTypes...)`
-|Returns all connected edges, transparently paginating with `DEFAULT_PAGE_SIZE` per HTTP call.
+|Returns all connected edges in RID order, transparently paginating with `DEFAULT_PAGE_SIZE` per HTTP call. `BOTH` returns the outgoing edges, then the incoming ones, so a self-loop comes twice, as in the embedded API.
 
 |`getEdgesPaged(direction, pageSize, edgeTypes...)`
 |Same as above but with an explicit page size.
@@ -151,8 +165,9 @@ for (Vertex neighbor : hubRemote.getVerticesPaged(Vertex.DIRECTION.OUT, 5_000, "
 }
 ----
 
-NOTE: Each page uses a `SKIP/LIMIT` SQL clause, so the edge list is re-scanned from the beginning on every page.
-For supernodes with millions of edges prefer a SQL query with a server-side `WHERE` filter to narrow results before fetching them.
+NOTE: Each page of `getEdges()`, `getVertices()`, `getEdgesPaged()` and `getVerticesPaged()` resumes after the RID of the last edge of the previous page, so deleting the edges or the vertices while iterating (`for (Edge e : hub.getEdges(OUT)) e.delete();`), or another client deleting edges already read, does not make the iteration skip live ones.
+A lightweight edge has no RID of its own: deleting, while iterating, an already read lightweight edge of the same type between the same two vertices as a live one can still hide the live one.
+The server still reads the whole edge list of the vertex on every page, so for supernodes with millions of edges prefer a larger page size, or a SQL query with a server-side `WHERE` filter to narrow results before fetching them.
 
 The database, which name you have given as the third parameter in the constructor is not automatically created nor is it checked whether it exists. Before you use the `RemoteDatabase` make sure that the database exists, or, if it doesn't, create it:
 
@@ -227,6 +242,19 @@ A statement stopped on the server (by the <<http-running-queries,`terminate quer
 `TERMINATE TRANSACTIONS` or Studio) raises `com.arcadedb.exception.QueryTerminatedException`, over HTTP and over gRPC
 alike. It is not retried by `transaction()`: somebody asked for the work to stop. _(Since v26.10.2.)_
 
+_(Since v26.12.1, issue #12193.)_ The index methods of the schema API answer the index over a `RemoteDatabase` as they do
+embedded. `createTypeIndex()` and `getOrCreateTypeIndex()`, of the `Schema` and of a type, return the index they created
+or found, and `getIndexByProperties()`, `getPolymorphicIndexByProperties()`, `getIndexesByProperties()` and
+`getAllIndexes()` of a type find an existing index, so a setup such as
+`if (type.getIndexByProperties("email") == null) type.createTypeIndex(...)` creates the index once. The returned index
+describes it (name, type, properties, index type, unique, null strategy, key types) and `drop()` drops it. The client
+holds none of its entries, so `get()`, `range()`, `countEntries()`, `put()`, `setNullStrategy()` and the other methods
+reading or changing them throw `UnsupportedOperationException`: run a query instead, the server picks the index, and set
+the null strategy when creating the index (<<sql-create-index,`CREATE INDEX ... NULL_STRATEGY`>>). Each lookup asks the
+server and is not cached, so it sees an index another client created or dropped. Before, the lookups answered `null` or an
+empty list for an existing index, `getIndexesByProperties(String...)` and `getAllIndexes()` threw
+`UnsupportedOperationException`, and the creation methods returned `null`.
+
 Now that the schema is in place, we will insert some data:
 
 [source, java]
@@ -238,6 +266,24 @@ database.command("sql",
 ----
 
 The first command creates a new vertex of type 'Customer'. The second command updates this vertex by adding a new value for the property 'lastcall'. The first command uses unnamed parameters where the values are mapped by their order in the parameter list. Whereas the second command uses named parameters, which are mapped by the parameter names.
+
+_(Since v26.12.1.)_ A parameter, and a value set on a record that `save()` sends, keeps its Java type as the embedded API
+does, also for a property the schema does not declare: a `RID` (or a saved record) is stored as a link, a `BigDecimal` as
+a DECIMAL with its scale (`SELECT :a + :b` with `0.1` and `0.2` answers `0.3`), a `byte[]` as BINARY, a `LocalDate` as a
+DATE, `java.util.Date`, `LocalDateTime` and `Instant` as a DATETIME and a `ZonedDateTime` as a ZONED_DATETIME. The client
+sends them as <<vector-http-typed-markers,typed parameter markers>>, which a server older than 26.12.1 does not decode, so
+upgrade the server first. Before, these values reached the server as plain JSON: a `RID` was stored as a string, a record
+as an embedded copy, a `BigDecimal` as a double, a `byte[]` as a list and the dates as numbers. A record read back from
+the server holds an undeclared link as a `RID`, and a list or map of links as a list or map of `RID`s, as a projection of
+the same property does _(since v26.12.1, issue #12195; before, the record answered the rid text `"#1:0"`)_. The same
+holds for the links in a property declared as a bare `LIST` or `MAP`, without `OF LINK`, and a `NaN` or infinite number
+in such a collection reads back as a `Double` _(since v26.12.1, issue #12598)_. Every link the client reads, in a record
+property, in the items of a list or map, or in a projection column, is bound to the remote database, so
+`((Identifiable) doc.get("friend")).asDocument()`, `asVertex()` and `getRecord()` load the linked record from the server
+on any thread _(since v26.12.1, issue #12603; before, they failed with `DatabaseOperationException` on a thread with no
+embedded database open, and `database.lookupByRID(rid, true)` was the way to load the record)_. An undeclared date,
+decimal or binary property still reads back as a string, a double or a list, so `modify()` and
+`save()` write such an untouched property back with that type (issue #12599).
 
 We can now query some customer data from our database:
 
@@ -265,8 +311,6 @@ arrives, so neither the server nor the client holds more than one row at a time.
 
 [source,java]
 ----
-database.setMaxResultRows(-1); // no row cap: stream the whole result
-
 try (ResultSet resultSet = database.queryStream("sql", "select from Customer where surname = ?", "Miner")) {
   while (resultSet.hasNext()) {
     Result customer = resultSet.next();
@@ -280,10 +324,17 @@ try-with-resources. It can be read only once.
 * `hasNext()` returns `false` only after the server sent the `stats` trailer. A failure on the server raises the
 exception the buffered call would have raised, and a stream that ends without its trailer (a dropped connection)
 raises a `RemoteException`: a short result is never returned silently.
-* Without `setMaxResultRows()` the server's default cap applies (`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows),
-unless the statement has its own `LIMIT`. When the cap drops rows, the client logs a warning and `hasNext()` returns
-`false`. Call `setMaxResultRows(-1)` to stream every row, up to the server's hard ceiling
-`arcadedb.server.httpQueryMaxResultRows`.
+* Without `setMaxResultRows()` the stream returns every row, up to the server's hard ceiling
+`arcadedb.server.httpQueryMaxResultRows` (1,000,000 rows by default). A result above the ceiling raises an exception
+after the rows that fit, instead of ending short. The server's default cap for buffered responses
+(`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows) does not apply to a stream _(since v26.12.1, issue #12185;
+before, the stream stopped at that cap)_. Call `setMaxResultRows()` to cap the stream yourself: when the cap drops
+rows, the client logs a warning and `hasNext()` returns `false`.
 * `commandStream()` takes read-only statements only. The server refuses a statement that writes, because its rows would
 reach the client before it committed. Use `command()` for writes.
 * The response has no `explain` or write statistics. Use `query()` or `command()` when you need them.
+
+`iterateType()` and `iterateBucket()` return every record of the type or bucket, as on the embedded API, whatever
+`setMaxResultRows()` is set to _(since v26.12.1, issue #12185; before, they stopped at the server's default cap of
+20,000 rows while `countType()` reported the full count)_. They read the records in one buffered response, so a type or
+bucket larger than `arcadedb.server.httpQueryMaxResultRows` is refused with an exception rather than returned in part.

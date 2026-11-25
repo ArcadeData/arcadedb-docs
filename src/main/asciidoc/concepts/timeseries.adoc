@@ -57,10 +57,12 @@ CREATE TIMESERIES TYPE SensorReading
 | `FIELDS (...)` | _(required)_ | Comma-separated `name TYPE` pairs for measurement values
 | `CODEC <codec>` | derived from the type | Per-column compression codec, written after a tag or field type (`temperature DOUBLE CODEC GORILLA_XOR`) or after the timestamp. By default the timestamp uses `DELTA_OF_DELTA`, tags `DICTIONARY`, `DOUBLE`/`FLOAT` fields `GORILLA_XOR`, integer, boolean and date/time fields `SIMPLE8B`, and other fields `DICTIONARY`. _(Since v26.10.2)_ a codec the sealed store cannot encode or read back unchanged is refused at creation: `NONE`, any timestamp codec but `DELTA_OF_DELTA`, `DELTA_OF_DELTA` on another column, and a numeric codec other than the column type's default (`SIMPLE8B` on a `DOUBLE`, `GORILLA_XOR` on a `LONG` or a text column). `DICTIONARY` is accepted on any tag or field. Earlier versions accepted such a codec, after which compaction of the type failed or the values read back changed. Types already created keep loading
 | `SHARDS` | `arcadedb.asyncWorkerThreads` (available cores minus 1) | Number of shards for parallel writes
-| `RETENTION` | _(none)_ | Automatic deletion of data older than the specified duration (e.g., `90 DAYS`, `1 HOURS`)
-| `COMPACTION_INTERVAL` | _(none)_ | Cuts sealed blocks at boundaries of this interval. A block that lies inside one query bucket is answered from its statistics without decompressing it, so set it to the bucket width of your most frequent aggregation (see <<timeseries-choosing-layout,Choosing the layout>>). Without it blocks are cut by size only and a block spanning several buckets is decompressed
+| `RETENTION` | _(none)_ | Automatic deletion of data older than the specified duration (e.g., `90 DAYS`, `1 HOURS`). The duration is held in milliseconds, so one that does not fit a 64-bit long (more than `106751991 DAYS`) is refused with `Error parsing SQL: long overflow` and no type is created _(since v26.12.1, issue #12691; earlier versions wrapped it to a different duration, so `RETENTION 213503982335 DAYS` kept only 9.6 hours of data)_
+| `COMPACTION_INTERVAL` | _(none)_ | Cuts sealed blocks at boundaries of this interval. A block that lies inside one query bucket is answered from its statistics without decompressing it, so set it to the bucket width of your most frequent aggregation (see <<timeseries-choosing-layout,Choosing the layout>>). Without it blocks are cut by size only and a block spanning several buckets is decompressed. An interval that does not fit a 64-bit long in milliseconds (more than `2562047788 HOURS`) is refused with `Error parsing SQL: long overflow` _(since v26.12.1, issue #12691)_
 | `IF NOT EXISTS` | _(none)_ | Skip creation if the type already exists, instead of failing. The statement returns one row either way, carrying a `created` flag: see <<sql-if-not-exists-result,the note on `IF NOT EXISTS` results>>
 |===
+
+The name of the type is used to name the files that hold its samples, so it cannot contain a slash (`/`), a backslash (`\`) or a control character (a character below `U+0020`). `CREATE TIMESERIES TYPE` and `ALTER TYPE ... NAME` refuse such a name with an `Invalid TIMESERIES type name` error, before anything is created or moved. Every other character is accepted, so names such as `weather.temp`, `cpu-load` or `Città` work as they always did. _(Since v26.12.1.)_
 
 [NOTE]
 ====
@@ -234,6 +236,13 @@ run one at a time. A `COMPACT TIMESERIES TYPE` issued while a retention or downs
 compaction could be silently undone the next time the database was opened. Likewise, a rewrite that failed half-way
 no longer leaves a file behind that the next retention pass could resurrect deleted blocks from.
 
+_(Since v26.12.1)_ A compaction reads, sorts and compresses the mutable pages one window at a time, a window being two
+sealed blocks' worth of samples (131,072), and appends the blocks of each window to the new sealed file before it reads the
+next. It also copies the blocks the sealed file already holds one at a time. The memory a compaction needs therefore does not
+depend on how many samples wait in the mutable buckets or on the size of the sealed file. A standalone database does not read
+the rewritten sealed file back into memory after a compaction, a merge, a retention pass or a delete; under HA the leader still
+reads it whole to ship it to the followers.
+
 Reads do not need a compaction to be fast. A query for one tag, such as the newest reading of one host, skips every
 mutable page that holds no row of that tag without reading its rows, whether or not the tail has been sealed yet.
 
@@ -287,7 +296,7 @@ Every statement that removes at least one sealed sample rewrites the sealed file
 its cost is about the size of that file whatever the range: many small deletes cost more than one statement that names the same
 samples. Under HA the leader ships the whole sealed file of each shard it changed, as it does for retention. A range that misses
 the mutable pages is decided from their header, with no page read; any other delete reads the mutable pages of the shard into
-memory once, as a compaction does, so it weighs what a compaction of the same pages weighs.
+memory once, so it holds as much heap as those pages take.
 
 A statement that fails part way says so: the shards before the one that failed are already deleted, and running the statement
 again deletes the rest. Under HA the leader remembers, in memory, which shards it rewrote without publishing, and ships them with
@@ -373,6 +382,11 @@ malformed. So does a `,` separator with nothing after it, in the tags or in the 
 A line cut right after a `,` separator is malformed since v26.10.2.
 ====
 
+_(Since v26.12.1)_ A line ends at `\n`, `\r\n` or `\r` only, as in InfluxDB. U+000B, U+000C, U+0085, U+2028 and U+2029 are
+ordinary characters of a measurement, a tag, a field key or a string value, and no longer cut the line in two (earlier
+versions answered `400` for both halves). Only spaces and tabs around a line are padding, so a measurement that starts
+with another control character keeps it. A raw `\n` or `\r` inside a quoted string value still ends the line.
+
 _(Since v26.10.2)_ A tag with an empty value (`cpu,host= value=1`) makes the line malformed too, as InfluxDB rejects it
 with "missing tag value"; to write a sample without a tag, leave the tag out. Earlier versions stored it as `host=""`. The
 gRPC write RPCs refuse an empty-string tag value with `INVALID_ARGUMENT` (an unset value still means the tag is absent),
@@ -414,7 +428,14 @@ precision): see the note under _SQL INSERT_ about the epoch counts these surface
 was stored as `false`;
 * a `STRING` column takes a string of at most 256 UTF-8 bytes.
 
-Precision parameter: `ns` (nanoseconds, default), `us` (microseconds), `ms` (milliseconds), `s` (seconds).
+[[timeseries-line-protocol-precision]]
+Precision parameter: `ns` (nanoseconds, default), `us` or `u` (microseconds), `ms` (milliseconds), `s` (seconds), in any
+case. An absent or empty `precision` means nanoseconds. _(Since v26.12.1)_ any other value (`sec`, `seconds`, `h`, a typo)
+is refused with `400` and an `error` naming the accepted values, and nothing in the request is written, as in InfluxDB.
+Earlier versions answered `204` and read the timestamps as nanoseconds, so a timestamp in seconds was stored in 1970.
+A `ns` or `us` timestamp is stored at the millisecond that contains it, so `-1` ns (1969-12-31T23:59:59.999999999Z) is
+`-1` ms; the gRPC `TimeSeriesWrite` converts its points the same way. _(Since v26.12.1)_ earlier versions rounded a
+timestamp before 1970 toward zero, so `-1` ns was stored as `0` ms and fell in the next time bucket.
 
 Example with `curl`:
 
@@ -475,6 +496,17 @@ _(Since v26.10.2)_ The endpoint implements remote write 1.0 (`prometheus.WriteRe
 * a body that decodes to no remote write 1.0 field at all, typically a 2.0 message sent without the `proto=` parameter, is answered `400`. It used to be answered `204`, so the sender discarded the batch as delivered;
 * a request carrying only metric metadata, or an empty `WriteRequest`, is still a no-op answered `204`;
 * a malformed protobuf body is answered `400` instead of `500`.
+
+_(Since v26.12.1)_ PromQL honours the staleness marker Prometheus writes when a series ends (a target goes down, a pod is
+replaced): a series whose newest sample in the lookback is the marker is left out of an instant vector, so it no longer
+shows as `NaN`, turns `sum()` into `NaN` or counts in `count()`, and a range selector does not count the marker as a
+sample (`count_over_time()`). An ordinary `NaN` written by a client is still a value and is returned as `NaN`, as in
+Prometheus. SQL and the other `/ts` endpoints read the marker as an absent value, like any `NaN` (see Missing Values
+below). The marker is kept in a `DOUBLE` column, which is what remote write creates for `value`, in a `FLOAT` column and
+in a `DOUBLE` field with the `DICTIONARY` codec, before and after compaction. When downsampling rewrites a bucket in
+which a series ended, the bucket keeps the mean of its real samples at the bucket start and gets a marker row at the
+marker's own timestamp, so the series still ends where it ended in the raw data; a bucket that held only the marker
+becomes the marker row alone.
 
 [NOTE]
 ====
@@ -658,6 +690,8 @@ ORDER BY hour
 
 An aggregation that groups by the time bucket, by up to four `TAG` columns, or by both is answered by the storage engine in one pass (`AGGREGATE FROM TIMESERIES` in `EXPLAIN`), the shape of a per-host hourly report. Every projected tag must also be in the `GROUP BY`, and the aggregates are `avg`, `min`, `max`, `sum` and `count(*)` over numeric fields. A query outside that shape (a field in the `GROUP BY`, a projected tag that is not grouped by, `count(field)`, `DISTINCT`) gives the same answer through the generic row-at-a-time plan, which is slower.
 
+A method chained after the time bucket or after an aggregate, such as `ts.timeBucket('1h', ts).format('HH')`, `ts.timeBucket('1h', ts).asLong()` or `max(temperature).asString()`, is applied to the value, and the query is answered by the generic plan too (no `AGGREGATE FROM TIMESERIES` in `EXPLAIN`). So `SELECT ts.timeBucket('1h', ts).format('HH') AS hod, count(*) FROM SensorReading GROUP BY hod` groups by the hour of the day, not by each hour of each day. _(Since v26.12.1, issue #12799; before, the method was silently dropped: the example above returned one group per hour with the bucket's datetime as the key, `.asLong()` returned the datetime instead of epoch milliseconds, and `.asString()` on an aggregate returned a number.)_ `ts.last(value, ts).asString()` still reads only the newest row.
+
 An aggregation with no `GROUP BY` at all is answered by the storage engine as well, as one row over the queried range (`AGGREGATE FROM TIMESERIES ... ungrouped` in `EXPLAIN`). Every sealed block lying wholly inside the range is answered from the sample count, minimum, maximum and sum it records, so only the blocks that cross a bound of the range are decompressed, and the cost of the query follows the number of blocks rather than the number of samples. Over a range holding no sample it answers one row, `0` for `count(*)` and `NULL` for every other aggregate, as SQL does.
 
 [source,sql]
@@ -687,7 +721,7 @@ ArcadeDB provides a comprehensive set of `ts.*` SQL functions for time series an
 | Function | Description
 
 | `ts.timeBucket(interval, timestamp [, options])`
-| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc. Buckets are counted from the Unix epoch unless `options` moves the grid, see <<ts-bucket-origin,Moving the bucket grid>>.
+| Truncates a timestamp to the nearest interval boundary for `GROUP BY` aggregation. Intervals: `'1s'`, `'5m'`, `'1h'`, `'1d'`, etc. An interval (or an `offset`) whose milliseconds do not fit a 64-bit long, such as `'30500568905w'`, is refused with a "too large" error naming the largest amount of that unit _(since v26.12.1, issue #11986; earlier versions silently wrapped it to a different bucket width)_. Buckets are counted from the Unix epoch unless `options` moves the grid, see <<ts-bucket-origin,Moving the bucket grid>>.
 
 | `ts.first(value, timestamp)`
 | Returns the value corresponding to the earliest timestamp in the group.
@@ -869,7 +903,8 @@ way:
   has no measurement to report.
 * `count(*)` counts rows, so it counts `NaN` samples too. In SQL, `count(field)` counts only the rows where the field is not null, as on any other type, and returns a `Long`.
 * A genuine `Infinity` or `-Infinity` sample is a measurement and is returned as such.
-* Downsampling averages the real samples of each bucket; a bucket with no real sample is downsampled to `NaN`.
+* Downsampling averages the real samples of each bucket; a bucket with no real sample is downsampled to `NaN`. A
+  Prometheus staleness marker is not averaged away: it is kept as a row of its own (see the PromQL section above).
 
 This is the semantics of SQL's `NULL` under `SUM`, `AVG` and `count(*)`. The PromQL endpoint is the one exception:
 its `sum`, `avg`, `sum_over_time` and `avg_over_time` propagate `NaN`, because that is what Prometheus does and a
@@ -1066,6 +1101,17 @@ GET /api/v1/ts/{database}/prom/api/v1/query?query=avg(cpu_usage{host="srv1"})&ti
 
 The `time` parameter is Unix seconds (float). Defaults to current time if omitted.
 
+_(Since v26.12.1)_ Every sample of an instant query answer is stamped with the evaluation time `time`, as in Prometheus,
+including selectors, aggregations, operators and `offset`. The value is still the one of the newest stored sample in the
+lookback. Earlier versions stamped each sample with the time of the stored sample it came from, so `count(up)` at
+`T+46s` could answer at `T+30s` and the series of one answer could carry different times.
+
+_(Since v26.12.1)_ An instant query whose expression is a range selector, such as `cpu_usage[5m]`,
+`cpu_usage{host="srv1"}[5m] offset 1m` or `(cpu_usage[5m])`, answers the raw samples of the window as a `matrix`, as
+in Prometheus: one entry per series with its labels (including `__name__`) and the samples it stores in the window,
+each with its own timestamp. Earlier versions answered `{"status":"success","data":{}}`, with no `resultType` and no
+`result`.
+
 *Range query:*
 
 [source]
@@ -1144,6 +1190,9 @@ validation now applies to `series`, which previously answered `500` for a malfor
 | `metric_name`, `metric{label="value"}`, `metric{label=~"regex"}`, `metric{label!="value"}`, `metric{label!~"regex"}`, and the `offset` modifier (`metric offset 1h`).
 _(Since v26.10.2)_ A matcher on a tag declared with a non-string type is read in the tag's declared type, and `=`, `!=`, `=~` and `!~` share one rule on `/query`, `/series` and remote read, so `=` and `!=` always select complementary sets. `{id="007"}` selects a `LONG` tag holding 7, and so does `{id=~"007"}`: a pattern that is a plain literal selects what the equality it spells selects, which is a deliberate deviation from Prometheus, where label values are text and `=~"007"` never matches `7`. A real pattern is matched against the label text only, so `=~"0.7"` does not select 7. A `DATE` or `DATETIME` matcher value is read the way `INSERT` reads it, in the database's time zone.
 
+| String literals
+| _(Since v26.12.1)_ Label matcher values and string expressions are read as Prometheus reads them. A backtick string is taken verbatim up to the closing backtick and nothing is escaped, so it is the simplest way to write a regular expression: `+{id=~`a\d`}+` matches the series `a1`. A single- or double-quoted string decodes the Go escapes `+\a \b \f \n \r \t \v \\+`, the string's own quote, octal `+\nnn+`, `+\xnn+`, `+\unnnn+` and `+\Unnnnnnnn+`; `+"\x41"+` is `A`. Any other escape, a malformed one, an unterminated string or a line break inside quotes is refused as a parse error (HTTP `400` `bad_data`), so `+"a\.b"+` is refused: write the regular expression as `+"a\\.b"+` or in backticks. Earlier versions unescaped backtick strings too, so `+{id=~`a\d`}+` was read as the regular expression `ad`, and dropped the backslash of every other escape, so `+"\x41"+` was read as `x41` and `+"a\.b"+` was accepted.
+
 | Range selectors
 | `metric[5m]`, `metric[1h]`, `metric[30s]`, `metric[1d]`; units `ms`, `s`, `m`, `h`, `d`, `w`, `y`
 
@@ -1152,6 +1201,8 @@ _(Since v26.10.2)_ A matcher on a tag declared with a non-string type is read in
 
 | Range-vector functions
 | `rate()`, `irate()`, `increase()`, `avg_over_time()`, `min_over_time()`, `max_over_time()`, `sum_over_time()`, `count_over_time()`
+_(Since v26.12.1)_ As in Prometheus, `rate()` and `increase()` answer no sample for a series with fewer than two samples at distinct times in the window, and `irate()` answers none when the last two samples in the window share a timestamp, so aggregations such as `avg`, `min` or `count` over them ignore that series. Earlier versions answered `0` for it. The other range-vector functions still answer a series with a single sample.
+_(Since v26.12.1)_ `rate()` and `increase()` extrapolate to the window boundaries as Prometheus 2.51 and later do: toward a window start that lies well before the first sample they extrapolate at most half the average sample spacing, even when the counter's projected zero point is farther back. Earlier versions extrapolated up to that zero point, the pre-2.51 Prometheus behavior, and could answer a higher value.
 
 | Math functions
 | `abs()`, `ceil()`, `floor()`, `round()` (with an optional `to_nearest` scalar). _(Since v26.10.2)_ they accept only an instant vector, as in Prometheus: a scalar argument such as `abs(-1)` is refused with `expected type instant vector in call to function "abs", got scalar`. Earlier versions answered the scalar (`abs(-1)` returned `1`).
@@ -1253,6 +1304,7 @@ DROP CONTINUOUS AGGREGATE hourly_temps
 ----
 
 The defining query must reference a TimeSeries source type and contain a `ts.timeBucket()` call with a `GROUP BY` clause.
+The interval is checked when the aggregate is created, by the same rules as the query: an interval that is too large or not a positive amount of time is refused, and no aggregate is left behind, even when the source type is still empty _(since v26.12.1, issue #11986)_.
 After creation, every insert into the source type triggers an incremental refresh using watermark tracking -- only new data since the last watermark is processed.
 
 A refresh is never part of the caller's transaction. `REFRESH CONTINUOUS AGGREGATE`, `ContinuousAggregate.refresh()` and the first refresh of `CREATE CONTINUOUS AGGREGATE` run inside a transaction of their own, committed before they return, even when the caller has one open: a `ROLLBACK` of the caller's transaction does not take the rows of the aggregate back, exactly as it does not take the aggregate itself or the samples it reads back. The refresh an `INSERT`, `DELETE FROM` or `TRUNCATE TYPE` on the source type triggers inside a transaction runs once, when that transaction ends, whether it commits or rolls back, since the samples it answers for are written either way. _(Since v26.11.1, issue #10708. Before, a refresh inside a transaction joined it, and a `ROLLBACK` left the watermark advanced over rows that were gone: the buckets behind it were lost for good, with the aggregate reported `VALID`. A `ROLLBACK` also dropped the refresh an `INSERT` or a delete was owed.)_
@@ -1283,7 +1335,7 @@ CREATE INDEX ON `hourly_temps` (`hour`) NOTUNIQUE
 An index the bucket column leads (`(hour, sensor_id)`) serves as well.
 A defining query may carry its own `WHERE` clause, including a disjunction: the watermark filter is added as a separate conjunct around it, so `WHERE a OR b` keeps meaning `ts >= watermark AND (a OR b)`.
 
-The watermark only reaches forward, so a bucket behind it is not recomputed by the refresh that follows an insert. `DELETE FROM` and `TRUNCATE TYPE` on the source type make up for it: they record, on every aggregate over the type, the time range they removed samples from, and the next refresh recomputes the buckets that range reaches and only those. The buckets behind the range, and the ones between it and the watermark, are not touched. The record is part of the definition of the aggregate in the schema, so it survives a restart, and under HA it is shipped to the followers in the replication unit of the delete. A bucket is found among the rows the aggregate holds, so the grid of the aggregate (an `origin`, an `offset` or a `timezone` given to `ts.timeBucket()`) needs no special care. A delete that removes nothing records nothing. Deletes that come before the next refresh runs are merged into one range, so two deletes far apart in time recompute the buckets between them too. A sample written with a timestamp behind the watermark, and the `RETENTION` of the source type, do not change the buckets that are already computed.
+The watermark only reaches forward, so a bucket behind it is not recomputed by the refresh that follows an insert. `DELETE FROM` and `TRUNCATE TYPE` on the source type make up for it: they record, on every aggregate over the type, the time range they removed samples from, and the next refresh recomputes the buckets that range reaches and only those. The buckets behind the range, and the ones between it and the watermark, are not touched. The record is part of the definition of the aggregate in the schema, so it survives a restart, and under HA it is shipped to the followers in the replication unit of the delete. A bucket is found among the rows the aggregate holds, so the grid of the aggregate (an `origin`, an `offset` or a `timezone` given to `ts.timeBucket()`) needs no special care. A delete that removes nothing records nothing. Deletes that come before the next refresh runs are merged into one range, so two deletes far apart in time recompute the buckets between them too. A sample written with a timestamp behind the watermark is recorded the same way, as the range of buckets of the grid it reaches, and the next refresh recomputes those buckets, including a bucket that holds no row yet. The range of the late samples is kept apart from the range of the deletes, so a late sample written after a `DELETE FROM` or a `TRUNCATE TYPE` of the whole type still reaches its bucket, and the range of a delete is cleared once the refresh recomputed it. _(Since v26.12.1, issue #13049. Before, a late sample written after a delete of the whole type never reached its bucket, a `REFRESH CONTINUOUS AGGREGATE` did not repair it, and the range of the delete stayed recorded, recomputed by every later refresh.)_ The `RETENTION` of the source type does not change the buckets that are already computed.
 
 Renaming the source type (`ALTER TYPE SensorReading NAME Readings`) carries the aggregate with it: its stored source type and the `FROM` of its defining query are rewritten, so it keeps refreshing and `DROP TYPE` keeps refusing to drop the source. The *backing* type of an aggregate is named after the aggregate and cannot be renamed. _(Since v26.11.1.)_
 
@@ -1320,6 +1372,20 @@ ALTER TIMESERIES TYPE SensorReading
 
 In this example, data older than 7 days is downsampled to 1-minute resolution, and data older than 30 days is further reduced to 1-hour resolution.
 The downsampling process aggregates values using AVG within each granularity bucket, preserving tag groupings.
+
+_(Since v26.12.1)_ A block of old data is downsampled whenever at least two of its samples with the same tag values
+fall in one bucket, however its other samples are spread. A block that holds at most one sample per series and bucket
+is already at the tier's resolution and is left as it is, keeping its original timestamps. Earlier versions decided
+on the average spacing of a block's samples instead, so a burst of samples inside one bucket stayed at raw resolution
+when the same block also held a distant sample, and a sparse block was moved onto the bucket starts.
+
+_(Since v26.12.1)_ A downsampling pass no longer holds up the shard it works on. It reads and folds the old blocks and
+writes the result to a temporary file while queries and appends of that shard go on, and locks the shard only for the
+short moment it swaps the new file in, as a compaction does. Before, every query and every append of the shard waited
+for the whole pass, which on a type with a long history (the first pass after a tier is added) could take long, and
+under HA every commit on the leader waited too. If the shard's sealed data is replaced while a pass runs (for example
+by a file shipped from another node), the pass discards its result and the next maintenance run does the work again.
+Under HA each shard a pass changed is shipped to the followers on its own, as a compaction is.
 
 ===== Reads That Cross a Downsampling Pass
 

@@ -105,6 +105,8 @@ RETURN convert.toJson([1, 2, 3]) AS result
 // Returns: '[1,2,3]'
 ----
 
+_(Since v26.12.1.)_ A `BINARY` value (a byte array) is written as the JSON array of its signed bytes, at the top level as well as inside a map: a value of the bytes `01 ff` is `[1,-1]`. Before, a top-level byte array answered Java's identity text (`[B@13e84227`) while one inside a map was already an array (issue #12780).
+
 '''
 
 [[convert-from-json-map]]
@@ -155,7 +157,7 @@ Convert a value to a string. This is the namespaced entry point for the built-in
 
 *Returns:* String - String representation, or null if the value is null
 
-Strings, numbers, booleans and temporal values convert directly. Lists, maps, nodes, relationships and paths are rejected with a `TypeError: InvalidArgumentValue` error rather than being stringified.
+Strings, numbers, booleans and temporal values convert directly. _(Since v26.12.1.)_ A time or a datetime is written as `toString()` writes it, as Neo4j 5 does: `convert.toString(localtime('10:00'))` is `10:00:00`, and the fraction of a second has no trailing zeros. Lists, maps, nodes, relationships, paths and `BINARY` values (byte arrays) are rejected with a `TypeError: InvalidArgumentValue` error rather than being stringified.
 
 *APOC Compatible:* `apoc.convert.toString`
 
@@ -205,11 +207,20 @@ Generate a UUID in Base64 format.
 
 Create a virtual node (not persisted).
 
-*Syntax:* `create.vNode(labels, properties)`
+*Syntax:* `create.vNode(labels, [properties])` or `CALL create.vNode(labels, [properties]) YIELD node`
 
 *Returns:* Node - Virtual node
 
+The virtual node is a node like any other for the query: `labels()`, `properties()`, `keys()`, `n.prop` and label
+predicates work on it. It is never stored, so it cannot be changed, deleted or connected with `CREATE`. Its `id()` is
+negative and its `elementId()` is that number as text, as in APOC, and two virtual nodes are never equal.
+
 *APOC Compatible:* `apoc.create.vNode`
+
+[source,cypher]
+----
+RETURN labels(create.vNode(['Person'], {name: 'Alice'})) AS labels
+----
 
 '''
 
@@ -218,10 +229,20 @@ Create a virtual node (not persisted).
 
 Create a virtual relationship (not persisted).
 
-*Syntax:* `create.vRelationship(startNode, type, properties, endNode)`
+*Syntax:* `create.vRelationship(startNode, type, properties, endNode)` or
+`CALL create.vRelationship(startNode, type, properties, endNode) YIELD rel`
 
 *Returns:* Relationship - Virtual relationship
 
+The start and end nodes can be stored or virtual nodes. `type()`, `startNode()`, `endNode()`, `properties()` and `r.prop`
+work on the result. A null start node, end node or type is an error.
+
 *APOC Compatible:* `apoc.create.vRelationship`
+
+[source,cypher]
+----
+MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+RETURN create.vRelationship(a, 'SIMILAR', {score: 0.9}, b) AS rel
+----
 
 ---

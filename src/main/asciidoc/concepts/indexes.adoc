@@ -308,7 +308,10 @@ ArcadeDB indexes can be defined on properties of nearly any type, with the right
 | `STRING` containing WKT geometry | Yes | Geospatial index
 | `LIST` / `ARRAY_OF_*` (per element) | Yes | `LSM_TREE` indexed by values
 | `MAP` | Yes | `LSM_TREE` indexed by keys or by values
+| `EMBEDDED` (the whole embedded document) | No | Index a field of it through a nested path such as `p.x` with `LSM_TREE`
 |===
+
+NOTE: An embedded document has no order, so it cannot be an `LSM_TREE` index key: `CREATE INDEX ON D (p)` on a property declared `EMBEDDED` is refused with an `IndexException` that names the key type, as it is for `HASH` and `FULL_TEXT` indexes, and no index is created. Index a field of the embedded document instead (`+CREATE INDEX ON D (`p.x`) NOTUNIQUE+`). Since v26.12.1; before, the index was accepted, the first insert was written and the second failed at commit with a `ClassCastException`. A database that already holds such an index still opens and the index can be dropped (<<sql-drop-index,`DROP INDEX`>>), but a new index file for it, such as the sub-index of a bucket added to its type, is refused.
 
 NOTE: A `MAP` value indexed as a whole (without `BY KEY`/`BY VALUE`) is ordered by its sorted (key, value) pairs, independently of the insertion order of the entries. An index of this kind created with an earlier version must be rebuilt after upgrading (<<sql-rebuild-index,`REBUILD INDEX`>>).
 
@@ -325,6 +328,37 @@ A lookup with a value of a kind the indexed property cannot hold (a date for a `
 An openCypher `IN` whose right side is one value, `n.p IN $ids`, has to be a list: a string, a boolean or a map is refused with `IN requires a list on the right side`, whether or not the property is indexed. A list literal (`n.p IN [$a, $b]`) takes each item as one value.
 
 NOTE: Before v26.11.1 (issue #10541) the index answered these lookups differently from the scan: an equality or an `IN` on an indexed `BOOLEAN`, `DECIMAL` or `DATE` property raised a `ClassCastException` or "Comparison between type N and N not supported", a range with such a value on an indexed `INTEGER`, `LONG` or `DOUBLE` property answered every row of the type, and an openCypher `IN` over a parameter that was not a list answered no rows instead of being refused. A query that relied on any of them now gets the answer it would get without the index.
+
+A whole-value index on a `LIST` or `MAP` property (no `BY ITEM`, `BY KEY` or `BY VALUE`) follows the same rule _(since v26.12.1)_: a lookup key that is not a list (for a `MAP` index, not a map) equals no indexed key. `tags = 5`, `tags IN [5, 6]` and `m = 'a'` answer no rows, and an openCypher `MERGE (n:P {tags: 5})` creates the node, as without the index. Two cases differ by language:
+
+* SQL compares a scalar with a list as the one-element list it converts the scalar to, so `li = 5` on a `LIST OF INTEGER` property matches a stored `[5]` (the list `SET li = 5` stores), with or without the index. The scalar is read as the declared item type: `'5'` is 5, while `5.5` matches nothing.
+* openCypher keeps a scalar apart from a list (`[5] = 5` is false), so `MATCH (n:P) WHERE n.li = 5` answers no row for that record.
+
+A range (`<`, `<=`, `>`, `>=`, `BETWEEN`) on a whole `LIST` or `MAP` key is not answered by the index: the index orders the lists as whole values, while the SQL operators compare their items, so the type is scanned. An index `BY ITEM`, `BY KEY` or `BY VALUE` still answers ranges, and `li = [1, 2]` still reads the index.
+
+NOTE: Before v26.12.1 (issue #12792) a lookup of a whole `LIST` or `MAP` index with a value that is not a collection (a number, a boolean, a string) raised a `ClassCastException`, answered as HTTP 500 by the server, in `SELECT`, `UPDATE` and `DELETE`, in an openCypher `MATCH` and in a `MERGE`. A lookup list whose elements cannot be ordered against the stored ones (a date in a list against a `LIST OF STRING`) still raises an error through the index (issue #13425).
+
+[[index-choice-several]]
+==== Which index a SQL query uses when several apply
+
+When more than one index can answer the `WHERE` of a SQL `SELECT`, the planner keeps the indexes that cover the most conditions, so a composite index that covers two conditions wins over a single-property index that covers one. Among indexes that cover the same number of conditions, a lookup of whole keys of a `UNIQUE` index wins: an equality, or an `IN` list, on every property of the index. It answers at most one record per key, so `WHERE key = ? AND tenant = ?` reads the `UNIQUE` index on `key` and filters on `tenant`, even when `tenant` has a `NOTUNIQUE` index of its own, whichever of the two indexes was created first. `EXPLAIN` shows the index chosen.
+
+A `UNIQUE` index that the `WHERE` reaches with a range condition, or with only some of the properties of a composite key, is not a lookup of whole keys and gets no such preference.
+
+Among the indexes still left, a lookup of keys wins over a range, whether the index is `UNIQUE` or not. A lookup names the values to find: an equality, an `IN` list, `CONTAINS`, `CONTAINSANY`, `CONTAINSALL`, `CONTAINSVALUE`, `CONTAINSKEY` or `IS NULL`. A range (`>`, `<`, `BETWEEN`, ...) reads every entry between its bounds, and an open one such as `score > 1` can read the whole index. So `WHERE cat = 'rare' AND score > 1` reads the index on `cat` and filters on `score`, whichever of the two indexes was created first. Two lookups, or two ranges, are still chosen as before. The result is the same whichever index is read, since the whole `WHERE` is applied to the records it returns.
+
+NOTE: _(Since v26.12.1.)_ Before, the choice between such indexes fell to the first one the type listed when no query statistics were recorded, so the statement could read through the `NOTUNIQUE` index on a property shared by most records and take longer the more records shared the value (51 ms instead of 1.4 ms on 50,000 records, issue #11963), or read the whole range of an open range condition to return a few records (82 ms instead of 1.7 ms on 200,000 records, issue #12282).
+
+[[index-intersection]]
+==== Combining several indexes in one query
+
+_(Since v26.12.1.)_ When the conditions the chosen index leaves behind have indexes of their own, the SQL planner reads those indexes too and loads only the records that *every* index matches. With an index on `updated_at` and one on `id`, `WHERE updated_at = ? AND id > ?` loads the few records both conditions match instead of every record of the timestamp (5 records instead of 256 in issue #13289), with no composite index needed. `EXPLAIN` and `PROFILE` show each extra index as `intersected with index ...` under `EXTRACT VALUE FROM INDEX ENTRY`.
+
+* The extra indexes are read at execution time, and each one only while it matches no more entries than the chosen index. One that matches more is given up (`PROFILE` says `given up`), so a condition that matches most records costs little extra.
+* It applies when the query reads every match anyway: no `LIMIT`, or an `ORDER BY` the index order does not serve, or an aggregation. A `LIMIT` that can stop after the first rows keeps the single-index plan.
+* The result does not change: the conditions are still checked on every loaded record, and records changed by a commit during the query are checked as before.
+
+A composite index on the properties queried together, such as `(updated_at, id)`, stays the fastest option when the same pair is queried often.
 
 ==== See also
 

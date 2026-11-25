@@ -66,6 +66,8 @@ NOTE: A `CREATE INDEX ... LSM_VECTOR`, a Cypher `CREATE VECTOR INDEX` or a `REBU
 | **EUCLIDEAN** | Working with spatial data, sensor readings, or continuous measurements. | Comparing text embeddings of different lengths.
 |===
 
+NOTE: A vector the similarity function cannot score is kept on its record but never returned by a vector search. Under `COSINE` that is an all-zero vector or one whose squared norm is below 2^-63^ or above 2^63^ (a nearly zero or a huge vector, typically an unnormalized or corrupt embedding); under `DOT_PRODUCT` it is an all-zero vector; `EUCLIDEAN` scores every vector. A `COSINE` query vector outside that range is refused with an error. Since v26.12.1 this also holds for a vector written after the index graph was built, for a search inside the transaction that wrote it and for an index with `BINARY` quantization: before, such a vector could be returned first, at distance `-Infinity`, or make the search fail. _(Issues #13118, #13143.)_
+
 ===== Quantization Trade-offs
 
 Use INT8 quantization for most use cases. It provides 4x memory savings with minimal accuracy loss and usually lower search latency (see <<quantization-performance>>):
@@ -205,7 +207,7 @@ SELECT @rid, distance FROM (SELECT expand(vector.neighbors('Doc[embedding]', :qu
 SELECT @rid, title, distance FROM (SELECT expand(vector.neighbors('Doc[embedding]', :queryVector, 10)))
 ----
 
-The record is still read as the row is made, as before, when a `groupBy` is given, when a read listener or trigger is registered on the database or on the type, and when the calling transaction has written to the index.
+The record is still read as the row is made, as before, when a `groupBy` is given, when a read listener or trigger is registered on the database or on the type, and when the calling transaction has written to the index. Since v26.12.1 it is also read for a neighbour whose vector another transaction has just put in the index (an insert or an update) and has not finished committing: the vector can be found a moment before its record can be read, and a record that cannot be read yet is left out of the answer instead of coming back as a row with no property (issue #13323). The same holds on a node that applies the changes of another one (an HA follower) while it applies a change that touches the index: the vector can be found before its record is written or after it is removed, and such a neighbour is read and left out too (issue #13369). A neighbour with no commit or replicated change in flight keeps the faster path.
 
 [NOTE]
 ====
@@ -340,6 +342,8 @@ index finish in the same time as one without.
 
 NOTE: When vectors are inserted below the rebuild threshold, an inactivity timer ensures the graph is still rebuilt after a period of no new mutations (default: 15 seconds). On a small graph (under 1,000 vectors) this rebuild is cheap and fires for any number of pending mutations, so buffered vectors never sit in the brute-force delta buffer for long during low-volume ingestion. On a larger graph a rebuild re-indexes the whole graph, so the timer only fires once pending mutations reach at least 10% of the effective rebuild threshold - a single stray insert into a large, otherwise-settled index no longer costs a full graph rebuild on the next quiet period. "How large" is measured against the vectors the index actually holds, not against the part of the graph the current session has loaded: the graph loads lazily on the first query, so a process that reopens a database, writes and then goes idle without ever querying it is gated exactly like one that queried first. Configure the timer via `inactivityRebuildTimeoutMs` (per-index metadata or `arcadedb.vectorIndex.inactivityRebuildTimeoutMs` globally); set to 0 to disable it.
 
+NOTE: A search waits for the same threshold before it rebuilds a small graph (under 1,000 vectors). Since v26.12.1 a write below `mutationsBeforeRebuild` no longer makes the next search rebuild the graph first: the new vectors are answered exactly from the delta buffer until the threshold is reached, and the next search after that rebuilds the graph as before. Previously every search after any write rebuilt a small graph, and the other searches of that index queued behind the rebuild. The 1,000 is the size of the graph of one bucket and a type has one graph per bucket, so a type with 16 buckets and 15,000 vectors has 16 small graphs, which under a steady trickle of writes were rebuilt over and over. An index that has no graph yet is still built by its first search.
+
 NOTE: The same thresholds also decide what happens on the *first search after reopening a database*.
 Vectors written since the graph was last persisted are read back into the delta buffer and answered from there, and the
 rebuild that folds them into the graph is scheduled only once they reach the threshold, or once the delta scan they cause
@@ -388,7 +392,7 @@ A graph rebuild is the most memory-hungry thing a vector index does, and an _onl
 
 Two behaviours follow from that:
 
-* **The auto-sized search cache budgets against available heap, not total heap.** `searchCacheMaxHeapPercent` is a share of the heap actually free at the time, so a rebuild holding the old graph resident asks for a smaller cache instead of the same one.
+* **The auto-sized search cache budgets against available heap, not total heap.** `searchCacheMaxHeapPercent` is a share of the heap actually free at the time, so a rebuild holding the old graph resident asks for a smaller cache instead of the same one. Since v26.12.1 that share is one budget for all the search caches of the database, not one per index: with a vector index per bucket, the first caches to grow take the room, and an index that finds none left has no cache and reads its vectors from the pages.
 * **A rebuild that will not fit is deferred instead of attempted.** Before starting, the estimated peak is compared against `arcadedb.vectorIndex.rebuildMaxHeapPercent` (default 90) of the available heap. If it does not fit, the cycle is skipped rather than run into an `OutOfMemoryError`. Nothing is lost: the pending vectors remain fully searchable through the in-memory delta buffer, so the cost is a longer brute-force scan per query until a later rebuild succeeds. Since v26.10.2, before deferring, the rebuild first tries to keep the old graph on disk instead of in memory (the persisted copy is read from pages while the new graph builds), which usually makes it fit. Searches are somewhat slower until the new graph is published; this is counted as `residentGraphDemotions` in the index statistics, and a deferral warning is logged only once until a rebuild gets through.
 
 Both sides of that comparison are more accurate, and a large index in a tight heap that used to log deferrals indefinitely may now rebuild:

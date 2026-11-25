@@ -1,0 +1,89 @@
+[[azure-marketplace]]
+==== Installation on Azure (Marketplace VM image)
+:description: Launch ArcadeDB on Azure Virtual Machines from the official Azure Marketplace image: a CIS-hardened Ubuntu 26.04 image with ArcadeDB installed as a systemd service, for x64 and Arm64.
+
+ArcadeDB publishes an official virtual machine image on Azure Marketplace, sold by ArcadeDB.
+It installs the open source (Apache 2.0) ArcadeDB server on Azure Virtual Machines with nothing left to set up:
+
+* Ubuntu 26.04 LTS hardened against the CIS benchmark, with SSH key login only (root and password login are disabled)
+* ArcadeDB installed as the `arcadedb` systemd service, started on boot, with the JVM heap sized from the VM's memory
+* A root password generated on each VM's first boot, with no default credentials
+* Built for x64 and Arm64 (Ampere) VM sizes
+
+The listing is https://marketplace.microsoft.com/en-us/product/arcadedb.arcadedb[ArcadeDB - Multi-Model Database Server].
+
+The image carries an hourly software fee, set by the VM's vCPU count, on top of the Azure compute, disk and bandwidth charges.
+The first month is a free trial of the software fee, once per Azure subscription.
+The current rates are on the listing's *Plans + Pricing* tab.
+The fee appears on your Azure invoice, so there is no separate contract or vendor to onboard.
+If you prefer to install ArcadeDB yourself on Azure at no software cost, use the <<install-docker,Docker image>> or the <<binaries,binary distribution>>; the database engine is the same.
+
+The Marketplace image includes community support through https://github.com/ArcadeData/arcadedb/issues[GitHub issues] and this documentation, with no SLA.
+For a support contract, see https://arcadedb.com/pricing.html[ArcadeDB support plans].
+
+[[azure-marketplace-launch]]
+===== Create a VM
+
+. Open the listing and choose *Get it now*, then *Create*.
+. Pick a subscription, resource group and region, and a size.
+`Standard_D2s_v5` (or `Standard_D2ps_v5` on Arm64) is enough to evaluate; use `Standard_D4s_v5` / `Standard_D4ps_v5` or larger for production.
+. Under *Administrator account*, choose *SSH public key*, keep or change the username (`azureuser` by default) and provide your key.
+. In the network security group, allow inbound TCP *22* (SSH) and *2480* (HTTP API and Studio) *only from your own IP range*.
+Check the source of every rule the portal proposes and do not leave it as `Any`.
+If you enable more protocols later, such as PostgreSQL (5432) or Bolt (7687), open their ports the same way.
+. Review and create the VM, and wait for the deployment to finish.
+
+[[azure-marketplace-password]]
+===== Read the root password
+
+Every VM generates its own `root` password on first boot.
+SSH in as the administrator user and read it:
+
+[source,shell]
+----
+ssh -i my-key.pem azureuser@<vm-public-ip>
+cat ~/arcadedb-root-password.txt
+----
+
+Store the password in your secrets manager, such as Azure Key Vault, then delete the file from the VM.
+
+[[azure-marketplace-connect]]
+===== Connect
+
+Open Studio at `http://<vm-public-ip>:2480` and log in as `root`.
+To keep port 2480 closed to the internet altogether, reach it through an SSH tunnel instead and open `http://localhost:2480`:
+
+[source,shell]
+----
+ssh -i my-key.pem -L 2480:localhost:2480 azureuser@<vm-public-ip>
+----
+
+Check the server from the command line:
+
+[source,shell]
+----
+curl -s -u root:<password> http://<vm-public-ip>:2480/api/v1/server?mode=basic
+----
+
+Applications connect over the HTTP API on port 2480 with any of the <<languages-drivers,drivers>>.
+The plain HTTP port is meant for private networks: for traffic that crosses the internet, put Azure Application Gateway or another reverse proxy with a TLS certificate in front of the VM, or connect over a VPN, Azure Bastion or an SSH tunnel.
+
+[[azure-marketplace-operate]]
+===== Operate the server
+
+[%header,cols="1,2"]
+|===
+| Task | How
+| Service status | `sudo systemctl status arcadedb`
+| Restart | `sudo systemctl restart arcadedb`
+| Database files | `/var/lib/arcadedb/databases`
+|===
+
+Keep the databases on the VM's managed disk and back them up with <<backup,ArcadeDB backups>> or disk snapshots.
+The software fee stops while the VM is stopped (deallocated); managed disk storage is still billed.
+
+[[azure-marketplace-upgrade]]
+===== Upgrade
+
+A new ArcadeDB release is published as a new version of the Marketplace image.
+To move an existing VM to it, take a <<backup,backup>>, create a new VM from the new version, and restore the backup there, following the <<upgrade,upgrade checklist>> of the release.

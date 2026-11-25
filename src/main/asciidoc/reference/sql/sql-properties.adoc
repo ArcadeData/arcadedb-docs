@@ -50,6 +50,7 @@ A property set to `NULL` on purpose is present: `INSERT INTO T SET id = 1, df = 
 _(Since v26.11.1: earlier versions stored the default for an explicit `NULL`.)_
 The value is an *SQL expression*, evaluated once per new record, not a literal: write `default 'active'` for the string `active`, since an unquoted `active` is a field reference.
 The expression is compiled and validated when the property is declared, so a malformed one is rejected right there rather than silently producing garbage on every record.
+A default written with literals only (a string, a number, a boolean, `null`, or arithmetic over them) is also converted to the property's type at that moment, and refused when the conversion fails, e.g. `INTEGER (default 'dflt')` or `DATE (default 'notadate')`; the property keeps the default it had. A default that calls a function, such as `sysdate()`, is still evaluated per record. _(Since v26.12.1: earlier versions accepted such a default and then refused every new record of the type.)_ A database that already holds one still opens with a warning in the server log, and `ALTER PROPERTY ... DEFAULT` repairs it.
 A default that evaluates to `null` fills in nothing, which makes it equivalent to declaring no default at all - see the note below.
 ** `external &lt;true|false&gt;` If true, the property's value is stored in a paired *external bucket* instead of inline in the primary record.
 The main record carries only a pointer (`[bucketId][position]`) to the external record.
@@ -68,8 +69,11 @@ Do not use it to conceal data: to keep a property out of a result set, list the 
 
 NOTE: When you create a property, ArcadeDB reads the records already stored in the type (including its subtypes) and checks them against the declaration: the declared type (a value that cannot be read as that type, such as `'abc'` for an `INTEGER`, is refused), `mandatory`, `notnull`, `min`, `max` and `regexp`.
 If a record does not satisfy the declaration, the statement fails, names the first offending record, and the property is not created.
-`ALTER PROPERTY ... MIN`, `MAX` and `REGEXP`, and the openCypher `NOT NULL` and `NODE KEY` constraints, make the same check.
+`ALTER PROPERTY ... MANDATORY`, `NOTNULL`, `MIN`, `MAX` and `REGEXP`, and the openCypher `NOT NULL` and `NODE KEY` constraints, make the same check.
+_(Since v26.12.1)_ The refusal is a `ValidationException` whose kind names the constraint (`MANDATORY`, `NOT_NULL`, `MIN`, ...), answered over HTTP with `400` and the kind in `exceptionArgs`. Before, a `MANDATORY` or `NOTNULL` refusal was a `CommandExecutionException` answered with `500`.
 On a type with many records this scan takes time proportional to the number of records.
+
+NOTE: One property name can be declared more than once in a type hierarchy only with the same type. `CREATE PROPERTY` is refused, with an `AlreadyExistsException`, when a super type of the type already declares the name, and also when another declaration of the name in the same hierarchy (a sub type of the type, or another super type of one of its sub types) has another type or another `OF` type: `CREATE PROPERTY A.p FLOAT` is refused while the sub type `B` declares `p DATETIME`, and accepted while `B` declares `p FLOAT`. `ALTER PROPERTY ... NAME` onto such a name, the Java `Property.setOfType()` and `ALTER TYPE ... SUPERTYPE +` (see <<sql-alter-type,`ALTER TYPE`>>) are refused the same way, and the schema is left as it was. An index on the super type's declaration is keyed by its type, so the records of a sub type that declares the name with another type were written into it under keys of the other type: a lookup or a range missed them, and a `BINARY` against a number left an index file that could not be read. _(Since v26.12.1, issue #12732. Before, only the super type direction was refused.)_ A database that already holds such an overlap still opens.
 
 [NOTE]
 ====
@@ -228,7 +232,7 @@ ALTER PROPERTY <type-name>.<property-name> NAME <new-property-name>
 * *`<attribute-value>`* Defines the value you want to set
  ** `name <new-property-name>` Renames the property. This is a schema-metadata-only rename: it does not touch existing records.
     Records keep answering under the old name until they are next written, at which point they pick up the new name.
-    Not allowed on an indexed property, on a column declared directly on a TIME SERIES type, or if `<new-property-name>` already exists on the type.
+    Not allowed on an indexed property, on a column declared directly on a TIME SERIES type, if `<new-property-name>` already exists on the type, or (since v26.12.1) if another type of the same hierarchy declares `<new-property-name>` with another type.
  ** `mandatory <true|false>` If true, the property must be present. Default is false.
     Setting it to true scans the existing records and is refused, naming the first offending record, if any of them has no value for the property.
  ** `notnull <true|false>` If true, the property, if present, cannot be null. Default is false.
@@ -249,6 +253,7 @@ ALTER PROPERTY <type-name>.<property-name> NAME <new-property-name>
     Refused when no value of the property's type could pass it, including a number or temporal type (`'[A-Z]+'` on a `LONG` or a `DATE`), as for <<sql-create-property,`CREATE PROPERTY`>>. A pattern the check cannot settle is accepted with a WARNING.
  ** `default <any>` Defines the value to use when the property is not present, as an *SQL expression* evaluated once per new record.
     Quote a literal (`default 'active'`); an unquoted `active` is a field reference and is rejected.
+    A literal default that cannot be converted to the property's type (`default 'zz'` on an `INTEGER`) is refused and the previous default is kept, as for <<sql-create-property,`CREATE PROPERTY`>>.
     A default that evaluates to `null` is equivalent to no default at all - see <<sql-create-property,`CREATE PROPERTY`>>.
  ** `external <true|false>` Toggles external storage of the property's value (see <<sql-external-properties,External property storage>>).
     Switching the flag does not migrate existing records eagerly; they are converted lazily on the next write, or all at once with `REBUILD TYPE`.
@@ -328,8 +333,10 @@ DROP PROPERTY <type>.<property> [IF EXISTS] [FORCE]
 * *`&lt;type&gt;`* Defines the type where the property exists.
 * *`&lt;property&gt;`* Defines the property you want to remove.
 * *`IF EXISTS`* Prevent errors if the property does not exist when attempting to drop it. See <<sql-if-exists-result,here>> for the shape of the result.
-* *`FORCE`* In case one or more indexes are defined on the property, the command will throw an exception.
-Use `FORCE` to drop indexes together with the property
+* *`FORCE`* In case one or more indexes are defined on the property, the command will throw an exception that names them.
+This includes the indexes a subtype defined on the inherited property, unless the subtype declares its own property with the same name, or still inherits a property of that name and the same type from another supertype _(since v26.12.1, issue #12732)_.
+Use `FORCE` to drop all those indexes together with the property.
+The statement is all or nothing: if the property cannot be dropped anyway (for example, because a supertype has an index on a property with the same name), it fails before any index is dropped
 
 *Examples*
 

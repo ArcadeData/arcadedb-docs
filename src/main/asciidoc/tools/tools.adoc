@@ -173,3 +173,45 @@ image::../images/libreoffice-execute.png[]
 Make sure that "Run SQL command directly" is selected, and to view results check "Show output  ..."
 
 ====
+
+[[adbcbridge]]
+==== adbcBridge
+
+https://adbcbridge.org[adbcBridge] is an open-source driver for https://arrow.apache.org/adbc/[ADBC], Apache Arrow's database API, that sits on top of an ODBC driver and returns query results as Arrow tables in Python, Go, Rust, Java and C#.
+It reaches ArcadeDB through the <<postgres-driver,Postgres protocol plugin>> and the PostgreSQL ODBC driver (psqlodbc).
+
+[%collapsible]
+====
+
+Install the PostgreSQL ODBC driver (the `odbc-postgresql` package on Debian and Ubuntu), then the Python packages:
+
+[source,shell]
+----
+pip install adbcbridge adbc-driver-postgresql
+----
+
+Connect with an ODBC connection string and read a query as an Arrow table:
+
+[source,python]
+----
+import adbcbridge
+
+conn = adbcbridge.connect(
+    uri="Driver=PostgreSQL Unicode;Server=localhost;Port=5432;"
+        "Database=mydatabase;Uid=root;Pwd=password;BoolsAsChar=0;"
+)
+with conn.cursor() as cur:
+    cur.execute("SELECT name, price FROM Product WHERE price > ?", (10.0,))
+    print(cur.fetch_arrow_table())
+conn.close()
+----
+
+`BoolsAsChar=0` makes psqlodbc describe a `BOOLEAN` property as a boolean instead of a character.
+
+With a psqlodbc connection string, adbcBridge hands the connection to the Apache Arrow ADBC PostgreSQL driver when that driver is installed, which is why `adbc-driver-postgresql` is in the install line.
+This is the route to use with ArcadeDB v26.10.1 to v26.11.1.
+From v26.12.1 the ODBC route through psqlodbc works as well, for example with the environment variable `ADBC_ODBC_DELEGATE=never`.
+
+ArcadeDB has no `CREATE TABLE`, so create the type and its properties before loading data into it.
+
+====

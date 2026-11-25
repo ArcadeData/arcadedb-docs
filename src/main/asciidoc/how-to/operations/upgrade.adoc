@@ -10,6 +10,89 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - openCypher `toString()` refuses a `BINARY` value and `convert.toJson()` writes it as an array
+
+`toString()`, `toStringOrNull()` and `apoc.convert.toJson()` of a `BINARY` value (a byte array, such as a `BINARY` property or a bytes parameter) answered Java's identity text of the array, for example `[B@e044818`, which changes from row to row and from run to run (issue #12780). `toString()` now refuses it with `TypeError: InvalidArgumentValue - toString() cannot convert byte[]`, as it does for a list, `toStringOrNull()` answers `null`, and `toStringList()` answers `null` for such an element. `apoc.convert.toJson()` answers the JSON array of the signed bytes (`[1,-1]`), the text it already gave a byte array inside a map. Indexing into a `BINARY` value is still refused, and its message now says `byte[]` instead of `LIST<ANY>`.
+
+*Impact:* a query that called `toString()` on a `BINARY` value now fails instead of returning the meaningless text, and a value stored from it keeps the old text.
+
+*Action:* none for a query that did not rely on the identity text. To get text from a `BINARY` value, use `apoc.convert.toJson()` or encode it with the SQL function `encode(value, 'base64')`.
+
+[discrete]
+====== 26.12.1 - The `text.*` functions answer what APOC answers
+
+Fifteen `text.*` functions, documented as APOC compatible, answered differently from APOC 5.26 on ordinary input and now answer the same (issue #12104; see <<ext-fns-text,Text Functions>>). The ones a query can notice:
+
+* `text.replace()` and `text.split()` read the second argument as a Java regular expression, where it was literal text. `text.split()` drops the empty pieces at the end (`'a,'` is `['a']`) unless the new third argument `limit` is negative, and `text.split('a.b.c', '.')` is `[]`. The openCypher `replace()` and `split()` and the SQL `.replace()` and `.split()` are unchanged and literal.
+* `text.charAt()` answers the code point (`'hello', 1` is `101`), not the one-character string, and `text.code()` takes a code point and answers the string (`65` is `'A'`), where it answered the code of the first character of its argument.
+* `text.jaroWinklerDistance()` answers the distance, 1 minus the similarity: 0.0 for equal strings.
+* `text.format()` takes its values as one list, `text.format('%s %d', ['a', 1])`, and an optional language for the separators of numbers.
+* `text.snakeCase()` joins the words with `-` (`'fooBarBaz'` is `foo-bar-baz`), `text.slug()` keeps the case and the non-ASCII letters (`'Hello World'` is `Hello-World`), `text.join()` writes a `null` element as `null`, and `text.hexValue()` is upper case and zero-padded (`255` is `00FF`).
+* `text.sorensenDiceSimilarity()` compares the bigrams of each word as a multiset (`'aa'` and `'aaaa'` is 0.5) and takes an optional language tag, `text.camelCase()` and `text.upperCamelCase()` no longer capitalize the first word after a leading separator, and `text.capitalizeAll()` and `text.decapitalizeAll()` split the words at spaces only and trim the result.
+
+*Impact:* a query that used `text.replace()` or `text.split()` with a delimiter that is a regular expression operator (`.`, `|`, `(`, `[`, `$`) matches something else, or fails to compile the pattern. A filter such as `text.jaroWinklerDistance(a, b) > 0.85` now keeps the dissimilar strings. `text.format()` with the values as separate arguments reads the first as the one value and the second as the language, so a format with several specifiers fails. A stored or compared value made with `text.snakeCase()`, `text.slug()` or `text.hexValue()` changes.
+
+*Action:* escape the regular-expression characters of the delimiter (`'\\.'` for a dot) or use the openCypher `split()` and `replace()`, write `text.jaroWinklerDistance(a, b) < 0.15` for `> 0.85`, pass the values of `text.format()` as a list, and regenerate the values made with the changed functions.
+
+[discrete]
+====== 26.12.1 - `create.vNode`, `create.vRelationship`, the `meta.*` procedures and `path.slice()` answer what APOC answers
+
+These functions and procedures, documented as APOC compatible, now answer what APOC 5.26 answers (issue #12109):
+
+* `create.vNode()` and the `nodes` and `relationships` of `meta.graph()` are virtual nodes and relationships, where they were maps with `_type`, `_id` and `_labels` keys. `labels()`, `type()`, `properties()` and `id()` work on them, and `id()` is negative. `create.vRelationship()` reads its arguments in the documented order `(startNode, type, properties, endNode)`, where it read `(startNode, type, endNode, properties)` and failed on the documented order. The `CALL create.vNode(...) YIELD node` and `CALL create.vRelationship(...) YIELD rel` forms answer the element instead of `null`.
+* The third argument of `path.slice()` is a length, where it was an end index: `path.slice(p, 1, 1)` is the second relationship, `path.slice(p, 0, -1)` the whole path, and `path.slice(p)` is accepted.
+* `meta.stats()` yields APOC's columns (`nodeCount`, `relCount`, `labels`, ...), and counts each node once, where a node of a type with supertypes was counted once per supertype. `meta.nodetypeproperties()` and `meta.reltypeproperties()` list the properties found in the data too, not only those declared in the schema, write `nodeType` and `relType` as ``:`Name` ``, and name the value types as APOC does (`Long` and `Double` instead of `Integer` and `Float`). `meta.graph()` answers one relationship per start label, type and end label.
+
+*Impact:* a query that read the `_labels` or other keys of the old maps, called `create.vRelationship()` with the end node third, used `path.slice()` with an end index, or compared `nodeType` or `propertyTypes` with the old values answers differently or fails. `meta.stats()` and `meta.graph()` read every relationship record, so on a large graph they take longer than before.
+
+*Action:* use `labels(n)` and `n.prop` on the virtual elements, pass the end node of `create.vRelationship()` last, pass the length (`end - start`) as the third argument of `path.slice()`, and update the comparisons with the new `nodeType` and `propertyTypes` values. `YIELD value` of `meta.stats()` still works. See <<ext-fns-schema-meta,Schema & Meta Procedures>>, <<create-v-node,create.vNode()>> and <<path-slice,path.slice()>>.
+
+[discrete]
+====== 26.12.1 - An openCypher shortest path from a node to itself answers only a minimum of zero
+
+`shortestPath()` and `allShortestPaths()` whose start and end are the same node answered the zero-length path also when the pattern requires at least one hop: `[*]`, `[*1..]` or a relationship without a quantifier (issue #11913). That path is shorter than the pattern allows. Now only a written minimum of zero (`[*0..]`, `[*0..2]`) answers it; any other pattern has no row for that pair, and in the expression form `shortestPath(...)` returns `null` and `allShortestPaths(...)` an empty list.
+
+*Impact:* a query such as `MATCH (a), (b) MATCH p = shortestPath((a)-[*]->(b))` no longer returns the rows where `a` and `b` are the same node, and a count or a minimum length over such rows changes.
+
+*Action:* write `[*0..]` where the zero-length path of a node to itself is wanted. See <<cypher-compatibility,shortestPath() and Hop Bounds>>.
+
+[discrete]
+====== 26.12.1 - An openCypher pattern predicate over a null variable is false
+
+A pattern predicate such as `WHERE (x)-->()`, `exists((b)-->(x))` or `WHERE NOT (x)-->()` that names a node or relationship variable an `OPTIONAL MATCH` left null treated that variable as any node, so it was true whenever the pattern held somewhere in the graph (issue #13124). It is now false, and its `NOT` true, as Neo4j answers. A variable not in scope at all still stands for any node, and `EXISTS { }` subqueries and pattern comprehensions are unchanged.
+
+*Impact:* rows where the variable is null are no longer kept by the positive predicate and are now kept by `NOT` of it, so an anti-join written as `OPTIONAL MATCH ... WHERE NOT (n)-[:R]-()` returns the rows it used to drop.
+
+*Action:* none, unless a query relied on the old answer.
+
+[discrete]
+====== 26.12.1 - An openCypher hop that ends at a null variable matches nothing
+
+A hop whose end is a node variable an earlier `OPTIONAL MATCH` left null read that variable as unbound and bound a vertex to it (issue #12728): `MATCH (a:A) OPTIONAL MATCH (a)-[:NOPE]->(x) MATCH (a)-[:S]->(x)` returned the vertex `a` points to for `x`, and the same went for the undirected, variable-length, two-hop and quantified path forms, a later `OPTIONAL MATCH`, and `count(x)`. The hop now matches nothing, so a `MATCH` drops the row and an `OPTIONAL MATCH` keeps it with `x` null, as when the null variable is the start of the hop. See <<cypher-optional-match,OPTIONAL MATCH>>.
+
+*Impact:* the rows and counts such a query used to return for a null variable are gone.
+
+*Action:* none, unless a query relied on the old answer.
+
+[discrete]
+====== 26.12.1 - openCypher `toString()` of a time or a datetime prints the seconds and trims the fraction, as Neo4j 5 does
+
+`toString()` of a `localtime()`, `time()`, `localdatetime()` or `datetime()` used Java's text, which leaves out zero seconds (`10:00`) and keeps the trailing zeros of the fraction (`.500`). It now prints the seconds always and removes the trailing zeros of the fraction: `10:00:00`, `2020-01-01T10:00:00.5Z` (issue #11912). `toStringOrNull()`, `toStringList()`, `convert.toString()` and `apoc.convert.toString()` print the same, and a `java.time` value bound as a parameter prints as the Cypher temporal it stands for.
+
+*Impact:* a key, an id or a comparison built from `toString()` of a time or a datetime changes (`'10:00'` becomes `'10:00:00'`). A temporal value that a query returns, over HTTP or SQL, keeps its text, and string concatenation with a temporal is unchanged.
+
+*Action:* regenerate or normalize stored text that was made with `toString()` of a time or a datetime.
+
+[discrete]
+====== 26.12.1 - An openCypher `CALL` of an unknown namespaced name no longer runs the SQL function of its last segment
+
+A `CALL` of a namespaced name that is neither a procedure nor a function ran the SQL function named by the last segment of the name, whatever the namespace (issue #12110): `CALL apoc.atomic.concat(n, 'name', 'zz')` ran SQL `concat()`, returned no row and wrote nothing, and `CALL nosuch.max(1, 2)` returned 2. Such a call now fails as an unknown procedure, as in Neo4j. `CALL` of an SQL function by its full name (`CALL abs(-5)`, `CALL vector.neighbors(...)`) is unchanged.
+
+*Impact:* a `CALL anything.max(...)` that relied on the last segment fails with `UnknownProcedureException` (`Neo.ClientError.Procedure.ProcedureNotFound` over Bolt).
+
+*Action:* call the SQL function by its full name or with the `sql.` prefix: `CALL sql.max(1, 2)`. See <<cypher-call,CALL>>.
+
+[discrete]
 ====== 26.12.1 - Naming an object that does not exist is the client's error on every protocol
 
 A statement that names a type, an index, a bucket, a property, a trigger or a view that does not exist raises a `SchemaException`, a missing record a `RecordNotFoundException`, an unknown method an `UnknownFunctionException`, and a Cypher `CALL` of an unknown procedure an `UnknownProcedureException` (issue #11384). Many of these raised a plain `CommandExecutionException` before.
@@ -21,11 +104,74 @@ A statement that names a type, an index, a bucket, a property, a trigger or a vi
 The Java API follows the same rule (issue #11633). A missing edge type in `GraphBatch` or in the hybrid, full-text and vector search functions, a missing bucket behind a Gremlin label, and a missing embedded document type raise a `SchemaException`. A function or function library that does not exist (`Schema.getFunctionLibrary()`, `FunctionLibraryDefinition.getFunction()`) raises an `UnknownFunctionException`. All of these raised an `IllegalArgumentException` before. The batch endpoint (`/api/v1/batch`) still reports what it committed before such an error.
 
 [discrete]
+====== 26.12.1 - A write whose outcome is unknown over HTTP answers `504`, not `500`
+
+A write that an HA replica forwarded to a leader which died or did not answer, and a write handed to the replication whose quorum was not confirmed, answered `500` before (the first with `exception: java.io.EOFException` or a connection reset), although the write may have been committed (issue #11887).
+
+*Impact:* these answer `504` with `exception` `com.arcadedb.exception.TransactionOutcomeUnknownException`, on the leader and on the replica. A client that handled this case by its `500` status must now handle `504`; the Java remote client does not retry it.
+
+*Action:* on a `504` from `/api/v1/command` or `/api/v1/commit`, check whether the write landed before sending it again. See <<ha-outcome-unknown-contract,Outcome-unknown response contract>>.
+
+[discrete]
+====== 26.12.1 - The line protocol write refuses an unknown `precision`
+
+`POST /api/v1/ts/{database}/write` read a `precision` it did not recognize (`sec`, `seconds`, `h`, a typo) as nanoseconds and answered `204`, so a timestamp in seconds was stored in 1970 (issue #11875).
+
+*Impact:* any value other than `ns`, `us`, `u`, `ms` or `s` (in any case) answers `400` with an `error` naming the accepted values, and nothing in the request is written. An absent or empty `precision` still means nanoseconds.
+
+*Action:* send one of the accepted values. See <<timeseries-line-protocol-precision,Precision parameter>>.
+
+[discrete]
+====== 26.12.1 - A mistake in a SQL script's own values or order is a client error, not `500`
+
+`SLEEP` of a value that is not a number, an unknown `CONSOLE` level, a `LOCK` after a modification or a second `LOCK`, a `COMMIT` with no transaction open inside a loop or an `IF`, a `BEGIN` in a loop past the nested-transaction limit, and `<`, `<=`, `>`, `>=` or `BETWEEN` between two records answered `500` before, with a `NullPointerException`, `ClassCastException`, `TransactionException` or `CommandExecutionException` (issue #11893).
+
+*Impact:* over HTTP these answer `400`, with `TypeMismatchException` (`SLEEP`, comparison), `CommandSQLParsingException` (`CONSOLE`, `COMMIT`) or `CommandSemanticException` (`LOCK`, `BEGIN`), and over the other protocols the matching validation or parsing error. An unknown `CONSOLE` level is now refused when the script is parsed, so none of the statements before it runs. Embedded Java code that caught `TransactionException` around a script with `LOCK` or `BEGIN` must catch `CommandSemanticException` (or `ArcadeDBException`); `acquireLock()` and `begin()` called directly from Java still throw `TransactionException`.
+
+*Action:* none for a script that ran. A client that retried or alerted on `500` for these cases stops doing so. See <<sql-script,SQL Script>>.
+
+[discrete]
 ====== 26.12.1 - `algo.maxFlow` follows the relationship direction
 
 `algo.maxFlow` treated every relationship as an undirected pipe, so flow could run against a relationship and two opposite relationships added up (issue #11798). It now follows the relationships outgoing by default, and takes an optional fifth argument, `direction` (`OUT`, `IN` or `BOTH`). See <<algo-max-flow,algo.maxFlow>>.
 
 *Action:* pass `'BOTH'` as the fifth argument to keep treating the relationships as undirected.
+
+[discrete]
+====== 26.12.1 - The second argument of `node.relationship.types()` is APOC's relationship pattern
+
+`node.relationship.types(node, [relTypes], [direction])` (and `apoc.node.relationship.types`) takes APOC's relationship pattern as its second argument, as APOC does, and the direction moved to the third position (issue #12103). `(n, 'KNOWS>|<LIKES')` answers the types of that list the node has a relationship of, `(n, null, 'IN')` every incoming type. The same release makes `node.degree*`, `node.relationship.exists()`, `algo.dijkstra`, `algo.astar` and `algo.allsimplepaths` read the pattern too (see <<node-relationship-pattern,node functions>> and <<algo-relationship-pattern,the relationship pattern>>), and the fifth argument of `algo.dijkstra` is APOC's `defaultWeight` when it is a number. An edge type whose name contains `|`, `<` or `>` (or `,` in the `algo.*` procedures) can no longer be named in these arguments.
+
+*Impact:* a call written for the old signature keeps its answer: a second argument that is a direction word (`IN`, `INCOMING`, `OUT`, `OUTGOING`, `BOTH`, in any case) with no third argument is still read as the direction. In a database with an edge type named exactly like that word (an edge type `OUT`), `(n, 'OUT')` is now the pattern naming that type and answers `['OUT']` or `[]`. A call that passed a type name, `(n, 'KNOWS')`, used to fail as an unknown direction and now answers.
+
+*Action:* write the direction as the third argument, `(n, null, 'OUT')`, where an edge type has the name of a direction word.
+
+[discrete]
+====== 26.12.1 - `node.degree()` counts a self loop once in both directions, and `TYPE<` is an incoming marker
+
+`node.degree()` (and `apoc.node.degree`) counted a self loop twice when the pattern follows both directions, once from the outgoing side and once from the incoming side, where APOC and `COUNT { (n)-[:T]-() }` count it once (issue #12674). It now counts it once. The count of one direction (`node.degree.in()`, `node.degree.out()`, `'T>'`, `'<T'`) is unchanged. The relationship pattern also reads a trailing `<` as incoming, as APOC does, so `'T<'` is `'<T'`; before, `'T<'` was looked up as an edge type named `T<`. See <<node-relationship-pattern,node functions>>.
+
+*Impact:* a node with a self loop answers a degree one lower per self loop (and per repeated alternative) than before, and an edge type whose name ends in `<` can no longer be named in these arguments.
+
+*Action:* none for the counts, they now match APOC. Rename an edge type whose name ends in `<`.
+
+[discrete]
+====== 26.12.1 - An undirected openCypher `MERGE` answers an existing self loop once
+
+`MERGE (a)-[r:R]-(b)` over a relationship that already exists as a self loop (`a` and `b` are the same node) returned the loop twice, so `ON MATCH SET`, `SET`, `RETURN count(*)` and every later clause ran twice for it (issue #13117). It now returns the loop once, as `MATCH` and Neo4j do. Directed patterns and relationships between two different nodes are unchanged, and no relationship was ever created twice. See <<cypher-compatibility,Cypher compatibility>>.
+
+*Impact:* a query that merges an undirected relationship between two bindings of the same node, typically a batched `UNWIND ... MERGE` with a row whose two ends are equal, answers one row per existing loop instead of two.
+
+*Action:* none, the rows now match `MATCH`.
+
+[discrete]
+====== 26.12.1 - A `limit` of 0 of `vector.fuse` and `vector.boost` returns no row, and a negative `limit` is refused
+
+The `limit` option of `vector.fuse()` and `vector.boost()` read `0` and any negative number as "no limit", so `{ limit: 0 }` returned every row (issue #13131). `0` now returns no row, as the `k` of `vector.neighbors()` does, and a negative `limit` is refused with an error naming the option. Leaving `limit` out, or passing `null`, still returns every row. The `k` option of `vector.mmr()` is read the same way: a negative `k` is refused, also when the candidate list is empty, where it used to return no row. See <<vector-fuse-ext,vector.fuse()>>.
+
+*Impact:* a query that computes `limit` (a page size, or a budget minus what was used) and reaches `0` gets no row instead of the whole candidate set, and one that passes a negative `limit` (answered every row before) or a negative `k` of `vector.mmr()` (answered no row before) fails.
+
+*Action:* omit `limit`, or pass `null`, where no cap is wanted.
 
 [discrete]
 ====== 26.12.1 - `algo.kTruss` returns only the vertices of the k-truss when `k` is passed
@@ -47,6 +193,24 @@ A user name, password or group of a `arcadedb.server.defaultDatabases` credentia
 *Impact:* a password written with a raw `:` used to be cut at it, the text after it becoming the user's group; that credential now creates no user and grants nothing. A password that contains `%` followed by two hexadecimal digits (`%41`) now reads as the decoded character: an existing user written that way is reported `already exists with a different password` and keeps its password, a new one is created with the decoded password.
 
 *Action:* write a `%` that is followed by two hexadecimal digits as `%25`, and any `:`, `,`, `;`, `[` or `]` inside a field encoded as above. See <<settings-sql,`server.defaultDatabases`>>.
+
+[discrete]
+====== 26.12.1 - One property name cannot have two types in a type hierarchy
+
+`CREATE PROPERTY` was refused when a super type already declared the name, but accepted when a sub type declared it with another type, and `ALTER TYPE ... SUPERTYPE +` only logged a warning, whatever the types were (issue #12732). An index on the super type's property then missed the records of the sub type (a lookup answered `0` rows where a scan found `1`), a `BINARY` against a `LONG` left an index file that could not be read, and a `BY KEY`, `BY ITEM` or `GEOSPATIAL` index over a property of another type answered `500` or refused every later insert. A name declared with the same type on a super type and a sub type is still accepted. A name declared with another type, or another `OF` type, anywhere in the hierarchy is now refused: by `CREATE PROPERTY` and `ALTER PROPERTY ... NAME` with an `AlreadyExistsException` (`409` over HTTP), and by `ALTER TYPE ... SUPERTYPE +` and the Java `Property.setOfType()` with a `SchemaException`. A refused statement changes nothing. See <<sql-create-property,`CREATE PROPERTY`>> and <<sql-alter-type,`ALTER TYPE`>>.
+
+*Impact:* a schema script that declares a property on the sub type first and then declares the same name with another type on the super type, or links the two types with `SUPERTYPE +`, now fails; with the same type it works as before. The JSONL import of an export of a database that already holds such an overlap is refused at the linkage step. A database that already holds an overlap still opens, and the overlap is not repaired.
+
+*Action:* declare the property with the same type in every type of the hierarchy, or give the sub type's property another name.
+
+[discrete]
+====== 26.12.1 - A schema change refused because of the data already stored is a `ValidationException`
+
+`CREATE PROPERTY` and `ALTER PROPERTY` refused because a record already stored violates the constraint (`MANDATORY`, `NOTNULL`, `MIN`, `MAX`, `REGEXP`), and the same refusal over a sample already stored in a TIMESERIES type, raise a `ValidationException`, whose kind names the constraint where there is one. An update that would change the partition key of a type with `partitioned(...)` bucket selection raises a `ValidationException` too (issue #12037). Before, they raised a `CommandExecutionException` (the partition key an `IndexException`), and `MANDATORY`, `NOTNULL` and the partition key were answered over HTTP with `500`.
+
+*Impact:* over HTTP these refusals answer `400`, with the constraint in `exceptionArgs`. Embedded Java code that caught `CommandExecutionException` or `IndexException` for these cases no longer catches them.
+
+*Action:* catch `ValidationException` (or `ArcadeDBException`) for a schema change refused over the stored data. See <<sql-create-property,CREATE PROPERTY>>.
 
 [discrete]
 ====== 26.12.1 - A schema change over PostgreSQL answers no result set, and a violated constraint has its own error code
@@ -76,6 +240,16 @@ Every TIMESERIES type created by 26.12.1 draws a random owner id, stored in the 
 
 *Action:* none to upgrade. To go back to an older build afterwards, export the database with 26.12.1 and re-import it with the older version. If a type reports its storage unavailable because of a foreign sealed file, move that file away and reopen the database. See <<timeseries-sealed-owner,Integrity Checking>>.
 
+[[upgrade-float-arrays-rollback-fence]]
+[discrete]
+====== 26.12.1 - A database opened read-write is refused by older builds, unless fixed-width float arrays are turned off
+
+A build before 26.11.1 cannot read the fixed-width float and double arrays introduced in 26.11.1 (see <<upgrade-float-arrays-fixed-width,Float and double arrays are stored fixed-width>>), and 26.9.1 and 26.10.x did not refuse such a database: they read those arrays as `null`, left the records out of `vector.neighbors()`, and the first `UPDATE` of such a record erased its arrays (issue #12234). While `arcadedb.serializer.fixedWidthFloatArrays` is `true` (the default), 26.12.1 labels the dictionary file of a database with format version 2 (`dictionary.<id>.<pageSize>.v2.dict`, same content as version 1) when it creates the database, when it opens it read-write, and when the setting is turned on. Builds from 26.8.1 to 26.11.x refuse to open such a database with `Dictionary '...' was written with format version 2, which this version of ArcadeDB cannot read (latest known is 1)` instead of losing data. The label does not depend on the content: a database that holds no float or double array is labelled too. A database opened read-only is not labelled. If the label cannot be applied (an I/O error), a WARNING is logged and arrays are written in the old varint form until the next open.
+
+*Impact:* once 26.12.1 has opened a database read-write, no released build opens it any more, 26.11.x included (it reads the fixed-width form but refuses the label). Builds before 26.8.1 do not check the label and still open it, with the data loss described above. In an HA cluster, a node still on an older build that has to install a full snapshot from an upgraded node refuses the dictionary until it is upgraded too.
+
+*Action:* none to upgrade. To keep a rollback possible, set `arcadedb.serializer.fixedWidthFloatArrays` to `false` before the database is first opened read-write by 26.12.1, or take a backup before the upgrade: the label stays at version 1 and arrays are written in the varint form, which every build reads. Turning the setting off later does not remove the label. To go back to 26.11.x only, stop the server and rename `dictionary.<id>.<pageSize>.v2.dict` back to `dictionary.<id>.<pageSize>.v1.dict`. Never do that to open the database with 26.10.x or older when it may hold float or double arrays: export it with 26.12.1 and re-import it with the older version instead. See <<settings-sql,`serializer.fixedWidthFloatArrays`>>.
+
 [discrete]
 ====== 26.12.1 - `DROP INDEX` refuses the bucket index of an index, and an index missing one is not used
 
@@ -84,6 +258,16 @@ Every TIMESERIES type created by 26.12.1 draws a random owner id, stored in the 
 *Impact:* a script that drops a bucket index on its own fails. Queries that read such an incomplete index answer every row, more slowly, where they used to return short results.
 
 *Action:* drop the index itself instead of one of its bucket indexes, and run `REBUILD INDEX <name>` on an index `SHOW INDEXES` reports as `FAILED`. See <<sql-drop-index,`DROP INDEX`>> and <<sql-rebuild-index,`REBUILD INDEX`>>.
+
+[[upgrade-undeclared-index-legacy-keys]]
+[discrete]
+====== 26.12.1 - An index on an undeclared property written by an older version finds its old list and number keys
+
+An index on a property the schema does not declare keys each value by its text. 26.10.1 changed that text for a floating point or decimal number (`1.0` is keyed `1`, `-0.0` is keyed `0`, `1e300` by its full digits, where 26.9.1 wrote `1.0`, `-0.0` and `1.0E300`), and 26.12.1 for a list holding such a number (`[1.5, 2.0]` is keyed `[1.5, 2]`). Nothing re-keyed the entries an older version wrote, so after an upgrade a seek missed those records, `MERGE` created a second node, `IS UNIQUE` accepted a copy, a delete or an update left the old entry behind, and `CHECK DATABASE` reported errors (issues #12160, #12233). Such an index now also reads, removes and checks the old spelling of a list or number key, and a `STRING` spelled like an old key (`'1.0'`, `'[1.5, 2.0]'`) is still a different value. An old entry is found by the text it was written with: `1.0` finds the entry 26.9.1 wrote for `1.0`, and `1` finds it only after a rebuild.
+
+*Impact:* every `LSM_TREE` index created before 26.12.1 is treated as possibly holding old keys. On an undeclared property, its seeks, removals and unique checks of a floating point number or of a list holding one pay an extra read, a seek of a `STRING` that reads as a number or a list (`1.0`, `2.500`, `[1.5, 2.0]`) loads the record behind each entry it finds, and a unique `STRING` key that reads as a number or a list (`12345`, `2.5`) loads one record at commit. Any other text pays nothing, and so does an index created by 26.12.1.
+
+*Action:* run `REBUILD INDEX <name>` (or `REBUILD INDEX *`) once after upgrading: it writes every entry under its current key and removes the extra cost. See <<sql-rebuild-index,`REBUILD INDEX`>>.
 
 [discrete]
 ====== 26.12.1 - A materialized view keeps the brackets of its query, and `@cat` is a reserved name
@@ -131,6 +315,24 @@ A failure on a later batch of `iterateType`, `iterateBucket` or `queryStream` ra
 *Action:* catch `SecurityException` for an authentication or permission refusal, and `TimeoutException` for an expired deadline. See <<java-api-grpc,Java API (gRPC)>>.
 
 [discrete]
+====== 26.12.1 - The gRPC Java client returns record rows and record columns as records
+
+A row that returns a record, such as Cypher `MATCH (n) RETURN n`, now reaches a `RemoteGrpcDatabase` caller as that vertex or edge with its own properties, and a column that holds a record (`RETURN a, r, b`, SQL `SELECT @rid, @type, @this`, the records of `collect(n)`) as a `Document`, `Vertex` or `Edge`, as the embedded API returns them (issue #12196). Before, `RETURN n` gave a vertex whose only property was `n`, `SELECT @rid, @type, @this` a record whose only property was `@this`, and the other record columns raw maps. A projection row with a `@type` column, such as `SELECT @type, name FROM P`, is now a projection row with both columns; before, it reached the client as a record of type `P` without the `@type` column (issue #12519).
+
+*Impact:* code that read the properties through the alias (`vertex.get("n")`) or cast a record column to `Map` no longer works. A map a query builds with a valid `@rid` and the name of an existing type as `@type` is also returned as a record. The columns of a projection keep the order of the query. In an HA cluster, a command a follower forwards to the leader still answers a row that has a `@type` column as a record of that type.
+
+*Action:* read the properties from the record itself (`result.getVertex().get().get("name")`), and treat a record column as a `Document`, `Vertex` or `Edge`. See <<java-api-grpc,Java API (gRPC)>>.
+
+[discrete]
+====== 26.12.1 - The HTTP Java client returns record columns as records
+
+A column of a projection row that holds a record, such as Cypher `MATCH (a)-[r]->(b) RETURN a, r, b`, SQL `SELECT @this AS me, name` or `SELECT first(out('Knows')) AS friend`, reached a `RemoteDatabase` caller as a list of RIDs, with every property lost: a vertex as `[#1:0]`, an edge as `[edge rid, in rid, out rid]`. It now arrives as a `Document`, `Vertex` or `Edge` with its properties, as the embedded API returns it, and so do the records held in a list, a map or a path of a column (`collect(a)`, `{who: a}`) (issue #12184). A row that is itself a record (`RETURN a`) was not affected.
+
+*Impact:* code that read such a column as a `List` of RIDs no longer works. A map a query builds with a `@cat` of `d`, `v` or `e` and a `@type` is also returned as a record. The change is in the client alone and works with any server version.
+
+*Action:* treat a record column as a `Document`, `Vertex` or `Edge`, and call `getIdentity()` on it where only the RID is needed. See <<java-api-remote,Java Remote API>>.
+
+[discrete]
 ====== 26.12.1 - A vector index whose definition in `schema.json` is invalid is left out at open, alone
 
 When a database opens, the settings of each `LSM_VECTOR` index in `schema.json` are checked with the same rules as `CREATE INDEX` (`pqClusters` at most 256, `maxConnections`, `beamWidth`, `efSearch`, `pqTrainingLimit` at least 1, ...). An index whose definition breaks one is left out: it is not used, queries on its type scan instead, its definition and its file are kept, and a `SEVERE` log line names the index, the invalid value and the fix (issue #11568).
@@ -147,6 +349,60 @@ Once a `READ_COMMITTED` transaction has written a bucket page, it reads that pag
 *Impact:* a transaction that writes a page and then reads records of the same page that another transaction changed meanwhile can now be refused where it used to commit, and so can a transaction that adds a relationship to a vertex and then traverses or counts that vertex's relationships in the same direction while another transaction adds one there too. `database.transaction(...)` and the other retrying APIs retry it, and the retry reads the committed records. `REPEATABLE_READ` is unchanged.
 
 *Action:* none, beyond retrying on `ConcurrentModificationException`, which every concurrent writer already has to. See <<isolation,Isolation>>.
+
+[discrete]
+====== 26.12.1 - A delete of a record changed since it was read is refused
+
+Under `READ_COMMITTED` a delete removed whatever sat at the record's RID when it got there, with no check that it was still the record read (issue #12472). If another transaction deleted the record and an insert reused its RID, the delete removed the unrelated new record and committed without an error; a SQL `DELETE ... WHERE` racing an `UPDATE` removed a record the update had made stop matching. Now a delete of a record that another transaction changed or replaced after it was read fails with a retryable `ConcurrentModificationException`, as an update in the same position already did. A record deleted by its RID without being loaded first is deleted as it is found.
+
+*Impact:* under contention more deletes are retried. `database.transaction(...)` and a single-request command over HTTP retry them; a transaction spanning several HTTP requests now receives the exception at the delete instead of a silent wrong delete.
+
+*Action:* none, beyond retrying on `ConcurrentModificationException`, which every concurrent writer already has to. See <<isolation,Isolation>>.
+
+[discrete]
+====== 26.12.1 - The remote Java client sends links, decimals, binary and date-times with their type
+
+The remote Java client sent query parameters and the values of a saved record as plain JSON, so on a property the schema does not declare a `RID` was stored as a STRING, a record set as a value as an EMBEDDED copy, a `BigDecimal` as a DOUBLE (`SELECT :a + :b` with `0.1` and `0.2` answered `0.30000000000000004`, and a declared DECIMAL lost its scale), a `byte[]` as a LIST, and a `LocalDate`, `LocalDateTime`, `java.util.Date`, `Instant` or `ZonedDateTime` as a number or a string. A `LocalDate` or `ZonedDateTime` saved with `save()` was then not found by `WHERE p = :v` with the same value. The client now sends these values as <<vector-http-typed-markers,typed markers>> (`$rid`, `$decimal`, `$bytes`, `$datetime`, `$localDateTime`, `$instant`, `$zonedDateTime`, next to `$date`), and they are stored as LINK, DECIMAL, BINARY, DATE, DATETIME and ZONED_DATETIME, as the embedded API stores them. A malformed marker is refused with HTTP 400 before the statement runs (issues #12186, #12187).
+
+*Impact:* there is no version negotiation: a server older than this change receives a one-key map for such a parameter or saved value. `Short`, `Byte` and `Float` still travel as JSON numbers. A record read back still holds an undeclared date, decimal or binary property as a string, a double or a list, so `modify()` and `save()` write such an untouched property back with that type (issue #12599). An undeclared link now reads back as a `RID` (see the next note).
+
+*Action:* upgrade the server before, or together with, the client. See <<java-api-remote,Java Remote API>>.
+
+[discrete]
+====== 26.12.1 - The remote Java clients read a link back as a `RID`
+
+A link stored in a property the schema does not declare was read back by the HTTP client (`RemoteDatabase`) as its rid text, such as `"#1:0"`, and a list or map of links as a list or map of strings, while a projection of the same single link answered a `RID`. The gRPC client (`RemoteGrpcDatabase`) answered the rid text for every link, in records and projections. `(Identifiable) doc.get("friend")` threw `ClassCastException`. Both clients now answer a `RID`, and a list or map of `RID`s, as the embedded API does. For HTTP the server marks those properties in the record it sends; a string that only looks like a RID, such as `'#1:0'` stored as text, still reads back as a string (issue #12195). The HTTP client reads the links in a property declared as a bare `LIST` or `MAP`, without `OF LINK`, as `RID`s too, and a `NaN` or infinite number in such a collection as a `Double` (issue #12598).
+
+*Impact:* code that read a link through either client and expected a `String` now gets a `RID`. The `RID` is bound to the remote database, so `asDocument()`, `asVertex()` or `getRecord()` on it loads the linked record from the server, as it does embedded (issue #12603).
+
+*Action:* call `toString()` on the value where the rid text is needed. For HTTP, upgrade the server; for gRPC, upgrade the client. See <<java-api-remote,Java Remote API>> and <<java-api-grpc,Java API (gRPC)>>.
+
+[discrete]
+====== 26.12.1 - The remote Java clients read numeric arrays as primitive arrays
+
+A property declared `ARRAY_OF_SHORTS`, `ARRAY_OF_INTEGERS`, `ARRAY_OF_LONGS`, `ARRAY_OF_FLOATS` or `ARRAY_OF_DOUBLES` was read from a record by the HTTP client (`RemoteDatabase`: `lookupByRID()`, `iterateType()`, a `SELECT FROM` row) as an `ArrayList` of whatever numbers the JSON held (`Integer` for a long array, `Double` for a float array), while a projection of the same property answered the primitive array. The gRPC client (`RemoteGrpcDatabase`) answered a list in records and projections alike. `(long[]) doc.get("ids")` threw `ClassCastException`. Both clients now answer `short[]`, `int[]`, `long[]`, `float[]` and `double[]`, as the embedded API does (issue #12189). Over gRPC the server marks every primitive numeric array it sends with its `logical_type` (`long[]`, `float[]`, ...), so a vector embedding also arrives as a `float[]`; a client that ignores the mark still reads a list.
+
+*Impact:* code that read such a value through either client as a `List` now gets the primitive array.
+
+*Action:* read the value as the primitive array. For HTTP, upgrade the client; for gRPC, upgrade the server and the client. See <<java-api-remote,Java Remote API>> and <<java-api-grpc,Java API (gRPC)>>.
+
+[discrete]
+====== 26.12.1 - The remote Java clients return a vertex's edges in RID order
+
+`Vertex.getEdges()` and `getVertices()` on a vertex read through `RemoteDatabase` or `RemoteGrpcDatabase` fetched a neighbourhood larger than one page (2,000 edges) with an offset into the edge list, so a loop that deleted the edges or the vertices while iterating removed only 2,500 of 4,500, and edges another client deleted meanwhile made the iteration skip live ones (issue #12191). Each page now resumes after the RID of the last edge read.
+
+*Impact:* the edges, and the vertices at their other end, come in RID order instead of the order of the edge list; `BOTH` returns the outgoing ones, then the incoming ones. A vertex deleted since its edge was read is left out, so `getVertices()` can return fewer vertices than there are edges. `getEdgesPaged()` and `getVerticesPaged()` throw `IllegalArgumentException` for a page size of zero or less. The single-page `getEdges(direction, limit, skip, ...)` and `getVertices(direction, limit, skip, ...)` are unchanged.
+
+*Action:* none, unless the code relied on the order of the edges, in which case sort them. See <<java-api-remote,Java Remote API>>.
+
+[discrete]
+====== 26.12.1 - The HTTP Java client's `iterateType()`, `iterateBucket()` and streams return every row
+
+`RemoteDatabase.iterateType()`, `iterateBucket()`, `queryStream()` and `commandStream()` stopped at the server's default row cap for buffered responses (`arcadedb.server.httpQueryDefaultLimit`, 20,000 rows) unless the application called `setMaxResultRows()`, while `countType()` reported the full count (issue #12185). `iterateType()` and `iterateBucket()` now return every record, and the streams every row, up to the server's hard ceiling `arcadedb.server.httpQueryMaxResultRows`. A result above the ceiling is refused with an exception instead of returned in part. The same applies to `queryStream(language, query, params)` on `RemoteGrpcDatabase`, which streams over HTTP. The buffered `query()` and `command()` are unchanged.
+
+*Impact:* `iterateType()` and `iterateBucket()` ignore `setMaxResultRows()`. `queryStream()` and `commandStream()` still honor it.
+
+*Action:* none. Code that called `setMaxResultRows(-1)` only to stream every row can drop the call. See <<java-api-remote-streaming,Streaming results>>.
 
 [discrete]
 ====== 26.11.1 - MCP writes need `allowSchemaChange` to create a type
@@ -409,6 +665,8 @@ The form that takes a `TimeSeriesBatch` is held to the same rules (issue #10487)
 SQL `split()`, the `split()` function and `text.split()` answer the same list as the openCypher `split()` (issue #10485): `'a,'.split(',')` is `['a', '']` and `','.split(',')` is `['', '']`, where the empty pieces at the end were dropped (`['a']` and `[]`). An empty delimiter splits a string into its characters, a character outside the Basic Multilingual Plane (an emoji) being one, and `replace()` with an empty search puts the replacement between characters and never inside one.
 
 *Impact:* a query that counted the pieces of a text ending with the delimiter, or compared the last one, sees one more piece.
+
+Since 26.12.1 `text.split()` is no longer part of this rule: it is APOC's split around a regular expression (see the entry on the `text.*` functions above), and it drops the empty pieces at the end again unless its `limit` is negative.
 
 *Action:* remove the empty last piece in the query if it is not wanted, for example by trimming the delimiter from the end of the text before splitting it.
 

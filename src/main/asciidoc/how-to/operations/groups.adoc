@@ -22,7 +22,7 @@ The wildcard "`*`" represents all the types that are not defined in this configu
 * `access` is the array containing the allowed permissions for the group.
 The supported permission at group level are:
 ** `updateSecurity`: to update the security settings (create, modify and delete users, groups, etc.). This also gates defining a JavaScript function via `DEFINE FUNCTION ... LANGUAGE js` — see <<user-functions,User Functions>>. `BACKUP DATABASE`, `EXPORT DATABASE` and `IMPORT DATABASE` require it too, because they work on the whole database regardless of the per-type permissions and read or write files on the server, so the `crud` and `readonly` groups cannot run them.
-** `updateSchema`: to update the database schema (create, modify and drop buckets, types and indexes, including every `ALTER TYPE` form and the `REBUILD TYPE` and `REBUILD INDEX` maintenance commands)
+** `updateSchema`: to update the database schema (create, modify and drop buckets, types and indexes, including every `ALTER TYPE` form and the `REBUILD TYPE` and `REBUILD INDEX` maintenance commands). _Since v26.12.1_ it also gates the repairs of `CHECK DATABASE`, `FIX` and `COMPRESS`, so the `crud` and `readonly` groups can run `CHECK DATABASE` only to report. Creating a trigger needs `updateSchema` too, and so does restoring the triggers, views, function libraries and extensions of a file with `IMPORT DATABASE`; a `JAVASCRIPT` or `JAVA` trigger needs `updateSecurity` as well.
 ** `updateDatabaseSettings`: to change per-database settings — e.g. `ALTER DATABASE`, `ALTER TYPE ... BUCKETSELECTIONSTRATEGY`, materialized-view / continuous-aggregate refresh and downsampling policies. The LOAD CSV access settings (`arcadedb.opencypher.loadCsv.allowRemoteUrls`, `allowFileUrls`, `importDirectory` and `blockedIpRanges`) are security controls, so changing them with `ALTER DATABASE` also requires `updateSecurity`.
 * `readTimeout` if present, specify the maximum timeout for read operations. -1 means no limits.
 If set, all the read operations (lookups and queries) will be limited to maximum `<readTimeout>` milliseconds.
@@ -44,6 +44,8 @@ NOTE: creating an edge is technically 2 operations: (1) create a new edge record
 For this reason, if you want to allow a user to create edges, you have to grant the `createRecord` permission on the edge type and `updateRecord` on the vertex type.
 
 NOTE: _(Since v26.10.2)_ the same applies to a `LIGHTWEIGHT` edge type (see <<lightweight-edges,Lightweight Edges>>), even though it writes no edge record: creating such an edge needs `createRecord` on its edge type, deleting one needs `deleteRecord`, and deleting a vertex that holds lightweight edges needs `deleteRecord` on their edge type.
+
+NOTE: _(Since v26.12.1)_ the `createRecord` and `updateRecord` permissions of a type are checked first when a record is created or updated, as `deleteRecord` already is: before its constraints are validated and before the before-create and before-update listeners and triggers of the type run (see <<java-events,Events>>). A user without the permission is refused with a security error whatever the record holds, and no listener or trigger of the type runs for the refused write. Creating an edge checks `createRecord` on its edge type before its destination vertex or an existing edge is looked up.
 
 Example of the definition of the group for a Blog writer, where he can only read from the "Blog" type and have full access to the "Post" type:
 

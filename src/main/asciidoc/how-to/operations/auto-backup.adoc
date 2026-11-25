@@ -392,6 +392,14 @@ removed with `delete backup`. While it is enabled, both on-demand entry points -
 for a database that is not named in the configuration (the `defaults` retention applies). Only archives named
 `<database>-backup-<timestamp>.zip` are subject to retention; one named with `BACKUP DATABASE '<name>'` is never deleted by it.
 
+A backup writes its archive as `<name>.zip.partial` and renames it once it is complete, so a backup killed while writing
+(`kill -9`, the process running out of memory) leaves the `.partial` file behind. No backup command lists, deletes or
+restores such a file. _(Since v26.12.1)_ every successful on-demand backup, `trigger backup` or SQL `BACKUP DATABASE`,
+deletes from that database's directory the `<database>-backup-*.zip.partial` files that have not been written for one
+hour, whether or not auto-backup is enabled. A more recent one may belong to a backup still running and is kept.
+Previously these files were only removed by the retention of an enabled scheduler, so with auto-backup off (the default)
+they piled up until removed by hand.
+
 ====== One Backup at a Time
 
 A database is backed up by one backup at a time. If you ask for a backup while another one of the same database is

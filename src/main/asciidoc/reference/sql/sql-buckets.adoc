@@ -53,6 +53,10 @@ DROP BUCKET <bucket-name>|<bucket-id> [IF EXISTS]
 * *`&lt;bucket-id&gt;`* Defines the ID of the bucket you want to remove.
 * *`IF EXISTS`* Prevent errors if the bucket does not exist when attempting to drop it. See <<sql-if-exists-result,here>> for the shape of the result.
 
+A bucket that belongs to a type cannot be dropped: the statement is refused (HTTP `400`) and the bucket keeps its records. Detach
+it first with <<sql-alter-type,`ALTER TYPE ... BUCKET -`>>, or drop the whole type with <<sql-drop-type,`DROP TYPE`>>. _(Since
+v26.12.1, issue #12436. Before, the same refusal was answered with `500`.)_
+
 *Examples*
 
 * Remove the bucket `Account`:
@@ -60,6 +64,11 @@ DROP BUCKET <bucket-name>|<bucket-id> [IF EXISTS]
 ----
 ArcadeDB> DROP BUCKET Account
 ----
+
+NOTE: A bucket cannot be renamed or altered (`ALTER BUCKET` was removed in v26.12.1). To move the records of a bucket to
+another one, create the new bucket, copy the records with <<sql-move-vertex,`MOVE VERTEX`>> or `INSERT ... SELECT`, then drop
+the old bucket. A copied record gets a new RID: rewrite the links that point to the old RIDs before `DROP BUCKET`, which
+deletes the source records.
 
 For more information, see:
 

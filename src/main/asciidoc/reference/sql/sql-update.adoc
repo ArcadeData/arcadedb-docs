@@ -18,6 +18,10 @@ UPDATE <type>|BUCKET:<bucket>|<recordID>
 
 ----
 
+* *`BUCKET:<bucket>`* Restricts the update to the records of one bucket, given by name or id. The name can also be an
+input parameter, `BUCKET::name` or `BUCKET:?`, also with `UPSERT`, which then creates the record in that bucket. An
+unknown bucket is refused with an error that names it. _(Since v26.12.1, issue #12480: earlier versions failed with a
+`NullPointerException` on a bucket parameter.)_
 * *`SET`* Defines the fields to update. On an edge, `SET @in = <rid>` / `SET @out = <rid>` re-points the edge to another
 vertex. The other metadata names (`@rid`, `@type`, `@cat`, `@props`, `@this`) are not properties and are refused
 (since v26.10.2: earlier versions stored them as properties no query could read back, and reported the record as
@@ -28,6 +32,13 @@ two columns and `UPDATE T SET b = 7, a = b` gives `a` the old value of `b` (_sin
 left to right, so a later item saw the new value of an earlier one and the swap left both columns equal).
 Two items on the same property still apply in order, and a compound operator extends the value its property holds by then: `SET a = 1, a += 2` gives 3.
 * *`REMOVE`* Removes an item in collection and map fields or a property.
++
+A property holding an `ARRAY_OF_*` value (such as `ARRAY_OF_LONGS`, which is what a list of numbers nested in a map
+parameter sent over HTTP becomes) is a list for `SET l += x`, `SET l -= x`, `l + [x]`, `l - x`, `REMOVE l[i]` and
+`REMOVE l = x`. The changed value is stored as a `LIST`, or as an array again on a property declared with an `ARRAY_OF_*`
+type; a `REMOVE` that takes nothing out leaves the array as it is. A `BINARY` value is not a list. _(Since v26.12.1,
+issue #12896: before, `SET l += 3` stored a string made of the array's identity, `SET l -= 1` removed the property and
+both `REMOVE` forms failed.)_
 * *`CONTENT`* Replaces the record content with a JSON document.
 * *`MERGE`* Merges the record content with a JSON document. Like `CONTENT`, a key starting with `@` is metadata and is
 skipped, except an edge's `@in` / `@out`, which re-point it. So a document read back as JSON, `@rid`, `@type` and `@cat`
@@ -105,6 +116,15 @@ Remove addresses based in the city of Rome:
 ArcadeDB> UPDATE Account REMOVE addresses = addresses[city = 'Rome']
 ----
 
+This works on a list of links, of embedded documents and of maps. A map can also be removed by writing it: it removes the
+first element of the list equal to it, entry by entry (`{'city': 'Rome'}` removes `{'city': 'Rome'}`, not
+`{'city': 'Rome', 'zip': '00100'}`). _(Since v26.12.1; before, a list of maps was left unchanged and the keys of the map
+were removed from the list instead)_
+
+----
+ArcadeDB> UPDATE Account REMOVE addresses = {'city': 'Rome'}
+----
+
 * Update to remove a value, filtering based on position in the collection.
 
 ----
@@ -112,6 +132,10 @@ ArcadeDB> UPDATE Account REMOVE addresses = addresses[1]
 ----
 
 This remove the second element from a list, (position numbers start from `0`, so `addresses[1]` is the second element).
+
+A list can be removed from itself: `UPDATE Account REMOVE addresses = addresses` (also `$current.addresses` and
+`addresses.asList()`) empties it, as writing a copy of the list on the right side does. _(Since v26.12.1; before, a list of
+two elements lost only its first one and a longer list failed with a `ConcurrentModificationException`)_
 
 * Update a map entry
 
@@ -220,4 +244,4 @@ Additional restrictions:
 
 * the `WHERE` condition must be a non-null equality on *every* property of a `UNIQUE` index. A non-unique index, a partial match of a composite index (key prefix), a range, an `IN` list or a null value is rejected with the error "Upsert must involve a UNIQUE index to retrieve the records", because it could create duplicate records. _(Since v26.10.2)_
 * the `WHERE` condition cannot use `OR`. Only an `AND` chain of equality conditions is supported, because each equality term is also reused as the initial value of the property when a new record has to be created.
-* `UPSERT` is not available on edge types. To create an edge only if it does not already exist, use <<sql-create-edge,`CREATE EDGE ... IF NOT EXISTS`>>.
+* `UPSERT` is not available on edge types. The statement is refused with an error that names the edge type, whether the target is given as a type or as one of its buckets, also when a matching edge already exists, and nothing is written (`EXPLAIN` refuses it too). To create an edge only if it does not already exist, use <<sql-create-edge,`CREATE EDGE ... IF NOT EXISTS`>>. _(Since v26.12.1)_

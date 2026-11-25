@@ -2,6 +2,35 @@
 ==== Aggregation Functions
 :description: ArcadeDB aggregation functions for SQL and Cypher: agg.first, agg.last, agg.nth, agg.median, agg.percentiles, agg.maxItems and agg.minItems, with examples.
 
+The `agg.*` functions below take one list argument and return one value per row: `RETURN agg.median([1, 2, 3, 4])` returns `2.5`.
+
+[[apoc-agg-aggregating]]
+*`apoc.agg.*` in Cypher aggregates over rows.* The same functions called with the `apoc.agg.` prefix behave as in APOC: like `avg()` or `collect()`, they fold the rows of each group into one value, and they skip null values.
+
+[source,cypher]
+----
+UNWIND [1, 2, 3, 4] AS x RETURN apoc.agg.median(x) AS result
+// Returns one row: 2.5
+
+UNWIND [{n: 'a', v: 1}, {n: 'b', v: 5}, {n: 'c', v: 5}] AS m RETURN apoc.agg.maxItems(m.n, m.v) AS result
+// Returns one row: {items: ["b", "c"], value: 5}
+----
+
+[%header,cols="2,3"]
+|===
+| Function | Returns, for the rows of a group
+| `apoc.agg.first(value)`, `apoc.agg.last(value)` | The first or the last non-null value
+| `apoc.agg.nth(value, offset)` | The non-null value at the 0-based `offset`, the last one for `-1`, `null` past the end
+| `apoc.agg.slice(value, from = 0, to = -1)` | A list of the non-null values from the `from`-th on, at most `to` of them: as in APOC, `to` is a length, and `-1` means all
+| `apoc.agg.median(value)` | The median of the numbers as a FLOAT, `null` for no numbers
+| `apoc.agg.product(value)` | The product, an INTEGER while every value is one (overflow is an error), a FLOAT otherwise, `0.0` for no rows
+| `apoc.agg.percentiles(value, percentiles = [0.5, 0.75, 0.9, 0.95, 0.99])` | A list with the value at each percentile
+| `apoc.agg.statistics(value, percentiles = [0.5, 0.75, 0.9, 0.95, 0.99])` | A map with `total`, `min`, `minNonZero`, `max`, `mean`, `stdev` (population) and one key per percentile (`"0.5"`, ...)
+| `apoc.agg.maxItems(item, value, groupLimit = -1)`, `apoc.agg.minItems(...)` | `{items, value}`: the highest (lowest) value and the items that carry it, at most `groupLimit` of them (all for a negative one)
+|===
+
+Unlike APOC, percentile and statistics values are exact rather than read from histogram buckets, negative numbers are accepted, and `maxItems`/`minItems` can compare INTEGER and FLOAT values with each other.
+
 
 [[agg-first]]
 ===== agg.first()
