@@ -125,6 +125,9 @@ to the record, or deleted it and an insert then reused its RID, deleting the rec
 requests receives the exception at the delete. A record deleted by its RID without being loaded first is deleted as it is
 found _(since v26.12.1; before, the delete removed whatever the RID held when it reached the record)_.
 
+A block that already committed part of its work before a conflict (`UPDATE`, `DELETE` or `MOVE VERTEX ... BATCH n`, a Cypher `CALL { ... } IN TRANSACTIONS`, or a write forwarded to the leader) is not retried, because a replay would apply the committed part a second time.
+It fails with a `TransactionException`, not a retryable `ConcurrentModificationException`: the HTTP API answers `500` without `Retry-After`, gRPC answers `INTERNAL`, and the Java remote client does not resend the request. Check what was applied before running it again _(since v26.12.1; before, the conflict was reported as retryable and a client retry applied the committed batches again)_.
+
 [source,java]
 ----
 database.transaction(() -> {
