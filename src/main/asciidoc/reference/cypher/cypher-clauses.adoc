@@ -690,6 +690,12 @@ new labels. `DISTINCT` and `UNION` count a node before and after its label chang
 held the deleted originals: the HTTP API answered RIDs of records that no longer existed, and a path returned over Bolt
 failed with `Record #... not found` (issue #10614).
 
+_(Since v26.12.1)_ A node or relationship that a row keeps past an aggregation (for example inside `collect()`), an
+`ORDER BY` or an eager barrier reads the properties a later row of the same statement wrote to it, as in Neo4j. So
+`UNWIND ns AS m WITH m, last(ns) AS h SET m.v = -2 * m.v WITH head(collect(h)) AS first RETURN first.v` returns the
+value the last row wrote. A row that streams straight from one clause to the next still reads the record as it was when
+the row was produced. Up to 26.11.1 a held record kept the values it had when its row was produced (issue #12565).
+
 A `SET` updates each matched node once, even when it writes the indexed property the `MATCH` reads its nodes by:
 `MATCH (n:A) WHERE n.k > 0 SET n.k = n.k + 1000` with an index on `A.k` reads the range of the index first, then
 updates. Only the record addresses are held, a few bytes per node. Before v26.11.1 such a statement met the nodes it had
