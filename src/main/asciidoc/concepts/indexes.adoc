@@ -329,6 +329,15 @@ An openCypher `IN` whose right side is one value, `n.p IN $ids`, has to be a lis
 
 NOTE: Before v26.11.1 (issue #10541) the index answered these lookups differently from the scan: an equality or an `IN` on an indexed `BOOLEAN`, `DECIMAL` or `DATE` property raised a `ClassCastException` or "Comparison between type N and N not supported", a range with such a value on an indexed `INTEGER`, `LONG` or `DOUBLE` property answered every row of the type, and an openCypher `IN` over a parameter that was not a list answered no rows instead of being refused. A query that relied on any of them now gets the answer it would get without the index.
 
+A whole-value index on a `LIST` or `MAP` property (no `BY ITEM`, `BY KEY` or `BY VALUE`) follows the same rule _(since v26.12.1)_: a lookup key that is not a list (for a `MAP` index, not a map) equals no indexed key. `tags = 5`, `tags IN [5, 6]` and `m = 'a'` answer no rows, and an openCypher `MERGE (n:P {tags: 5})` creates the node, as without the index. Two cases differ by language:
+
+* SQL compares a scalar with a list as the one-element list it converts the scalar to, so `li = 5` on a `LIST OF INTEGER` property matches a stored `[5]` (the list `SET li = 5` stores), with or without the index. The scalar is read as the declared item type: `'5'` is 5, while `5.5` matches nothing.
+* openCypher keeps a scalar apart from a list (`[5] = 5` is false), so `MATCH (n:P) WHERE n.li = 5` answers no row for that record.
+
+A range (`<`, `<=`, `>`, `>=`, `BETWEEN`) on a whole `LIST` or `MAP` key is not answered by the index: the index orders the lists as whole values, while the SQL operators compare their items, so the type is scanned. An index `BY ITEM`, `BY KEY` or `BY VALUE` still answers ranges, and `li = [1, 2]` still reads the index.
+
+NOTE: Before v26.12.1 (issue #12792) a lookup of a whole `LIST` or `MAP` index with a value that is not a collection (a number, a boolean, a string) raised a `ClassCastException`, answered as HTTP 500 by the server, in `SELECT`, `UPDATE` and `DELETE`, in an openCypher `MATCH` and in a `MERGE`. A lookup list whose elements cannot be ordered against the stored ones (a date in a list against a `LIST OF STRING`) still raises an error through the index (issue #13425).
+
 [[index-choice-several]]
 ==== Which index a SQL query uses when several apply
 
