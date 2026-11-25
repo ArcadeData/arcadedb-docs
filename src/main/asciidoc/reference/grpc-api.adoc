@@ -322,6 +322,18 @@ but its text is concealed in production mode, because it may come from a library
 statement stopped on request is `CANCELLED`, as on the data-plane RPCs (see <<grpc-cancellation,Cancellation>>).
 Only an unexpected server fault is `INTERNAL`, and in production mode its description is concealed.
 
+_(Since v26.12.1)_ A refusal that none of the cases above names is answered by its engine category, as `ExecuteCommand`
+answers it: a duplicated key or a taken name `ALREADY_EXISTS`, a missing schema object or record `NOT_FOUND`, a refused
+value, a parse error or an unknown function `INVALID_ARGUMENT`, an arithmetic error `OUT_OF_RANGE`, a timeout
+`DEADLINE_EXCEEDED` and a conflict the caller can retry `ABORTED`. The `arcadedb-exception-class` trailer names the engine's
+exception, so the Java client rebuilds a `DuplicatedKeyException`, `SchemaException`, `ValidationException` or
+`TimeoutException`. The description is `<operation>: <message>`, concealed in production mode. This is what `ImportDatabase`
+and the restore RPCs answer when the data being loaded is refused, for example by a duplicated key. Before, all of these
+answered `INTERNAL`, were logged as server faults and lost their sentence in production mode. An `EquivalentIndexException`
+answers `ALREADY_EXISTS`, no longer `INVALID_ARGUMENT`. Two answers differ from the data plane on purpose: refused credentials
+are `UNAUTHENTICATED`, not `PERMISSION_DENIED`, and a retryable failure such as a Raft entry that could not be committed is
+`UNAVAILABLE`, not `ABORTED`.
+
 On the data-plane RPCs, the `arcadedb-exception-class` trailer names the exception that decided the status rather
 than the one wrapped around it, so the Java client rebuilds the engine's own type: a `SchemaException` for a missing
 type (not the `RecordNotFoundException` that `NOT_FOUND` alone reads as), or a `DuplicatedKeyException` carrying its
