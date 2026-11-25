@@ -694,6 +694,13 @@ A property value must be a scalar, a list of scalars, or a `point()` value. A ma
 {city: 'Rome'}`), or a right-hand side of `=` / `+=` that is neither a map nor an entity (`SET p = 5`), is
 rejected with a `TypeError` and no part of the clause is written.
 
+A property declared `NOTNULL` refuses a null, as it does in SQL. _(Since v26.12.1)_ Every openCypher form that writes
+the null is refused with the same "cannot be null" error and writes nothing: `SET n.p = null`, `SET n += {p: null}`,
+`SET n = {p: null}`, `CREATE (n:T {p: null})`, `CREATE (n:T $map)`, `MERGE ... ON CREATE SET` / `ON MATCH SET`, the same
+writes on relationships, and the batched `UNWIND $rows ... SET n += row.props` upserts. Removing the property
+(`REMOVE n.p`, or leaving it out of `SET n = {...}`) is still accepted, and a null for a property that is not `NOTNULL`
+still removes it or leaves it unstored. Up to 26.11.1 these forms silently accepted the null (issue #13227).
+
 *Concurrent updates.* A `SET` (stand-alone, or in `MERGE ... ON CREATE SET` / `ON MATCH SET`) computes the value it
 writes from the latest committed version of the record, even under the default `READ_COMMITTED` isolation. So
 `SET n.count = n.count + 1` run by concurrent transactions never silently loses an increment: a change committed by
