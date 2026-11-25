@@ -1527,6 +1527,8 @@ While the leader runs a schema change (for example `CREATE INDEX` on a large typ
 
 A write on a replica is also refused with a retryable error when its transaction began before the replica had applied a schema change the leader has already applied (for example a new index), so that it cannot leave a record out of that index. The retry waits for the schema change to be applied locally and then succeeds. Callers that do not retry see a `ConcurrentModificationException` during DDL bursts; set transaction retries accordingly. One peer that is older, not yet probed or offline turns this protection off for every writer, and it is best-effort across a leader restart. Set `arcadedb.ha.txSchemaCheck=false` on the writing nodes to switch it off.
 
+Likewise, while a replica applies a replicated `COMPACT INDEX` of a vector index (typically one to two seconds), a vector search on that replica that has to read the files of a sub-index that was just retired fails with a retryable `ConcurrentModificationException` instead of answering without that sub-index's records. A search whose index is already fully loaded in memory is answered normally. Retry the search; it succeeds once the schema change is applied.
+
 A node whose Raft state machine is closed, or is being restarted in place, refuses every commit at once with a retryable
 `NeedRetryException`: `Database '<name>' cannot commit on this server: its Raft state machine is closed and has not been
 restarted yet, so a committed entry could not be applied here. Retry shortly, or send the request to another server of the
