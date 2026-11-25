@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - openCypher `toString()` refuses a `BINARY` value and `convert.toJson()` writes it as an array
+
+`toString()`, `toStringOrNull()` and `apoc.convert.toJson()` of a `BINARY` value (a byte array, such as a `BINARY` property or a bytes parameter) answered Java's identity text of the array, for example `[B@e044818`, which changes from row to row and from run to run (issue #12780). `toString()` now refuses it with `TypeError: InvalidArgumentValue - toString() cannot convert byte[]`, as it does for a list, `toStringOrNull()` answers `null`, and `toStringList()` answers `null` for such an element. `apoc.convert.toJson()` answers the JSON array of the signed bytes (`[1,-1]`), the text it already gave a byte array inside a map. Indexing into a `BINARY` value is still refused, and its message now says `byte[]` instead of `LIST<ANY>`.
+
+*Impact:* a query that called `toString()` on a `BINARY` value now fails instead of returning the meaningless text, and a value stored from it keeps the old text.
+
+*Action:* none for a query that did not rely on the identity text. To get text from a `BINARY` value, use `apoc.convert.toJson()` or encode it with the SQL function `encode(value, 'base64')`.
+
+[discrete]
 ====== 26.12.1 - The `text.*` functions answer what APOC answers
 
 Fifteen `text.*` functions, documented as APOC compatible, answered differently from APOC 5.26 on ordinary input and now answer the same (issue #12104; see <<ext-fns-text,Text Functions>>). The ones a query can notice:
