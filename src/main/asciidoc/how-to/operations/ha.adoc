@@ -325,6 +325,8 @@ Phase 3 runs on the Raft apply thread of every node, the leader included, when t
 
 Two transactions validated on different nodes against the same version of a page (for example two documents that share a page, each written by a different node) are both shipped to the leader with the same next version. The leader validates every entry, page by page, against the versions the log has already assigned, at the point that decides the log order, and refuses the second one *before appending it*: the originator receives a retryable `ConcurrentModificationException`, exactly as it would for a conflict on a single node, re-reads the page and retries. An entry is never merged onto another one region by region, so a node can neither lose an acknowledged write nor drift from its peers. While such an entry is in flight, a transaction on the leader that touches one of its pages fails its own Phase 1 with the same retryable error, without a round trip.
 
+Since v26.12.1 the same rule holds for the work the leader starts on its own and replicates afterwards: TimeSeries compaction, retention, downsampling and `DELETE` of samples, LSM index compaction and vector index persistence write their pages on the leader first, and their entry reaches the log later. When an entry of another node touches a page such a commit writes, one of the two is refused with the same retryable error, and validations of other nodes' entries on that database wait while one of those commits writes its pages. Before, both could be accepted with the same page version, and a compaction could then remove a sample acknowledged by a follower from every node (issue #11921). A TimeSeries compaction or `DELETE` of samples that meets such an entry on the shard's header page (every append writes it) waits up to one second for the entry to be applied before it commits, and fails as before only if the entry is still in flight after that. Before, it retried at once and gave up, so under a steady stream of appends through followers a compaction kept failing and the shard's mutable pages kept growing (issue #12470). An in-place restart of the Raft server waits for such a commit to finish, up to `arcadedb.ha.ratisCloseTimeoutMs`, before it replaces the node's replication state.
+
 [[ha-schema-replication]]
 ===== Schema Replication
 
@@ -500,6 +502,10 @@ bytes in the pages a transaction replicates, so a node on an older build would a
 record. No node writes the new form until every peer of the Raft configuration advertises the `fixed-width-float-arrays`
 capability; until then the old form is written, which every build reads. During a rolling upgrade the new form starts on
 its own once the last node runs v26.11.1. Both forms are always read, so a cluster holding a mix of them needs no action.
+Since v26.12.1 an upgraded node labels the database dictionary with format version 2 (see
+<<upgrade-float-arrays-rollback-fence,Upgrade>>), so a node still on an older build that has to install a full snapshot from
+an upgraded node refuses the dictionary until it is upgraded too. The cluster checksums compare the dictionary under its
+version 1 name, so nodes holding the same content under the two labels do not report a mismatch.
 
 ===== Write Quorum
 
@@ -694,6 +700,63 @@ Durable storage lets a restarted node rejoin by *replaying its own persisted log
 When a write is forwarded from a replica to the leader (or issued directly to the leader), it is possible for the transaction to be *committed cluster-wide by quorum* and then fail to apply on the node that is answering the client. This is a distinct outcome from an ordinary failure: the data is durably committed, so retrying would create a duplicate.
 
 This case has its own contract. The server raises a `TransactionCommittedRemotelyException`, mapped over HTTP to *status `409 Conflict`*. A client that receives it must *not* retry the transaction — the write already succeeded cluster-wide; it should instead re-read to observe the committed state. This is different from a transient conflict (a genuine write-write conflict or `DeadlockException`), which remains safe to retry.
+
+[[ha-outcome-unknown-contract]]
+===== Outcome-unknown response contract
+
+_(Since v26.12.1.)_ A write can also end in an outcome nobody knows: the node answering the client handed it to the replication and quorum was not confirmed (`ReplicationDispatchedTimeoutException`), or a replica forwarded it to the leader and the connection to the leader was lost, or the leader did not answer in time, after the request had been sent. The write may have been committed or not.
+
+The server raises a `TransactionOutcomeUnknownException`, mapped over HTTP to *status `504 Gateway Timeout`* with the label `Transaction outcome unknown: the write may have been applied, check before retrying it`, on the leader and on the replica alike. Before v26.12.1 these answered `500`, and a lost leader connection reported a raw `java.io.EOFException`. The answer carries no `Retry-After`, and the Java remote client does not retry it.
+
+A client that receives it must neither give the write up nor resend it blindly: read the database to see whether the write landed, then resend it only if it did not. Sending the same <<http-request-replay,`X-Request-Id`>> again does not settle it, because the leader keeps its answers in memory and a leader that died no longer has them. A failure to connect to the leader, with no request sent, is different: it stays a retryable `503` (`NeedRetryException`), since the write did not run.
+
+[[ha-writes-during-leadership-transfer]]
+===== Writes during a leadership transfer
+
+_(Since v26.12.1.)_ While a leadership transfer is pending (`POST /api/v1/cluster/leader`, a rolling restart, the cluster's own hand-off), the leader steps down and refuses every write it receives. The refusal happens before the write reaches the Raft log, so nothing was written. It is a retryable refusal, like a conflict on a record page:
+
+* over HTTP it answers `503` with a `NeedRetryException` whose message says the leader is stepping down, and it is the same through a replica that forwarded the write. The server's own transaction retry (`arcadedb.txRetries`) retries it, so many of these writes succeed without the client noticing.
+* over gRPC it answers `ABORTED`.
+
+A write forwarded by a replica at the moment leadership moves off that replica answers `503` too, with no leader named. Before v26.12.1 these answers were `500` (`INTERNAL` over gRPC) with "outcome unknown", and the forwarded one could be a `400` that sent the operator to the server list. The `400` stays for a really wrong server list: another peer's HTTP address that resolves to this node (see `arcadedb.ha.serverList`).
+
+There is one exception. If the Raft client had already sent the same write again after an earlier attempt that may have reached a log (a timeout, a lost reply, a closed stream), the first copy may still commit, so the stepping-down refusal of the second copy is not proof that nothing was written. It stays an outcome-unknown answer, see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>: check before retrying.
+
+[[ha-writes-during-replica-resync]]
+===== Writes through a replica during its resync
+
+_(Since v26.12.1.)_ While a replica's copy of a database is replaced from the leader (`POST /api/v1/cluster/resync/{database}`, a resync the leader starts, a bootstrap reinstall), a write sent to that replica over HTTP `POST /command` and forwarded to the leader is answered with the leader's `200` answer once the leader committed it, even when something on the replica fails afterwards because its copy is being replaced. Before v26.12.1 such a write was answered `503 Cannot execute command`, although the leader had committed it, so a client that retried it applied it twice.
+
+The leader's answer is used only for a request outside a session that forwarded exactly one write. Its body is the leader's rendering of the statement: in the client's own `serializer`, `limit` and `typeHints` when the forward carried the whole request, otherwise in the default rendering (`record` serializer, default row limit, no type hints). A request that wrote or ran a command on the replica, or forwarded several writes, keeps the retryable `503`, and so does a write refused with `Server is installing a snapshot, please retry`, which is refused before anything is forwarded.
+
+[[ha-create-database-committed-first]]
+===== Creating a database in a cluster
+
+_(Since v26.12.1.)_ A `create database` server command creates the database only once a quorum has committed it: every server, the one that ran the command included, creates the database when it applies that change, and the command answers once the server that ran it has the database. If the quorum is not confirmed in time, the command fails with an unknown outcome (see <<ha-outcome-unknown-contract,Outcome-unknown response contract>>) and no server has the database yet: it appears on every server if the change commits later (this can take a few seconds more, when the leader steps down and a new one is elected), and on none if it never commits. Check with `GET /api/v1/exists/<dbname>` before sending the command again. Before v26.12.1 the server that ran the command created the database first, so a creation that never committed, for example because the leader was lost right after it, left the database on that server only: it listed the database and answered reads of it, while the other servers answered `Database not found` and the cluster still reported itself in sync (issue #11848).
+
+[[ha-create-drop-database-on-replica]]
+===== Creating or dropping a database through a replica
+
+_(Since v26.12.1.)_ A `create database` or `drop database` server command sent to a replica is forwarded to the leader, and the replica answers the leader's `200` only once it has applied the change itself: after a creation the next request to that replica finds the database, after a drop `GET /api/v1/exists/<dbname>` on that replica answers `false`. The wait lasts at most `arcadedb.ha.quorumTimeout` (10 s by default), and usually a few milliseconds. If the replica cannot confirm in time it logs a warning and still answers `200`, since the leader made the change. Before v26.12.1 the replica answered at once, so a client that created a database and then its schema through a load balancer could be answered `404 Database not found` when both requests reached the same replica, and a client that checked a drop could still see the database (issue #11739).
+
+A drop applied on a replica where the database had been closed with `close database` now also ends that close, so the replica no longer reports the dropped database as existing.
+
+[[ha-drop-recreate-database]]
+===== Dropping and creating a database again under the same name
+
+_(Since v26.12.1.)_ A server that restarts replays its Raft log from its last checkpoint. When a database was dropped and created again under the same name after that checkpoint, the replay now skips every change that belongs to the dropped database, its drop included, and leaves the database created later in place. Before v26.12.1 the replay applied the old schema changes, transactions and drop to the new database, so until the replay reached the end of the log the restarted server could answer `404 Database not found`, `400 unknown timeseries type`, or `500`, and quarantined a database with a TimeSeries type (issue #11919). A database dropped for good is still dropped by the replay.
+
+Each server records where its copy of each database was created in `.raft/created-index`, next to `.raft/applied-index`. The protection therefore applies to databases created, or received from the leader, by a server running v26.12.1 or later: a database created before the upgrade is protected from its next drop and create on. A database restored from a backup records no such position.
+
+[[ha-drop-files-not-removed]]
+===== A drop whose files cannot be removed
+
+_(Since v26.12.1.)_ When a server applies a database drop but its filesystem refuses to remove the database directory (a read-only or faulty volume, a permission problem), the drop is no longer treated as done there. The server logs `Database '<name>' was dropped by the cluster but its files could not be removed from this node (...): it stays closed here and the drop is tried again`, keeps the database closed so that no request reopens the copy the cluster dropped, and does not let the Raft log be purged past the drop, so the log grows meanwhile. It tries the deletion again at most every 30 seconds, as it applies further entries, and when the files are gone it logs so and lets the log be purged again. A restart replays the drop as well. The database is not quarantined and no resync is needed: the leader has no copy of a dropped database to resync from. A database you reopen with `open database` while its files are still there is left alone by the retry, and is dropped by the replay at the next restart. Before v26.12.1 such a drop was applied as done, the Raft log could be purged past it, and the dropped database could be reopened on that server, by a request that named it or after a restart, once the filesystem recovered (issue #12611).
+
+[[ha-long-forwarded-statements]]
+===== Long statements forwarded to the leader
+
+_(Since v26.12.1.)_ A replica forwards a statement to the leader over HTTP/1.1, so the replica's client gets the answer however long the statement runs on the leader, as when the statement is sent to the leader directly. Before v26.12.1 the forward used HTTP/2, and the leader closed the connection `arcadedb.network.socketTimeout` (30 s by default) into any longer statement, such as a `CHECK DATABASE` on a large database: the client got `500` with `java.io.EOFException: EOF reached while reading` while the leader kept running the statement, and a retry ran it again (issue #12442).
 
 [[ha-leader-refusal]]
 ===== When a replica refuses a write and names the leader

@@ -8,12 +8,17 @@ You can refine the set of records that it removes using the <<filtering,`WHERE`>
 
 [source,sql]
 ----
-DELETE FROM <Type>|BUCKET:<bucket>|INDEX:<index> [RETURN <returning>]
+DELETE [VERTEX] FROM <Type>|BUCKET:<bucket>|INDEX:<index> [RETURN <returning>]
   [WHERE <Condition>*] [LIMIT <MaxRecords>] [BATCH <batch-size>]
   [TIMEOUT <MilliSeconds>] [UNSAFE] [RETURNING <projection>]
 
 ----
 
+* *`VERTEX`* Deletes only vertices, each with its edges. A target type that is not a vertex type, or an `INDEX:` target, is
+refused before anything runs. A record that is not a vertex (reached through a RID, a bucket or a subquery) is not deleted:
+the statement fails on it, and the vertices it deleted before are rolled back with the statement, except the batches a
+`BATCH` already committed. Without it, `DELETE FROM` deletes any record, and a vertex is
+deleted with its edges all the same. _(Since v26.12.1, issue #11620: the keyword used to be accepted and ignored.)_
 * *`RETURN`* Defines what values the database returns.
 It takes one of the following values:
 ** `COUNT` Returns the number of deleted records.
@@ -27,6 +32,12 @@ This is the default option.
 * *`RETURNING`* PostgreSQL's trailing form: returns the deleted records as they were before the delete, projected by
 `<projection>` (`RETURNING *` for all their properties), where `RETURN BEFORE` returns each whole record. `RETURN` and
 `RETURNING` cannot be combined in the same statement. _(Since v26.12.1, issue #11392.)_
+
+The statement deletes the set of records its source names, each once. A source that names one record in several rows, such as
+`DELETE VERTEX FROM (SELECT expand(out()) FROM V WHERE k = 0)` over two parallel edges to the same neighbour, a list of RIDs
+or a parameter, deletes, counts and returns that record once: the later rows naming it are skipped. Parallel lightweight edges
+share one RID but are distinct edges, so each is still deleted. _(Since v26.12.1, issue #12256: the second row naming a
+record failed the whole statement with a not-found error.)_
 
 [IMPORTANT]
 ====

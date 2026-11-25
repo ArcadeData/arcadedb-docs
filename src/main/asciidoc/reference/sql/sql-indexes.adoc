@@ -98,6 +98,8 @@ NOTE: With the default `SKIP`, an ascending `ORDER BY` on an indexed property ha
 
 NOTE: A unique index does not regard derived types or embedded documents of the indexed type.
 
+NOTE: A property declared `EMBEDDED` cannot be indexed as a whole by `UNIQUE` or `NOTUNIQUE`: an embedded document has no order, so the statement is refused with an `IndexException`. Index a field of it through a nested path instead, `+CREATE INDEX ON D (`p.x`) NOTUNIQUE+`. Since v26.12.1; before, the index was accepted and the second insert failed at commit with a `ClassCastException`.
+
 NOTE: While `CREATE INDEX` is still building the index, queries do not use it: `SELECT`, `database.select()` and Cypher scan the type instead, so their results are complete, and `lookupByKey()` answers as if the index did not exist yet. Queries use the index as soon as the command completes. Since 26.10.2.
 
 NOTE: A transaction that began before the index was created, in another session or as an outer transaction of the caller, and wrote to the indexed type, does not hold up `CREATE INDEX` and is not left out of the index: the build indexes the committed state, and that transaction queues the entries of the new index for what it wrote when it commits, as if the index had existed when it saved the records. A `UNIQUE` index refuses that commit with a `DuplicatedKeyException` if another record took the key in the meantime. A transaction that wrote to the same bucket both before and after the index was created is refused at its commit with a retryable `ConcurrentModificationException` instead, because it cannot tell the entries it queued from the ones it owes: the retry finds the index there from its first write. An outer transaction that owes entries cannot be committed while a transaction nested inside it is still open (`TransactionException`): commit or roll back the innermost one first. Since 26.11.1; before, such a record was missing from every index-backed query and a `UNIQUE` index accepted a duplicate of its key.
@@ -142,6 +144,15 @@ ArcadeDB> SELECT FROM Movie WHERE actors = 'Keanu Reeves'
 ----
 
 The key type of a `BY ITEM` index is the declared item type of the list (`LIST OF DOUBLE` is keyed as DOUBLE), so `WHERE prices CONTAINS 7` finds a stored `7.0` with or without the index. A list without a declared item type is keyed as STRING. An index created before this rule keeps its STRING keys until it is rebuilt (`REBUILD INDEX`).
+
+* A composite index can expand more than one collection: several `BY KEY` / `BY VALUE` properties, of different maps or of the same one, and `BY ITEM` properties of one list next to them. A record is indexed under every combination of the elements, so a conjunction of membership tests uses the index:
+
+----
+ArcadeDB> CREATE INDEX ON Doc (m1 BY KEY, m2 BY VALUE) NOTUNIQUE
+ArcadeDB> SELECT FROM Doc WHERE m1 CONTAINSKEY 'k1' AND m2 CONTAINSVALUE 'wanted'
+----
+
+The index holds one entry per key of `m1` times value of `m2`, so it grows with the product of the two sizes. A record whose collection has no element has no entry, which is why a filter that leaves such a column out (`WHERE m1 CONTAINSKEY 'k1'` alone) is answered without this index. _(Since v26.12.1: before, only the last modified property was expanded and the others were indexed as whole collections, so the index answered such a query with no rows. Rebuild an existing index of this shape with `REBUILD INDEX`.)_
 
 * Create a series of properties and on them create a composite index:
 
@@ -690,6 +701,9 @@ NOTE: An index on a type is made of one bucket index per bucket of the type (for
 the type index would miss every record of that bucket. Drop the type index itself, which drops all its bucket indexes.
 _(Since v26.12.1, issue #11303. Before, the bucket index was dropped and the type index kept answering without the records of
 that bucket; an index left that way is repaired with <<sql-rebuild-index,`REBUILD INDEX`>>.)_
+
+NOTE: A write running while the index it reads is dropped fails with a retryable `ConcurrentModificationException` (HTTP `503`),
+and the retry succeeds without the index _(since v26.12.1, see <<writes-during-index-ddl,Writes during an index change>>)_.
 
 *Examples*
 

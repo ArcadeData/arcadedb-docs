@@ -103,6 +103,16 @@ whose `+tags+` is `+[[3]]+`. A right side of exactly one element is that element
 declared without an item type too _(since v26.12.1; before, the scan matched `+[[3]]+` for `+CONTAINS 3+`, and the index
 missed it for `+CONTAINS [3]+` and matched it for `+CONTAINS '[3]'+`)_.
 
+NOTE: An index on a property is used whichever side of the comparison the property is written on, and under `+NOT+`:
+`+5 = id+` is looked up like `+id = 5+`, `+:lo < id+` like `+id > :lo+`, `+NOT (id <> 5)+` like `+id = 5+` and
+`+NOT (id >= 3)+` like `+id < 3+`. This holds for `+SELECT+`, the `+WHERE+` of `+UPDATE+` and `+DELETE+`, and the
+`+where:+` of a `+MATCH+` node. When the value is written first, or a range (`+<+`, `+<=+`, `+>+`, `+>=+`) is under
+`+NOT+`, the index is used only when the value is a literal or a parameter of the property's type (a number for a
+numeric property, a string for a `+STRING+` one). A comparison converts its right side to the type of its left side, so
+with a value of another type the two spellings compare differently (`+'10' > id+` compares text, `+id < '10'+` compares
+numbers) and the records are scanned. `+NOT (id <> v)+` needs no such check. Every spelling returns the same records as
+before _(since v26.12.1; before, only the property written on the left used the index)_.
+
 [discrete]
 
 ====== Logical Operators
@@ -124,6 +134,8 @@ To test for a missing value use `+IS NULL+`, `+IS NOT NULL+` or the null-safe `+
 `+IN+` follows the same logic: `+3 NOT IN [4, NULL]+` is unknown, because the `+NULL+` might be 3, so a `+NOT IN+` whose list or sub-query holds a `+NULL+` returns no record. Use `+NOT IN (SELECT k FROM U WHERE k IS NOT NULL)+` to leave the `+NULL+` out _(since v26.11.1 for a sub-query; before, a `+NULL+` row of the sub-query was ignored)_.
 
 Arithmetic with a `+NULL+` operand is `+NULL+`, so `+WHERE age - 4 < 6+` does not return records without `+age+` either (see <<sql-syntax,Math Operators>>).
+
+Two values of one kind that has no order, such as two records, cannot be compared with `+<+`, `+<=+`, `+>+`, `+>=+` or `+BETWEEN+`: the statement fails with `+Cannot compare a record with a record using '<': the values have no order+`, a client error (`400` over HTTP) _(since v26.12.1, before it was `500`)_. `+>=+` and `+<=+` still answer true when both sides are the very same record.
 
 [discrete]
 

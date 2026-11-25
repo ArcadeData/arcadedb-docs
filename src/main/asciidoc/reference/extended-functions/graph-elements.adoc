@@ -3,13 +3,26 @@
 
 ===== Node Functions
 
+[[node-relationship-pattern]]
+The `relTypes` argument of `node.degree()`, `node.degree.in()`, `node.degree.out()`, `node.relationship.exists()` and
+`node.relationship.types()` is APOC's relationship pattern, the same syntax as the <<path-filters,relationship filter>>
+of the `path.*` procedures: `TYPE` matches the type in both directions, `TYPE>` outgoing only, `<TYPE` or `TYPE<`
+incoming only, `>` and `<` every type in one direction, and `|` separates the alternatives (`'KNOWS>|<LIKES'`). A null or
+blank pattern matches every relationship. A count sums per alternative, as APOC does, and a self loop followed in both
+directions counts once, so `node.degree()` agrees with `COUNT { (n)-[:T]-() }`. The optional `direction` argument
+(`IN`, `OUT` or `BOTH`) narrows the pattern: an alternative without a marker is followed in that direction, and one
+marked the other way matches nothing. `node.degree.in()` and `node.degree.out()` read the pattern with their direction
+fixed, so `node.degree.in(n, 'KNOWS>')` is `0`. _Since v26.12.1_; earlier versions read the whole string as one type
+name, so `node.degree(n, 'KNOWS>')` answered `0`. The trailing incoming marker `TYPE<` and the single count of a self
+loop are _since v26.12.1_ too; before, `'KNOWS<'` was looked up as a type named `KNOWS<` and a self loop counted twice.
+
 
 [[node-degree]]
 ===== node.degree()
 
 Get the total degree (in + out) of a node.
 
-*Syntax:* `node.degree(node, [relType])`
+*Syntax:* `node.degree(node, [relTypes], [direction])`
 
 *Returns:* Long - Total degree
 
@@ -22,7 +35,7 @@ Get the total degree (in + out) of a node.
 
 Get the incoming degree of a node.
 
-*Syntax:* `node.degree.in(node, [relType])`
+*Syntax:* `node.degree.in(node, [relTypes])`
 
 *Returns:* Long - Incoming degree
 
@@ -35,7 +48,7 @@ Get the incoming degree of a node.
 
 Get the outgoing degree of a node.
 
-*Syntax:* `node.degree.out(node, [relType])`
+*Syntax:* `node.degree.out(node, [relTypes])`
 
 *Returns:* Long - Outgoing degree
 
@@ -74,7 +87,7 @@ Get all labels of a node.
 
 Check if a relationship exists from a node.
 
-*Syntax:* `node.relationship.exists(node, [relType], [direction])`
+*Syntax:* `node.relationship.exists(node, [relTypes], [direction])`
 
 *Returns:* Boolean - true if relationship exists
 
@@ -85,11 +98,17 @@ Check if a relationship exists from a node.
 [[node-relationship-types]]
 ===== node.relationship.types()
 
-Get all relationship types connected to a node.
+Get the relationship types connected to a node. With a pattern, the answer is the types the pattern names that the node
+has a relationship of, in the pattern's order.
 
-*Syntax:* `node.relationship.types(node, [direction])`
+*Syntax:* `node.relationship.types(node, [relTypes], [direction])`
 
 *Returns:* List - List of relationship types
+
+NOTE: _Since v26.12.1_ the second argument is the relationship pattern, as in APOC, and the direction is the third one:
+`node.relationship.types(n, null, 'IN')` (or `(n, '<')`) lists the incoming types. A call written for the old signature
+keeps its answer: a second argument that is a direction word (`IN`, `INCOMING`, `OUT`, `OUTGOING`, `BOTH`, in any case)
+with no third argument is still read as the direction, unless the schema has an edge type with exactly that name.
 
 *APOC Compatible:* `apoc.node.relationship.types`
 

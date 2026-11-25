@@ -93,6 +93,15 @@ CREATE GRAPH ANALYTICAL VIEW weighted
   COMPACTION THRESHOLD 50000
 ----
 
+An edge property is materialized only when the schema declares it on at least one of the view's edge types, with a type a column can hold (`INTEGER`, `SHORT`, `BYTE`, `LONG`, `FLOAT`, `DOUBLE` or `STRING`) and the same column type on every edge type that declares it (`INTEGER`, `SHORT` and `BYTE` share one, as do `FLOAT` and `DOUBLE`). Declare it before creating the view:
+
+[source,sql]
+----
+CREATE PROPERTY ROAD.distance DOUBLE
+----
+
+Since v26.12.1 `CREATE GRAPH ANALYTICAL VIEW` (and the builder's `build()` and `buildAsync()`) refuses a definition whose `EDGE PROPERTIES` or `CCH` weights name a property that would get no column, and the error names the property and the `CREATE PROPERTY` to run. Before, the view was created and listed the property in `edgePropertyFilter`, but held no value of it, so every algorithm weighted by it read the edge records and ran no faster than without a view (issue #12177). A saved view whose property has no column (created by an earlier release, or after a `DROP PROPERTY`) is still restored as it was defined when the database opens, with the same message logged as a warning: declare the property, then `REBUILD GRAPH ANALYTICAL VIEW`.
+
 Add `CCH (...)` to keep a <<gav-cch,Customizable Contraction Hierarchy>> per weight property, for fast point-to-point shortest paths. A weight listed there is materialized as an edge property even when `EDGE PROPERTIES` does not name it:
 
 [source,sql]
@@ -113,7 +122,13 @@ Since v26.11.1 listing a vertex type in `VERTEX TYPES` also holds the vertices o
 
 A type that already holds vertices and is attached to a listed type later (`ALTER TYPE Y SUPERTYPE +V`) holds vertices the view never read: the view does not use them until it is rebuilt, which it does by itself in *SYNCHRONOUS* and *ASYNCHRONOUS* mode, while an *OFF* view turns STALE.
 
+The reverse is handled the same way since v26.12.1: when a vertex sub-type the view holds leaves the listed types, because it is dropped (`DROP TYPE W UNSAFE`), detached (`ALTER TYPE W SUPERTYPE -V`), renamed (`ALTER TYPE W NAME W2`) or dropped and created again under the same name, the view is not used for any query until it has rebuilt, which it does by itself in *SYNCHRONOUS* and *ASYNCHRONOUS* mode, while an *OFF* view turns STALE and is not used even with `useWhenStale`. In the meantime queries read the records, and `schema:graphAnalyticalViews` reports the view STALE. Before, the view stayed READY after a `DROP TYPE ... UNSAFE` and `algo.wcc()`, the other `algo.*` procedures and the whole-graph counts it answered still included the vertices of the dropped sub-type until a restart (issue #12549).
+
 The same holds for an edge type attached to a listed edge type later (`ALTER TYPE G SUPERTYPE +E`) when it already held edges between the view's vertices, lightweight ones included: a hop on `E` reads the edges of its sub-types, so the view is not used for any query until it has rebuilt (an *OFF* view turns STALE and is not used even with `useWhenStale`). An edge type that already existed when the view was built or restored is held only once a scan has read it, even when it looks empty, because a transaction open at that moment may still commit edges of it: attaching it rebuilds the view once. An edge type created after that, and not written while it was not covered, is used at once, as is a sub-type created after the build. Before v26.11.1 such a view answered hops on `E` without the edges of `G` (issue #10214).
+
+The reverse is handled the same way since v26.12.1: when an edge sub-type the view holds leaves the listed types, because it is dropped (`DROP TYPE G UNSAFE`), detached (`ALTER TYPE G SUPERTYPE -E`) or renamed (`ALTER TYPE G NAME G2`), the view is not used for any query until it has rebuilt, which it does by itself in *SYNCHRONOUS* and *ASYNCHRONOUS* mode, while an *OFF* view turns STALE and is not used even with `useWhenStale`. In the meantime queries read the records, and `schema:graphAnalyticalViews` reports the view STALE. Before, the view stayed READY with the old `edgeCount`: an openCypher `count(*)` on `E` could still count the edges of a dropped or detached sub-type, and a hop on a renamed sub-type found none of its edges until a restart (issues #12032 and #12039).
+
+Since v26.12.1 the view tells a sub-type by the buckets it owned when the view read it, not by its name alone, so the same holds when another type takes the name before the view is read again: a type dropped and created again under the same name (`DROP TYPE G UNSAFE; CREATE EDGE TYPE G EXTENDS E`) or a rename swap (`ALTER TYPE G NAME G_old; ALTER TYPE H NAME G`). A sub-type detached, written to and attached again (`ALTER TYPE G SUPERTYPE -E`, a `CREATE EDGE G`, `ALTER TYPE G SUPERTYPE +E`) also rebuilds the view, since the view never heard the edge written while `G` was detached. Adding a bucket to a sub-type (`ALTER TYPE G BUCKET +...`) does not. Before, with no read of the view between the statements, the view stayed READY and answered from the slice of the old type (issue #12507). A CSR persisted by v26.11.x is rebuilt once on the first open.
 
 *Altering a view*
 
@@ -170,7 +185,7 @@ SELECT FROM schema:graphAnalyticalViews
 | `withVertexTypes(String...)` | Filter to specific vertex types | all
 | `withEdgeTypes(String...)` | Filter to specific edge types | all
 | `withProperties(String...)` | Materialize specific vertex properties (names prefixed with `!` are excluded instead); an empty array materializes none | all
-| `withEdgeProperties(String...)` | Materialize edge properties (e.g., weights) | none
+| `withEdgeProperties(String...)` | Materialize edge properties (e.g., weights); each must be declared in the schema on at least one of the view's edge types, or the build is refused | none
 | `withUpdateMode(UpdateMode)` | OFF, SYNCHRONOUS, or ASYNCHRONOUS | OFF
 | `withCompactionThreshold(int)` | Rebuild CSR after N accumulated delta edges | 10,000
 | `withContractionHierarchy(String, String...)` | Keep a <<gav-cch,contraction hierarchy>> for a weight property, over the given edge types (all of the view's when none) | none
@@ -239,6 +254,16 @@ three kinds of commit: an edge created in the transaction that deletes one of it
 or a lightweight edge that stayed counted; issues #10340 and #10339), a transaction committed right after
 `CREATE GRAPH ANALYTICAL VIEW` (issue #10338), and a vertex property that was removed, which kept its old value
 (issue #10335). Rebuild a view with `REBUILD GRAPH ANALYTICAL VIEW` if it served such commits on an earlier version.
+
+*In a cluster.* A transaction that reaches a node through replication (a follower applying the leader's commits, or the
+leader applying a commit made in a transaction opened on a follower) carries no change set the view can merge. Since
+v26.12.1 such a commit makes the view on that node STALE, so queries read the records and see it. A *SYNCHRONOUS* or
+*ASYNCHRONOUS* view then rebuilds in the background when a query asks for it, at most once a second (or once per twice its last build time), waiting longer
+(up to 30 seconds) while new commits keep overtaking the rebuilds; a view nobody queries is not rebuilt. An *OFF* view
+stays STALE until `REBUILD GRAPH ANALYTICAL VIEW`. Before, a view a node loaded when it opened its database (after a
+restart, for example) stayed READY and kept answering SQL `out()`/`in()` and openCypher traversals from the graph as
+of that open, also after the node became leader (issue #12250). A node that has not reopened its database since the
+view was created has no view (`NOT_BUILT`) and answers from the records.
 
 In *SYNCHRONOUS* and *ASYNCHRONOUS* modes the view being rebuilt keeps serving queries, and keeps absorbing commits, until the rebuild
 publishes its new CSR: only the caller of `REBUILD GRAPH ANALYTICAL VIEW` (or of `build()`) waits for the scan. The scan no longer runs while holding the view's lock, so neither a committing transaction nor a status check
@@ -333,6 +358,13 @@ v26.11.1 a value the column cannot give back as it is (a `2.5` or a `NaN` in an 
 a number in a string one) is not stored in it: a read of that vertex's property through the view falls back to the
 record, so queries answer with the value the record holds. Until v26.10.2 it was converted into the column's type, and
 a query over the view could read `2` where the record held `2.5` (issue #10255).
+
+A property that the view's types declare with different column types (`A.p INTEGER` and `B.p DOUBLE`; `INTEGER`, `SHORT`
+and `BYTE` share one column type, as do `FLOAT` and `DOUBLE`) gets no column at all, and a warning names it: every read
+of it through the view goes to the records. Since v26.12.1 this holds whatever the order of the types and however many
+declare it, and the build no longer samples such a property back into a column. Before, a later type declaring it again
+(`C.p INTEGER`), or the sampling of undeclared properties, gave it an `INT` column that held no value for the `B`
+vertices (issue #12229).
 
 [[gav-edge-properties-pending-changes]]
 ===== Edge Properties and Pending Changes
@@ -511,7 +543,7 @@ the types still serves a one-hop Cypher scan whose labels it holds. To accelerat
 vertex type that holds vertices.
 
 *Stale views.* A view that is STALE (in `OFF` mode after a commit, in `ASYNCHRONOUS` mode until a commit is merged,
-or after a failed rebuild) is not used by the
+in a cluster after a replicated commit until it rebuilds, or after a failed rebuild) is not used by the
 planner unless `arcadedb.gavUseWhenStale` is `true`, in which case queries read the snapshot as of its last build.
 The setting is per database, and applies to every view of that database immediately, including views already built
 and views restored at open:
@@ -591,8 +623,29 @@ must be undirected, anonymous and of one type, and the three variables carry one
 Since v26.12.1 a chain count with an end pinned by a UNIQUE key, such as `MATCH (c:Chunk)-[:OF_RECORD]->(r:Record
 {external_id: $id}) RETURN count(c)`, looks that vertex up through the index and counts only its own paths, whichever end
 the key is written on (inline or in `WHERE`, as a literal or a parameter). Its cost no longer grows with the size of the
-labels; `EXPLAIN` shows `seeded anchor: unique key Record[external_id] = [...]` (issue #11594). A count anchored by an
-`IN` list or a non-unique key runs as an index seek plus expansion instead.
+labels; `EXPLAIN` shows `seeded anchor: unique key Record[external_id] = [...]` (issue #11594).
+
+Since v26.12.1 any other count anchored by an index lookup (a non-unique key, an `IN` list or a range such as
+`WHERE p.id < 500`) runs as that index seek plus the expansion from what it finds when the lookup finds few vertices of
+the label, and as the push-down otherwise. The push-down walks the whole label, while the seek costs only what it finds,
+so the index entries the lookup finds are counted with the parameters of the execution, without reading a record, up to
+a cap: a key or an `IN` list is seeked when it finds fewer than one vertex in a hundred of the label, a range when it
+finds fewer than one in four (issues #11680, #11889). `EXPLAIN` then shows the index seek instead of `COUNT CHAIN PATHS`
+or `COUNT STAR JOIN`. Both plans return the same count; only the time differs.
+
+Since v26.12.1 a one-hop pattern asked once per row - `COUNT { (p)-[:K]->() }` (with or without `MATCH`),
+`EXISTS { (p)-[:K]->() }`, the pattern predicate `WHERE (p)-[:K]->()` and `WHERE NOT (p)-[:K]->()`, and
+`size([(p)-[:K]->(q) | q])` - is answered from the edge list of the vertex the row binds, instead of planning and running
+a subquery for every row (issue #11891). `COUNT { }` reads the degree and `EXISTS { }` stops at the first edge, which runs
+two to three times faster than before; the predicate and `size()` also check that each relationship record is there, so
+they gain less. It applies to one fixed-length hop with no relationship variable, path variable or property map, where
+one end (either) is a vertex bound by the row with no label, any type list is allowed, and the other end is anonymous or
+a variable the row does not bind. A label on the far end still filters. The body of a `COUNT { }` or `EXISTS { }` has to
+be that `MATCH` alone, with no `WHERE`, `RETURN`, `ORDER BY`, `SKIP` or `LIMIT`; a pattern comprehension has to have no
+`WHERE` and project a variable or a literal. Anything else, a variable-length hop (`[:K*1..1]` included) too, keeps the
+general path. The answer is the one the general path gives, read permissions included: edges created or deleted earlier in
+the transaction are counted, a self loop of an undirected hop is one relationship, and a Graph Analytical View is not
+used, the edge list is read.
 
 *Multi-hop chains on the view.* A chain of labeled hops such as `MATCH (a:P)-[:K]->(b:P)-[:K]->(c:P)` is walked on the
 view (`EXPLAIN` shows `GAVFusedChain`). Since v26.10.2 a `+count(*)+`, or `count(x)` of a variable of the chain, is counted

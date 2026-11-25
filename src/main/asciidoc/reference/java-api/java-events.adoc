@@ -68,6 +68,13 @@ or an index) needs the exclusive one, which a thread holding the shared lock can
 before-read or after-read listener therefore fails with a `DatabaseOperationException` ("a read lock cannot be upgraded"), and the
 read fails with it. Before v26.10.2 the thread waited for itself forever. Run the schema change outside the listener.
 
+NOTE: An after-read listener may return other content than the stored one (a decryption, for instance). A record read that way
+keeps the stored content it was read from, and a later update or delete of it, or of its `modify()` copy, is checked against that
+stored content, so it is refused with the retryable `ConcurrentModificationException` only when another transaction changed the
+record after the read. The index entries and the external property values of a deleted record are removed by their stored values,
+and the index changes of an update are computed from them, even when the listener rewrote an indexed property. Before v26.12.1
+every update and delete of such a record was refused as a concurrent modification, retry after retry _(since v26.12.1)_.
+
 The typical use cases for the listeners are:
 
 - listen before a create or update to enhance the record with additional properties

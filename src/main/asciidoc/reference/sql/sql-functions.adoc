@@ -140,7 +140,7 @@ See also: <<algo-astar,Graph Algorithms: A*>> for the Cypher procedure variant w
 [[avg]]
 ====== avg() pass:[<span class="fn-badge fn-badge-math">math</span>]
 
-Returns the https://en.wikipedia.org/wiki/Arithmetic_mean[arithmetic mean]. The mean of integer values is a `DOUBLE`, even when their sum is too large for a `LONG`; the mean of `DECIMAL` values is a `DECIMAL`.
+Returns the https://en.wikipedia.org/wiki/Arithmetic_mean[arithmetic mean]. The mean of integer values is a `DOUBLE`, even when their sum is too large for a `LONG`; the mean of `DECIMAL` values is a `DECIMAL`. The mean of `DOUBLE` or `FLOAT` values is computed from their exact sum (see <<sum,sum()>>), so it is the same on every run _(since v26.12.1)_.
 
 Syntax: `avg(&lt;field|value&gt; [,&lt;field|value&gt;]*)`
 
@@ -288,6 +288,8 @@ See also: <<algo-cch-shortest-path,algo.cch.shortestPath>> for the Cypher proced
 ====== circle() pass:[<span class="fn-badge fn-badge-geo">geo</span>]
 
 Creates a 2D circle from two numbers specifying X- and Y-coordinate of circle's center and a number describing the circle's radius.
+
+A negative radius, an X outside -180 to 180 or a Y outside -90 to 90 is an error. _(Since v26.12.1, issue #12744; before, it was reported as a server fault)_
 
 Syntax: `circle(&lt;center-x&gt;, &lt;center-y&gt;, &lt;radius&gt;)`
 
@@ -440,6 +442,7 @@ Syntax: `difference(&lt;field&gt; [,&lt;field-n&gt;]*)`
 
 Works as aggregate or inline.
 If only one argument is passed then it aggregates, otherwise it executes and returns the DIFFERENCE between the collections received as parameters.
+An `ARRAY_OF_*` argument is read as its elements, as a `LIST` is _(since v26.12.1; before, the whole array was one element)_.
 
 *Examples*
 
@@ -909,6 +912,7 @@ SELECT max(salary1, salary2, salary3) FROM Account
 
 Returns the middle value or an interpolated value that represent the middle value after the values are sorted.
 Nulls are ignored in the calculation.
+It is `percentile(&lt;field&gt;, 0.5)`, with the same exact ordering and result type (see <<percentile,percentile()>>).
 
 Syntax: `median(&lt;field&gt;)`
 
@@ -1045,6 +1049,10 @@ Returns the nth percentiles (the values that cut off the first n percent of the 
 Nulls are ignored in the calculation.
 The quantiles have to be in the range 0--1
 
+The values are sorted by their exact numeric value, so two `LONG` values that read as the same double (above 2^53^) keep their order, and `percentile(v, 0)` and `percentile(v, 1)` answer `min(v)` and `max(v)` _(since v26.12.1)_.
+A percentile that falls between two different values is interpolated and answered as a double.
+One that lands exactly on a value answers it as a double when the double holds it exactly, otherwise as the original value (a `LONG` above 2^53^, a `DECIMAL`), never as a rounded number no record holds _(since v26.12.1)_.
+
 Syntax: `percentile(&lt;field&gt; [, &lt;quantile-n&gt;]*)`
 
 *Examples*
@@ -1147,9 +1155,12 @@ SLEEP randomInt(500);
 [[rectangle]]
 ====== rectangle() pass:[<span class="fn-badge fn-badge-geo">geo</span>]
 
-Creates a 2D rectangle from four numbers specifying the left boundary X-, top boundary Y-, right boundary X- and bottom boundary Y-values.
+Creates a 2D rectangle from four numbers: the west (left) boundary X, one boundary Y, the east (right) boundary X and the other boundary Y.
+The two Y values can be given in either order, so `rectangle(0, 10, 10, 0)` and `rectangle(0, 0, 10, 10)` make the same box. The X values keep their order: a west X greater than the east X makes a rectangle that crosses the antimeridian. _(Since v26.12.1; before, the first Y had to be the lower one, and the top-then-bottom order failed with "maxY must be >= minY")_
 
-Syntax: `rectangle(<left-x>, <top-y>, <right-x>, <bottom-y>)`
+An X outside -180 to 180 or a Y outside -90 to 90 is an error. _(Since v26.12.1, issue #12744; before, it was reported as a server fault)_
+
+Syntax: `rectangle(<west-x>, <y1>, <east-x>, <y2>)`
 
 *Examples*
 
@@ -1323,6 +1334,8 @@ Returns the sum of all the values returned.
 
 Integers widen instead of wrapping: a sum of `INTEGER` values that does not fit an `INTEGER` is returned as a `LONG`, and a sum of `LONG` values that does not fit a `LONG` is returned as a `DECIMAL` (`BigDecimal`). Clients that read the result as a `LONG` can see a `DECIMAL` when the total overflows.
 
+A sum of `DOUBLE` (or `FLOAT`) values is the exact sum of the values, rounded once to a `DOUBLE` (or `FLOAT`): the same query over the same data returns the same value on every run, whether it runs in parallel or not, and adding `0.1` ten times returns `1.0`. _(Since v26.12.1; before, a parallel scan could return a slightly different value on each run.)_ This holds for values of one floating-point type, with or without integers among them; a mix of `FLOAT` and `DOUBLE` values is still added pairwise.
+
 Over an empty group, or a group where every value is `NULL`, `sum()` returns `NULL` (as `avg()`, `min()` and `max()` do), not `0`. _(Since v26.10.2)_ Use `ifnull(sum(<field>), 0)` to get `0`. In OpenCypher, `sum()` still returns `0`.
 
 Syntax: `sum(&lt;field&gt;)`
@@ -1341,6 +1354,7 @@ SELECT sum(salary) FROM Account
 
 Works as aggregate or inline.
 If only one argument is passed then it aggregates, otherwise executes and returns the SYMMETRIC DIFFERENCE between the collections received as parameters.
+An `ARRAY_OF_*` argument is read as its elements, as a `LIST` is, in both forms _(since v26.12.1; before, the whole array was one element)_.
 
 Syntax: `symmetricDifference(&lt;field&gt; [,&lt;field-n&gt;]*)`
 
@@ -1982,7 +1996,8 @@ SELECT vectorDequantizeBinary(vectorQuantizeBinary([0.1, 0.5, 0.9]))
 Compute https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a[reciprocal rank fusion (RRF)] for combining multiple ranks.
 Ranks may be passed as variadic arguments or grouped in a single array/list. Every positional numeric
 argument is a rank. The center constant `k` (default `60`) is set only via a trailing options map
-`{ k: <long> }` - a bare trailing number is always a rank, never `k`.
+`{ k: <long> }` - a bare trailing number is always a rank, never `k`. `k` must not be negative: a negative value is
+refused with an error _(since v26.12.1)_.
 
 Syntax: `vectorRRFScore(&lt;rank&gt;, &lt;rank&gt;, ... [, { k }])` or `vectorRRFScore([&lt;ranks&gt;], [{ k }])`
 

@@ -120,7 +120,7 @@ MATCH (p:Person)
 RETURN p.name, (p.age * 2) + 10 AS result
 ----
 
-NOTE: The `+` operator also works for string concatenation: `RETURN 'Hello' + ' ' + 'World'` returns `'Hello World'`.
+NOTE: The `+` operator also works for string concatenation: `RETURN 'Hello' + ' ' + 'World'` returns `'Hello World'`. A number, a boolean or a date/time value is converted to text, eg `'n:' + 1` returns `'n:1'`. Concatenating a string with a node, a relationship, a path, a map or a point raises a type error (`Type mismatch: expected Float, Integer, String or List<T> but was Node`), on either side of `+`: concatenate a property instead, eg `'x:' + n.name`.
 
 ===== Map Literals
 
@@ -265,7 +265,7 @@ RETURN count(p.email)
 [[cypher-sum]]
 ====== sum()
 
-Returns the sum of numeric values.
+Returns the sum of numeric values. A sum of floating-point values is the exact sum rounded once, so the same query over the same data returns the same value on every run _(since v26.12.1)_.
 
 [source,cypher]
 ----
@@ -276,7 +276,7 @@ RETURN sum(p.salary)
 [[cypher-avg]]
 ====== avg()
 
-Returns the average of numeric values.
+Returns the average of numeric values. The average of floating-point values is computed from their exact sum, so it is the same on every run _(since v26.12.1)_.
 
 [source,cypher]
 ----
@@ -441,6 +441,20 @@ RETURN toString(3.14)     // Returns '3.14'
 RETURN toString(true)     // Returns 'true'
 ----
 
+_(Since v26.12.1.)_ A `localtime()`, `time()`, `localdatetime()` or `datetime()` is written as Neo4j 5 writes it: the seconds are always printed, and the fraction of a second has its trailing zeros removed (up to 9 digits). A date, an offset, a zone name and a duration are written as before.
+
+[source,cypher]
+----
+RETURN toString(localtime('10:00'))                        // Returns '10:00:00'
+RETURN toString(time('10:00Z'))                            // Returns '10:00:00Z'
+RETURN toString(localdatetime('2020-01-01T10:00'))         // Returns '2020-01-01T10:00:00'
+RETURN toString(datetime('2020-01-01T10:00:00.500Z'))      // Returns '2020-01-01T10:00:00.5Z'
+----
+
+Only the text made by `toString()` (and `toStringOrNull()`, `toStringList()` and `convert.toString()`) follows this rule. A temporal value that a query returns is still serialized as before, for example `"10:00"` for `localtime('10:00')` over HTTP.
+
+_(Since v26.12.1.)_ A `BINARY` value (a byte array, such as a `BINARY` property or a bytes parameter) has no text form: `toString()` refuses it with `TypeError: InvalidArgumentValue - toString() cannot convert byte[]`, as it does for a list or a node, `toStringOrNull()` answers `null`, and `toStringList()` answers `null` for such an element. Before, they answered Java's identity text of the array (`[B@e044818`), which differs from run to run (issue #12780).
+
 ---
 
 [[cypher-math-functions]]
@@ -506,6 +520,12 @@ Returns random float between 0 and 1.
 ----
 RETURN rand()  // Returns e.g. 0.7324...
 ----
+
+In an inline property map, `rand()` is drawn once per input row, and that one value both finds the node and checks it:
+`UNWIND range(1, 2000) AS j MATCH (a:N {k: toInteger(rand() * 10)})` over keys 0 to 9 matches one node per row. In
+`WHERE a.k = toInteger(rand() * 10)` the expression is drawn again for every candidate node, as the predicate is
+written, so an index on `k` is not used to answer it. _(Since v26.12.1, issue #12179: a value drawn to look the node up
+was drawn again to check it, so the match kept about one row in ten.)_
 
 ---
 
@@ -619,7 +639,7 @@ never runs out of range before the bucket is physically full, so for almost ever
 reported instead of silently colliding with another id. Because the value is computed from the split, changing `arcadedb.opencypher.idBucketBits` alters the
 numeric output: encode and decode must use the same setting. For a stable, opaque identifier that does not depend on this setting, use `elementId()` instead.
 
-`id()` of a lightweight edge is `null`: a lightweight edge has no record, so there is no position to pack (_since v26.10.2_; earlier versions raised an error).
+`id()` of a lightweight edge is `null`: a lightweight edge has no record, so there is no position to pack (_since v26.10.2_; earlier versions raised an error). Use `elementId()` instead, which names the edge (_since v26.12.1_, see <<lightweight-edges,Lightweight Edges>>).
 ====
 
 From SQL, the numeric id can be resolved back to a record in O(1) with the `cypherRID()` function, e.g. `SELECT FROM cypherRID(:id)` (the inverse of `id()` / `.asCypherRID()`).
@@ -843,6 +863,46 @@ The Cypher `point()` function returns a map with the coordinates, the `crs` name
 
 `crs` and `srid` can be given explicitly and are derived from each other. A `crs` name is accepted in any letter case and
 returned in the spelling above. A pair that disagrees, or 2D/3D coordinates that do not match the `crs`/`srid`, raise an error.
+
+`x`/`y` (and `z`) with a geographic `srid` or `crs` (4326, 4979, `wgs-84`, `wgs-84-3d`) build the same point as
+`longitude`/`latitude` (and `height`): `point({x: 1, y: 2, srid: 4326}).longitude` is `1.0`. A map that has both `x`/`y`
+and `longitude`/`latitude` is built from `x`/`y`, as in Neo4j, and `z` wins over `height`. A coordinate must be finite:
+`Infinity` or `NaN` raises "Cannot create a point with non-finite coordinate values". A map with only one coordinate of
+its pair, such as `point({x: 1})` or `point({latitude: 1})`, raises "A map with keys [x] is not describing a valid point",
+while a coordinate given as `null` (`point({x: null, y: 2})`) still returns `null`. Unlike Neo4j, an unknown `crs` name
+or `srid` is kept as given.
+
+[NOTE]
+====
+Since v26.12.1. Before, `point({x: 1, y: 2, srid: 4326})` had a `null` `longitude` and `latitude`, a map with both
+spellings built the WGS-84 point from `longitude`/`latitude`, non-finite coordinates were accepted and an incomplete map
+returned `null` (issue #12276).
+====
+
+`ORDER BY`, `min()` and `max()` order points as Neo4j does: by coordinate reference system (srid 4326, 4979, 7203, 9157),
+then by x (`longitude`), y (`latitude`) and z (`height`). A point sorts after an ordinary map. Points are not comparable
+with `<` and `>` (the answer is `null`); `<=` and `>=` are `true` for two equal points and `null` otherwise.
+
+[NOTE]
+====
+Since v26.12.1. Before, points were ordered as maps: a WGS-84 point by `latitude` first, a WGS-84-3D point by `height`
+first, and points of different systems by their number of keys. `p <= p` and `p >= p` were `null` (issue #12274).
+====
+
+`point.distance(p1, p2)` returns the Euclidean distance between two Cartesian points and the distance in meters between two
+WGS-84 points, on a sphere of radius 6,378,140 m as Neo4j does. For two WGS-84-3D points it includes the `height`: the surface
+arc is taken at the mean height of the two points and the height difference is added as the other side of a right triangle,
+so two points 1,000 m apart vertically are 1,000 m apart. `point.withinBBox(p, lowerLeft, upperRight)` also checks `z`
+(`height`) when all three points are 3D. Both functions return `null` when a 2D point is mixed with a 3D point, or a
+geographic point with a Cartesian one.
+
+[NOTE]
+====
+Since v26.12.1. Before, both functions ignored the `height` of WGS-84-3D points and `point.withinBBox()` ignored `z` too, a
+mix of 2D and 3D points gave a result instead of `null`, and `point.distance()` used an Earth radius of 6,371,000 m, so every
+geographic distance is now about 0.11% longer. The SQL `geo.*` functions and the bare `distance()` shown above keep the
+6,371 km radius (issue #12273).
+====
 
 [NOTE]
 ====

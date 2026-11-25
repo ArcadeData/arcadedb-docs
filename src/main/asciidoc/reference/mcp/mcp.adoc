@@ -63,7 +63,7 @@ You can also manage the configuration at runtime through the <<mcp-config-endpoi
 | `allowInsert` | `false` | Allow INSERT operations.
 | `allowUpdate` | `false` | Allow UPDATE operations.
 | `allowDelete` | `false` | Allow DELETE operations.
-| `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc.).
+| `allowSchemaChange` | `false` | Allow schema modifications (CREATE TYPE, CREATE PROPERTY, CREATE INDEX, IMPORT DATABASE, etc.).
 | `allowAdmin` | `false` | Allow administrative operations.
 | `profile` | `"all"` | Server-global tool profile: `"all"`, `"rag"`, or `"admin"`. See <<mcp-tool-profiles>>.
 | `principalProfiles` | `{}` | Optional per-principal tool profiles, keyed by user name or API token name. Intersected with `profile`, so an entry can only narrow the tool surface. See <<mcp-principal-profiles>>.
@@ -469,9 +469,12 @@ The server analyzes the command semantics and checks against the MCP configurati
 | UPDATE | `allowUpdate`
 | DELETE | `allowDelete`
 | CREATE TYPE, CREATE PROPERTY, CREATE INDEX, etc. | `allowSchemaChange`
+| IMPORT DATABASE | `allowSchemaChange`, `allowInsert`, `allowUpdate` and `allowDelete`
 | Administrative operations | `allowAdmin`
 | SELECT, MATCH | `allowReads`
 |===
+
+`IMPORT DATABASE` is a schema change as well as a write _(since v26.12.1)_: it recreates the types, properties and indexes of the file it reads and, for a JSONL export, its settings, triggers, views, function libraries and extensions, so it needs `allowSchemaChange` besides the write permissions. With `allowSchemaChange` off, the tools also refuse a change to the per-database settings, such as the date and datetime formats and the time zone of the schema.
 
 `allowSchemaChange` also covers the types a write creates implicitly _(since v26.11.1)_: a Cypher `CREATE` or `MERGE` naming a label or relationship type that does not exist yet, through `execute_command` or the upsert tools, is refused when `allowSchemaChange` is off, while writes to existing types need only `allowInsert` / `allowUpdate`.
 
@@ -479,6 +482,12 @@ The check covers everything the command runs, not only its first keyword _(since
 a projection, a `FROM` subquery, a `CASE` or a script block needs the permission for that write, a DDL statement inside
 an `IF`, `FOREACH` or `WHILE` block needs `allowSchemaChange`, and `PROFILE` needs what the statement it wraps needs. In
 the same way the read-only `query` tool refuses a statement with a nested write.
+
+A Cypher command is checked in the same way _(since v26.12.1)_: the writes inside a `CALL { ... }` subquery, a `FOREACH`
+body and every branch of a `UNION` or `WHEN` statement need the permission for that write, whatever the outer clauses do.
+A call to a procedure that writes data needs `allowInsert`, `allowUpdate` and `allowDelete`, and a call to a procedure that
+changes the schema needs `allowSchemaChange`. A command whose writes all sit in a subquery or a `FOREACH` body needs just
+the permissions of those writes.
 
 *Example:*
 [source,shell]
@@ -718,7 +727,8 @@ curl -u root:arcadedb-password \
 ----
 
 The `similarity` field reports whether scores are `BM25` or legacy `CLASSIC` coordination counts.
-The limit is pushed down per bucket, so the search merges at most `bucket count * limit` entries rather than every
+The limit is pushed down into the index: a query made of OR-ed terms keeps only the best `limit` matches across all
+buckets (_since v26.12.1_), any other query keeps the best `limit` of each bucket, so the search never merges every
 match in the index.
 Because of that push-down, a record deleted concurrently between the index scan and the record read is skipped
 without being back-filled, so a search can legitimately return fewer than `limit` results.
