@@ -748,6 +748,11 @@ _(Since v26.12.1.)_ A server that restarts replays its Raft log from its last ch
 
 Each server records where its copy of each database was created in `.raft/created-index`, next to `.raft/applied-index`. The protection therefore applies to databases created, or received from the leader, by a server running v26.12.1 or later: a database created before the upgrade is protected from its next drop and create on. A database restored from a backup records no such position.
 
+[[ha-drop-files-not-removed]]
+===== A drop whose files cannot be removed
+
+_(Since v26.12.1.)_ When a server applies a database drop but its filesystem refuses to remove the database directory (a read-only or faulty volume, a permission problem), the drop is no longer treated as done there. The server logs `Database '<name>' was dropped by the cluster but its files could not be removed from this node (...): it stays closed here and the drop is tried again`, keeps the database closed so that no request reopens the copy the cluster dropped, and does not let the Raft log be purged past the drop, so the log grows meanwhile. It tries the deletion again at most every 30 seconds, as it applies further entries, and when the files are gone it logs so and lets the log be purged again. A restart replays the drop as well. The database is not quarantined and no resync is needed: the leader has no copy of a dropped database to resync from. A database you reopen with `open database` while its files are still there is left alone by the retry, and is dropped by the replay at the next restart. Before v26.12.1 such a drop was applied as done, the Raft log could be purged past it, and the dropped database could be reopened on that server, by a request that named it or after a restart, once the filesystem recovered (issue #12611).
+
 [[ha-long-forwarded-statements]]
 ===== Long statements forwarded to the leader
 
