@@ -74,8 +74,11 @@ of a vetoed edge failed with `INTERNAL` carrying the text of a `NullPointerExcep
 `EDGE`. The first chunk must name the `database` and carry the `GraphBatchOptions` (batch size, light edges, WAL,
 commit frequency, `vertex_batch_size`, commit retries, and `return_id_mapping`); options on later chunks are ignored.
 Vertices declare a `temp_id`, and edges reference their endpoints by `temp_id` or by an existing RID (`#bucket:pos`)
-in `from_ref` / `to_ref`. All `VERTEX` records must precede every `EDGE` record across the whole stream: interleaving
-is an error. On a replicated cluster the load must run on the leader; a follower refuses it.
+in `from_ref` / `to_ref`. An endpoint given as a RID must be an existing vertex: a RID that does not exist, or that
+names a document or an edge, fails the load with `INVALID_ARGUMENT` naming the RID when the record is read (since
+26.12.1; before, it failed only at the end of the load with `NOT_FOUND` or `INTERNAL`). All `VERTEX` records must
+precede every `EDGE` record across the whole stream: interleaving is an error. On a replicated cluster the load must
+run on the leader; a follower refuses it.
 
 `GraphBatchResult` reports `vertices_created`, `edges_created`, `elapsed_ms` and, depending on `return_id_mapping`,
 the `temp_id` to RID map in `id_mapping` (when the map is not returned, `id_mapping_omitted` is set and
@@ -319,6 +322,18 @@ but its text is concealed in production mode, because it may come from a library
 statement stopped on request is `CANCELLED`, as on the data-plane RPCs (see <<grpc-cancellation,Cancellation>>).
 Only an unexpected server fault is `INTERNAL`, and in production mode its description is concealed.
 
+_(Since v26.12.1)_ A refusal that none of the cases above names is answered by its engine category, as `ExecuteCommand`
+answers it: a duplicated key or a taken name `ALREADY_EXISTS`, a missing schema object or record `NOT_FOUND`, a refused
+value, a parse error or an unknown function `INVALID_ARGUMENT`, an arithmetic error `OUT_OF_RANGE`, a timeout
+`DEADLINE_EXCEEDED` and a conflict the caller can retry `ABORTED`. The `arcadedb-exception-class` trailer names the engine's
+exception, so the Java client rebuilds a `DuplicatedKeyException`, `SchemaException`, `ValidationException` or
+`TimeoutException`. The description is `<operation>: <message>`, concealed in production mode. This is what `ImportDatabase`
+and the restore RPCs answer when the data being loaded is refused, for example by a duplicated key. Before, all of these
+answered `INTERNAL`, were logged as server faults and lost their sentence in production mode. An `EquivalentIndexException`
+answers `ALREADY_EXISTS`, no longer `INVALID_ARGUMENT`. Two answers differ from the data plane on purpose: refused credentials
+are `UNAUTHENTICATED`, not `PERMISSION_DENIED`, and a retryable failure such as a Raft entry that could not be committed is
+`UNAVAILABLE`, not `ABORTED`.
+
 On the data-plane RPCs, the `arcadedb-exception-class` trailer names the exception that decided the status rather
 than the one wrapped around it, so the Java client rebuilds the engine's own type: a `SchemaException` for a missing
 type (not the `RecordNotFoundException` that `NOT_FOUND` alone reads as), or a `DuplicatedKeyException` carrying its
@@ -363,6 +378,9 @@ trailer with `partial_commit` set. `TimeSeriesWriteStream` stops appending; batc
 
 A client that cancels a call, or whose deadline expires, or whose connection drops, terminates the server-side work
 too: the server stops it at its next check instead of running it to the end for an answer nobody reads.
+A `StreamQuery` or `TimeSeriesQuery` that the client cancels, for example because it stopped reading once it had
+enough rows, stops at once and gives back its worker thread, its result set and its slot of the query admission gate
+(`arcadedb.queryMaxConcurrent`). Before 26.12.1 it kept them until `server.grpcStreamWriteTimeoutMs` expired.
 
 A terminated call ends with status `CANCELLED` and the trailer `arcadedb-exception-class` set to
 `com.arcadedb.exception.QueryTerminatedException`; the gRPC Java client raises that exception, which it does not retry.
@@ -439,7 +457,16 @@ tag still reads the plain string or timestamp.
 
 Text tagged with one of these types that cannot be parsed is returned as a plain string.
 
+_(Since v26.12.1)_ A date, time or datetime returned by an openCypher query - a `date()`, `localdatetime()`, `datetime()`,
+`localtime()` or `time()` result, or a stored `DATE` or `DATETIME` read as `n.prop` - is carried as the same kind and
+`logical_type` as the same value from SQL, also inside a list or a map: a Cypher date or local datetime is a
+`timestamp_value` tagged `date` or `datetime`, a zoned datetime, a time and a local time are a tagged `string_value`.
+Before, they were sent as an untagged `string_value` (issue #11955).
+
 `GrpcRecord` wraps a record with its RID, type name, and a map of property name to `GrpcValue`.
+A property stored with a `null` value is in the map, with a `GrpcValue` that has no value set, so a client reads it back
+as `null` _(since v26.12.1)_. Earlier versions left it out of the map, so a record read with `LookupByRid` or a streamed
+query did not list the property at all (issue #12197).
 
 ===== Enums
 
@@ -510,6 +537,20 @@ NOTE: Before v26.11.1 `out()`, `in()`, `outE()` and `inE()` reached a gRPC clien
 
 A row that cannot be applied does not fail the call: it is counted in `failed` and reported as an `InsertError`, and the
 rest of the batch still goes in.
+
+Under `PER_BATCH` a batch is `server_batch_size` rows of the stream, whatever the size of the chunks the client sends:
+a batch can span several chunks, and several batches can be committed inside one chunk. When a commit fails (a
+duplicated key under `CONFLICT_ERROR`, for one), only the open transaction is lost: the open batch under `PER_BATCH`,
+the failing row under `PER_ROW`, the whole stream under `PER_STREAM` and `PER_REQUEST`. The summary matches what is
+stored: `inserted` and `updated` count every row committed before the failure, including the rows committed inside the
+failing chunk, and the rows lost with the failed transaction, or never reached in the failing chunk, are counted in
+`failed`, so `received = inserted + updated + ignored + failed`. The acknowledgement of a failing `InsertBidirectional`
+chunk reports its rows committed before the failure as inserted, and the session goes on with the next chunk in a new
+transaction. _(Since v26.12.1.)_ Before, `PER_BATCH` never committed a batch spanning chunks, so a stream sent in
+chunks smaller than `server_batch_size` ran as one transaction and a failure rolled back every row of it, and rows
+committed inside a failing chunk were stored but not counted as inserted, so a client retrying the rows reported as not
+inserted could duplicate them (issue #12130). A client that replays a failed `InsertBidirectional` chunk whole can
+still duplicate the rows the acknowledgement reported as inserted: replay only the rest (issue #12576).
 
 [cols="1,1,3", options="header"]
 |===

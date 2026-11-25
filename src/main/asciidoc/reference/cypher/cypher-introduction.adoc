@@ -132,12 +132,42 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   called or which operator they use. Two candidates of the same cost are decided by the order the query writes them in
   _(since v26.11.1)_
 * Uses range index scans for inequality predicates (`>`, `<`, `>=`, `<=`)
+* Starts a pattern that has a node with no label from the index of a labelled node _(since v26.12.1)_. In
+  `MATCH (p:Person)-[:KNOWS]->(q) WHERE p.id < 500` the unlabelled `q` is reached through the relationship and `p` is
+  read by an index seek, an `IN` seek or a range scan, instead of walking every `Person`. Written from the other end,
+  `(q)-[:KNOWS]->(p:Person)`, the pattern starts from `p` too. A pattern with no labelled node, a labelled node no index
+  serves (the pattern would start from a scan of the whole label) or a variable-length hop into the unlabelled node is
+  still planned step by step, as before. The index lookups of this plan ask the read permission of the type, and of its
+  subtypes, each time the statement runs, so a user who may not read the type is refused whatever the index holds
+* Starts a single fixed-length hop from its far end when the first node has no label and no condition and the far
+  node is pinned on every column of a `UNIQUE` index of its label _(since v26.12.1)_, also in a statement planned step
+  by step such as a `MATCH` after `UNWIND` or `WITH`. `UNWIND $keys AS k MATCH (x)-[:OF]->(:Doc {key: k})` finds each
+  `Doc` through the index and walks its relationships backwards, instead of scanning every vertex of the database once
+  per row. The pin can be an inline property map (literals, parameters or a variable bound by an earlier clause) or a
+  `WHERE` equality or `IN` list. The written order is kept for an `OPTIONAL MATCH`, a path variable, a variable-length
+  hop, a relationship with no type or of a `UNIDIRECTIONAL` type, a non-unique key and a first node that has a label or
+  a condition. The rows of a `MATCH` without `ORDER BY` can come in a different order
 * Drives a single-hop relationship pattern from the edge type's own index when the `WHERE` clause pins the
   relationship's indexed properties and neither endpoint is selective, e.g.
   `MATCH ()-[t:TRANSFER]->() WHERE t.transactionId IN ['A', 'B'] RETURN t`. An equality, an `IN` list or an
   `OR` of equalities on the same property all qualify, and a leading prefix of a composite index is enough:
   with an index on `(transactionId, date)`, filtering `transactionId` alone walks that prefix of the index
   instead of scanning every edge. The plan shows it as `MATCH EDGE BY INDEX`
+* Asks the read permission of the type, and of its subtypes, before any index lookup _(since v26.12.1)_: the lookup of
+  a labelled node (an equality, an `IN` list or a leading prefix of a composite index) asks it for the label, and
+  `MATCH EDGE BY INDEX` asks it for the relationship type and for the labels written on both endpoints. A user who may
+  not read one of them is refused whatever the index holds, as a scan of the type refuses him. Before 26.12.1 the node
+  lookup was refused only when the index held the value (and answered no rows when it did not), and the relationship
+  lookup returned the relationships that end in a type the user may not read
+* Expands the second-to-last node of a chain of hops once, instead of once per path that reaches it, when the statement
+  reads only the distinct far ends _(since v26.12.1)_. In
+  `MATCH (p:Person {id: $id})-[:KNOWS]-(:Person)-[:KNOWS]-(:Person)-[:KNOWS]-(x:Person) RETURN count(DISTINCT x)` every
+  friend of a friend is expanded once and every `x` comes once, with relationship uniqueness still enforced, so the
+  answer is the one the full walk gives. It applies to one `MATCH` (not `OPTIONAL`) followed by `RETURN`, over a chain of
+  two or more hops whose relationships and intermediate nodes have no variable and whose far end has one, when the
+  `RETURN` is a `RETURN DISTINCT` without aggregations or aggregates only with `count`, `sum` or `avg` over `DISTINCT`
+  arguments and with `min` or `max`. A path variable, `SKIP`, `LIMIT`, `WITH` or a function such as `rand()` keeps the
+  full walk. The plan shows it as `ExpandToDistinctEnds`
 * Optimizes join order based on cardinality estimation
 * Detects bounded patterns for efficient relationship traversal
 * Joins the parts of a pattern no relationship connects - `MATCH (a:Person), (c:City)`, or two `MATCH` clauses - on

@@ -329,6 +329,39 @@ RETURN c.name, p.department, count(p) AS employees
 ORDER BY c.name, employees DESC
 ----
 
+**Aggregating map projection:** a map projection that contains an aggregate groups by its own variable, so it answers one
+row per value of that variable, as in Neo4j:
+
+[source,cypher]
+----
+// One row per person, each with the names of the people they know
+MATCH (p:Person)-[:KNOWS]->(f)
+RETURN p{.name, friends: collect(f.name)} AS person
+----
+
+**Ambiguous aggregation:** any other expression that mixes an aggregate with a variable must read only grouping keys. A map
+literal, a list, a `CASE` or a `reduce()` reading a variable that is not one fails with `AmbiguousAggregationExpression`,
+the error arithmetic such as `p.age + count(*)` already raises:
+
+[source,cypher]
+----
+// Fails: p is not a grouping key of the map literal
+MATCH (p:Person)-[:KNOWS]->(f)
+RETURN {name: p.name, friends: count(f)} AS person
+
+// Works: p.name is projected as a grouping key
+MATCH (p:Person)-[:KNOWS]->(f)
+RETURN p.name AS name, {name: p.name, friends: count(f)} AS person
+----
+
+[NOTE]
+====
+_Since v26.12.1._ Before this release, an aggregating map literal or map projection that read a variable that was not a
+grouping key folded every input row into a single row, and read that variable from an arbitrary row. The map projection
+now groups by its variable, and the map literal (or list, `CASE`, `reduce()`) is refused as ambiguous. An aggregate inside a
+pattern comprehension (`[(n)-->(m) | count(*)]`) is refused too, as one inside a list comprehension already was.
+====
+
 ====== COLLECT
 
 Collect values into a list:
@@ -476,6 +509,13 @@ MATCH (a:Person {name: 'Alice'}), (p:Person)
 WHERE (p)-[:KNOWS]->(a)
 RETURN p.name AS knowsAlice
 ----
+
+A pattern predicate only tests existence, so it cannot be counted: `WHERE size((p)-[:KNOWS]->()) > 5` is refused
+(since v26.12.1). Count with a `COUNT { }` subquery instead: `WHERE COUNT { (p)-[:KNOWS]->() } > 5`.
+
+A pattern predicate that names a node or relationship variable whose value is null, as an `OPTIONAL MATCH` that found
+nothing leaves it, is false, and `NOT` of it is true: after `OPTIONAL MATCH (p)-[:MANAGES]->(m)`, `WHERE (m)-->()` drops
+the rows where `m` is null and `WHERE NOT (m)-->()` keeps them (since v26.12.1, as Neo4j does).
 
 ====== CASE Expressions
 

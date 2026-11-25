@@ -27,6 +27,8 @@ WARNING: `<name>.<method>(...)` is read as a call of the namespaced function `<n
 
 NOTE: methods are case-insensitive.
 
+NOTE: A method called with an argument it is not defined for - a value of the wrong kind, a time unit, time zone, hash algorithm or format pattern nothing names, a text that is not JSON for `asJSON()` - fails as the caller's error: HTTP 400, and the client-error category of every other protocol. Before 26.12.1 `format()`, `precision()`, `hash()` and `asJSON()` / `toJSON()` answered some of these as an internal error (HTTP 500).
+
 ===== Method Reference
 
 [[methods-squares]]
@@ -119,7 +121,7 @@ Transforms the field into a Byte type.
 
 Syntax: `&lt;value&gt;.asByte()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -231,7 +233,7 @@ Use Decimal type when treat currencies.
 
 Syntax: `&lt;value&gt;.asDecimal()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -253,7 +255,7 @@ Transforms the field into a double type.
 
 Syntax: `&lt;value&gt;.asDouble()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -275,7 +277,7 @@ Transforms the field into a float type.
 
 Syntax: `&lt;value&gt;.asFloat()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -297,7 +299,7 @@ Transforms the field into an integer type.
 
 Syntax: `&lt;value&gt;.asInteger()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -370,7 +372,7 @@ Transforms the field into a Long type.
 
 Syntax: `&lt;value&gt;.asLong()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -470,6 +472,8 @@ Applies to the following types:
 SELECT tags.asSet() FROM Friend
 ----
 
+Two numbers that are equal are one item, whatever their type, as with the <<set,set()>> function: `[1, 1L, 1.0].asSet()` holds one item. A `DECIMAL` is compared exactly. _(Since v26.12.1; before, the items were compared by their Java type, so `[1, 1L, 1.0].asSet()` held three)_
+
 '''
 
 [[asshort]]
@@ -479,7 +483,7 @@ Transforms the field into a short type.
 
 Syntax: `&lt;value&gt;.asShort()`
 
-NOTE: A `null` value, an empty string, or a string of only whitespace returns `null`.
+NOTE: A `null` value, an empty string, a string of only whitespace, or a text that is not a number of this type (for example `'abc'`, or `'300'` for a byte) returns `null`. The row is kept and the query does not fail.
 
 Applies to the following types:
 
@@ -771,11 +775,13 @@ SELECT tags.first() FROM Post
 Returns the value formatted using the common "printf" syntax.
 For the complete reference goto http://java.sun.com/j2se/1.5.0/docs/api/java/util/Formatter.html#syntax[Java Formatter JavaDoc].
 
-Syntax: `&lt;value&gt;.format(&lt;format&gt;)`
+Syntax: `&lt;value&gt;.format(&lt;format&gt; [, &lt;time-zone&gt;])`
 
 Applies to the following types:
 
 - any
+
+On a date, a datetime or a list of them the format is a date pattern, and the optional time zone (a zone name such as `'Europe/Rome'` or an offset such as `'+02:00'`, as text) is the zone the value is rendered in. A time zone that is not text, or that names no zone, is refused as the caller's error.
 
 Number formatting (`%f`, `%e`, `%d`, etc.) is always locale-independent (e.g. `.` as decimal separator), regardless of the server's configured locale.
 
@@ -938,6 +944,7 @@ SELECT linestring( [ [10,10], [20,10], [20,20], [10,20], [10,10] ] ).intersectsW
 ====== isWithin()
 
 Returns Boolean answering if argument shape is fully inside shape instance.
+It answers like <<geo-within,`geo.within()`>>: a shape is within itself (before 26.12.1 it answered `false` for two equal shapes).
 
 Syntax: `&lt;point|circle|rectangle|linestring|polygon&gt;.isWithin(&lt;point|circle|rectangle|linestring|polygon&gt;)`
 
@@ -991,6 +998,7 @@ Applies to the following types:
 
 [source,sql]
 ----
+SELECT [1,2,3].join()
 SELECT [1,2,3].join('|')
 SELECT 'a,b,c'.split(',').join('-')
 ----
@@ -1206,6 +1214,10 @@ SELECT out().in().remove( @this ) FROM V
 A `null` argument is honoured wherever it appears in the list: it removes a `null` element from the collection, and
 never discards the other arguments.
 
+An item is found when it is equal to the argument as a number, whatever the type of either: `remove(2)` removes the `2` of a list written by openCypher, whose integers are `LONG`, as it does in a list written by SQL. A `DECIMAL` is compared exactly. Nothing else is converted: `['2'].remove(2)` removes nothing. `UPDATE ... REMOVE list = value` and `list - value` find the item the same way. _(Since v26.12.1; before, the item was compared by its Java type, so a list written by openCypher kept the `2`, and `UPDATE` still reported the record as updated)_
+
+A map argument is one item, found by an element equal to it entry by entry: `[{'a':1},{'b':2}].remove({'a':1})` answers `[{'b':2}]`. _(Since v26.12.1; before, the keys of the map were removed instead)_
+
 '''
 
 [[removeall]]
@@ -1233,6 +1245,8 @@ SELECT out().in().removeAll( @this ) FROM V
 
 A `null` argument is honoured wherever it appears in the list: it removes every `null` element from the collection,
 and never discards the other arguments.
+
+Items are found as with <<remove,remove()>>: `[1, 2, 1L, 1.0].removeAll(1)` answers `[2]`. _(Since v26.12.1)_
 
 '''
 

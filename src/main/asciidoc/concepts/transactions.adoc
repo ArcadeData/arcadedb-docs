@@ -91,6 +91,12 @@ record counter of each bucket is read at the first count of the transaction and 
 and deletes. Under `READ_COMMITTED` they still follow every commit. _(Since v26.11.1; before, a count followed the commits
 of other transactions at both levels and could disagree with a scan in the same transaction.)_
 
+*Indexes.* Under `REPEATABLE_READ`, an index lookup or scan finds every key that was committed before the transaction
+read the index and has not been removed since, also when the index is compacted while the transaction is open (the
+automatic compaction after writes, or `COMPACT INDEX`). The uniqueness check of a `UNIQUE` index reads the
+same view, so a duplicate of such a key is refused. _(Since v26.12.1; before, keys moved by an incremental compaction
+could be missing from the transaction's lookups, and a duplicate of one of them could be committed.)_
+
 *Neither level is a snapshot.* A page is pinned when the transaction first reads it, not when the transaction begins. A
 type scan reads its pages one after another, so at both levels it can observe part of a concurrent commit that spans
 several pages: the pages it reached before that commit show the old records, the ones it reached after show the new ones.
@@ -106,7 +112,18 @@ transaction, for example with `database.transaction(...)`, reads the record agai
 
 This holds for records of any size, including documents larger than a page. Likewise, a `DELETE` that selected a record which
 another transaction then deleted and committed fails with a retryable `ConcurrentModificationException`, so the retry simply
-no longer finds the record.
+no longer finds the record. In Java this holds however the record was found: by a query, `lookupByRID()`, `iterateType()`,
+`iterateBucket()` or the callback of `scanType()` and `scanBucket()` _(since v26.12.1; before, deleting a record handed out by
+`scanType()` or `scanBucket()` after a concurrent delete raised a non-retryable `RecordNotFoundException`, and modifying a
+vertex found that way could silently overwrite a concurrent update)_.
+
+A delete is protected the same way against a record that changed after it was read. If another transaction committed a change
+to the record, or deleted it and an insert then reused its RID, deleting the record read before fails with a retryable
+`ConcurrentModificationException`, instead of removing whatever now sits at that RID. A SQL `DELETE ... WHERE` racing an
+`UPDATE` that makes the record stop matching is retried and no longer deletes it. Under contention more deletes are retried:
+`database.transaction(...)` and a single-request command over HTTP retry them, while a transaction spanning several HTTP
+requests receives the exception at the delete. A record deleted by its RID without being loaded first is deleted as it is
+found _(since v26.12.1; before, the delete removed whatever the RID held when it reached the record)_.
 
 [source,java]
 ----
@@ -119,17 +136,51 @@ database.transaction(() -> {
 Adding or removing edges on a vertex is never refused, and a record kept from an earlier transaction is refreshed as
 before. The check can be disabled with the `txStaleReadCheck` setting.
 
+This protection comes from the record object: the embedded record keeps the image it was read with, and its `save()` compares
+that image with the stored one. It does not cover the remote clients (`RemoteDatabase` over HTTP, `RemoteGrpcDatabase` over
+gRPC, and the drivers of other languages): there the read and the write are two requests, the record that comes back carries
+no image of what was read, and the `UPDATE` that `save()` sends reads the record again on the server, where under
+`READ_COMMITTED` it finds the latest committed version. A remote read-modify-write under `READ_COMMITTED` therefore
+overwrites a change another transaction committed between the read and the write, without an error. To make it safe, either:
+
+- run the transaction under `REPEATABLE_READ` (`database.setTransactionIsolationLevel(Database.TRANSACTION_ISOLATION_LEVEL.REPEATABLE_READ)`
+  before `begin()`, or the isolation level of the `transaction()` call of the drivers): the server keeps what the
+  transaction read, so the write of a record changed meanwhile fails with a retryable `ConcurrentModificationException`, and
+  `transaction(...)` retries it;
+- or let the server compute the new value in one statement, so there is no gap between the read and the write:
+  `UPDATE Account SET balance = balance + 50 WHERE @rid = #1:0`.
+
+[source,java]
+----
+RemoteDatabase database = new RemoteDatabase("localhost", 2480, "bank", "root", "password");
+database.setTransactionIsolationLevel(Database.TRANSACTION_ISOLATION_LEVEL.REPEATABLE_READ);
+database.transaction(() -> {
+  MutableDocument account = database.lookupByRID(rid, true).asDocument().modify();
+  account.set("balance", account.getInteger("balance") + 50).save(); // retried, never lost
+});
+----
+
 *Reads of a page the transaction has written.* Under `READ_COMMITTED`, once a transaction has written a bucket page, it reads
-that page from its own copy, taken at its first write, so records other transactions committed there afterwards are not seen
-by it. If its commit finds that a record it read that way changed meanwhile (or appeared, for a scan of the page), the commit
+that page from its own copy, taken at its first write, so changes other transactions committed to the records of that page
+afterwards are not seen by it. If its commit finds that a record it read that way changed meanwhile (or appeared, for a scan of the page), the commit
 fails with a retryable `ConcurrentModificationException` rather than being merged on the newer page, so nothing decided on a
 stale read is committed. This covers the edge list of a vertex the transaction added a relationship to: traversing or counting
 that list afterwards, or checking a unique edge type against it, reads the list as it was before what other transactions
 appended to it meanwhile, so the commit is refused if they did. A transaction whose reads of the page are still current
 commits through the merge (see `txPageSlotMerge` in <<arcadedb-settings,Settings>>), and so do relationships added without
-reading the list. A scan that is still running when the transaction writes a page it already read, after another transaction
+reading the list. A vertex the transaction read only for what it is (its type, its properties, the vertex a Cypher
+`MATCH (a {uuid: ...})` binds before a relationship is created from it) does not make the commit fail when another transaction
+meanwhile only gave it a first relationship or a new edge list chunk, because the transaction did not read its edge lists
+_(since v26.12.1)_. Traversing or counting a list of that vertex keeps the commit refused as described above. A scan that is
+still running when the transaction writes a page it already read, after another transaction
 committed to that page, is refused the same way. Reads made by record listeners (triggers) count as the application's reads
 _(since v26.12.1)_.
+
+A record other transactions *created* on that page after the first write, such as a new chunk of an edge list, is read from
+the committed page instead of being reported as missing _(since v26.12.1)_. Adding a relationship to a vertex whose edge list
+was created meanwhile therefore no longer fails with `Edge list ... head chunk ... not visible yet`. Updating or deleting such
+a record in the same transaction is refused with a retryable `ConcurrentModificationException`. `REPEATABLE_READ` keeps its
+snapshot and does not see the new record.
 
 *Edges to a deleted vertex.* Creating an edge of a `UNIDIRECTIONAL` type to a vertex that another transaction deleted and
 committed meanwhile fails with a retryable `ConcurrentModificationException`, as it already did for bidirectional edges, so
@@ -145,6 +196,18 @@ in Java) that reaches a vertex or an edge another transaction deletes and commit
 retryable `ConcurrentModificationException`, so `database.transaction(...)` and the HTTP API retry it. A record looked up by
 its RID, one deleted by the transaction itself, or an edge entry that was already dangling before the traversal started still
 answers `RecordNotFoundException` _(since v26.12.1; before, every such read failed with `RecordNotFoundException`)_.
+
+[[writes-during-index-ddl]]
+*Writes during an index change.* A SQL write (`INSERT`, `UPDATE`, `DELETE`, `CREATE VERTEX`, `CREATE EDGE`, and the writes of a
+SQL script) that reads through an index another request drops or rebuilds meanwhile fails with a retryable
+`ConcurrentModificationException`, HTTP `503`, so `database.transaction(...)`, `COMMIT RETRY` and the HTTP API retry it. A write
+cannot be planned again halfway, as a `SELECT` is, because it may already have written: the retry rolls the transaction back and
+runs the statement again from the start, against the new schema, so nothing is applied twice. In Java the cause is a
+`StaleIndexException`, a subclass of `IndexException`, so code that catches `IndexException` keeps catching it. Other index
+errors, such as a key too large for a page, are not retryable and are reported as before. A write into a bucket that
+`ALTER TYPE ... BUCKET +` has just added to an indexed type commits normally, even while the request that added it is still
+open _(since v26.12.1, issue #11835; before, such writes could fail with `400` "Cannot update the index ... because the file is
+invalid" or `500` `IndexException`, although a retry succeeded)_.
 
 Using `remote` access all the commands are executed on the server, so out of transaction scope.
 Look below for more information.
@@ -391,6 +454,7 @@ For transactions involving many records, consider to split it in multiple transa
 A `ConcurrentModificationException` always means another transaction wrote the record: it is never raised because of something the transaction did to itself.
 In particular, updating a record that the same transaction has already deleted is not a conflict, it simply has no effect - the delete wins, since the record will not exist once the transaction commits.
 The order of the two operations does not matter.
+Deleting a record that the same transaction has already deleted raises `RecordNotFoundException`, and changes nothing else. This now holds for an edge as well as for a vertex and a document _(since v26.12.1)_: a second delete of the same edge, or a delete of an edge that already went with its deleted vertex, could be accepted and left the record count of the edge type one lower than the records it holds.
 
 [[statement-fails-halfway]]
 ==== A statement that fails halfway

@@ -263,6 +263,22 @@ if (firstArticle.isPresent()) {
 }
 ----
 
+NOTE: Records come back in the same shape as with the embedded API _(since v26.12.1)_. A row that returns a record, such
+as Cypher `MATCH (n:Person) RETURN n`, is that vertex or edge with its own properties, so `result.getVertex().get().get("name")`
+answers the name. A column that holds a record, such as `a`, `r` and `b` in `RETURN a, r, b`, SQL `@this`, or each record of
+`collect(n)`, is a `Document`, `Vertex` or `Edge` instead of a raw `Map`, and the columns keep the order of the projection.
+Earlier versions answered `RETURN n` with a vertex whose only property was `n` (issue #12196). A map is read as a record
+when it has a valid `@rid` and its `@type` names a type of the schema, so a map a query builds with those two keys is
+returned as that record too. A projection row with a `@type` column, such as `SELECT @type, name FROM Person`, is a
+projection row with both columns, not a record of that type (issue #12519).
+
+NOTE: A link, in a record property or in a projection column, is read back as a `RID`, and a list or map of links as a
+list or map of `RID`s, as the embedded API answers them _(since v26.12.1)_. Earlier versions answered the rid text, such
+as `"#1:0"`, so `(Identifiable) doc.get("friend")` threw `ClassCastException` (issue #12195). Each link is bound to the
+remote database, so `asDocument()`, `asVertex()` and `getRecord()` on it load the linked record from the server on any
+thread _(since v26.12.1, issue #12603; before, they failed with `DatabaseOperationException` on a thread with no
+embedded database open, and `database.lookupByRID(rid, true)` was the way to load the record)_.
+
 ===== Update Data
 
 Updating existing records is straightforward with the gRPC API:
@@ -298,6 +314,11 @@ database.command(
     )
 );
 ----
+
+NOTE: A persistent record set as a property value (`doc.set("owner", otherDocument)`), or passed as a query parameter, is
+sent as a link to that record and stored as a `LINK`, as the embedded API does _(since v26.12.1)_. Earlier versions stored
+it as the text of the record, such as `"#1:0@Doc[name=target]"`, so `SELECT owner.name` answered `null` (issue #12197).
+A document that was never saved is still stored as an embedded document.
 
 Batch updates using transactions:
 

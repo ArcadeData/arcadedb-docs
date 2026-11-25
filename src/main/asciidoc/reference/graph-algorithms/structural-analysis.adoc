@@ -653,6 +653,8 @@ YIELD node, inDenseSubgraph, density
 
 Finds the densest subgraph using Charikar's greedy peeling 2-approximation algorithm. The algorithm iteratively removes the vertex with the lowest current degree, tracking the density `(edges / nodes)` of the remaining subgraph. The subgraph that achieved the maximum density is returned.
 
+Since 26.12.1 the vertices are kept in buckets by current degree, so the call runs in O(V + E). Before 26.12.1 every peeled vertex was chosen with a scan of all of them (60 seconds at 160,000 vertices of average degree 6). Among vertices of equal degree the bucket order now decides instead of the lowest internal index, so on a graph with ties the subgraph reported can differ from the one an earlier version reported; both are valid 2-approximations. A self-loop now leaves the edge count with its vertex: before 26.12.1 it stayed counted, and the density reported for the subgraphs left after peeling such a vertex was too high.
+
 *Use Cases*
 
 - Identifying tightly-knit communities in social networks
@@ -718,7 +720,7 @@ YIELD clique, size
 
 *Description*
 
-Enumerates all maximal cliques in the graph using the Bron-Kerbosch algorithm with Tomita pivoting, implemented iteratively with an explicit stack to avoid JVM stack overflow on deep recursion. The graph is treated as undirected (both OUT and IN edges merged). Only cliques of size ≥ `minSize` are returned.
+Enumerates all maximal cliques in the graph using the Bron-Kerbosch algorithm with Tomita pivoting, implemented iteratively with an explicit stack to avoid JVM stack overflow on deep recursion. The graph is treated as undirected and simple (both OUT and IN edges merged, self-loops and repeated edges ignored). Only cliques of size ≥ `minSize` are returned, each listing its members once. Since v26.12.1 the search runs once per vertex in degeneracy order (Eppstein, Löffler and Strash) over sorted neighbour sets, so its memory is linear in the graph and a sparse graph of hundreds of thousands of vertices is no longer refused by the working-memory budget; before, it kept a V×V bit matrix (issue #12173).
 
 *Use Cases*
 
@@ -770,7 +772,7 @@ YIELD nodeId, trussNumber
 | Parameter | Type | Required | Default | Description
 
 | `relTypes` | String | No | all types | Comma-separated relationship types
-| `k` | Integer | No | `3` | Target truss parameter (minimum 3)
+| `k` | Integer | No | none | Selects the k-truss: only the vertices with a truss number of at least `k` are returned (minimum 2). Omitted or `null`, every vertex is returned
 |===
 
 *Yield Fields*
@@ -785,7 +787,7 @@ YIELD nodeId, trussNumber
 
 *Description*
 
-Computes the k-truss decomposition using BitSet-based triangle counting. A k-truss is a maximal subgraph where every edge participates in at least k−2 triangles. The algorithm iteratively removes edges with insufficient triangle support, and each vertex is assigned the maximum truss number of any of its incident edges in the full decomposition.
+Computes the k-truss decomposition. A k-truss is a maximal subgraph where every edge participates in at least k−2 triangles. The algorithm removes edges with insufficient triangle support, and each vertex is assigned the maximum truss number of any of its incident edges in the full decomposition (0 for a vertex with no edge). The decomposition is defined on the simple undirected graph: direction, repeated edges and self-loops do not count. When `k` is passed, only the vertices of the k-truss are returned: those whose truss number is at least `k`. Without `k` (or with `null`) every vertex is listed with its truss number. A `k` below 2 is refused, since every edge belongs to the 2-truss. Before v26.12.1 `k` was validated but ignored (issue #12303). Since v26.12.1 the edges are peeled in support order over sorted neighbour sets, O(E^1.5) time and O(V + E) memory, instead of two V×V bit matrices, and a self-loop no longer gives the edges of its vertex a phantom triangle (issue #12173).
 
 *Use Cases*
 
@@ -800,6 +802,15 @@ Computes the k-truss decomposition using BitSet-based triangle counting. A k-tru
 CALL algo.kTruss('KNOWS', 4)
 YIELD nodeId, trussNumber
 RETURN nodeId, trussNumber ORDER BY trussNumber DESC LIMIT 20
+----
+
+Every vertex with its truss number, including those in no triangle (truss number 2) or in no edge (0):
+
+[source,cypher]
+----
+CALL algo.kTruss('KNOWS')
+YIELD nodeId, trussNumber
+RETURN nodeId, trussNumber ORDER BY trussNumber DESC
 ----
 
 *References*

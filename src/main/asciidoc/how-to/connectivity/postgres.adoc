@@ -295,9 +295,11 @@ syntax error. The catalog queries these clients send are now read as PostgreSQL 
 
 A projection that names two columns alike, such as `SELECT NULL, NULL, relkind`, returns both columns.
 
-A catalog query that would take more work than the server spends on one statement - a regular expression that
-backtracks heavily, or deeply nested correlated sub-selects - fails with SQLSTATE `54000` (`program_limit_exceeded`)
-instead of returning an empty result.
+A catalog query that would take more work than the server spends on one statement - a regular expression (_since
+v26.12.1_, also a `LIKE` or `ILIKE` pattern) that backtracks heavily or takes very many steps, deeply nested correlated
+sub-selects, or, _since v26.12.1_, a set operation and its `ORDER BY` over a very large number of rows - fails with SQLSTATE `54000` (`program_limit_exceeded`) instead of returning an
+empty result. A set operation that names no catalog relation is passed to the SQL engine instead, as one that reads
+your own types is.
 
 [NOTE]
 ====
@@ -448,6 +450,10 @@ re-executes it against a populated one would otherwise see the column's type cha
   The server resolves this from the schema whenever the query names a single source type, which covers
   ordinary column selection; a column reached through a table alias, a computed expression, or a multi-table
   `JOIN` can still fall back to the value-only answer in that one configuration.
+- _Since v26.12.1_, a `{cypher}` query announces its temporals as SQL does: a stored `DATE` read as `n.prop` or a
+  `date()` result is `date`, a stored `DATETIME` or a `localdatetime()` result is `timestamp`, and a list of them is
+  written as SQL writes the same list. A zoned `datetime()`, a `time()` and a `localtime()` stay `varchar`, as their SQL
+  counterparts do. Before, every Cypher temporal was a `varchar` holding its ISO text (issue #11955).
 
 A column is typed from all the rows of a result, not from the first one, and a list from all its
 elements: `[1, 2.5]` is announced as `float8[]`, `[1, 3000000000]` as `int8[]`, and a list that also holds a
@@ -471,6 +477,13 @@ string `NULL`. An empty element `""` is kept. A malformed literal, such as `{a,,
 `malformed array literal` instead of being stored as something else. A parameter sent without a type is read as an array
 only when it is a valid array literal, so a JSON document such as `{"k": 1}` stays a string. _(Before, an empty element
 was dropped and `NULL` was stored as the string `NULL`, issue #10870.)_
+
+_Since v26.12.1_, a parameter sent without a type (psycopg 3 sends every Python `str` that way, and a Python list too) that is
+a valid array literal keeps the text it was sent as, wherever a string is wanted. Stored into a property declared `STRING`,
+or compared with one (`WHERE s = %s`, on a scan or through an index), `{name}`, `{a,b}` and `{}` are exactly that text.
+Before, a `STRING` property stored `[name]`, `[a, b]` and `[]`, and the comparison matched nothing (issue #12711). Stored
+into a property the type does not declare, or declared `LIST`, the same parameter is still the list, which is what a Python
+list parameter needs.
 
 _Since v26.11.1_, every type of the database (a table or a materialized view in the catalog) also has its row type in
 `pg_type`, as every PostgreSQL table has: a composite type (`typtype = 'c'`, `typcategory = 'C'`) named after the type, in
@@ -587,8 +600,11 @@ three characters `C:\`) and a quote inside a literal is doubled (`'it''s'`). Bac
 `E'...'` escape string (`E'a\tb'` holds a tab), with PostgreSQL's escape set: `\b \f \n \r \t`, octal `\ooo`,
 hex `\xhh`, `\uXXXX` and `\UXXXXXXXX`. `SET standard_conforming_strings = off` (or the same option in the
 startup packet, e.g. pgjdbc's `options=-c standard_conforming_strings=off`) makes every plain literal an escape
-string too, as in PostgreSQL. Inside an ArcadeDB JSON object (`CONTENT {...}`) a single-quoted string keeps the
-ArcadeDB meaning.
+string too, as in PostgreSQL. A single-quoted string is read the same way wherever it stands, inside an ArcadeDB JSON
+object (`CONTENT {...}`) or a list as well _(since v26.12.1)_: `CONTENT {"v": 'C:\'}` holds `C:\`, and the literal and
+the statement end where a client composing the text (psycopg2, pgjdbc with `preferQueryMode=simple`) expects. A
+double-quoted string of the object is still an ArcadeDB string literal. A hand-written ArcadeDB backslash escape inside
+the object is written `E'...'`, as outside it.
 
 [NOTE]
 ====
@@ -740,7 +756,7 @@ returned when none was expected", and a client that described the statement befo
 received an error with SQLSTATE `0A000` after the change had been applied.
 
 The other statements that only acknowledge what they did are answered the same way: `DEFINE FUNCTION`, `DELETE FUNCTION`,
-`SLEEP`, `LOCK`, `SET GLOBAL`, `LET`, `CONSOLE`, `TRUNCATE RECORD`, `RESTORE ...`, `BEGIN`/`COMMIT`/`ROLLBACK`, and an
+`SLEEP`, `LOCK`, `SET GLOBAL`, `LET`, `CONSOLE`, `RESTORE ...`, `BEGIN`/`COMMIT`/`ROLLBACK`, and an
 `INSERT`, `UPDATE`, `DELETE` or `CREATE VERTEX` without a `RETURN`. Before v26.12.1 `DEFINE FUNCTION`, `DELETE FUNCTION`,
 `SLEEP`, `LOCK`, `SET GLOBAL`, `LET` and `RESTORE` still answered a result set, with the same consequences.
 
@@ -791,3 +807,29 @@ In case the password contains special characters (like `/`, `\`, `@`, `?`, `!`, 
 it needs to be URL encoded (also known as "percent encoding").
 
 Note, that in the `psql` console queries or commands need to be terminated with a semi-colon `;` to be submitted.
+
+====== Apache Arrow (ADBC)
+
+https://arrow.apache.org/adbc/[ADBC] is Apache Arrow's database API: a client reads a result set as Arrow record batches instead of rows.
+Two drivers reach ArcadeDB over the Postgres protocol:
+
+* The https://arrow.apache.org/adbc/current/driver/postgresql.html[Apache Arrow ADBC PostgreSQL driver] connects directly and works with its default settings since v26.10.1.
+* <<adbcbridge,adbcBridge>> is a driver for ADBC that sits on top of the PostgreSQL ODBC driver (psqlodbc).
+
+With the Apache Arrow ADBC PostgreSQL driver in Python:
+
+[source,shell]
+----
+pip install adbc-driver-postgresql pyarrow
+----
+
+[source,python]
+----
+import adbc_driver_postgresql.dbapi as dbapi
+
+conn = dbapi.connect("postgresql://root:password@localhost:5432/mydatabase")
+with conn.cursor() as cur:
+    cur.execute("SELECT name, price FROM Product ORDER BY name")
+    print(cur.fetch_arrow_table())
+conn.close()
+----

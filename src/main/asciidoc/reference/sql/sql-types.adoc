@@ -59,8 +59,14 @@ the incoming unidirectional edges of the node.
 * *UNIQUE* Defines an edge type (only) that allows at most one edge per ordered `(out, in)` pair of vertices. On a regular edge type this creates a unique index on `(@out, @in)`; on a `LIGHTWEIGHT` type there are no records to index and the check scans the source vertex's edge list instead. See <<lightweight-edges,Lightweight Edges>>.
 * *IF NOT EXISTS* Specifying this option, the type creation will just be ignored if the type already exists (instead of failing
  with an error)
-* *`&lt;super-type&gt;`* Defines the super-type you want to extend with this type.
-* *`&lt;bucket-id&gt;`* Defines in a comma-separated list the ID's of the buckets you want this type to use.
+* *`&lt;super-type&gt;`* Defines the super-type you want to extend with this type. It must be a document type or a type of the
+ same kind as the new one: `CREATE VERTEX TYPE ... EXTENDS` takes a vertex or a document type, `CREATE EDGE TYPE ... EXTENDS` an
+ edge or a document type, and `CREATE DOCUMENT TYPE ... EXTENDS` only a document type. Any other super-type refuses the statement
+ before the type is created. _(Since v26.12.1, issue #12029. Before, for example, a document or an edge type could extend a vertex
+ type, and openCypher then failed with `ClassCastException` on the first such record a label scan met.)_
+* *`&lt;bucket-id&gt;`* Defines in a comma-separated list the ID's of the buckets you want this type to use. A bucket given by
+ its ID must exist already, and an unknown ID refuses the statement; a bucket given by its name is created when it does not exist.
+ _(Since v26.12.1, issue #12436. Before, a bucket given by its ID failed the statement with a `NullPointerException`.)_
 * *`&lt;total-bucket-number&gt;`* Defines the total number of buckets you want to create for this type. When omitted, the
  default is taken from the `arcadedb.typeDefaultBuckets` global configuration setting (`TYPE_DEFAULT_BUCKETS`), which is `1` by default.
 * *`&lt;page-size&gt;`* Defines the page size of the type.
@@ -75,6 +81,11 @@ A bucket belongs to one type only. The statement is refused when a bucket it wou
 listed in `BUCKET` or reused because its name is `<type>_<n>`, and when the same bucket is listed twice. The refusal is checked
 before anything is created, so the schema is left as it was and no half-built type remains. _(Since v26.11.1. Before, the type was
 registered first and stayed in the schema, without the refused bucket, and also after a restart.)_
+
+A type also keeps some buckets for its own use: the paired `_ext` bucket of its `EXTERNAL` properties, the `_out_edges` and
+`_in_edges` buckets of each of its vertex buckets, and the buckets of its super-node stripe pool. Another type cannot take
+such a bucket as one of its own: the statement is refused with an error that names the type the bucket belongs to. A vertex
+type is also refused a bucket whose `_out_edges` or `_in_edges` bucket already belongs to another type. _(Since v26.12.1.)_
 
 When working with multiple cores, it is recommended that you use multiple buckets to improve concurrency during inserts. To change
 the number of buckets created by default, <<sql-alter-database,`ALTER DATABASE`>> command to update the `minimumbuckets` property.
@@ -209,11 +220,62 @@ super-type was assigned, they cover a property the type no longer has, and the s
 applying to the type's records. Assigning the super-type again re-creates and rebuilds them.
 ====
 
+NOTE: Assigning a super-type is refused, before anything changes, when it would close a cycle (the super-type is the type
+itself or already one of its sub types, at any depth), or when it is a type of another kind: a vertex type can extend a vertex
+or a document type, an edge type an edge or a document type, and a document type only a document type. The same applies to the
+Java API (`addSuperType()`) and to the JSONL import of a logical export, which links the exported super-types the same way.
+_(Since v26.12.1, issues #12028 and #12029. Before, a cycle failed with a `StackOverflowError` (HTTP `500`) but stayed in the
+schema, after which queries on the type failed and the database could not be reopened; a link to a type of another kind was
+accepted, and openCypher then failed with `ClassCastException`.)_ A database whose schema already holds a cycle still opens:
+one link of the cycle is left out, with a warning in the log naming it, and the next schema save writes the result. Which link
+is left out depends on the order the types are loaded in. A link between types of different kinds written by an earlier
+version is kept.
+
 NOTE: Assigning a super-type with a `UNIQUE` index is refused with a `DuplicatedKeyException` when a record of the type
 holds a key the index already holds (or two records of the type share one), and the type is left as it was. The same
 applies to `ALTER TYPE ... BUCKET +` when the bucket added already holds records: a duplicate key refuses the statement
 and the bucket is not attached. _(Since v26.12.1, issue #11302. Before, the statement was accepted and the type's part
 of the index was left empty, so queries using that index missed the type's records.)_
+
+NOTE: Assigning a super-type builds its indexes (and those of the types above it) for the whole branch that joins it: the
+type and every type below it, at any depth, since their records become records of the super-type too. A `UNIQUE` key
+that clashes anywhere in that branch refuses the statement in the same way, with nothing changed. _(Since v26.12.1,
+issue #12036. Before, only the type's own records were indexed: a `UNIQUE` index was not enforced for the records of its
+sub types, and `SEARCH_INDEX` and `vectorNeighbors` did not return them. In a database where the super-type was assigned
+on an earlier version, removing it and assigning it again builds the missing entries.)_
+
+NOTE: Assigning a super-type is refused, before anything changes, when a stored record of the type, or of a type below it,
+violates a property the type would inherit from it (or from the types above it): a `MANDATORY` property the record lacks, a
+`NOTNULL` one it holds as `null`, a value of another type than the declared one, or a value outside its `MIN`, `MAX` or
+`REGEXP`. This is the check `CREATE PROPERTY` and `ALTER PROPERTY` apply to existing records. The message names the first
+violating record and the reason, for example `Cannot make type 'T' a sub type of 'S': record #1:0 violates the properties
+it would inherit, The property 'T.p' value 5 is less than 10. Fix or delete the non-conforming records first`. A property
+the type already declares itself with the same type is governed by that declaration and not checked again. The check reads
+the records of the type and its sub types, so on a large type the statement takes as long as that scan. _(Since v26.12.1,
+issue #12030. Before, the statement was accepted, and every later write to such a record failed, even one that did not
+touch the inherited property.)_
+
+NOTE: Assigning a super-type is refused, before anything changes, when it declares a property with another type (or another
+`OF` type) than a declaration of the same name that the type, or a type below it, already sees: for example `P.x FLOAT` against
+a sub type that declares `x DATETIME`. One name cannot have two types in a hierarchy, because an index of the super-type on `x`
+would hold the records of the sub type under keys of the other type. The message names the property and the two types. A
+declaration of the same type stays accepted, with a warning in the log, and `CREATE PROPERTY` applies the same rule (see
+<<sql-create-property,`CREATE PROPERTY`>>). A database that already holds such an overlap still opens, and `DROP TYPE` can
+still re-attach the sub types of the type it drops. _(Since v26.12.1, issue #12732. Before, the statement was accepted
+whatever the types were: lookups through the super-type's index missed the records of the sub type, a `BINARY` against a
+number left an index file that could not be read, and a `BY KEY`, `BY ITEM` or `GEOSPATIAL` index over a property of another
+type answered `500` or refused every later insert.)_
+
+NOTE: Removing a super-type is refused, and nothing changes, while an index of the type or of a type below it stands on a
+property that type would stop inheriting, the same rule `DROP PROPERTY` applies. The message names the property and the
+index: drop the index first, declare the property on the type, or add a super-type that provides it before removing the
+old one. The changes of one statement are applied in the order written, so to swap two super-types that both declare the
+property write the addition first (`ALTER TYPE C SUPERTYPE +Q, -P`); `SUPERTYPE -P, +Q` is refused at the removal. A removal
+is also refused when the property would then be inherited from another super-type with a different type (for example
+`STRING` instead of the `INTEGER` the index is keyed on). `DROP TYPE` applies the same rule to the sub types of the dropped
+type (see <<sql-drop-type,`DROP TYPE`>>). _(Since v26.12.1,
+issue #12038. Before, the removal was accepted and left the index keyed on a property the type no longer declared, so
+values were stored with one type and indexed with another.)_
 
 * Add the "account2" bucket to the type `Account`.
 
@@ -222,6 +284,11 @@ ArcadeDB> ALTER TYPE Account BUCKET +account2
 ----
 
 In the event that the bucket does not exist, it automatically creates it.
+
+The statement is refused when the bucket belongs to another type, or when another type keeps it for its own use (the paired
+`_ext` bucket of its `EXTERNAL` properties, the `_out_edges` and `_in_edges` buckets of one of its vertex buckets, a bucket of its
+super-node stripe pool). On a vertex type it is also refused when the `_out_edges` or `_in_edges` bucket of the bucket added already
+belongs to another type. The error names the other type, and the schema is left as it was. _(Since v26.12.1.)_
 
 * Remove the bucket `account_34` from the type `Account` (buckets are referenced by name):
 
@@ -255,11 +322,11 @@ ArcadeDB> ALTER TYPE Account CUSTOM meta = { abool: true, alist: [1,2,3,4,5]};
 ArcadeDB> ALTER TYPE Account NAME Client;
 ----
 
-NOTE: Renaming a type carries what is bound to it by name: its buckets and indexes (those it declares and the sub-indexes it holds for the indexes of its super types; renaming a super type leaves the sub-indexes of its sub types as they are), the files a <<timeseries,TIMESERIES>> type keeps its samples in (the mutable bucket and sealed file of each shard, and the tag dictionary; the rename is refused, before anything is changed, when a file of that name is already in the database directory; when that name is held by a bucket, such as `X_shard_0` for a rename to `X`, the refusal is an "already exists" conflict, HTTP `409`), the <<materialized-views,materialized views>> and continuous aggregates that read it (their stored source type and the `FROM` of their defining query), the triggers defined on it, and the graph analytical views that list it (their definition is updated and the view rebuilt). The rename is refused, before anything is changed, when the type is the backing type of a materialized view or a continuous aggregate (it is named after the view), or when a view's query names the type in a form that cannot be re-pointed with certainty. _(Since v26.11.1. Before, a view or an aggregate kept naming the old type: its refresh failed, `DROP TYPE` on the renamed source was let through, and a trigger came back unbound after a restart. A renamed TIMESERIES type came back empty after a restart, its samples left in the files named after the old type.)_
+NOTE: Renaming a type carries what is bound to it by name: its buckets and indexes (those it declares and the sub-indexes it holds for the indexes of its super types; renaming a super type leaves the sub-indexes of its sub types as they are), the files a <<timeseries,TIMESERIES>> type keeps its samples in (the mutable bucket and sealed file of each shard, and the tag dictionary; the rename is refused, before anything is changed, when a file of that name is already in the database directory; when that name is held by a bucket, such as `X_shard_0` for a rename to `X`, the refusal is an "already exists" conflict, HTTP `409`), the <<materialized-views,materialized views>> and continuous aggregates that read it (their stored source type and the `FROM` of their defining query), the triggers defined on it, and the graph analytical views that list it (their definition is updated and the view rebuilt). The rename is refused, before anything is changed, when the type is the backing type of a materialized view or a continuous aggregate (it is named after the view), or when a view's query names the type in a form that cannot be re-pointed with certainty. _(Since v26.11.1. Before, a view or an aggregate kept naming the old type: its refresh failed, `DROP TYPE` on the renamed source was let through, and a trigger came back unbound after a restart. A renamed TIMESERIES type came back empty after a restart, its samples left in the files named after the old type.)_ _(Since v26.12.1 this holds for `LSM_VECTOR` indexes too, issue #12035. Before, their per-bucket indexes kept the old type name, so `SELECT FROM schema:indexes` failed with `Type with name '...' was not found` until a restart, and a type created later under the old name was listed as their owner.)_
 
 NOTE: A property declared `EMBEDDED`, `LINK`, `LIST` or `MAP OF` the renamed type follows the rename too, and new embedded documents of the renamed type can be written, whether the property declares the type or not. _(Since v26.12.1, issue #11305. Before, the property kept the old name and every write of it failed with "Type with name ... was not found", and no embedded document of the renamed type could be written at all.)_ An embedded document written BEFORE the rename still names the old type and is not read back until the type is renamed back (issue #11336): rename a type that holds embedded documents only once the data can be re-imported.
 
-NOTE: An index with the default name follows the rename: `Account[id]` becomes `Client[id]`, and `DROP INDEX` and `REBUILD INDEX` find it by the new name at once (the old name no longer resolves). An index created with a name of its own (`CREATE INDEX AccountIds ON Account (id) UNIQUE`) keeps that name across the rename and across a restart. A rename is refused, and nothing changes, when an index of the type would take a name another index already has. _(Since v26.11.1. Before, the index was listed under the new name but resolved only by the old one, and a name of its own was replaced by the default one.)_
+NOTE: An index with the default name follows the rename: `Account[id]` becomes `Client[id]`, and `DROP INDEX` and `REBUILD INDEX` find it by the new name at once (the old name no longer resolves). An index created with a name of its own (`CREATE INDEX AccountIds ON Account (id) UNIQUE`) keeps that name across the rename and across a restart. A rename is refused, and nothing changes, when an index of the type would take a name another index already has. _(Since v26.11.1. Before, the index was listed under the new name but resolved only by the old one, and a name of its own was replaced by the default one.)_ An index created with the default name written out (``CREATE INDEX `Account[id]` ON Account (id) UNIQUE``) counts as an index with the default name and follows the rename too, `TRUNCATE TYPE` after it included. _(Since v26.12.1, issue #12774. Before, an `LSM_SPARSE_VECTOR` index that had been through `REBUILD INDEX` came back from `TRUNCATE TYPE` under the old type name, for example `Account[tk,wt]` on the type `Client`, and was saved that way: `vectorSparseNeighbors` on that name failed with `Type with name 'Account' was not found` and a new type `Account` could not get the same index.)_
 
 * Add the former type name 'Account' as alias for 'Client':
 
@@ -268,6 +335,8 @@ ArcadeDB> ALTER TYPE Client ALIASES Account;
 ----
 
 NOTE: Using `ALIASES` overwrites any previous `ALIASES` of this type.
+
+NOTE: A statement that names the type by an alias answers what it answers with the type's name, an index used or not: `SELECT`, `UPDATE` and `DELETE`, `MATCH` (`type:`) and `INSTANCEOF`, on the type and on its sub-types. _(Since v26.12.1, issue #12968. Before, a statement through an alias that the planner answered with an index returned no rows, and an `UPDATE` or `DELETE` reported `count: 0` and changed nothing.)_
 
 For more information, see:
 
@@ -312,15 +381,22 @@ Be sure to create a backup before running it.
 
 NOTE: Bear in mind, that the schema must remain coherent.
 For instance, avoid removing types that are super-types to others.
-This operation won't delete the associated bucket.
+The buckets of the type are dropped with it, together with the paired `_ext` buckets that hold the values of its <<sql-external-properties-pairing,EXTERNAL properties>>.
 
 NOTE: An edge type whose edges are all lightweight is refused without `UNSAFE`, as any edge type that still has edges is. _(Since v26.11.1, issues #10923 and #11142. Before, the check looked for edge records only, so the drop went through and left entries in the vertices that no command could read or delete.)_
+
+NOTE: The paired `_ext` bucket of a bucket detached from the type earlier (with `ALTER TYPE ... BUCKET -`) is kept, since the records of the detached bucket still point into it. _(Since v26.12.1, issue #12995. Before, `DROP TYPE` left every paired `_ext` bucket behind: its file stayed on disk with the EXTERNAL values, it stayed in the schema, `CHECK DATABASE` counted its records, and a type created later under the same name took it over with the old values.)_
 
 NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a materialized view, a continuous aggregate or a graph analytical view reads the type. Drop the view first. _(Since v26.11.1 for graph analytical views. Before, the drop went through and the view failed to build at the next open.)_
 
 NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while a property of another type is declared `EMBEDDED`, `LINK`, `LIST` or `MAP OF` the type (or of one of its aliases). The message names the property: drop it first with `DROP PROPERTY <Type>.<property>`. A property of the dropped type itself, one declared of its own type included, goes with it. _(Since v26.12.1, issue #11305. Before, the drop went through and every write of the property, and every read of a record holding one, failed to resolve the type.)_
 
-NOTE: Dropping a type links its sub types directly to its super types. When that would link a sub type directly under the backing type of a <<materialized-views,materialized view>> or a continuous aggregate, or under a type below one, `DROP TYPE` is refused before anything is changed, with a message naming the link to take out first, for example `+ALTER TYPE `Deep` SUPERTYPE -`Mid`+` to drop `Mid` out of `+Deep -> Mid -> <view>+`. Once that link is removed, the drop goes through. Such a chain exists only in a database written before 26.11.1, which refuses a type extending a backing type (issue #11204). _(Since v26.12.1, issue #11272. Before, the drop linked the sub type under the backing type anyway.)_
+NOTE: Dropping a type links its sub types directly to its super types. When that would link a sub type directly under the backing type of a <<materialized-views,materialized view>> or a continuous aggregate, or under a type below one, `DROP TYPE` is refused before anything is changed, with a message naming the link to take out first, for example `+ALTER TYPE `Deep` SUPERTYPE -`Mid`+` to drop `Mid` out of `+Deep -> Mid -> <view>+`. Once that link is removed, the drop goes through. Such a chain exists only in a database written before 26.11.1, which refuses a type extending a backing type (issue #11204). _(Since v26.12.1, issue #11272. Before, the drop linked the sub type under the backing type anyway.)_ The same refusal applies
+when the new direct link would join types of different kinds, which only a database written before 26.12.1 can hold (for example a
+document type under a vertex type under another vertex type: dropping the middle type is refused, naming the link to take out first).
+A hierarchy that follows the rule can be dropped from the middle as before. _(Since v26.12.1, issue #12029.)_
+
+NOTE: `DROP TYPE` is refused, even with `UNSAFE`, while an index of one of its sub types (at any depth) stands on a property that sub type would no longer inherit after the drop, the same rule `DROP PROPERTY` applies. For example, with `C EXTENDS P`, `P.k` declared only on `P` and an index `C[k]`, `DROP TYPE P` answers `Cannot drop the type 'P' because the property 'k' that type 'C' would no longer inherit is used by index 'C[k]'` and changes nothing: drop the index first, or declare the property on the sub type. A property the sub type keeps does not count: one it declares itself, one it inherits through another super type, or one declared by a super type of the dropped type. The dropped type's own indexes are dropped with it, as before. _(Since v26.12.1, issue #12318. Before, the drop went through and left the index keyed on a property no type declared, so values were stored with one type and indexed with another.)_
 
 NOTE: A database written by a version affected by issue #8169 can still contain a type that was dropped but came back after a restart with no buckets: inserting into it fails with `Cannot retrieve a bucket for type ... because there are no buckets associated`. The database logs a warning at open naming every type that has no buckets and no subtypes, and `DROP TYPE <name>` removes such a type permanently.
 

@@ -174,6 +174,58 @@ Over HTTP the refusal is a `400`. A type error that can only be found while the 
 `UNWIND [[1, 2]] AS l RETURN l.x`, is a `400` too, with `com.arcadedb.exception.TypeMismatchException` as the
 reported exception, and `Neo.ClientError.Statement.TypeError` over Bolt. Before v26.11.1 both answered `500`.
 
+[[cypher-with-where-scope]]
+===== The WHERE of a WITH
+
+The `WHERE` of a `WITH` filters the rows the `WITH` produces. After a plain `WITH` it sees the projected names and the
+variables that came in. After an aggregating or `DISTINCT` `WITH` the incoming rows are gone, so, as in Neo4j, it sees
+only the projected columns, and an expression that repeats a grouping key reads that key's column:
+
+[source,cypher]
+----
+MATCH (n:Node) WITH n.b AS v, count(*) AS c WHERE n.b IS NOT NULL RETURN v, c  // n.b reads the column v
+MATCH (n:Node) WITH n.b AS v, count(*) AS c WHERE n.id > 1 RETURN v, c         // refused: n is not defined here
+----
+
+NOTE: Since v26.12.1. Before, a name the `WHERE` could not see evaluated to `null`, which silently filtered every row out.
+
+[[cypher-invalid-input-refusals]]
+===== Invalid Inputs Are Refused
+
+_(Since v26.12.1.)_ As in Neo4j, these inputs raise an error instead of being accepted silently:
+
+* an invalid regular expression on the right of `=~`, such as `'a' =~ '['`, raises `Invalid Regex` (it evaluated to `false`);
+* `DELETE` of a value that is not a node, a relationship or a path, such as `WITH 1 AS x DELETE x`, raises a type mismatch
+(it did nothing);
+* `YIELD` of a column the procedure does not produce raises `Unknown procedure output`, with the list of the columns it
+produces (it returned `null`).
+
+Over Bolt they are reported as `Neo.ClientError.Statement.SemanticError`, `SyntaxError` and `TypeError` respectively.
+
+[[cypher-pattern-expression-boolean]]
+===== A Pattern Expression Is a Boolean Test
+
+A pattern expression such as `(p)-->()` tests whether the pattern exists, so in a `WHERE` it can only be used where a
+boolean is expected: as a predicate, as an operand of `NOT` / `AND` / `OR` / `XOR`, in a `CASE WHEN` condition, in the
+`WHERE` of a list predicate (`any()`, `all()`, `none()`, `single()`), of a list comprehension or of a pattern
+comprehension, and as the argument of `exists()`. Anywhere else it is refused with a syntax error (HTTP 400), as Neo4j 5
+does and as `RETURN` already did: inside `size()`, `toString()` or `coalesce()`, and as an operand of a comparison,
+`IS NULL`, `IN` or arithmetic. To count the matches, use a `COUNT { }` subquery or a pattern comprehension:
+
+[source,cypher]
+----
+MATCH (p:Person) WHERE size((p)-->()) > 5 RETURN p          // refused: use COUNT { } instead
+MATCH (p:Person) WHERE (p)-->() = true RETURN p             // refused
+MATCH (p:Person) WHERE COUNT { (p)-->() } > 5 RETURN p      // more than 5 outgoing relationships
+MATCH (p:Person) WHERE size([(p)-->(q) | q]) > 5 RETURN p   // the same, with a pattern comprehension
+MATCH (p:Person) WHERE NOT (p)-->() RETURN p                // a boolean position: fine
+----
+
+NOTE: Since v26.12.1. Before, these statements ran without an error and gave a wrong answer: `size((p)-->())` was `null`
+for every node, so `WHERE size((p)-->()) > 5` matched nothing. The same release fixes a `CASE WHEN (p)-->() ...` and a
+list predicate with a pattern in its `WHERE`, which were read as the bare pattern. A pattern expression in `UNWIND`,
+`ORDER BY`, `SKIP`, `LIMIT`, `FOREACH`, `DELETE` and `CALL` arguments is still read as a boolean and not refused (issue #12657).
+
 ===== Not Implemented Features
 
 The following Cypher features are not currently implemented:
@@ -201,6 +253,19 @@ RETURN false AND null AS b   // false
 RETURN true OR null AS c     // true
 RETURN null = null AS d      // null
 ----
+
+[[cypher-predicate-types]]
+A predicate must be a `BOOLEAN` (or `null`), wherever it is written: `WHERE`, the operands of `AND` / `OR` / `XOR` / `NOT`, `CASE WHEN`, and the `WHERE` of a list predicate or comprehension. As in Neo4j, a `LIST` is the one exception, read as `true` when it is not empty, and any other value (`INTEGER`, `FLOAT`, `STRING`, `MAP`, a node, ...) is a type error (`TypeError: Type mismatch: expected Boolean but was INTEGER`, a client error on every protocol). A literal operand (`RETURN 1 OR false`, `WHERE false AND 1`) is refused before the query runs, wherever it sits. `AND` and `OR` still skip an operand once the other one decides the result, so a skipped property is not checked: `WHERE true OR n.v` matches every node, as in Neo4j.
+
+[source,cypher]
+----
+MATCH (n:Node) WHERE n.active RETURN n   // a BOOLEAN property: fine
+MATCH (n:Node) WHERE n.tags RETURN n     // a LIST property: the nodes with at least one tag
+MATCH (n:Node) WHERE n.v RETURN n        // an INTEGER property: type error
+MATCH (n:Node) WHERE n.v <> 0 RETURN n   // what the previous line usually means
+----
+
+NOTE: Before 26.12.1 a non-`BOOLEAN` value was not refused, and its truth value depended on where it was written: any non-null value was `true` under `AND` / `OR` / `NOT` / `XOR` and in `CASE WHEN`, while `WHERE` read every non-`BOOLEAN` value, a non-empty list included, as `false`. A query relying on either reading now fails with the type error above; compare the value explicitly instead (`n.v <> 0`, `size(n.name) > 0`). The same release fixes `COUNT { ... } > 0` written as an operand of `AND` / `OR` without parentheses, which was read as the bare count, so a count of zero passed as `true`.
 
 The list predicates `all()`, `any()`, `none()` and `single()` follow the same rule: if the inner condition is
 `null` for one or more elements and no element decides the result outright (a `false` for `all()`, a `true` for
@@ -300,6 +365,18 @@ rounded, `duration.between()` and `inDays()` counted elapsed time across a dayli
 `sum()` / `avg()` refused durations.
 ====
 
+A date or datetime moved by a duration past the range of the Java calendar (year -999999999 to +999999999) has no value, and
+the same holds for the `epochMillis` of a `datetime()` past year 292278994, which does not fit a 64-bit number of
+milliseconds. `date('2020-01-01') + duration('P1000000000Y')` and `datetime('+999999999-01-01T00:00Z').epochMillis` are
+refused with an arithmetic error whose message starts with `Temporal overflow`, a client error like the overflow of a
+duration (HTTP 400, `Neo.ClientError.Statement.ArithmeticError` over Bolt).
+
+[NOTE]
+====
+Since v26.12.1 (issue #12706). Before, these statements failed with the raw Java error (`Invalid value for Year ...` or
+`long overflow`), which the HTTP API answered as a 500 internal error.
+====
+
 [[cypher-temporal-storage]]
 ===== Stored TIME, LOCAL TIME, Zoned DATETIME and DURATION Values
 
@@ -334,6 +411,33 @@ the offset the zone has now (`+09:00`), as in Neo4j.
 
 `duration.between(a, b)` splits the interval into whole months, then whole days, then the remaining time, as Neo4j
 does, so `a + duration.between(a, b)` is always `b`.
+
+[[cypher-temporal-maps-and-parsing]]
+===== Building Temporal Values from a Map or a String
+
+_(Since v26.12.1.)_ The maps given to `date()`, `localtime()`, `time()`, `localdatetime()`, `datetime()` and their
+`+*.truncate()+` functions follow Neo4j:
+
+* a date is given in one of four ways: calendar (`year`, `month`, `day`), week (`week`, `dayOfWeek`), quarter
+(`quarter`, `dayOfQuarter`) or ordinal (`ordinalDay`). Fields of two ways, such as `month` with `week`, are an error;
+* without a base value, `year` is required (and `hour` for a time) and the fields cannot skip a level:
+`date({year: 2024, day: 5})` is an error;
+* with a base value (`date:`, `datetime:`, ...), the fields replace its own in order, each keeping the day valid:
+`date({date: date('2024-02-29'), year: 2023, month: 3})` is `2023-03-28`;
+* with a `timezone`, the other fields are applied first and the value is then converted to that zone. A map holding only
+a `timezone` is the current time in that zone;
+* a field holding `null` takes its smallest value; a String field, an unknown key, or a base value of the wrong kind is an
+error. A whole number written as a float, such as `3.0`, is accepted.
+
+Strings are parsed with the ISO-8601 forms Neo4j accepts, among them `2015-Q3`, `2015-W30-2`, `2015-202`,
+`+2015-07-21`, `2015-7-21`, `21:40:32,142`, `T21:40`, and zone names in any case (`[europe/london]`). A string whose
+offset does not match its zone, such as `2015-07-21T21:40:32-04:00[Europe/London]`, is refused with `Timezone and offset
+do not match`, in Cypher and when stored in a zoned SQL datetime property; a zone name on a time, such as
+`time('21:40[Europe/London]')`, is refused too.
+
+NOTE: Before v26.12.1, a missing `year` or a base value of the wrong kind answered January 1 of the current year,
+conflicting fields were dropped silently, and an offset that contradicted the zone was replaced by the zone's, which
+changed the instant.
 
 ===== Strict Numeric Types
 
@@ -376,16 +480,26 @@ RETURN length(p)    // no row when the shortest Rome..Oslo path is longer than 2
 
 A relationship written without a quantifier, `-[:ROAD]-`, declares exactly one hop and is bounded accordingly.
 
-When both endpoints resolve to the *same* vertex, the answer is the zero-length path, as in Neo4j. An explicitly
-written minimum above one hop rejects it, since zero hops is not in the declared range:
+When both endpoints resolve to the *same* vertex, the answer is the zero-length path only when the pattern declares a
+minimum of zero hops (`*0..`, `*0..2`). Any other pattern, including `*`, `*1..` and a relationship without a
+quantifier, has no row for that pair: in the expression form `shortestPath(...)` returns `null` and
+`allShortestPaths(...)` an empty list.
 
 [source,cypher]
 ----
-MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*]-(a))     RETURN length(p)  // 0
-MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*3..5]-(a)) RETURN length(p)  // no row
+MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*0..]-(a)) RETURN length(p)  // 0
+MATCH (a:City {name:'Rome'}), p = shortestPath((a)-[:ROAD*]-(a))    RETURN length(p)  // no row
 ----
 
-Such a pattern is not reinterpreted as a request for the shortest cycle back to the start.
+Such a pattern is not reinterpreted as a request for the shortest cycle back to the start. Neo4j 5 refuses a shortest
+path whose start and end are the same node with an error; ArcadeDB drops the row instead, so a shortest path over a
+cartesian product (`MATCH (a), (b) MATCH p = shortestPath((a)-[*]->(b))`) answers every pair of distinct nodes.
+
+[NOTE]
+====
+*When upgrading to 26.12.1*: before, `*`, `*1..` and a relationship without a quantifier answered the zero-length path
+when both endpoints were the same node (issue #11913).
+====
 
 ===== Self-Loops in Undirected Patterns
 
@@ -397,6 +511,10 @@ hop by hop or with a variable-length quantifier, as in Neo4j:
 MATCH (n)-[*2]-() RETURN count(*)       // same count as the fixed-length form below
 MATCH (n)-[]-()-[]-() RETURN count(*)
 ----
+
+An undirected `MERGE` answers an existing self-loop once too, so `MERGE (a)-[r:R]-(b)` over two bindings of the same node
+returns one row and runs `ON MATCH SET` once, as `MATCH` and Neo4j do (since 26.12.1; it answered the loop twice before,
+issue #13117). Nothing was ever created twice, only the rows were duplicated.
 
 ===== Indexes Inherited from a Parent Type
 

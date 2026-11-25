@@ -101,7 +101,7 @@ List<Document> orders = query.parameter("statuses", List.of("shipped", "delivere
 ===== BETWEEN Operator
 
 The `between()` operator checks if a value falls within an inclusive range.
-When the property is indexed, ArcadeDB uses a range scan on the index.
+When the property has an ordered index (`LSM_TREE`), ArcadeDB uses a range scan on the index. A `HASH` index cannot answer a range, so the query is answered by a scan instead.
 
 [source,java]
 ----
@@ -193,7 +193,7 @@ SelectIterator<Document> iter = database.select().fromType("Log")
 ===== count()
 
 Returns the number of matching records without materializing them.
-Respects `skip()` and `limit()`.
+Respects `skip()` and `limit()`, and always equals the number of rows the same select returns, also when an `or` or an `in` list is answered by several index lookups that find the same record (since 26.12.1, issue #12685).
 
 [source,java]
 ----
@@ -216,8 +216,8 @@ long pending = query.parameter("status", "pending").count();
 
 ===== exists()
 
-Returns `true` if at least one matching record exists.
-Short-circuits immediately on the first match (does not scan further).
+Returns `true` if the select returns at least one record.
+Stops at the first record that is left once `skip()` is applied (does not scan further), so a select whose `skip()` leaves no row, or whose `limit()` is `0`, answers `false` (since 26.12.1, issue #12685).
 
 [source,java]
 ----
@@ -367,6 +367,8 @@ List<Document> results = query.documents().toList();
 
 NOTE: Parallel queries cannot use the current transaction context because they execute in separate threads. Use them for read-only queries outside transactions.
 
+A parallel select answers the same rows as the sequential one. With a `limit()` and no `orderBy()` the scan stops as soon as enough records were found; with an `orderBy()` every match is read and sorted before `skip()` and `limit()` are applied, so the result is the top of the whole ordering, not an arbitrary subset of it (since 26.12.1, issue #12692).
+
 ==== Timeout
 
 Set a maximum execution time for queries:
@@ -392,9 +394,9 @@ database.select().fromType("Person")
 The Select API automatically detects and leverages available indexes:
 
 * **Equality (`eq`)** -- single-key index lookup
-* **Range (`gt`, `ge`, `lt`, `le`)** -- range scan on the index
+* **Range (`gt`, `ge`, `lt`, `le`)** -- range scan on an ordered index (`LSM_TREE`); a `HASH` index only answers equality, so a range on a property whose only index is a hash index is answered by a scan and returns the same rows as without the index (since 26.12.1, issue #12677)
 * **IN (`in`)** -- multiple point lookups on the index; with an ascending `orderBy()` on the same property the rows come back in key order
-* **BETWEEN (`between`)** -- range scan with inclusive bounds
+* **BETWEEN (`between`)** -- range scan with inclusive bounds, on an ordered index only (a `HASH` index is skipped, as for the range operators above)
 * **AND logic** -- uses the best available index (prefers unique indexes)
 * **OR logic** -- uses both indexes when both sides are indexed, even when they are on properties of different types; falls back to full scan when either side is not indexed
 * **Composite indexes** -- an AND chain of equality conditions covering a leading prefix of a composite (multi-property) index's properties uses that index too, even when not every property is bound; if the query's `orderBy()` matches the trailing indexed property, the scan also satisfies the ordering without a separate in-memory sort

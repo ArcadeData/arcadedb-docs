@@ -31,7 +31,7 @@ A `DATE` in JSON is a number of epoch milliseconds at UTC midnight, as long as t
 [discrete]
 #### Precision on Undeclared Properties
 
-If a property is not declared in the schema, ArcadeDB stores every datetime at the precision of the value itself, so a microsecond value keeps its microseconds without any declaration.
+If a property is not declared in the schema, ArcadeDB stores every datetime at the precision of the value itself, so a microsecond value keeps its microseconds without any declaration. _(Since v26.12.1)_ This holds for a nanosecond value outside 1677-09-21..2262-04-11 too, the range of a `DATETIME_NANOS` count: `localdatetime("9999-12-31T23:59:59.999999999")` is stored exactly and reads back as a local datetime. Before 26.12.1 it was refused with "outside the range a nanos-precision timestamp can represent", and before 26.11.1 it was stored as `2262-04-11T23:47:16.854775807`. A database holding such a value cannot be opened by a version older than 26.12.1.
 
 Creating an index or a uniqueness constraint on such a property with Cypher (`CREATE INDEX`, `CREATE CONSTRAINT ... IS UNIQUE`) leaves it undeclared, so every value keeps its own precision (see <<cypher-create-index-property-types,property types of a Cypher index>>). _(Since v26.12.1)_ An existence constraint (`IS NOT NULL`, `IS NODE KEY`) declares it in the schema, and the type is inferred from the data already stored: ArcadeDB picks the highest precision it finds, so existing microsecond values give `DATETIME_MICROS`. Milliseconds are the minimum, so a property holding only whole seconds is declared `DATETIME` and not `DATETIME_SECOND`. Before 26.12.1 `CREATE INDEX` and `IS UNIQUE` declared the property the same way.
 
@@ -85,6 +85,14 @@ openCypher stores these four natively, so a value always reads back as what it w
 All four can be indexed, with both `LSM_TREE` and `HASH`. A `ZONED_DATETIME` and an `OFFSET_TIME` compare as in openCypher and Neo4j: the same instant in two zones is two different values, so `12:00:00+01:00` does not equal `11:00:00Z`, with or without an index, and a unique index accepts both. Values are ordered by instant, then by UTC offset from west to east, then by zone name.
 
 If a property is declared with one of these types and a record holds a String for it, the String is converted when the record is read and saved in the native type the next time the record is written. A String that cannot be converted is read as it is.
+
+_(Since v26.12.1)_ A value written to an `OFFSET_TIME`, `LOCAL_TIME` or `DURATION` property is converted to the declared type, or the `INSERT`, `UPDATE`, `CREATE` or `SET` fails with an error naming the property, as it does for `DATE`, `DATETIME` and `ZONED_DATETIME`:
+
+- `OFFSET_TIME` takes a time with an offset as it is. A time of day without an offset (`localtime()`, or text such as `'10:00'`) is taken at UTC. A datetime keeps its time of day and its offset: `datetime('2020-01-02T10:00+01:00')` is stored as `10:00+01:00`, and a `localdatetime()` as its time at UTC.
+- `LOCAL_TIME` takes a local time as it is. A value that carries an offset is read on the UTC clock, as a `DATETIME` reads one: `time('10:00+01:00')` and the text `'10:00+01:00'` are stored as `09:00`. A datetime keeps its time of day, on the UTC clock when it carries an offset.
+- `DURATION` takes a duration, its ISO 8601 text, a `java.time.Duration` or a `java.time.Period`.
+
+Anything else is refused: text that does not parse, a number, a boolean, a list, a `date()` and, for a `DURATION`, any point in time or time of day. Before 26.12.1 an unparseable String was stored as `NULL` (on a `NOT NULL` property the write failed with "cannot be null"), a number, a boolean, a list or a date was stored as it was, and another temporal kind failed with an internal `ClassCastException`.
 
 NOTE: a zoned `datetime()` written to a property declared `DATETIME` is stored as an instant and reads back as the UTC wall clock, like any other `java.time` value. Before 26.10.2 it kept the local wall clock of its zone.
 
@@ -340,6 +348,18 @@ SELECT sysdate() - lastActivity as secondsFromLastActivity FROM UserActivity
 Returns `1212113.232000000`.
 
 if the date supports the fractional part of the second, then it's returned as nanoseconds as decimal part. In the example above, `sysdate()` function returns a datetime with, by default, precision to the millisecond.
+
+The difference is a duration (a `java.time.Duration` in Java). Over HTTP and in JSON it is written as its exact number of seconds, to the nanosecond. _(Since v26.12.1)_ it is a number of seconds in SQL too, so it can be compared and computed with:
+
+- compared with a number, the number is a count of seconds, on either side of the operator and with `=`, `<>`, `<`, `<=`, `>`, `>=`, `IN` and `BETWEEN`: `WHERE sysdate() - lastActivity < 3600` selects the activities of the last hour. A duration also compares with another duration: `WHERE sysdate() - lastActivity < duration(1, 'hour')`;
+- `+` and `-` with a number of seconds or with another duration answer a duration: `(sysdate() - lastActivity) + 60`;
+- `*`, `/` and `%` with a number scale it into a duration: `(sysdate() - lastActivity) / 3600` is the hours, shown as their number. A duration divided by a duration is a plain number: `(sysdate() - lastActivity) / duration(1, 'hour')`;
+- a datetime plus or minus a duration is the datetime that much later or earlier, of the same type: `sysdate() - duration(7, 'day')` is a week ago. A `DATE` moved by whole days stays a `DATE`, and is otherwise that day at midnight moved by the duration;
+- a datetime plus or minus a number moves it by that many *milliseconds*, the unit a number has against a datetime everywhere else in SQL (comparisons, a number written into a `DATETIME` property, JSON): `lastActivity + 1000` is one second later. Prefer a `duration()`, which names its unit.
+
+Adding two datetimes, subtracting a datetime from a number or from a duration, multiplying two durations and dividing a duration by zero are refused with an error. A result out of the range of a datetime or of a duration is refused too.
+
+Before 26.12.1 a duration compared greater than every number and less than none, so `WHERE sysdate() - lastActivity < 3600` never matched; `+` with a number concatenated the two as text (`'PT24H1'`); `-`, `*`, `/` and `%` with a number answered `null`; a datetime plus or minus a number answered a duration counted from 1970 instead of a datetime; and a datetime plus or minus a `duration()` failed with an internal error. JSON wrote a duration as a floating point number, which lost the last digits of a duration longer than about 100 days.
 
 [[time-units]]
 [discrete]

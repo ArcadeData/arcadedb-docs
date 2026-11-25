@@ -221,7 +221,7 @@ RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
 * *`&lt;type&gt;`* Defines a valid target type.
 * *`bucket: &lt;bucket&gt;`* Restricts the node to the records of one bucket.
 * *`rid: &lt;rid&gt;`* Binds the node to the record with that RID, written as a literal (`#12:0`) or a parameter (`:rid`, `?`). A node bound by RID is the preferred starting point of the pattern. When the same node also declares a `type:` or a `bucket:`, the record must satisfy them as well: `{type: Person, rid: #12:0}` matches only if `#12:0` is a `Person` or a subtype of it, and matches nothing otherwise.
-* *`as: &lt;alias&gt;`* Defines an alias for a node in the pattern.
+* *`as: &lt;alias&gt;`* Defines an alias for a node in the pattern. An alias written in several places (in more than one comma-separated pattern, or twice in a cyclic path) is one node, so the `where:` of every occurrence applies to it, whichever occurrence the engine reaches it through: `MATCH {type: V, as: z}.out(){as: y}, {as: y, where: (c = 0)}` returns only the rows where `y.c = 0`. The one exception is a `where:` that reads `$depth`, which belongs to the `while:` or `maxDepth:` hop it is written on. _Since v26.12.1_: earlier versions applied such a `where:` only when the engine reached the node through the occurrence that carried it, and could return rows that violate it.
 * *`&lt;whereCondition&gt;`* Defines a filter condition to match a node in the pattern. It supports the normal SQL <<filtering,`WHERE`>> clause. You can also use the `$currentMatch` and `$matched` <<match-context-variables,context variables>>. A condition that is a single value rather than a comparison, such as a function call (`where: (isActive(@this))`) or a boolean property (`where: (active)`), matches when the value is `true`, as in a SQL `WHERE`; the same applies to `while:`. _Since v26.12.1_: earlier versions silently ignored such a `where:` or `while:`.
 * *`&lt;functionName&gt;`* Defines a graph function to represent the connection between two nodes. For instance, `out()`, `in()`, `outE()`, `inE()`, etc.
 For out(), in(), both() also a shortened _arrow_ syntax is supported:
@@ -230,7 +230,8 @@ For out(), in(), both() also a shortened _arrow_ syntax is supported:
 * `{...}.in(){...}` can be written as `{...}&lt;--{...}`
 * `{...}.in(&quot;EdgeType&quot;){...}` can be written as `{...}&lt;-EdgeType-{...}`
 * `{...}.both(){...}` can be written as `{...}--{...}`
-* `{...}.both(&quot;EdgeType&quot;){...}` can be written as `{...}-EdgeType-{...}`
+* `{...}.both(&quot;EdgeType&quot;){...}` can be written as `{...}-EdgeType-{...}`, or as `{...}&lt;-EdgeType-&gt;{...}`, a head on both sides reading as either direction like openCypher's `&lt;-[:EdgeType]-&gt;`
+Every arrow form means the same inside a nested path `.( )` as at the top level of the pattern. _Since v26.12.1_: earlier versions read `.(&lt;-EdgeType-&gt;)` as `.(in(&quot;EdgeType&quot;))`.
 * *`&lt;whileCondition&gt;`* Defines a condition that the statement must meet to allow the traversal of this path. It supports the normal SQL <<filtering,`WHERE`>> clause. You can also use the `$currentMatch`, `$matched` and `$depth` <<match-context-variables,context variables>>. For more information, see <<deep-traversal,Deep Traversal While Condition>>, below.
 * *`&lt;maxDepth&gt;`* Defines the maximum depth for this single path.
 * *`&lt;depthAlias&gt;`* This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the depth of this traversal. This alias can be used in the `RETURN` block to retrieve the depth of current traversal.
@@ -244,6 +245,7 @@ For out(), in(), both() also a shortened _arrow_ syntax is supported:
 * *`optional`* if set to true, allows to evaluate and return a pattern even if that particular node does not match the pattern itself (ie. there is no value for that node in the pattern). In current version, `optional` is supported only on right terminal nodes, eg. `{} --&gt; {optional:true}`. On any other node (the first node or a node in the middle of the pattern, eg. `{optional:true} &lt;-- {}`) the engine does not raise an error, but the flag is not applied, so do not rely on it there.
 * *`NOT` patterns* Together with normal patterns, you can also define negative patterns. A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won't be returned.
 * *<<sql-select-unwind,`UNWIND`>>* Designates the field on which to unwind the collection.
+* *`SKIP`* Number of results to skip. A negative value raises a `CommandExecutionException` (`Cannot execute a query with a negative SKIP`) whatever the `RETURN` is _(since v26.12.1; before, it was ignored)_.
 
 ===== Arrow notation
 
@@ -368,7 +370,7 @@ RETURN n.@rid AS noteRid, p.name AS patient
 ORDER BY noteRid           -- or ORDER BY n.@rid
 ----
 
-A bare record attribute such as `ORDER BY @rid` is refused on these rows with an error that suggests the two forms above. With `RETURN $elements` or `$pathElements` the rows are the records themselves, so `ORDER BY @rid` sorts them as expected.
+A bare record attribute such as `ORDER BY @rid` is refused on these rows with an error that suggests the two forms above (a `CommandSQLParsingException`, answered `400` over HTTP since v26.12.1, `500` before). With `RETURN $elements` or `$pathElements` the rows are the records themselves, so `ORDER BY @rid` sorts them as expected.
 
 *Starting point and indexed functions*
 

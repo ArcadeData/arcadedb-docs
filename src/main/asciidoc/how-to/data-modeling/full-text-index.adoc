@@ -137,6 +137,16 @@ CREATE INDEX ON Article (title, body) FULL_TEXT
 
 Here `title` uses the English analyzer while `body` falls back to the standard analyzer.
 
+A per-field analyzer applies to the words stored for that field and to every search qualified to it: `title:run` in
+`SEARCH_INDEX()`, `SEARCH_FIELDS(['title'], ...)` and `title CONTAINSTEXT ...`. With the index above, `title:run` finds
+a title containing "Running" and `title:running` does not. A search that names no field reads every property and is
+analyzed with the analyzer of the index, as is the document length used for BM25 scoring. On a one-property index, the
+`<field>_analyzer` of its property replaces the analyzer of the index.
+
+NOTE: Before 26.12.1 the `<field>_analyzer` options were stored but ignored. An index created by an older version with
+one of these options keeps analyzing every property with the analyzer of the index, so it answers exactly as before, and
+the server logs a warning when the database opens. Run `REBUILD INDEX` on it to apply its per-field analyzers.
+
 [[full-text-index-searching]]
 ===== Searching
 
@@ -286,6 +296,9 @@ SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', '+java +programming
 SELECT * FROM Article WHERE SEARCH_INDEX('Article[content]', 'java -python')
 ----
 
+An excluded term (`-python`) removes its matches from the group it is written in, as in Lucene: `(java -python) database` still returns a document holding `python database`, through `database`, and `java -(database -tutorial)` keeps a document holding all three words.
+A query or group made only of excluded terms (`-python`) is an ArcadeDB extension: it returns every indexed document that does not match them _(since v26.12.1: before, `java -python` returned every document of a bucket holding no `java`, less the `python` ones, and an excluded term inside a group removed its matches from the whole query)_.
+
 ====== Phrase Queries
 
 Wrap a phrase in double quotes to require terms to appear in order:
@@ -342,6 +355,9 @@ SELECT * FROM Article WHERE SEARCH_INDEX('Article[title,body]', '+title:"multi m
 ----
 
 A qualifier applies to every form of a term, phrases included: `title:"multi model"` matches the phrase in `title` only. A property indexed `BY ITEM` (for example `keywords BY ITEM` on a list) is qualified with its plain name, `keywords:graph`.
+
+An unqualified clause (a term, a prefix, a wildcard, a fuzzy or a regexp term) searches the words of every field and never the field names: `ti*` matches `tiger`, not every record with a `title`. A word that itself holds a colon (the default analyzer keeps `title:java` as one word) is searched by escaping the colon, `title\:java`, while `title:java` searches `java` in `title` only.
+_(Since v26.12.1: before, an unqualified prefix such as `ti*` also matched every record with a non-empty field whose name starts with it, and `title:java` also matched a record holding the text `title:java` in another field. An index created before v26.12.1 keeps words of the form `<property>:...` in the old form until `REBUILD INDEX <name>`; the wrong prefix, wildcard, fuzzy and regexp answers are fixed with no rebuild.)_
 
 ====== Boosting Terms (Caret)
 
@@ -492,6 +508,15 @@ WHERE SEARCH_INDEX('Article[content]', 'java database') = true
 ORDER BY $score DESC LIMIT 20
 ----
 
+_(since v26.12.1)_: a filter ANDed with `SEARCH_INDEX` or `SEARCH_FIELDS` that no index decides (`AND deleted_at IS NULL`, `AND n > 5`) no longer disables the `LIMIT` pushdown. The search starts from the best `SKIP + LIMIT` matches and, when the filter rejects some of them, goes on past them in the same order (descending `$score`, then RID) until the `LIMIT` is reached, so no sort runs after the filter and the query costs about the rows it returns rather than every match. When it has to go on, it reuses the postings it already read rather than reading the index again. The rows, their order and their scores are those of the complete search. `EXPLAIN` shows `(best N needed)` on the fetch step, followed by the filter. A filter that itself runs a full-text search (a second `SEARCH_INDEX` or `SEARCH_FIELDS`, also nested as in `ifnull(SEARCH_INDEX(...), false) = true`), calls a function the engine does not ship, or holds a subquery, keeps the previous plan: no pushdown, and an `ORDER BY $score DESC` sorts every row.
+
+[source,sql]
+----
+SELECT title, $score FROM Article
+WHERE SEARCH_INDEX('Article[content]', 'java database') = true AND deleted_at IS NULL
+ORDER BY $score DESC LIMIT 20
+----
+
 _(since v26.10.2)_: the `@rid` conditions ANDed with the search (`=`, `<>`, `<`, `\<=`, `>`, `>=`, `IN`, `NOT IN` against a literal, a parameter or a variable computed by a global `LET`) are decided on the matches' RIDs before any record is loaded, and no longer count as a filter that disables the `LIMIT` pushdown. With `ORDER BY @rid` (ascending or descending) the matches come back in RID order without a sort, so a `LIMIT` loads only the rows of the page. Together they make keyset pagination over a full-text result cost one page per page, rather than every match past the cursor. `EXPLAIN` shows the conditions as `RID FILTER` and the order as `ORDER BY @rid ASC (first N needed)`:
 
 [source,sql]
@@ -514,7 +539,7 @@ WHERE SEARCH_INDEX('Doc[content]', :q) = true AND tenant = :t
 ORDER BY $score DESC LIMIT 10
 ----
 
-_(since v26.10.2)_: an `OR` of searches (`SEARCH_INDEX(...) = true OR SEARCH_INDEX(...) = true`, `SEARCH_FIELDS` included) with no `ORDER BY` or exactly `ORDER BY $score DESC` is answered best first across all of them: the searches are merged by `$score` as their rows are read, instead of being run one after the other, deduplicated and sorted. A `LIMIT` therefore loads about the rows it returns rather than every match of every index, and without an `ORDER BY` the second index contributes to the first rows too, instead of only once the first one has none left. A record matched by several searches comes back once, with the best of its scores (the scores of different indexes are compared as they are, as `ORDER BY $score DESC` always compared them). A filter ANDed with the `OR` (`(... OR ...) AND lang = 'en'`) keeps the merge, but then the searches are not cut to the best `SKIP + LIMIT` matches. `EXPLAIN` shows `MERGE BY $score DESC` with one branch per search, each with `(best N needed)` when the `LIMIT` is pushed down:
+_(since v26.10.2)_: an `OR` of searches (`SEARCH_INDEX(...) = true OR SEARCH_INDEX(...) = true`, `SEARCH_FIELDS` included) with no `ORDER BY` or exactly `ORDER BY $score DESC` is answered best first across all of them: the searches are merged by `$score` as their rows are read, instead of being run one after the other, deduplicated and sorted. A `LIMIT` therefore loads about the rows it returns rather than every match of every index, and without an `ORDER BY` the second index contributes to the first rows too, instead of only once the first one has none left. A record matched by several searches comes back once, with the best of its scores (the scores of different indexes are compared as they are, as `ORDER BY $score DESC` always compared them). A filter ANDed with the `OR` (`(... OR ...) AND lang = 'en'`) keeps the merge; before v26.12.1 the searches were then not cut to the best `SKIP + LIMIT` matches, since then each one starts from them and goes on past them in order when the filter rejects rows. `EXPLAIN` shows `MERGE BY $score DESC` with one branch per search, each with `(best N needed)` when the `LIMIT` is pushed down:
 
 [source,sql]
 ----

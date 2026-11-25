@@ -5,11 +5,12 @@
 ===== SQL - `ALIGN DATABASE`
 
 
-Executes a distributed alignment of the database. It must be executed on the Leader server. The alignment computes a checksum of
-each file and sends them to the replica nodes. Each replica node will compute the checksum on its own files. The files that are
-mismatching are requested by the replica to the leader. In the future single pages could be transferred instead of the entire file.
+Reserved for a distributed alignment of the database's replicas.
 
-NOTE: Align Database command is available only when the server is running with the <<howto-high-availability,HA module>> active.
+NOTE: _(Since v26.12.1.)_ No database implements it, and the statement is refused with an error that says so (HTTP 400, it used
+to answer 500 with a bare `UnsupportedOperationException`). With <<howto-high-availability,Raft replication>> a replica is realigned
+by the cluster itself, by replaying the leader's log or by installing a snapshot of the leader, and a database with no replicas has
+nothing to align. To inspect the copy of a node, run <<sql-check-database,CHECK DATABASE>> on that node.
 
 *Syntax*
 
@@ -79,7 +80,8 @@ ArcadeDB> ALTER DATABASE `arcadedb.bucketDefaultPageSize` 262144
 
 Executes a backup of the current database. The resulting file is a compressed archive using ZIP as algorithm. The archive contains
 the database directory without the transaction logs. The backup is executed taking a snapshot of the database at the time the
-command is executed. Any pending transaction will not be in the backup archive. ArcadeDB allows to execute a non-stop backup of a
+command is executed. Any pending transaction will not be in the backup archive. _(Since v26.12.1)_ a backup taken inside a transaction
+leaves that transaction as it was, and its writes are committed with it: it used to be rolled back before the backup. ArcadeDB allows to execute a non-stop backup of a
 database while it is used without blocking writes or affecting performance. A close requested while a backup is running waits for
 the backup to complete, and the database keeps serving in the meantime: the archive is always complete, and the close goes ahead
 right after.
@@ -172,12 +174,33 @@ Executes an integrity check and in case of a repair of the database. This comman
 * cached record counters: the counter `count(*)` answers from is compared against the records the bucket scan
  actually found. See <<sql-check-database-record-counters,Cached record counters>> below.
 
+NOTE: _(Since v26.12.1.)_ Inside a transaction (`BEGIN ... COMMIT` in a script, `database.transaction(...)`, an HTTP session),
+`CHECK DATABASE`, with or without `FIX` and `COMPRESS`, runs outside that transaction and leaves it as it was: it checks the
+committed database, and the writes made in the transaction before and after it are committed with it. It used to roll the
+transaction back, losing those writes, and the next statement failed with `Transaction not begun`.
+
 * index entries against records: _since v26.12.1_, the entries of every `LSM_TREE` index are compared with the records of its
  buckets. An entry whose record does not exist (`danglingIndexEntries`), an entry whose record does not hold its key
  (`staleIndexEntries`) and a key a record holds with no entry (`missingIndexEntries`) are reported, the index is listed under
  `corruptedIndexes`, `warnings` names the entries and records involved, and `FIX` rebuilds it. Such entries make an indexed query
  return a row whose value differs from the one asked for (a dangling entry names whatever record reuses its RID later) or miss a
  row. A healthy index costs one scan of its buckets, shared by all their indexes, and one walk of its entries.
+
+* a compacted sub-index the index could not load: _since v26.12.1_, an `LSM_TREE` index whose compacted file was missing when the
+ database opened (the server log says `Invalid sub-index ... File with id N was not found`) is listed under `corruptedIndexes`, and
+ `warnings` says that the entries of that file are not served. Until then such an index answered from its newest entries alone,
+ and a `UNIQUE` one did not refuse a duplicate of a key only the lost file held, while the check reported it healthy. `FIX`
+ rebuilds it, and so does `REBUILD INDEX`. The index is not compacted meanwhile, because a compaction would write the partial
+ index out as the whole one. On a <<howto-high-availability,cluster>> node, a `UNIQUE` index in this state also quarantines the
+ database, which is then re-installed from the cluster, and the node hands leadership off rather than lead with it.
+
+[[sql-check-database-ha]]
+*`CHECK DATABASE` on a cluster*
+
+_Since v26.12.1_, `CHECK DATABASE` without `FIX` (and without `COMPRESS`) runs on the node it is sent to, and reports that node's
+files. Before, a replica forwarded it to the leader like any write, so it reported the *leader's* copy: a replica whose record
+counter or index had drifted was reported clean, which is the question the check exists to answer. `FIX` and `COMPRESS` are
+still forwarded to the leader, so their repairs replicate to every node.
 
 NOTE: `HASH`, `FULL_TEXT`, vector, geospatial and columnar indexes get the *structural* check only: it validates the index's own
 pages, not that every record of the type appears in the index. If you suspect one of them is incomplete - for example its build was
@@ -216,6 +239,10 @@ with a warning naming the vertex and the direction. Before v26.11.1 a rebuild dr
 The other shape is a *dangling reference*: an adjacency entry that points at a record which no longer exists, typically left behind
 by a vertex deleted by an old release, before edge removal became strict. There is nothing to rebuild in that case - the record the
 entry names is gone - so `FIX` drops the entry instead.
+_Since v26.12.1_ this covers <<lightweight-edges,lightweight edge>> entries too: one whose other vertex is gone, as left by
+`DROP TYPE ... UNSAFE` on a vertex type, is reported in `warnings` and counted under `invalidLinks` and `topMissingReferences`,
+and `FIX` drops it (counted under `prunedDanglingEntries`). Before, the check saw only record-backed edges, so `FIX` removed those
+and left the lightweight entries, which SQL `outE()`/`inE()` and `count(*)` kept returning.
 
 An application that reaches such a record before the repair has run is told so plainly, and always in the same
 way. Removing an entry from the edge list of a vertex whose own record is missing, adding one to it, and deleting that vertex
@@ -248,6 +275,12 @@ that reference it, so finding that vertex takes a scan - which is why the messag
 While the check runs, its progress (current step and percentage) is visible live in the <<console,console>>, in Studio, and
 through the <<http-progress,HTTP progress endpoint>>. Run `FIX` in a maintenance window: like every repair, it assumes no
 concurrent writers.
+
+NOTE: _(Since v26.12.1.)_ `CHECK DATABASE` with `FIX` or `COMPRESS` requires the `updateSchema` database permission, like
+`REBUILD INDEX` and `COMPACT INDEX` (see <<groups,groups>>), because a repair deletes and rewrites records whatever the user's
+per-type grants. A user without it, such as one of the built-in `readonly` and `crud` groups, gets a security error (HTTP `403`)
+and the database is left untouched. `CHECK DATABASE` without `FIX` and `COMPRESS` only reports and stays allowed. Before, any user
+who could open the database could run a repair.
 
 *Syntax*
 
@@ -468,11 +501,11 @@ number is in hand, and a disagreement is reported as an error naming the bucket,
 
 ----
 cached record count of bucket 'Order_0' is 10869 but the bucket holds 10906 records:
-count(*) on this bucket under-reports by 37; run CHECK DATABASE FIX to recompute the counter
+count(*) on this bucket under-reports by 37 - the counter is recomputed
 ----
 
-`FIX` recomputes it - the counter is invalidated, and the next `+count(*)+` rescans and republishes it. A read-only run
-only reports, and the report carries `staleRecordCounters` and, under `FIX`, `staleRecordCountersFixed`. Both count
+The check recomputes it - the counter is invalidated, and the next `+count(*)+` rescans and republishes it. The report
+carries `staleRecordCounters` and `staleRecordCountersFixed`. Both count
 *buckets*, not records: one per bucket whose counter disagreed, whatever the size of the disagreement. They sit next to
 record tallies such as `totalActiveRecords` in the same JSON, so the distinction is worth reading twice.
 
@@ -480,6 +513,14 @@ This is the symptom to look for when `+count(*)+` disagrees with a forced full s
 `+SELECT count(*) FROM <type> WHERE @rid IS NOT NULL+`, in *either* direction. On a replicated database the drift is
 per node and per bucket, so the replicas disagree with each other while holding identical data, which looks exactly
 like <<howto-high-availability,HA>> state divergence until a full scan rules it out.
+
+[NOTE]
+====
+_Since v26.12.1_ a read-only `CHECK DATABASE` recomputes a counter it proves wrong, as `FIX` does; before, only `FIX` did and a
+read-only run reported it with the advice to run `CHECK DATABASE FIX`. The counter is a cache of the node alone: no replication
+carries it and a restart reloads it as it was, so on a cluster replica, where `FIX` runs on the leader, a wrong counter had no
+repair at all. Recomputing it changes no record, so it is done whatever the mode.
+====
 
 NOTE: a bucket whose counter has never been computed is not reported - there is nothing to be wrong yet - and neither
 is one the current transaction has pending changes on, nor one this same run has just repaired, since in those cases
@@ -649,8 +690,10 @@ On an HA cluster these schema members are restored as one schema change, which h
 runs and replicates to every node. _(Since v26.10.2: they reached only the leader's schema, so the followers, and a new
 leader after a failover, had the imported types and records but no triggers, views, aggregates or functions.)_
 
-Installing a `JAVASCRIPT` or `JAVA` trigger, or a `js` function library, from an imported file requires the same
-`updateSecurity` permission that creating one by hand does, since either is code that runs inside the server.
+Restoring these schema members from an imported file requires the `updateSchema` permission, as creating each of them by
+hand does, and it is asked before any of them is installed. Installing a `JAVASCRIPT` or `JAVA` trigger, or a `js`
+function library, requires the `updateSecurity` permission as well, since either is code that runs inside the server.
+_(Since v26.12.1.)_
 ====
 
 [[sql-export-jsonl-value-fidelity]]

@@ -140,7 +140,7 @@ See also: <<algo-astar,Graph Algorithms: A*>> for the Cypher procedure variant w
 [[avg]]
 ====== avg() pass:[<span class="fn-badge fn-badge-math">math</span>]
 
-Returns the https://en.wikipedia.org/wiki/Arithmetic_mean[arithmetic mean]. The mean of integer values is a `DOUBLE`, even when their sum is too large for a `LONG`; the mean of `DECIMAL` values is a `DECIMAL`.
+Returns the https://en.wikipedia.org/wiki/Arithmetic_mean[arithmetic mean]. The mean of integer values is a `DOUBLE`, even when their sum is too large for a `LONG`; the mean of `DECIMAL` values is a `DECIMAL`. The mean of `DOUBLE` or `FLOAT` values is computed from their exact sum (see <<sum,sum()>>), so it is the same on every run _(since v26.12.1)_.
 
 Syntax: `avg(&lt;field|value&gt; [,&lt;field|value&gt;]*)`
 
@@ -288,6 +288,8 @@ See also: <<algo-cch-shortest-path,algo.cch.shortestPath>> for the Cypher proced
 ====== circle() pass:[<span class="fn-badge fn-badge-geo">geo</span>]
 
 Creates a 2D circle from two numbers specifying X- and Y-coordinate of circle's center and a number describing the circle's radius.
+
+A negative radius, an X outside -180 to 180 or a Y outside -90 to 90 is an error. _(Since v26.12.1, issue #12744; before, it was reported as a server fault)_
 
 Syntax: `circle(&lt;center-x&gt;, &lt;center-y&gt;, &lt;radius&gt;)`
 
@@ -440,6 +442,7 @@ Syntax: `difference(&lt;field&gt; [,&lt;field-n&gt;]*)`
 
 Works as aggregate or inline.
 If only one argument is passed then it aggregates, otherwise it executes and returns the DIFFERENCE between the collections received as parameters.
+An `ARRAY_OF_*` argument is read as its elements, as a `LIST` is _(since v26.12.1; before, the whole array was one element)_.
 
 *Examples*
 
@@ -516,17 +519,25 @@ SELECT distinct(name) FROM City
 [[duration]]
 ====== duration() pass:[<span class="fn-badge fn-badge-date">date</span>]
 
-Returns a Java duration object, which can be useful to compare periods of time.
+Returns a Java duration object, which can be useful to compare periods of time, and to move a datetime by an amount of time (see <<managing-dates,Arithmetic with dates>>).
 
-Syntax: `duration(&lt;field|integer&gt;, &#39;&lt;string&gt;&#39;)`
+Syntax: `duration(&lt;field|integer&gt;, &#39;&lt;string&gt;&#39;)` | `duration(&#39;&lt;iso-8601-duration&gt;&#39;)` | `duration(&lt;map&gt;)`
 
-NOTE: The admissible second argument values are given <<time-units,here>>.
+The two-argument form takes an amount and a time unit. The one-argument forms are the ones openCypher's `duration()` accepts, read by the same parser: an ISO-8601 duration text (`'PT1H30M'`, `'P2DT3H'`, `'P1W'`, `'PT0.5S'`, `'-PT2M'`) or a map of components (`{hours: 1, minutes: 30}`, with keys `weeks`, `days`, `hours`, `minutes`, `seconds`, `milliseconds`, `microseconds`, `nanoseconds`).
+
+NOTE: The admissible second argument values are given <<time-units,here>>. A duration is an exact amount of time, so the units with no fixed length, years and months, are refused in every form (`duration(1, 'month')`, `duration('P1M')`, `duration({years: 1})`): use days, hours, minutes, seconds or smaller.
 
 *Examples*
 
 [source,sql]
 ----
-SELECT duration(start, 'year') FROM Employees
+SELECT FROM UserActivity WHERE sysdate() - lastActivity < duration(1, 'hour')
+
+SELECT sysdate() - duration(7, 'day') AS aWeekAgo
+
+SELECT name FROM Event ORDER BY dt + duration('PT1H')
+
+SELECT dt + duration({days: 4, minutes: 6}) AS later FROM Event
 ----
 
 '''
@@ -901,6 +912,7 @@ SELECT max(salary1, salary2, salary3) FROM Account
 
 Returns the middle value or an interpolated value that represent the middle value after the values are sorted.
 Nulls are ignored in the calculation.
+It is `percentile(&lt;field&gt;, 0.5)`, with the same exact ordering and result type (see <<percentile,percentile()>>).
 
 Syntax: `median(&lt;field&gt;)`
 
@@ -1037,6 +1049,10 @@ Returns the nth percentiles (the values that cut off the first n percent of the 
 Nulls are ignored in the calculation.
 The quantiles have to be in the range 0--1
 
+The values are sorted by their exact numeric value, so two `LONG` values that read as the same double (above 2^53^) keep their order, and `percentile(v, 0)` and `percentile(v, 1)` answer `min(v)` and `max(v)` _(since v26.12.1)_.
+A percentile that falls between two different values is interpolated and answered as a double.
+One that lands exactly on a value answers it as a double when the double holds it exactly, otherwise as the original value (a `LONG` above 2^53^, a `DECIMAL`), never as a rounded number no record holds _(since v26.12.1)_.
+
 Syntax: `percentile(&lt;field&gt; [, &lt;quantile-n&gt;]*)`
 
 *Examples*
@@ -1139,13 +1155,12 @@ SLEEP randomInt(500);
 [[rectangle]]
 ====== rectangle() pass:[<span class="fn-badge fn-badge-geo">geo</span>]
 
-Creates a 2D rectangle from four numbers: the X of its west (left) edge, the Y of one horizontal edge, the X of its east (right) edge and the Y of the other horizontal edge.
-The two Y values can be given in either order, so `rectangle(0, 10, 10, 0)` (left, top, right, bottom) and `rectangle(0, 0, 10, 10)` (left, bottom, right, top) are the same box.
-The two X values keep their order: a west X greater than the east X is a rectangle across the antimeridian, e.g. `rectangle(170, 0, -170, 10)`.
+Creates a 2D rectangle from four numbers: the west (left) boundary X, one boundary Y, the east (right) boundary X and the other boundary Y.
+The two Y values can be given in either order, so `rectangle(0, 10, 10, 0)` and `rectangle(0, 0, 10, 10)` make the same box. The X values keep their order: a west X greater than the east X makes a rectangle that crosses the antimeridian. _(Since v26.12.1; before, the first Y had to be the lower one, and the top-then-bottom order failed with "maxY must be >= minY")_
+
+An X outside -180 to 180 or a Y outside -90 to 90 is an error. _(Since v26.12.1, issue #12744; before, it was reported as a server fault)_
 
 Syntax: `rectangle(<west-x>, <y1>, <east-x>, <y2>)`
-
-NOTE: Before 26.12.1 the arguments were read as (min X, min Y, max X, max Y), so a top Y greater than the bottom Y, as in `rectangle(0, 10, 10, 0)`, failed with `maxY must be >= minY`.
 
 *Examples*
 
@@ -1170,6 +1185,8 @@ Syntax: `set(&lt;field|value&gt;[,]*)`
 ----
 SELECT name, set(roles.name) AS roles FROM User
 ----
+
+Two numbers that are equal are one item whatever their type (`1`, `1L` and `1.0`), here and in `intersect()`, `difference()` and `symmetricDifference()`. A `DECIMAL` is compared exactly, as `DISTINCT` and `GROUP BY` compare it: `9007199254740993` and `9007199254740992` are two items. _(Since v26.12.1; before, these functions compared items by their Java type, so `1` and `1L` were two items, and openCypher `RETURN DISTINCT`, `count(DISTINCT)` and `collect(DISTINCT)` merged two decimals that a floating point number cannot tell apart)_
 
 '''
 
@@ -1317,6 +1334,8 @@ Returns the sum of all the values returned.
 
 Integers widen instead of wrapping: a sum of `INTEGER` values that does not fit an `INTEGER` is returned as a `LONG`, and a sum of `LONG` values that does not fit a `LONG` is returned as a `DECIMAL` (`BigDecimal`). Clients that read the result as a `LONG` can see a `DECIMAL` when the total overflows.
 
+A sum of `DOUBLE` (or `FLOAT`) values is the exact sum of the values, rounded once to a `DOUBLE` (or `FLOAT`): the same query over the same data returns the same value on every run, whether it runs in parallel or not, and adding `0.1` ten times returns `1.0`. _(Since v26.12.1; before, a parallel scan could return a slightly different value on each run.)_ This holds for values of one floating-point type, with or without integers among them; a mix of `FLOAT` and `DOUBLE` values is still added pairwise.
+
 Over an empty group, or a group where every value is `NULL`, `sum()` returns `NULL` (as `avg()`, `min()` and `max()` do), not `0`. _(Since v26.10.2)_ Use `ifnull(sum(<field>), 0)` to get `0`. In OpenCypher, `sum()` still returns `0`.
 
 Syntax: `sum(&lt;field&gt;)`
@@ -1335,6 +1354,7 @@ SELECT sum(salary) FROM Account
 
 Works as aggregate or inline.
 If only one argument is passed then it aggregates, otherwise executes and returns the SYMMETRIC DIFFERENCE between the collections received as parameters.
+An `ARRAY_OF_*` argument is read as its elements, as a `LIST` is, in both forms _(since v26.12.1; before, the whole array was one element)_.
 
 Syntax: `symmetricDifference(&lt;field&gt; [,&lt;field-n&gt;]*)`
 
@@ -1976,7 +1996,8 @@ SELECT vectorDequantizeBinary(vectorQuantizeBinary([0.1, 0.5, 0.9]))
 Compute https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a[reciprocal rank fusion (RRF)] for combining multiple ranks.
 Ranks may be passed as variadic arguments or grouped in a single array/list. Every positional numeric
 argument is a rank. The center constant `k` (default `60`) is set only via a trailing options map
-`{ k: <long> }` - a bare trailing number is always a rank, never `k`.
+`{ k: <long> }` - a bare trailing number is always a rank, never `k`. `k` must not be negative: a negative value is
+refused with an error _(since v26.12.1)_.
 
 Syntax: `vectorRRFScore(&lt;rank&gt;, &lt;rank&gt;, ... [, { k }])` or `vectorRRFScore([&lt;ranks&gt;], [{ k }])`
 
