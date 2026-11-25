@@ -205,6 +205,14 @@ errors, such as a key too large for a page, are not retryable and are reported a
 open _(since v26.12.1, issue #11835; before, such writes could fail with `400` "Cannot update the index ... because the file is
 invalid" or `500` `IndexException`, although a retry succeeded)_.
 
+[[partial-commit-not-retryable]]
+*A block that already committed part of its work.* A statement that commits in batches (`UPDATE`, `DELETE` or `MOVE VERTEX ... BATCH n`,
+Cypher `CALL { ... } IN TRANSACTIONS`) cannot be replayed once a batch has committed. If a later batch hits a conflict, the failure is a
+non-retryable `TransactionException` saying the block committed part of its work and was not retried: HTTP `500` without `Retry-After`,
+gRPC `INTERNAL`, and the Java remote client does not resend it. Check what was applied before running the statement again
+_(since v26.12.1, issue #13251; before, the failure was reported as a retryable conflict, `503` or `ABORTED`, and a resend applied the
+committed batches twice)_.
+
 Using `remote` access all the commands are executed on the server, so out of transaction scope.
 Look below for more information.
 
