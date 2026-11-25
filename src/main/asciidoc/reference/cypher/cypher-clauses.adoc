@@ -1910,6 +1910,8 @@ MERGE (n:Record {id: $id}) SET n.orgId = $orgId RETURN n
 
 Any clause of the same statement may supply the property. A statement that ends without supplying it fails, and the incomplete record is removed.
 
+_(Since v26.12.1)_ `CALL { ... } IN TRANSACTIONS` commits partway through the statement, so the check also runs right before each of those commits: before the statement's writes ahead of the `CALL` are committed, and before each batch. A record must therefore be complete before the commit that stores it; one created by a batch cannot be completed by a clause after the `CALL`. An incomplete record in a batch fails that batch: the statement fails under `ON ERROR FAIL`, while under `ON ERROR CONTINUE` or `BREAK` only that batch is rolled back. An incomplete record written before the `CALL` fails the statement whatever `ON ERROR` says. No incomplete record is left stored.
+
 Only `CREATE`/`MERGE` pattern writes are deferred this way. Every other constraint (`IS TYPED`, `min`, `max`, regular expressions, read-only) is still checked at the moment of the write, as are writes issued from SQL, the Java API and `CALL` procedures.
 
 CAUTION: Between the pattern creating the record and the statement ending, another connection can briefly read a record that does not yet satisfy its existence constraints. If the server stops in that window, the incomplete record is left behind.
