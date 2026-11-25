@@ -55,6 +55,8 @@ NOTE: A Java `enum` constant written to a property with no declared type, or put
 
 NOTE: Equality lookups give the same answer with or without an index. Two `DECIMAL` values are equal when they have the same numeric value, whatever their scale (`19.9` equals `19.90`). A `DATETIME` property is matched by a `java.time.Instant`, `ZonedDateTime` or `OffsetDateTime` of the same moment. A `BOOLEAN` property is matched by `true`/`false` as a string or by a number (`0` is false, anything else is true); an operand that does not read as a boolean matches nothing.
 
+NOTE: In SQL, a `DECIMAL` property compared with an infinity or a `NaN` (what `1.0 / 0`, `-1.0 / 0` and `0.0 / 0` produce, or a `Double.POSITIVE_INFINITY` passed as a parameter) is ordered as for any other numeric property, with or without an index: negative infinity is below every number, positive infinity and `NaN` above. So `WHERE dec < (1.0 / 0)` and `WHERE dec > (-1.0 / 0)` select every row that has a value, `WHERE dec > (1.0 / 0)` selects none, and `BETWEEN` agrees with `>=` and `<=`. An equality against an infinity or a `NaN` matches no row, and a decimal beyond the `DOUBLE` range (`1E+400`) still orders below positive infinity. _(Since v26.12.1, issue #12694)_ Before, such a comparison failed with a `NumberFormatException` in a scan, matched no row through an index, and a `BETWEEN` with such a bound selected no row in a scan.
+
 WARNING: When serializing floating point types `FLOAT` and `DOUBLE` to JSON, `NaN`, `Inf`, and `-Inf` are cast to `null`, wherever they appear, including inside lists and arrays.
 
 *Embedded `MAP` vs `EMBEDDED` Document*
