@@ -10,6 +10,20 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - `convert.toJson`, `util.md5`/`sha*`, `util.compress`/`decompress` and `coll.flatten` answer what APOC answers
+
+These functions answered differently from APOC 5.26 and now answer the same (issue #12108; see <<ext-fns-utility,Utility Functions>>):
+
+* `apoc.convert.toJson('x')` returns `"x"` (quoted JSON) instead of `x`; nodes, relationships and paths use APOC's `{id, type, labels, properties}` layout instead of ArcadeDB's record layout.
+* `apoc.util.md5`, `sha1`, `sha256` and `sha512` of a list hash the concatenation of the elements' string forms, so `md5(['a'])` is the MD5 of `a`, not of `[a]`.
+* `apoc.util.compress()` returns a byte array instead of a Base64 string and takes a config map. `decompress()` still accepts the old Base64 strings.
+* `apoc.coll.flatten(list, true)` flattens every level and `false` flattens one level. It was the other way round. `flatten(null)` returns `[]`.
+
+*Impact:* hashes, JSON text and compressed values computed before the upgrade differ from the ones computed after it.
+
+*Action:* recompute stored hashes if you compare them with new ones, and swap `true` and `false` in `coll.flatten` calls that relied on the old meaning.
+
+[discrete]
 ====== 26.12.1 - openCypher `toString()` refuses a `BINARY` value and `convert.toJson()` writes it as an array
 
 `toString()`, `toStringOrNull()` and `apoc.convert.toJson()` of a `BINARY` value (a byte array, such as a `BINARY` property or a bytes parameter) answered Java's identity text of the array, for example `[B@e044818`, which changes from row to row and from run to run (issue #12780). `toString()` now refuses it with `TypeError: InvalidArgumentValue - toString() cannot convert byte[]`, as it does for a list, `toStringOrNull()` answers `null`, and `toStringList()` answers `null` for such an element. `apoc.convert.toJson()` answers the JSON array of the signed bytes (`[1,-1]`), the text it already gave a byte array inside a map. Indexing into a `BINARY` value is still refused, and its message now says `byte[]` instead of `LIST<ANY>`.

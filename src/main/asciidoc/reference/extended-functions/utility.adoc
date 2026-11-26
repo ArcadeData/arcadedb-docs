@@ -7,17 +7,19 @@
 
 Compress data using gzip or deflate.
 
-*Syntax:* `util.compress(data, [algorithm])`
+*Syntax:* `util.compress(data, [config])`
 
 *Parameters:*
 [%header,cols="2,2,4"]
 |===
 | Parameter | Type | Description
 | data | String | String data to compress
-| algorithm | String | Optional - "gzip" (default) or "deflate"
+| config | Map | Optional - `{compression: 'GZIP' (default) | 'DEFLATE' | 'NONE', charset: 'UTF-8' (default)}`. The algorithm name is case-insensitive. `BZIP2`, `BLOCK_LZ4` and `FRAMED_SNAPPY` are not available and are refused.
 |===
 
-*Returns:* String - Base64-encoded compressed data
+*Returns:* Byte array - the compressed bytes, identical to what APOC returns for `GZIP`, `DEFLATE` and `NONE`
+
+_(Since v26.12.1.)_ The result used to be a Base64 string. A plain string as the second argument is still read as the algorithm name (issue #12108).
 
 NOTE: The input is limited to 10MB. A larger value is rejected with `Input size exceeds maximum allowed`, so that a
 single query cannot exhaust server memory.
@@ -29,9 +31,11 @@ single query cannot exhaust server memory.
 [[util-decompress]]
 ===== util.decompress()
 
-Decompress base64-encoded compressed data.
+Decompress data produced by `util.compress()`.
 
-*Syntax:* `util.decompress(data, [algorithm])`
+*Syntax:* `util.decompress(data, [config])`
+
+`data` is the byte array returned by `util.compress()`. A Base64 string is still accepted, so values stored with the old `util.compress()` can still be read. `config` takes the same `compression` and `charset` keys as `util.compress()`.
 
 *Returns:* String - Decompressed string
 
@@ -55,6 +59,8 @@ RETURN util.decompress(compressed) AS original
 Compute MD5 hash of a value.
 
 *Syntax:* `util.md5(value)`
+
+_(Since v26.12.1.)_ For a list, the hash is computed over the concatenation of the string form of each element, as in APOC: `util.md5(['a', 'b'])` equals `util.md5('ab')`. A `null` element adds nothing. A single value that is not a list is hashed as its own string form. The same applies to `util.sha1()`, `util.sha256()` and `util.sha512()` (issue #12108).
 
 *Returns:* String - MD5 hash (32 hex characters)
 
