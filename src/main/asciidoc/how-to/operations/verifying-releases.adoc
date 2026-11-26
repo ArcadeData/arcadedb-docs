@@ -1,0 +1,215 @@
+[[verifying-releases]]
+==== Verifying ArcadeDB Releases
+
+Every ArcadeDB release can be checked independently of the project, both for what it contains and for who built it.
+This page gives copy-paste commands for each kind of artifact.
+The checks apply to the releases that ship these artifacts, starting with the release that introduced them; older releases carry none of them.
+
+[[verifying-releases-why]]
+===== What a release carries
+
+[%header,cols="1,3"]
+|===
+| Artifact | What you can check
+| SBOM | A bill of materials listing every component in a distribution or image, in CycloneDX and SPDX, so you can scan it with your own tools.
+| VEX | `arcadedb-<version>.openvex.json` lists the vulnerability findings the project assessed as not affecting ArcadeDB, so scanners can suppress them.
+| Checksums and signatures | `SHA256SUMS` covers every release asset and is signed twice: with cosign keyless (`SHA256SUMS.sigstore.json`) and with GPG (`SHA256SUMS.asc`).
+| Provenance | SLSA build provenance for the jars, the distribution and native archives, the contract files, the JVM image and the per-architecture native images, proving which workflow built them.
+| Image signatures | A cosign signature on every container image, plus a CycloneDX SBOM attestation on the JVM image and on each per-architecture native image.
+|===
+
+All keyless signatures and attestations must come from one of the workflows `mvn-release.yml`, `native-image.yml`, `release-assets.yml` or `publish-contract.yml` of the `ArcadeData/arcadedb` repository, running on `main` or on a release tag, with the OIDC issuer `https://token.actions.githubusercontent.com`.
+A signature from any other identity must be treated as invalid.
+The commands below pin that identity with this regular expression:
+
+[source,text]
+----
+^https://github\.com/ArcadeData/arcadedb/\.github/workflows/(mvn-release|native-image|release-assets|publish-contract)\.yml@refs/(heads/main|tags/[0-9][^/]*)$
+----
+
+The examples use these shell variables:
+
+[source,shell,subs="attributes+"]
+----
+VERSION={revnumber}
+IDENTITY='^https://github\.com/ArcadeData/arcadedb/\.github/workflows/(mvn-release|native-image|release-assets|publish-contract)\.yml@refs/(heads/main|tags/[0-9][^/]*)$'
+ISSUER=https://token.actions.githubusercontent.com
+----
+
+[[verifying-releases-maven]]
+===== Maven Central
+
+Every jar on Maven Central has a detached GPG signature next to it (`.asc`).
+Download the jar and its signature, then verify them with the release signing key (see <<verifying-releases-archives>> for its fingerprint):
+
+[source,shell,subs="attributes+"]
+----
+curl -O https://repo1.maven.org/maven2/com/arcadedb/arcadedb-engine/{revnumber}/arcadedb-engine-{revnumber}.jar
+curl -O https://repo1.maven.org/maven2/com/arcadedb/arcadedb-engine/{revnumber}/arcadedb-engine-{revnumber}.jar.asc
+gpg --verify arcadedb-engine-{revnumber}.jar.asc arcadedb-engine-{revnumber}.jar
+----
+
+Each module also publishes a CycloneDX SBOM with the classifier `cyclonedx` and the type `json`.
+Its Maven coordinates are `com.arcadedb:<artifactId>:<version>:json:cyclonedx`, for example:
+
+[source,shell,subs="attributes+"]
+----
+mvn dependency:get -Dartifact=com.arcadedb:arcadedb-engine:{revnumber}:json:cyclonedx
+----
+
+[[verifying-releases-archives]]
+===== Release archives
+
+Download all the assets of the release from the https://github.com/ArcadeData/arcadedb/releases[GitHub releases page] into one directory, for example with the GitHub CLI:
+
+[source,shell,subs="attributes+"]
+----
+gh release download {revnumber} --repo ArcadeData/arcadedb --dir arcadedb-release
+cd arcadedb-release
+----
+
+*1. Checksums.* `SHA256SUMS` lists every asset of the release:
+
+[source,shell]
+----
+sha256sum -c SHA256SUMS
+----
+
+On macOS use `shasum -a 256 -c SHA256SUMS`.
+
+*2. cosign signature.* This proves `SHA256SUMS` was produced by one of the release workflows. The cosign commands on this page need cosign v3:
+
+[source,shell]
+----
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp "$IDENTITY" \
+  --certificate-oidc-issuer "$ISSUER" \
+  SHA256SUMS
+----
+
+*3. GPG signature.* Import the release signing public key, then verify:
+
+[WARNING]
+====
+Release signing key fingerprint: TO BE FILLED BEFORE PUBLISHING
+
+Public key: TO BE FILLED BEFORE PUBLISHING (URL)
+====
+
+[source,shell]
+----
+gpg --import arcadedb-release-signing-key.asc
+gpg --verify SHA256SUMS.asc SHA256SUMS
+----
+
+A "Good signature" line only means some key in your keyring signed the file.
+Compare the key fingerprint printed by `gpg` with the fingerprint published on this page (see the box above), and reject the file if they differ.
+
+*4. Build provenance.* Verify that GitHub attested the build of an archive:
+
+[source,shell,subs="attributes+"]
+----
+gh attestation verify arcadedb-{revnumber}.tar.gz --repo ArcadeData/arcadedb \
+  --cert-identity-regex "$IDENTITY" --cert-oidc-issuer "$ISSUER"
+----
+
+The same command works for the native archives, `arcadedb-openapi-{revnumber}.json` and `arcadedb-server-{revnumber}.proto`.
+The two JVM archives, `arcadedb-{revnumber}.tar.gz` and `arcadedb-{revnumber}-base.tar.gz`, also carry an SBOM attestation:
+
+[source,shell,subs="attributes+"]
+----
+gh attestation verify arcadedb-{revnumber}.tar.gz --repo ArcadeData/arcadedb \
+  --cert-identity-regex "$IDENTITY" --cert-oidc-issuer "$ISSUER" \
+  --predicate-type https://cyclonedx.org/bom
+----
+
+[[verifying-releases-images]]
+===== Container images
+
+The JVM image is `arcadedata/arcadedb:<version>`.
+The native images are `arcadedata/arcadedb:<version>-native-amd64` and `arcadedata/arcadedb:<version>-native-arm64`, combined in the multi-architecture tag `arcadedata/arcadedb:<version>-native`.
+
+Verify the signature of an image:
+
+[source,shell,subs="attributes+"]
+----
+cosign verify \
+  --certificate-identity-regexp "$IDENTITY" \
+  --certificate-oidc-issuer "$ISSUER" \
+  arcadedata/arcadedb:{revnumber}
+----
+
+Verify its CycloneDX SBOM attestation:
+
+[source,shell,subs="attributes+"]
+----
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity-regexp "$IDENTITY" \
+  --certificate-oidc-issuer "$ISSUER" \
+  arcadedata/arcadedb:{revnumber}
+----
+
+Run both commands for `arcadedata/arcadedb:{revnumber}`, `arcadedata/arcadedb:{revnumber}-native-amd64` and `arcadedata/arcadedb:{revnumber}-native-arm64`.
+The multi-architecture tag `arcadedata/arcadedb:{revnumber}-native` carries a signature only (run `cosign verify` on it); the SBOM attestations are on the per-architecture images it lists.
+
+GitHub also holds the build provenance of the JVM image:
+
+[source,shell,subs="attributes+"]
+----
+gh attestation verify oci://index.docker.io/arcadedata/arcadedb:{revnumber} --repo ArcadeData/arcadedb \
+  --cert-identity-regex "$IDENTITY" --cert-oidc-issuer "$ISSUER"
+----
+
+[[verifying-releases-sbom]]
+===== SBOM and VEX
+
+The GitHub release attaches these files (replace `<version>` with the release):
+
+[%header,cols="2,3"]
+|===
+| File | Content
+| `arcadedb-<version>.cdx.json`, `arcadedb-<version>.spdx.json` | SBOM of the full distribution
+| `arcadedb-<version>-base.cdx.json`, `arcadedb-<version>-base.spdx.json` | SBOM of the base distribution
+| `arcadedb-image-<version>.cdx.json`, `arcadedb-image-<version>.spdx.json` | SBOM of the JVM image
+| `arcadedb-image-<version>-native-<arch>.cdx.json`, `arcadedb-image-<version>-native-<arch>.spdx.json` | SBOM of each native image (`amd64`, `arm64`)
+| `arcadedb-<version>.openvex.json` | VEX statements for findings assessed as not affecting ArcadeDB
+|===
+
+The distribution SBOMs are CycloneDX 1.6 and SPDX 2.3; the image SBOMs are CycloneDX and SPDX.
+The distribution archives also contain the SBOMs of their own contents under `sbom/`.
+
+To scan a distribution with https://github.com/anchore/grype[grype], applying the VEX statements so that assessed findings are not reported:
+
+[source,shell,subs="attributes+"]
+----
+grype sbom:arcadedb-{revnumber}.cdx.json --vex arcadedb-{revnumber}.openvex.json
+----
+
+[[verifying-releases-script]]
+===== Verifying everything with one script
+
+The ArcadeData/arcadedb repository contains `.github/scripts/verify-release.sh`. Run it from a checkout of the repository at the release tag; it runs every check above for a release tag and keeps going after a failure, so one run lists everything that is wrong.
+It needs `cosign` v3, `gh`, `gpg`, `jq` and `sha256sum`.
+
+[source,shell,subs="attributes+"]
+----
+git clone --depth 1 --branch {revnumber} https://github.com/ArcadeData/arcadedb.git
+cd arcadedb
+----
+
+[source,shell,subs="attributes+"]
+----
+RELEASE_GPG_FINGERPRINT=<fingerprint> \
+GPG_PUBLIC_KEY_FILE=release-signing-key.asc \
+.github/scripts/verify-release.sh {revnumber}
+----
+
+[%header,cols="1,3"]
+|===
+| Variable | Meaning
+| `RELEASE_GPG_FINGERPRINT` | Required. Fingerprint of the release signing key. A valid signature by any other key is a failure.
+| `GPG_PUBLIC_KEY_FILE` | ASCII-armored public key to check `SHA256SUMS.asc` against, in a throwaway keyring. When unset, your own keyring is used.
+| `GITHUB_REPOSITORY` | `owner/repo` of the release and of the signer identity. Default `ArcadeData/arcadedb`.
+| `DOCKER_NAMESPACE` | Docker Hub namespace of the JVM image. Default `arcadedata`; the native images are always published under `arcadedata`.
+| `NATIVE_ARCHES` | Per-architecture native image tags to check. Default `amd64 arm64`.
+|===
