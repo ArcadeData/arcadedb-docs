@@ -226,6 +226,25 @@ for every node, so `WHERE size((p)-->()) > 5` matched nothing. The same release 
 list predicate with a pattern in its `WHERE`, which were read as the bare pattern. A pattern expression in `UNWIND`,
 `ORDER BY`, `SKIP`, `LIMIT`, `FOREACH`, `DELETE` and `CALL` arguments is still read as a boolean and not refused (issue #12657).
 
+In a `RETURN` item, a `WITH` item, a `LET` item and a `SET` value there is no boolean position, so a pattern expression is
+refused there unless it is the whole argument of `exists()`, which gives the boolean of the pattern:
+
+[source,cypher]
+----
+MATCH (p:Person) RETURN exists((p)-->())                               // fine
+MATCH (p:Person) SET p.hasOut = exists((p)-->())                       // fine: stores true or false
+MATCH (p:Person) WITH p, NOT exists((p)-->()) AS leaf RETURN p, leaf   // fine
+MATCH (p:Person) RETURN (p)-->()                                       // refused
+MATCH (p:Person) RETURN exists([(p)-->()])                             // refused: the pattern is only a part of the argument
+MATCH (p:Person) RETURN [exists((p)-->()), (p)-->()]                   // refused: the second pattern is bare
+----
+
+NOTE: Since v26.12.1 (issue #13466). Before, `SET`, `WITH` and `LET` refused `exists(pattern)`, a `RETURN` checked only the
+first pattern of an item, and `exists()` of an expression that merely contained a pattern, such as `exists([(p)-->()])`,
+tested the pattern alone and silently ignored the list or function around it. In a `WHERE`, an `exists()` around a `CASE`
+whose `WHEN` condition is a pattern now tests the value of the `CASE`, not the pattern of its condition. A pattern in
+the body of an `EXISTS { }`, `COUNT { }` or `COLLECT { }` subquery is not a bare pattern of the clause around it.
+
 ===== Not Implemented Features
 
 The following Cypher features are not currently implemented:

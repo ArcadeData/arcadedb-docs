@@ -705,6 +705,12 @@ A property value must be a scalar, a list of scalars, or a `point()` value. A ma
 {city: 'Rome'}`), or a right-hand side of `=` / `+=` that is neither a map nor an entity (`SET p = 5`), is
 rejected with a `TypeError` and no part of the clause is written.
 
+A value can be the boolean of a pattern, written as `exists(pattern)`, to store an existence flag:
+`MATCH (u:User) SET u.hasMfa = exists((u)-[:MFA_DEVICE]->(:MfaDevice))` stores `true` or `false` on each node, and
+`NOT exists(...)` works too. _(Since v26.12.1, issue #13466; before, `SET` refused any pattern in a value.)_ A bare
+pattern as a value (`SET u.p = (u)-[:MFA_DEVICE]->()`) is still refused with `UnexpectedSyntax: Pattern expressions are
+not allowed in SET values`, see <<cypher-pattern-expression-boolean,a pattern expression is a boolean test>>.
+
 *Concurrent updates.* A `SET` (stand-alone, or in `MERGE ... ON CREATE SET` / `ON MATCH SET`) computes the value it
 writes from the latest committed version of the record, even under the default `READ_COMMITTED` isolation. So
 `SET n.count = n.count + 1` run by concurrent transactions never silently loses an increment: a change committed by
