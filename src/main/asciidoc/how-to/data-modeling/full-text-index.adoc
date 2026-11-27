@@ -401,6 +401,29 @@ WHERE SEARCH_INDEX('Article[title,body]', '(title:java OR title:python)^3 body:c
 
 The query-time caret combines multiplicatively with any configured per-field boost (see <<full-text-index-scoring>>): the effective weight is `caret * field_boost`.
 
+====== Query Size Limits
+
+_(Since v26.12.1)_ A query is checked before it runs. One that goes past the bounds below is refused with an `Invalid search query` error, the same as a query with a syntax error, on every search surface (`SEARCH_INDEX`, `SEARCH_FIELDS`, `db.index.fulltext.queryNodes()`).
+
+[%header,cols="1,1,4"]
+|===
+| Bound | Limit | What is counted
+
+| Parentheses
+| 64
+| Levels of parentheses the text of the query opens one inside another. A parenthesis inside a quoted phrase, a regexp or a range, or escaped with a backslash, is not counted, and groups that follow one another nest nothing.
+
+| Groups
+| 16
+| Levels of groups the parsed query nests. A boosted group or term (`(java python)^2`) is one more level, and so is the OR over the fields that `SEARCH_FIELDS` adds around each clause. A group of one clause is the clause, so `((java))` nests no group.
+
+| Clauses
+| 16384
+| Clauses in the whole query, the groups among them.
+|===
+
+A query written by hand stays far below these bounds, and a query within them answers what it always did.
+
 [[full-text-index-scoring]]
 ===== Relevance Scoring
 
