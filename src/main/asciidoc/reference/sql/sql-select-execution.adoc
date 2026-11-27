@@ -58,6 +58,16 @@ It is possible only if the subquery does not depend on the context of the parent
 ----
 SELECT FROM Person WHERE father in (SELECT FROM Person WHERE name = 'John' and surname = $parent.$current.surname)
 ----
+
+The same applies to a sub-query written inline as an operand: the right side of `=` or `<`, arithmetic, a function argument or a projection item _(since v26.12.1: before, it ran again for every record of the parent query)_. The following statement runs the sub-query once, not once per `Person`:
+
+[source,sql]
+----
+SELECT FROM Person WHERE age = (SELECT max(age) FROM Person)
+----
+
+This also holds when the sub-query sits inside parentheses or a map literal, such as `+((SELECT max(age) AS m FROM Person)[0].m + 1)+` or `+{'m': (SELECT max(age) FROM Person)}+`, in the projections, the `WHERE`, the `ORDER BY` and the `GROUP BY` of a `SELECT`, and in the `WHERE` of an `UPDATE` or a `DELETE`. A sub-query that reads the parent record through `$parent` still runs once per record. A sub-query inside a `CASE` branch or an array literal item is not moved: it runs only when that branch or item is evaluated.
+
 [discrete]
 
 ====== Refactoring of the WHERE conditions
