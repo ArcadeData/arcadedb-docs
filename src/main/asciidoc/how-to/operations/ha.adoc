@@ -578,6 +578,8 @@ Clients communicate the consistency contract through three HTTP headers:
 NOTE: Older clients that sent `X-ArcadeDB-Commit-Index` on requests are still accepted as a backward-compatible fallback.
 
 The bookmark is a lower bound: it says the server had applied *at least* that index when it answered.
+The one exception is a write a follower forwarded to the leader: its bookmark is the index the leader answered with, which covers the write even when the follower has not applied it yet, so a `read_your_writes` read that sends it back waits for the write on any node _(since v26.12.1: it was the follower's own applied index, which could stand below the write, so such a read could miss it)_.
+The follower answers without waiting to apply that index itself.
 That holds on a refused request too, so a client can keep its read-your-writes barrier after an error instead of falling back to a stale one.
 
 The one endpoint where it is not a header is the streaming bulk load, `POST /api/v1/batch/{database}` with `Accept: application/x-ndjson`.
