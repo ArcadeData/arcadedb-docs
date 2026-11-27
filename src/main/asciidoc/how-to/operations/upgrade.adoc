@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - A user name is checked when a user is created
+
+Creating a user, by any route (Studio, `POST /api/v1/server/users`, the `create user` server command, the console, the Cypher `CREATE USER` statement, or a credential of `arcadedb.server.defaultDatabases` that carries a password), now refuses a name with leading or trailing whitespace, two whitespace characters in a row or a control character, with a message that says why. Any other name is accepted as before. A request that a replica relays to the leader under the name of the user who sent it needs a name made of printable ASCII characters, with no leading or trailing space and no two spaces in a row, and fails with `400` otherwise (see <<ha-security,HA Security>>).
+
+*Impact:* a script that creates users from names it did not trim now fails on a name with a trailing space instead of creating a user under it. A user already stored under a name that creation would now refuse keeps working on the server that holds it. On a cluster, a user whose name has a character outside printable ASCII (an accented letter, for example) gets `400` on a request that a replica must relay to the leader.
+
+*Action:* trim the names a provisioning script passes, and on a cluster name the users that send requests through a replica with printable ASCII characters. See <<users,Security - Users>>.
+
+[discrete]
 ====== 26.12.1 - `ts.movingAvg()` refuses a window that is not a whole number of at least 1
 
 `ts.movingAvg(value, window)` read a window of `0` or less, or an options map without `window` (`{}`), as a window of 1, so the "moving average" was the raw, unaveraged series, and truncated a fractional window such as `2.5` to 2 (issue #12755). It now refuses each of them, and `null`, with an error such as `ts.movingAvg() requires a <window_size> of at least 1, but received 0`. A whole window of 1 or more is unchanged, as a number, a numeric string (`'2'`) or `{window: n}`, and a window larger than the data still averages whatever rows there are.
