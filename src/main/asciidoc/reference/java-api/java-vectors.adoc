@@ -88,7 +88,7 @@ CREATE INDEX ON VectorVertex (embedding) LSM_VECTOR METADATA {
   "beamWidth": 200,                  -- Higher values improve accuracy but reduce speed
   "neighborOverflowFactor": 1.2,     -- Candidate neighbor pool multiplier (default: 1.2)
   "alphaDiversityRelaxation": 1.2,   -- Diversity vs distance trade-off (default: 1.2)
-  "addHierarchy": true               -- Enable HNSW hierarchical layers (default: false)
+  "addHierarchy": true               -- HNSW hierarchical layers (default: true since 26.12.1)
 };
 ----
 
@@ -100,7 +100,7 @@ CREATE INDEX ON VectorVertex (embedding) LSM_VECTOR METADATA {
 - `beamWidth`: Search depth during index construction (default: 100). Increase to 200-400 for more accurate searches
 - `neighborOverflowFactor`: Controls how many extra candidate neighbors are considered during graph building (default: 1.2, range: 1.0-1.5). Higher values improve graph quality but increase build time
 - `alphaDiversityRelaxation`: Trade-off between strict distance ordering and diversity in graph connections (default: 1.2, range: 1.0-1.5). Higher values prioritize diversity, improving recall for complex queries
-- `addHierarchy`: Controls whether to build HNSW hierarchical layers on top of the base Vamana index (default: false). See <<hierarchy-configuration>> for detailed guidance
+- `addHierarchy`: Controls whether to build HNSW hierarchical layers on top of the base Vamana index (default: `true` since 26.12.1, `false` before). See <<hierarchy-configuration>> for detailed guidance
 - `buildGraphNow`: When creating the index via SQL, controls whether the HNSW graph is built immediately (default: `true`). Set to `false` to defer graph construction to the first search. This is a creation-time directive only -- it is not persisted as index metadata.
 
 When using the Java API directly, you can call `buildVectorGraphNow()` on any `LSMVectorIndex` instance to trigger an immediate graph build at any time:
@@ -120,16 +120,18 @@ Searches keep running while `buildVectorGraphNow()` rebuilds an index that alrea
 
 ArcadeDB's LSMVectorIndex uses JVector, which combines the hierarchical structure from HNSW (Hierarchical Navigable Small World) with the Vamana algorithm from DiskANN. The `addHierarchy` parameter determines whether to build a multi-layer hierarchical structure or use a flat single-layer graph.
 
+Since 26.12.1 a new index is hierarchical unless it sets `addHierarchy: false` (issue #12092): without the upper layers every search starts from one entry node, and on clustered data a few queries could be answered from a neighboring cluster. An index created before 26.12.1 without `addHierarchy` in its metadata keeps its flat graph after the upgrade; to move it to the hierarchical graph, drop it and create it again.
+
 *How It Works*
 
-When `addHierarchy` is enabled:
+When `addHierarchy` is enabled (default since 26.12.1):
 
 - *Multiple Layers*: Nodes are assigned to different hierarchy levels using HNSW's exponential decay sampling strategy
 - *Top-Down Search*: Searches start from higher abstraction levels and progressively narrow down to specific neighbors
 - *Fast Seeding*: Upper layers use in-memory adjacency lists for rapid navigation without disk I/O
 - *Base Layer*: The bottom layer remains disk-based with inline vector representations
 
-When `addHierarchy` is disabled (default):
+When `addHierarchy` is disabled:
 
 - *Single Layer*: All nodes exist at level 0 in a flat Vamana graph structure
 - *Direct Search*: Searches operate directly on the base layer without hierarchical navigation
@@ -158,7 +160,7 @@ CREATE INDEX ON ComplexDoc (embedding) LSM_VECTOR METADATA {
 
 *When to Keep Flat Structure (addHierarchy=false)*
 
-Use the default flat structure when:
+Set `addHierarchy: false` for a flat structure when:
 
 1. *Small to Medium Datasets*: Less than 100K vectors where flat search is efficient
 2. *Simple Distributions*: Well-clustered data where flat Vamana performs optimally
@@ -167,13 +169,13 @@ Use the default flat structure when:
 
 [source,sql]
 ----
--- Default for most use cases
+-- Flat graph
 CREATE INDEX ON StandardDoc (embedding) LSM_VECTOR METADATA {
   "dimensions": 768,
   "similarity": "COSINE",
   "maxConnections": 16,
-  "beamWidth": 100
-  -- addHierarchy defaults to false
+  "beamWidth": 100,
+  "addHierarchy": false
 };
 ----
 
@@ -1230,7 +1232,7 @@ final JSONObject metadata = new JSONObject()
     .put("maxConnections", 16)
     .put("beamWidth", 100)
     .put("idPropertyName", "id")
-    .put("addHierarchy", false)         // Enable for large/complex datasets (100K+)
+    .put("addHierarchy", true)          // Default since 26.12.1; false builds a flat graph
     .put("storeVectorsInGraph", false)  // Enable for large indexes (100K+)
     .put("locationCacheSize", 100000)   // Optional: limit cache size
     .put("graphBuildCacheSize", 10000)  // Optional: limit build cache

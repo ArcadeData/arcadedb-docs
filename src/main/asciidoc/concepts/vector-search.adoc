@@ -30,7 +30,7 @@ The index supports two graph structures:
 
 [cols="1,1,1"]
 |===
-| | Flat (default) | Hierarchical
+| | Flat | Hierarchical (default)
 
 | **Algorithm** | Single-layer Vamana graph | Multi-layer HNSW with exponential decay
 | **Build speed** | Faster | 10-20% slower
@@ -38,7 +38,9 @@ The index supports two graph structures:
 | **Best for** | < 100K vectors, well-clustered data | 100K+ vectors, 1024+ dimensions, diverse queries
 |===
 
-Enable hierarchical mode with `addHierarchy: true` in the index metadata.
+Since 26.12.1 a new index is hierarchical unless its metadata sets `addHierarchy: false`. Before 26.12.1 the default was the flat graph: a flat graph starts every search from one entry node, and on clustered data (for example text embeddings grouped by topic) a few queries could be answered with rows from a neighboring cluster instead of their own.
+
+An index created before 26.12.1 without `addHierarchy` in its metadata keeps its flat graph after the upgrade, and an explicit `addHierarchy` value is always kept. To move such an index to the hierarchical graph, drop it and create it again (without `addHierarchy`, or with `addHierarchy: true`). Cypher `SHOW INDEXES` lists `addHierarchy: false` for a flat index, so the statement it prints re-creates the same index.
 
 ==== Similarity Functions
 
@@ -224,7 +226,7 @@ To migrate an existing populated type to external storage in one step, use `ALTE
 | `fusedPQ` | false | `PRODUCT` only: store the PQ codes of each node's neighbors in the graph file (jvector FusedPQ). Makes the graph file several times larger; useful only when the PQ codes cannot stay in memory. Since 26.11.1.
 | `maxConnections` | 32 | Graph connections per node, per layer (Vamana degree). Higher = better recall, more memory. This is *not* doubled at the base layer like hnswlib's `M`: to match an hnswlib `M`, set `maxConnections = 2 * M`. See <<maxconnections-hnswlib,note below>>.
 | `beamWidth` | 100 | Search depth during build. Higher = better index quality, slower builds
-| `addHierarchy` | false | Enable multi-layer HNSW for large/complex datasets
+| `addHierarchy` | true | Multi-layer HNSW graph; `false` builds a flat single-layer graph. The default was `false` before 26.12.1, and an index created then keeps the graph it was built with. See <<hierarchy-configuration>>.
 | `storeVectorsInGraph` | false | Co-locate vectors in graph file for faster retrieval at large scale
 | `buildGraphNow` | true | Build the HNSW graph immediately at index creation time. Set to `false` for deferred (lazy) building on first search.
 |===
