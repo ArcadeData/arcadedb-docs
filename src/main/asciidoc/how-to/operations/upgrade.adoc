@@ -149,6 +149,25 @@ A write that an HA replica forwarded to a leader which died or did not answer, a
 *Action:* none for a script that ran. A client that retried or alerted on `500` for these cases stops doing so. See <<sql-script,SQL Script>>.
 
 [discrete]
+====== 26.12.1 - Eight SQL and openCypher caller mistakes answer `400`, not `500`
+
+Eight statement shapes that are a mistake of the caller, or that the engine refuses on purpose, answered `500` before, some with only a bare Java exception or a dump of the whole record as the message (issue #12795):
+
+* `UPDATE` and `MOVE VERTEX` with `ADD`, `PUT` or `INCREMENT`. The message now names the `SET` form that does the same: `SET tags = tags || 'x'`, `SET m.k2 = 2`, `SET n = n + 1`. See <<sql-update,UPDATE>>.
+* a nested `distinct()`, as in `SELECT FROM P WHERE distinct(n) = 1`, and a `FROM` target the engine does not support.
+* `SELECT FROM :p` and `TRAVERSE ... FROM :p` with a parameter bound to a value that cannot be a target (`1`, a map, a list of non-records). The message names the parameter, the value and the accepted kinds.
+* `INSERT`, `UPDATE`, `CREATE EDGE` and `MOVE VERTEX` with `CONTENT :p` bound to a value that is not a map, a document or a list of them. The message names the statement; an `INSERT` said `UPDATE` before.
+* `expand(@this)` and `expand(*)`. The message names the record by RID and type, not the whole record.
+* `SEARCH_INDEX(@type, 'a')` and `SEARCH_FIELDS(@type, 'a')` answered a `NullPointerException`. An argument read from the record is now evaluated per record, so `SEARCH_INDEX(@type + '[name]', 'a')` finds the record, and `SEARCH_INDEX(@type, 'a')` answers `Index with name 'P' was not found`.
+* openCypher `LOAD CSV FROM null`. The message names the expression that evaluated to `null`.
+
+`SELECT FROM []` and `TRAVERSE ... FROM []` are unchanged: they answer no rows.
+
+*Impact:* over HTTP these answer `400`, with `CommandSemanticException` (`ADD`, `PUT`, `INCREMENT`, a nested `distinct()`, an unsupported target), `TypeMismatchException` (the `:p` target, `CONTENT`, `expand`) or `InvalidArgumentException` (`LOAD CSV`), and over the other protocols the matching validation error. Embedded Java code that caught `CommandExecutionException`, `IllegalStateException` or `UnsupportedOperationException` for these cases must catch the new type (or `ArcadeDBException`).
+
+*Action:* none for a statement that ran. A client that retried or alerted on `500` for these cases stops doing so.
+
+[discrete]
 ====== 26.12.1 - `algo.maxFlow` follows the relationship direction
 
 `algo.maxFlow` treated every relationship as an undirected pipe, so flow could run against a relationship and two opposite relationships added up (issue #11798). It now follows the relationships outgoing by default, and takes an optional fifth argument, `direction` (`OUT`, `IN` or `BOTH`). See <<algo-max-flow,algo.maxFlow>>.
