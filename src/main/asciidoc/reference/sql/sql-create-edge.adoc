@@ -16,8 +16,8 @@ CREATE EDGE <type> [BUCKET <bucket>] FROM <rid>|[<rid>[,]*]|(<query>) TO <rid>|[
                    [BATCH <batch-size>]
 ----
 
-* *`&lt;type&gt;`* defines the type name for the edge.
-* *`&lt;bucket&gt;`* defines the bucket in which you want to store the edge.
+* *`&lt;type&gt;`* defines the type name for the edge. It is required: an edge always belongs to a type, and the statement is refused without one.
+* *`&lt;bucket&gt;`* defines the bucket in which you want to store the edge. The bucket must exist: the statement is refused with `Bucket with name '<bucket>' was not found` otherwise. A type owns the buckets named `<type>_<n>`, and <<sql-create-bucket,`CREATE BUCKET`>> adds one of your own.
 * *`UNIDIRECTIONAL`* creates a unidirectional edge; by default edges are bidirectional.
 * *`IF NOT EXISTS`* skips the creation of the edge if another edge already exists with the same direction (same from/to) and same edge type. _(Since v26.12.1)_ The check holds under concurrent writers too: of two transactions creating the same edge at the same time, the second to commit is refused with a retryable `ConcurrentModificationException`, and its retry finds the edge the first one created (see <<cypher-merge-concurrency,concurrent `MERGE`>>). In v26.11.1 and earlier, concurrent writers could store the edge more than once.
 * *`JSON`* provides JSON content to set as the record. Use this instead of entering data field by field.
@@ -46,13 +46,15 @@ ArcadeDB> CREATE EDGE E1 FROM #10:3 TO #11:4
 * Create an edge in a specific bucket:
 
 ----
-ArcadeDB> CREATE EDGE E1 BUCKET EuropeEdges FROM #10:3 TO #11:4
+ArcadeDB> CREATE EDGE E1 BUCKET E1_0 FROM #10:3 TO #11:4
 ----
+
+The bucket must exist: the statement is refused with `Bucket with name '<bucket>' was not found` otherwise. A type owns the buckets named `<type>_<n>`, and <<sql-create-bucket,`CREATE BUCKET`>> adds one of your own.
 
 * Create an edge and define its properties:
 
 ----
-ArcadeDB> CREATE EDGE FROM #10:3 TO #11:4 SET brand = 'fiat'
+ArcadeDB> CREATE EDGE E1 FROM #10:3 TO #11:4 SET brand = 'fiat'
 ----
 
 * Create an edge of the type `E1` and define its properties:
@@ -64,13 +66,13 @@ ArcadeDB> CREATE EDGE E1 FROM #10:3 TO #11:4 SET brand = 'fiat', name = 'wow'
 * Create multiple edges from a single source vertex to many destination records:
 
 ----
-ArcadeDB> CREATE EDGE E FROM #1:0 TO [#4:0, #7:0];
+ArcadeDB> CREATE EDGE E1 FROM #1:0 TO [#4:0, #7:0];
 ----
 
 * Create no edges from a single source vertex (this is useful when using subqueries for the destination):
 
 ----
-ArcadeDB> CREATE EDGE E FROM #1:0 TO [];
+ArcadeDB> CREATE EDGE E1 FROM #1:0 TO [];
 ----
 
 * Create edges of the type `Watched` between all action movies in the database and the user Luca, using sub-queries:
@@ -83,8 +85,8 @@ ArcadeDB> CREATE EDGE Watched FROM (SELECT FROM account WHERE name = 'Luca') TO
 * Create an edge using JSON content:
 
 ----
-ArcadeDB> CREATE EDGE E FROM #22:33 TO #22:55 CONTENT { "name": "Jay",
-            "surname": "Miner" }
+ArcadeDB> CREATE EDGE E1 FROM #22:33 TO #22:55 CONTENT { "name": "Jay",
+            "surname" : "Miner" }
 ----
 
 * Create an edge only if not previously created:
