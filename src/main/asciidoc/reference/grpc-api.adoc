@@ -522,6 +522,21 @@ NOTE: Before v26.11.1 `out()`, `in()`, `outE()` and `inE()` reached a gRPC clien
 `com.arcadedb.graph.GraphEngine$10@63e44da5`, and the records inside a list (`both()`) as bare RIDs whatever the
 `ProjectionSettings` asked for (issues #11044, #11048).
 
+[[grpc-column-names]]
+===== Column order
+
+_(Since v26.12.1)_ `GrpcRecord.properties` is a protobuf `map`, which carries no order, and some client runtimes (Python, for
+instance) read it back in hash order. To let a client recover the order of `RETURN a, b, c`, `ExecuteCommandResponse` and
+`QueryResult` carry `repeated string column_names`: the column names of the first row, in projection order. `ExecuteCommand`
+and `ExecuteQuery` set it once on the response; `StreamQuery` sets it on every batch that carries rows, in all retrieval modes.
+
+* A row that is a single node or relationship (`RETURN n`) is sent as that record, and its one column name is the projection's (`n`), so a client can wrap the record under it.
+* A record row that a projection reshaped (SQL `SELECT *, x AS y`) lists its projected columns.
+* The field is empty when the result has no rows, or when its rows are plain records (`SELECT FROM T`).
+* The first row names the result: rows with different columns are not named separately.
+
+The change is wire-compatible: older clients ignore the new fields.
+
 [[grpc-insert-operations]]
 ===== Insert Operations
 
@@ -589,6 +604,7 @@ still duplicate the rows the acknowledgement reported as inserted: replay only t
 | `affected_records` | Server-computed count of affected elements and numeric scalars
 | `execution_time_ms` | Server-side execution time
 | `records` | Optional row payload, returned when `return_rows` is set on the request
+| `column_names` | _(Since v26.12.1)_ The column names of the first row in projection order, see <<grpc-column-names>>
 | `stats` | A `QueryUpdateStats` message, *present only for write commands that mutated data*
 |===
 
