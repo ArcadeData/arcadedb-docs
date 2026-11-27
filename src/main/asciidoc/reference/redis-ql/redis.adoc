@@ -316,6 +316,15 @@ Since v26.11.1 the replies to pipelined commands are sent together, when the cli
 of one network write per reply. A client that pipelines (most Redis clients can) gets several times the throughput of
 one that waits for each reply.
 
+[[redis-memory-limits]]
+===== Memory limits
+
+Since v26.12.1 the reply of `HMGET`, which has one entry for every key of the command, counts against the heap the buffers of the SQL and openCypher queries share: `arcadedb.queryMaxHeapRAM` (see <<settings-sql,Settings>>). Each entry is accounted as it is read, so a reply that does not fit is refused before it is built, and the heap it took is given back once it is sent.
+
+* On the Redis protocol the refusal is `-TRYAGAIN` while other queries hold the budget, so the same command can be sent again once they are done, and `-ERR` when the reply alone is larger than the whole budget.
+* In the `redis` query language the refusal is the same as for the other query languages: HTTP `503` while other queries hold the budget. The answers of the commands of a batch are accounted together, and held until the result set is closed.
+* A key keeps its place in the reply, as a null entry when there is no record, and a command that fails answers with its error alone, never with a partial reply.
+
 [[redis-ha-leader-refusal]]
 ===== Writes refused by an HA replica
 
