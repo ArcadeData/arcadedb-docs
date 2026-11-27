@@ -425,8 +425,10 @@ time, so a client that lost the answer to a write, a restore or an import can si
   an NDJSON stream, a response larger than `arcadedb.ha.idempotencyCacheMaxBodyBytes` bytes, and the bulk-load route
   `POST /api/v1/batch/{database}`, whose body is streamed rather than buffered and so cannot be part of the key.
 
-Every response carries the header `X-ArcadeDB-Replay-Protection: true`, which tells a client that this server answers a
-repeated id from that cache. The remote Java driver (`RemoteDatabase`, `RemoteServer`) sends one `X-Request-Id` per
+Every response carries the header `X-ArcadeDB-Replay-Protection`, whose value is the id of the server process that
+answered (a UUID). Its presence tells a client that this server answers a repeated id from that cache; its value is the
+one a retry sends back in `X-ArcadeDB-Replay-Instance`, so that a server which restarted can tell that the answer it
+would replay died with the process that took the first request. The remote Java driver (`RemoteDatabase`, `RemoteServer`) sends one `X-Request-Id` per
 `command` call, outside a transaction, and once it has seen that header it sends the same call again, with the same id,
 to the same server when the response was lost, instead of failing with "the server may already have applied it".
 The retry names the server process in `X-ArcadeDB-Replay-Instance`: a server that restarted, or that no longer holds the answer (too large to keep, expired or evicted), answers `412` and does not run the request again.
@@ -645,7 +647,7 @@ Responses:
 * https://httpstatuses.io/404[`404`] the command names a database this server does not have
 * https://httpstatuses.io/503[`503`] the database is there and cannot serve the command now: closed by `close database`, being restored, being dropped, or being recovered by HA (see <<http-unavailable-database,a database that is not available>>)
 * https://httpstatuses.io/409[`409`] the name is taken: `create database` on an existing database (`"error": "Database already exists"`) or `create user` on an existing user (`"error": "User already exists"`) _(Since v26.10.2)_
-* https://httpstatuses.io/400[`500`] invalid JSON request body
+* https://httpstatuses.io/400[`400`] invalid JSON request body
 
 NOTE: A command naming a database that does not exist - `open database nosuchdb`, for example -
 answers `404` instead of `500`. Naming a database the server has not got is a mistake in the request, not a
@@ -2204,7 +2206,10 @@ Responses:
 * https://httpstatuses.io/400[`400`] invalid `isolationLevel` value, or a body that is not a valid JSON object
 * https://httpstatuses.io/401[`401`] invalid credentials
 * https://httpstatuses.io/409[`409`] transaction already started
-* https://httpstatuses.io/500[`500`] invalid database
+* https://httpstatuses.io/404[`404`] the database does not exist (`Database not found`)
+
+NOTE: A database the server does not have is a mistake in the request, not a server fault, so it answers `404`
+like the query and command routes do.
 
 Example:
 
@@ -2293,17 +2298,20 @@ Where:
 - `database` is the database name
 
 Set the session id returned from the <<http-begin,/begin>> command in the request header.
-If the session (and therefore the server side transaction) is expired, then an internal server error is returned.
 
 The commit ends the session, whether it succeeds or fails: a commit that fails rolls the transaction back, and the
 answer carries the header `arcadedb-session-closed: true`, so there is no need to send a <<http-rollback,/rollback>>
 afterwards.
 
+A rollback is idempotent, so it answers `204` whatever it found: a request that names a session the server does not
+hold any more, or that carries no session at all, rolls nothing back and says so with the same `204` a rollback of a
+live transaction answers. Nothing was lost, because there was nothing to roll back. The `<<http-commit,/commit>>`
+route cannot answer the same way, and answers `404` for a session it does not hold.
+
 Response:
 
 * https://httpstatuses.io/204[`204`] OK
 * https://httpstatuses.io/401[`401`] invalid credentials
-* https://httpstatuses.io/500[`500`] transaction expired, not found, not begun
 
 Example:
 
