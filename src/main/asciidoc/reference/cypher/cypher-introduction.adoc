@@ -153,6 +153,22 @@ The native OpenCypher implementation includes a cost-based query optimizer that:
   `OR` of equalities on the same property all qualify, and a leading prefix of a composite index is enough:
   with an index on `(transactionId, date)`, filtering `transactionId` alone walks that prefix of the index
   instead of scanning every edge. The plan shows it as `MATCH EDGE BY INDEX`
+* Scans the buckets of the relationship type, sub-types included, instead of walking the edge lists of every vertex,
+  for a single-hop pattern whose `WHERE` clause or inline property map requires a property of the relationship to have
+  a value _(since v26.12.1)_. `MATCH ()-[e:K]->() WHERE e.w = 3 RETURN count(e)` is answered the way
+  `SELECT count(*) FROM K WHERE w = 3` is, and a directed pattern over one type runs in parallel. A comparison
+  (`=`, `<>`, `<`, `<=`, `>`, `>=`), `IN`, `IS NOT NULL`, `STARTS WITH`, `ENDS WITH`, `CONTAINS`, `=~`, a bare property
+  used as a boolean, an `OR` whose two sides each require a property, and an inline map such as `[e:K {w: 3}]` qualify.
+  A statement that only aggregates properties of the relationship with `count`, `sum`, `avg`, `min`, `max`, `collect`,
+  `stDev` or `stDevP` and has no grouping key takes the scan without a predicate: `MATCH ()-[e:K]->() RETURN count(e.w)`.
+  The plan shows it as `MATCH EDGE BY TYPE SCAN`. The scan reads the records of the type, which
+  <<lightweight-edges,lightweight edges>> do not have, so it is used only where no lightweight edge could be in the
+  answer: `e.w IS NULL`, `coalesce(e.w, 3) = 3`, `RETURN e`, `RETURN e.w` and `count(*)` without such a predicate keep
+  the walk. The walk is also kept for a statement that writes, bound endpoints, a path variable, a variable-length hop,
+  an endpoint narrowed by its own properties or by a `WHERE` conjunct of its own, a far node pinned by a `UNIQUE` index
+  and a labelled first node that is cheaper to walk, and an index on the relationship property is preferred when the
+  `WHERE` clause pins it. The read permission of the relationship type and of the endpoint labels is asked each time the
+  statement runs
 * Asks the read permission of the type, and of its subtypes, before any index lookup _(since v26.12.1)_: the lookup of
   a labelled node (an equality, an `IN` list or a leading prefix of a composite index) asks it for the label, and
   `MATCH EDGE BY INDEX` asks it for the relationship type and for the labels written on both endpoints. A user who may
