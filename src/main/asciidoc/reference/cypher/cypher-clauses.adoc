@@ -1439,6 +1439,14 @@ before, a namespaced name nothing answered ran the SQL function named by its las
 `CALL apoc.atomic.concat(n, 'name', 'zz')` ran SQL `concat()`, returned no row and wrote nothing, and `CALL nosuch.max(1, 2)`
 returned 2.)_
 
+A void call, meaning a procedure that declares no output columns or a function called without `YIELD` that returns
+`null` (such as `apoc.util.sleep`), keeps every incoming row unchanged when another clause follows it, as in Neo4j:
+`CALL apoc.util.sleep(10) RETURN 1 AS x` returns one row, and `UNWIND [1, 2, 3] AS i CALL apoc.util.sleep(1) RETURN i`
+returns three. The call still runs once per incoming row. A void call that ends the query returns no row, and a
+procedure that declares output columns but yields no row still drops the incoming row, so a custom procedure whose rows
+matter must declare its output columns. _(Since v26.12.1: before, a void call dropped every row of the query without an
+error. As a consequence, `CALL abs(null) RETURN 1` now returns one row instead of none.)_
+
 *Examples:*
 
 [source,cypher]
