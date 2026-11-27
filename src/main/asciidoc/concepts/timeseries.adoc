@@ -637,6 +637,12 @@ SQL `INSERT`, the REST write endpoint, the line protocol, Prometheus remote writ
 Use a session or a transaction around an append for what it does do - it holds that session's lock and principal and
 keeps its idle timer from reaping it while you ingest - and not for atomicity with the samples.
 
+An append costs the enclosing transaction one level of nesting, whatever its tag values, so a sample can be written inside a
+SQL script's `BEGIN ... COMMIT` also when it carries a tag value the type has never seen. _(Since v26.12.1, issue #12807; before, such a
+sample failed with `Exceeded number of 3 nested transactions`, because registering the new tag value took a level of its own.)_ The
+new tag values are registered, and committed, before the samples that use them. An append that then fails leaves them registered
+and unused, and they still count toward the limit of distinct tag values per type (`arcadedb.timeSeriesTagDictionaryMaxSize`).
+
 [NOTE]
 ====
 The reason is the shard's own append lock. Every append writes the shard's header page, which holds the sample count
