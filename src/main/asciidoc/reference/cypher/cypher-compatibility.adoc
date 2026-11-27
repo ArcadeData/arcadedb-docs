@@ -221,6 +221,17 @@ MATCH (p:Person) WHERE size([(p)-->(q) | q]) > 5 RETURN p   // the same, with a 
 MATCH (p:Person) WHERE NOT (p)-->() RETURN p                // a boolean position: fine
 ----
 
+A bare pattern expression is refused the same way in `RETURN`, `WITH`, `LET` and in the value of a `SET`. The pattern
+inside a function-style `exists()` is a boolean check and is accepted in all of them, so `SET` can store an existence flag.
+`exists()` is a boolean check only when the pattern is its whole argument: `exists([(n)-->()])` and
+`exists(coalesce((n)-->()))` are refused.
+
+[source,cypher]
+----
+MATCH (u:User) SET u.hasMfa = exists((u)-[:MFA_DEVICE]->(:MfaDevice))   // stores true or false
+MATCH (u:User) SET u.p = (u)-[:MFA_DEVICE]->()                          // refused: a bare pattern
+----
+
 NOTE: Since v26.12.1. Before, these statements ran without an error and gave a wrong answer: `size((p)-->())` was `null`
 for every node, so `WHERE size((p)-->()) > 5` matched nothing. The same release fixes a `CASE WHEN (p)-->() ...` and a
 list predicate with a pattern in its `WHERE`, which were read as the bare pattern. A pattern expression in `UNWIND`,
