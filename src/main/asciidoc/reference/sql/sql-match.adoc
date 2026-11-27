@@ -218,7 +218,7 @@ RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
 [ LIMIT <number> ]
 ----
 
-* *`&lt;type&gt;`* Defines a valid target type.
+* *`&lt;type&gt;`* Defines a valid target type. A node with no `type:`, `bucket:` or `rid:` matches every vertex, as `MATCH (n)` does in openCypher, so `MATCH {as: n} RETURN count(*)` counts all the vertices; documents and edges are not matched. _Since v26.12.1_: earlier versions failed such a pattern with HTTP 500 when no node of it had a `type:`, a `bucket:` or a `rid:`.
 * *`bucket: &lt;bucket&gt;`* Restricts the node to the records of one bucket.
 * *`rid: &lt;rid&gt;`* Binds the node to the record with that RID, written as a literal (`#12:0`) or a parameter (`:rid`, `?`). A node bound by RID is the preferred starting point of the pattern. When the same node also declares a `type:` or a `bucket:`, the record must satisfy them as well: `{type: Person, rid: #12:0}` matches only if `#12:0` is a `Person` or a subtype of it, and matches nothing otherwise.
 * *`as: &lt;alias&gt;`* Defines an alias for a node in the pattern. An alias written in several places (in more than one comma-separated pattern, or twice in a cyclic path) is one node, so the `where:` of every occurrence applies to it, whichever occurrence the engine reaches it through: `MATCH {type: V, as: z}.out(){as: y}, {as: y, where: (c = 0)}` returns only the rows where `y.c = 0`. The one exception is a `where:` that reads `$depth`, which belongs to the `while:` or `maxDepth:` hop it is written on. _Since v26.12.1_: earlier versions applied such a `where:` only when the engine reached the node through the occurrence that carried it, and could return rows that violate it.
@@ -374,7 +374,7 @@ A bare record attribute such as `ORDER BY @rid` is refused on these rows with an
 
 *Starting point and indexed functions*
 
-The engine starts the pattern from the node it expects to produce the fewest records. A node bound by `rid:` is the strongest candidate, followed by nodes whose `type:` and `where:` are estimated to be small. Small sets (under 100 records) are loaded upfront. A node filtered by an indexed function that cannot estimate its result, such as `SEARCH_INDEX()` on a full-text index or a geospatial predicate, is still preferred over a scan of a large type, but its records are streamed, never loaded upfront, so a `LIMIT` stops the pattern early instead of waiting for the whole index result.
+The engine starts the pattern from the node it expects to produce the fewest records. A node bound by `rid:` is the strongest candidate, followed by nodes whose `type:` and `where:` are estimated to be small. Small sets (under 100 records) are loaded upfront. A node filtered by an indexed function that cannot estimate its result, such as `SEARCH_INDEX()` on a full-text index or a geospatial predicate, is still preferred over a scan of a large type, but its records are streamed, never loaded upfront, so a `LIMIT` stops the pattern early instead of waiting for the whole index result. A node with no `type:`, `bucket:` or `rid:` has no estimate and starts its connected pattern only when no other node of that pattern has one of the three; the pattern then reads every vertex, so give the first node a `type:` on a large database.
 
 [[match-context-variables]]
 *Context Variables*
