@@ -593,6 +593,7 @@ NOTE: In `production` server mode the message of a `FAILURE` raised by the engin
 * **Single-node deployment**: the node advertises itself for all roles (WRITE, READ, ROUTE).
 * **HA cluster with a known leader**: the leader is returned as WRITE + ROUTE and the followers as READ + ROUTE, so driver-side load balancing works. A node that joined the Raft group at runtime (a Kubernetes scale-up beyond `arcadedb.ha.serverList`, or a manual join) is listed too, as a follower or as the leader. _(Since v26.11.1: such a node was replicated to but left out of the routing table.)_
 * **HA cluster mid-election** (leader unknown): the node is advertised as READ + ROUTE only, never WRITE, until a leader is elected.
+* **HA node that is not ready for traffic** (still starting, replication stopped, a dead listener, or any other reason `/api/v1/ready` answers `503`): ROUTE is refused with `Neo.TransientError.Database.DatabaseUnavailable`, and the driver asks the next router. With `arcadedb.server.readinessRequiresHA` on, this includes a follower that has not caught up yet. A node started with HA configured never answers as a single node, even before the HA plugin has registered. _(Since v26.12.1: for about a second during startup the node named itself as the writer.)_
 
 The routing table's time-to-live is controlled by `arcadedb.bolt.routing.ttl` (default 300 s).
 
