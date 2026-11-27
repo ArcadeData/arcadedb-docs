@@ -1725,6 +1725,10 @@ CALL {
 
 NOTE: `IN TRANSACTIONS` cannot be used inside a transaction you opened (HTTP `/begin`, Bolt `BEGIN` or a managed transaction, an embedded `begin()`): the subquery commits its own batches, which your rollback could not undo. The statement is refused with an `ImplicitTransactionRequiredException`, answered as HTTP `409 Conflict`, Bolt `Neo.DatabaseError.Transaction.TransactionStartFailed` (as Neo4j does) and PostgreSQL SQLSTATE `25001`. Run it as an auto-commit statement instead.
 
+_(Since v26.12.1)_ The same holds over the PostgreSQL wire protocol for a pipeline: if an earlier statement of the pipeline (before its Sync) has already written something, a following `IN TRANSACTIONS` statement is refused with SQLSTATE `25001`, because committing its batches would also commit those earlier writes. Send a Sync (or `COMMIT`) before the statement. A pipeline that has only read, or whose earlier statements wrote nothing, is not affected.
+
+NOTE: Once a batch has committed something, the server does not retry the request on a retryable conflict (HTTP, gRPC and MCP otherwise retry an auto-committed request by themselves), because the retry would apply the already committed batches a second time. The conflict is returned to the caller instead.
+
 _(Since v26.12.1)_ The rows a batch receives see what the earlier batches committed, even when those rows were produced before the commits (for example by a `WITH ... ORDER BY` in front of the `CALL`): a record an earlier batch wrote is read again before it is used, so writing it again no longer fails with a `ConcurrentModificationException`. To do this, a body that writes keeps the identities of the records it wrote, about 16 bytes each, until the statement ends.
 
 ---
