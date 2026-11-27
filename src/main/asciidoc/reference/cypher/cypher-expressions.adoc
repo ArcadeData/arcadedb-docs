@@ -644,6 +644,10 @@ numeric output: encode and decode must use the same setting. For a stable, opaqu
 
 From SQL, the numeric id can be resolved back to a record in O(1) with the `cypherRID()` function, e.g. `SELECT FROM cypherRID(:id)` (the inverse of `id()` / `.asCypherRID()`).
 
+A RID written as text compares with a number as the id it encodes: `1 = '#0:1'` is `true`, and the same reading applies to `IN` and to `<`, `<=`, `>`, `>=`. It is an ArcadeDB extension that keeps the legacy `WHERE id(n) = '#1:0'` form working (Neo4j answers `false` for a number against a text). Only a text that spells a RID is read this way, so `5 = '5'` stays `false`. A decimal number is compared as it is, without being truncated first: `1.0 = '#0:1'` is `true` and `1.5 = '#0:1'` is `false`.
+
+On a numeric property the answer is the same whether or not an index serves the predicate: with `P.id` a `LONG` property holding `1` on one vertex, `MATCH (p:P) WHERE p.id = '#0:1' RETURN p` and `WHERE p.id IN ['#0:1', '#0:2']` find that vertex with or without an index on `P.id`, and so does a `WHERE` equality on an indexed relationship property. An index on a `STRING` property still looks up the text as written. A property map in a pattern matched once per input row (after a leading `WITH` or `UNWIND`, as in `UNWIND ['#0:1'] AS r MATCH (p:P {id: r})`) still reads the text as a text and finds no vertex in a numeric property. _(Since v26.12.1: before, an index lookup answered no row where the same statement without the index answered the vertex, and `1.5 = '#0:1'` was `true`.)_
+
 [[cypher-labels]]
 ====== labels()
 
