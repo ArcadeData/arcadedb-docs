@@ -1690,6 +1690,27 @@ RETURN a, b, sum
 
 Subqueries allow you to isolate complex query logic, perform computations on imported variables, and return results back to the outer query.
 
+A subquery cannot hand back, under its own name, a variable the outer query already binds. With `RETURN *` this means
+every name the outer query binds must be one the subquery imported (`CALL (z) { ... }`, `CALL (*) { ... }`, or a
+leading `WITH z` / `WITH *`) and did not bind again before its `RETURN` (`WITH 1 AS z`, `UNWIND ... AS z`,
+`LOAD CSV ... AS z`, `YIELD z`). Otherwise the query is refused with `VariableAlreadyBound`, as in Neo4j:
+
+[source,cypher]
+----
+// Refused: b is bound outside but not imported, so RETURN * would overwrite it
+MATCH (z:A), (b:B)
+OPTIONAL CALL (z) { MATCH (z)-[r:X]->(b) RETURN * }
+RETURN *
+
+// Accepted: z is imported and returned as it came in
+MATCH (z:A)
+CALL (z) { MATCH (z)-[r:X]->(c) RETURN * }
+RETURN *
+----
+
+_(Since v26.12.1: before, a `RETURN *` subquery overwrote the outer variable with its own value, or with
+`OPTIONAL CALL` kept the outer value on the rows it did not answer, issue #12387.)_
+
 TIP: In a read-only query the subquery hands its rows to the outer query as it finds them, and reads only as many as
 the rest of the query asks for: in `CALL { ... UNION ALL ... } RETURN x LIMIT 3`, a later `UNION` branch does not run
 when the earlier ones already gave 3 rows. A `UNION` inside `CALL { }` removes duplicates exactly as a top-level `UNION`
