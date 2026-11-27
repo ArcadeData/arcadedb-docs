@@ -10,6 +10,15 @@ The migration is transparent and happens lazily on first open, so the only opera
 This section lists behavior changes that may require action when upgrading.
 
 [discrete]
+====== 26.12.1 - `ts.movingAvg()` refuses a window that is not a whole number of at least 1
+
+`ts.movingAvg(value, window)` read a window of `0` or less, or an options map without `window` (`{}`), as a window of 1, so the "moving average" was the raw, unaveraged series, and truncated a fractional window such as `2.5` to 2 (issue #12755). It now refuses each of them, and `null`, with an error such as `ts.movingAvg() requires a <window_size> of at least 1, but received 0`. A whole window of 1 or more is unchanged, as a number, a numeric string (`'2'`) or `{window: n}`, and a window larger than the data still averages whatever rows there are.
+
+*Impact:* a query whose window came out as `0` or negative (a parameter, or a ratio that rounds to 0), had a fraction, or used `{}`, now fails instead of returning the raw series or a window of another size.
+
+*Action:* pass a whole number of rows, at least 1, as the window. The window is read once, from the first row of the aggregation.
+
+[discrete]
 ====== 26.12.1 - openCypher `toString()` refuses a `BINARY` value and `convert.toJson()` writes it as an array
 
 `toString()`, `toStringOrNull()` and `apoc.convert.toJson()` of a `BINARY` value (a byte array, such as a `BINARY` property or a bytes parameter) answered Java's identity text of the array, for example `[B@e044818`, which changes from row to row and from run to run (issue #12780). `toString()` now refuses it with `TypeError: InvalidArgumentValue - toString() cannot convert byte[]`, as it does for a list, `toStringOrNull()` answers `null`, and `toStringList()` answers `null` for such an element. `apoc.convert.toJson()` answers the JSON array of the signed bytes (`[1,-1]`), the text it already gave a byte array inside a map. Indexing into a `BINARY` value is still refused, and its message now says `byte[]` instead of `LIST<ANY>`.
