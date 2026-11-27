@@ -690,6 +690,12 @@ new labels. `DISTINCT` and `UNION` count a node before and after its label chang
 held the deleted originals: the HTTP API answered RIDs of records that no longer existed, and a path returned over Bolt
 failed with `Record #... not found` (issue #10614).
 
+The rewrite deletes the original node before it writes the new one and its relationships, so a `UNIQUE` constraint the
+new type inherits from a label, or a `UNIQUE` index on a relationship type, does not refuse the label change:
+`UNWIND ... MERGE (i:Item {id: x.id}) SET i:Container` works with a unique constraint on `Item.id`, also for a node
+created or updated earlier in the same transaction. _(Since v26.12.1; up to 26.11.1 such a label change failed with a
+`DuplicatedKeyException` on the index of the multi-label type, issue #13477.)_
+
 A `SET` updates each matched node once, even when it writes the indexed property the `MATCH` reads its nodes by:
 `MATCH (n:A) WHERE n.k > 0 SET n.k = n.k + 1000` with an index on `A.k` reads the range of the index first, then
 updates. Only the record addresses are held, a few bytes per node. Before v26.11.1 such a statement met the nodes it had
