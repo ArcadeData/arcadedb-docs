@@ -42,6 +42,8 @@ for (ResultSet resultset = database.query("mongo", // <-- USE 'mongo' INSTEAD OF
 }
 ----
 
+Since v26.12.1 the documents of a `mongo` query are read from the collection as the application iterates the result set, so a caller that stops early (or the row limit of the HTTP endpoints) never reads the rest of them.
+
 For more information on the MongoDB query language see: https://www.mongodb.com/docs/current/crud/[MongoDB CRUD Operations]
 
 ===== Mongo queries through Postgres Driver
@@ -203,7 +205,17 @@ Since v26.12.1 `find()` answers from a cursor, like MongoDB, instead of reading 
 * A cursor is closed when it is read to the end, by `killCursors` (`cursor.close()`), when the collection or the database is dropped, and after 10 minutes without a `getMore`, unless it was opened with `noCursorTimeout`. A database keeps at most 1024 open cursors: past that, the cursor idle for the longest among those of the user holding the most is closed to make room.
 * A cursor is not tied to the connection that opened it, so a driver can read the next batch on another connection of its pool. It can only be read by the user that opened it: for another user it answers `CursorNotFound`, and a `getMore` that names another collection is refused with error `13` (`Unauthorized`).
 * The `resultSetLimit` of the user's <<groups,group>> bounds the documents of all the batches together.
-* A sorted `find()` still reads every matching document before the first batch, since it needs them all to order them.
+* A sorted `find()` still reads every matching document before the first batch, since it needs them all to order them. With a `limit`, it keeps only the `skip` + `limit` documents that come first in the order. What a sort keeps counts against the memory limits (see <<mongodb-protocol-memory-limits,Memory limits>>) until its cursor is closed.
+
+[[mongodb-protocol-memory-limits]]
+====== Memory limits
+
+Since v26.12.1 the documents a MongoDB command keeps in memory while it answers count against the same two limits as the buffers of the SQL and openCypher queries: `arcadedb.queryMaxHeapElementsAllowedPerOp`, the number of documents one buffer may hold, and `arcadedb.queryMaxHeapRAM`, the heap the buffers of all the running queries share (see <<settings-sql,Settings>>). A command that would hold more fails with an error that names the limit, and the memory it held is given back.
+
+* A sorted `find()` counts the documents it keeps for the sort, as described above. A `find()` without a sort holds one batch at a time and is not limited by the number of documents it reads.
+* An `aggregate` reads the collection as its stages consume it, so a pipeline that keeps little, such as `$count`, `$group` or `$limit`, runs over a collection of any size. It counts the documents a `$sort` takes in, which it all holds, and the documents of its answer.
+* A query sent with the legacy `OP_QUERY` message, which answers every document in one reply, counts the documents of the reply while it builds it.
+* The size of a document includes the binary values it holds.
 
 [[mongodb-protocol-bson-types]]
 ====== BSON value types
