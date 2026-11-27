@@ -930,6 +930,16 @@ setting the held one named;
 
 If the warning keeps appearing, fix the cause (free the disk, restore write access) and restart the node.
 
+Since v26.12.1 the node also stops checkpointing the Raft log while a database is closed without having written its
+committed pages to disk: its flush did not finish in time, a disk sync failed or the database was fenced. Such a close
+leaves the pages to the recovery of the next open, and until then the Raft log is the only durable copy of the entries
+that wrote them. The node logs at `WARNING`, at most every five minutes:
+
+`Skipping snapshot checkpoint at index <n>: database(s) [<path>] closed without making their pages durable, so the log must stay replayable until they are reopened and forced`
+
+Checkpoints resume once the database is reopened and its next sync succeeds, or once it is dropped. A restart in the
+meantime replays the entries from the Raft log. If the warning keeps appearing, reopen the database (or restart the node).
+
 A committed entry for a single database that fails to apply, whatever the cause, now quarantines that database and resyncs
 it (see <<ha-quarantine>>), instead of being skipped.
 
