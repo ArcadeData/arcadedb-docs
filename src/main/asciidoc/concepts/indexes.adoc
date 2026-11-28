@@ -327,6 +327,8 @@ A lookup with a value of a kind the indexed property cannot hold (a date for a `
 
 An openCypher `IN` whose right side is one value, `n.p IN $ids`, has to be a list: a string, a boolean or a map is refused with `IN requires a list on the right side`, whether or not the property is indexed. A list literal (`n.p IN [$a, $b]`) takes each item as one value.
 
+When the right side reads a stored value instead (`$p IN n.tags`, `$p IN n['tags']`, `x IN m.k`, `x IN $m.k`), the type is only known at run time, so a scalar stored there is compared as a one-element list, as Neo4j does: true when equal, false otherwise, null when the property is missing _(since v26.12.1)_. A binary value is still refused.
+
 NOTE: Before v26.11.1 (issue #10541) the index answered these lookups differently from the scan: an equality or an `IN` on an indexed `BOOLEAN`, `DECIMAL` or `DATE` property raised a `ClassCastException` or "Comparison between type N and N not supported", a range with such a value on an indexed `INTEGER`, `LONG` or `DOUBLE` property answered every row of the type, and an openCypher `IN` over a parameter that was not a list answered no rows instead of being refused. A query that relied on any of them now gets the answer it would get without the index.
 
 A whole-value index on a `LIST` or `MAP` property (no `BY ITEM`, `BY KEY` or `BY VALUE`) follows the same rule _(since v26.12.1)_: a lookup key that is not a list (for a `MAP` index, not a map) equals no indexed key. `tags = 5`, `tags IN [5, 6]` and `m = 'a'` answer no rows, and an openCypher `MERGE (n:P {tags: 5})` creates the node, as without the index. Two cases differ by language:
